@@ -1,6 +1,8 @@
 # Herdr Plugins
 
-Plugins for [Herdr](https://github.com/herdrdev/herdr).
+Small, sharp plugins for [Herdr](https://github.com/herdrdev/herdr): dispatch
+GitHub Actions, follow every job and rerun failures without leaving your
+terminal.
 
 ## Plugins
 
