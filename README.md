@@ -6,7 +6,7 @@ Plugins for [Herdr](https://github.com/herdrdev/herdr).
 
 | Plugin | Description |
 | ------ | ----------- |
-| [CI Dash](ci-dash/README.md) | Run and watch GitHub Actions workflows from a Herdr pane. |
+| [CI Dash](ci-dash/README.md) | GitHub Actions in a Herdr pane: dispatch workflows with ref and inputs, watch live. |
 
 ## Install a plugin
 
