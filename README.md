@@ -16,6 +16,8 @@ Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.
 | ------ | ----------- |
 | [CI Dash](ci-dash/README.md) | GitHub Actions in a Herdr pane: dispatch workflows with ref and inputs, watch live. |
 
+![CI Dash artifacts tab in a Herdr pane](ci-dash/docs/artifacts-tab.png)
+
 ## Install a plugin
 
 The quickest way to install CI Dash is with Bun:
