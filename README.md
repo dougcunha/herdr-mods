@@ -38,6 +38,12 @@ herdr plugin link .
 
 See the plugin README for requirements, keybindings, and configuration.
 
+To uninstall CI Dash:
+
+```sh
+bunx @dougcunha/ci-dash uninstall
+```
+
 ## Topics
 
 This repository is tagged with
