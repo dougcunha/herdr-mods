@@ -21,7 +21,7 @@ Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.
 The quickest way to install CI Dash is with Bun:
 
 ```sh
-bunx @dougcunha/ci-dash install
+bunx @dougcunha/ci-dash@latest install
 ```
 
 The installer copies the plugin to a stable per-user directory, installs its
@@ -41,7 +41,7 @@ See the plugin README for requirements, keybindings, and configuration.
 To uninstall CI Dash:
 
 ```sh
-bunx @dougcunha/ci-dash uninstall
+bunx @dougcunha/ci-dash@latest uninstall
 ```
 
 ## Topics
