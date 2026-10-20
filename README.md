@@ -4,6 +4,12 @@ Small, sharp plugins for [Herdr](https://github.com/herdrdev/herdr): dispatch
 GitHub Actions, follow every job and rerun failures without leaving your
 terminal.
 
+## Quick Start
+
+Copy and paste this prompt to your LLM agent (Claude Code, AmpCode, Cursor, etc.):
+
+`Install and configure ci-dash: https://raw.githubusercontent.com/dougcunha/herdr-plugins/refs/heads/main/ci-dash/README.md`
+
 ## Plugins
 
 | Plugin | Description |
@@ -12,8 +18,17 @@ terminal.
 
 ## Install a plugin
 
-Each plugin lives in its own directory and is linked with the Herdr CLI. For
-CI Dash:
+The quickest way to install CI Dash is with Bun:
+
+```sh
+bunx @dougcunha/ci-dash install
+```
+
+The installer copies the plugin to a stable per-user directory, installs its
+dependencies, links it with Herdr, and adds the keybindings.
+
+Each plugin also lives in its own directory and can be linked from a checkout.
+For CI Dash:
 
 ```sh
 cd ci-dash
