@@ -33,6 +33,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.
 - **Files and Changes:** the two buttons in the top bar open Herdr's own Files and Changes mods in a side panel at the right (368 px, drag its edge to resize). Click the same button again to close the panel; click the other one to switch. The panel works in the Board and the Terminals views. It starts closed.
+- **Your dock buttons:** the group of buttons also lists every entry of `~/.config/herdr-app/dock/panels.json`, the file the [Dock](../dock-app) layout reads (CI, Repos, Graph, Insights, ...). An entry with `"opens": "panel"` (the default) becomes a block of the same side panel; the Kanban top bar adds it to the layout by itself the first time. `"opens": "tab"` opens a tab with the mod and switches to the Terminals view. `"opens": "command"` runs a Herdr command (a `layout.switch` to the layout you are in is left out). A save of the file shows in the bar at once. If you remove an entry, its block goes too.
 - **Back button:** the top bar has a button with the name of the previous layout (for example `main-dock`). It runs `layout.switch`. The previous layout is the one you came from: `shared("layout.previous")`. Without it, the button uses `props.back` of the bar block, then `main`, then the first other layout.
 - **Button in the other layout:** with the [Dock](../dock-app) layout, add a command entry to `~/.config/herdr-app/dock/panels.json` and the tab bar shows a **Kanban** button that switches to this layout:
   `{ "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } }`
@@ -54,8 +55,10 @@ Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 
 ## What it does on your machine
 
-- It reads the live data of Herdr (agents, spaces, panes). It stores 3 values in `shared()`: `kanban.hidden`, `kanban.query` and `kanban.scope`.
-- It runs Herdr commands only: `agent.focus`, `terminal.pin`, `tab.select`, `space.select`, `pane.focus`, `layout.select`, `layout.show`, `layout.toggle`, `tab.new`, `window.*`.
+- It reads the live data of Herdr (agents, spaces, panes). It stores 4 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope` and `kanban.width`.
+- It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home, and watches the `dock/` folder.
+- It edits `layouts/kanban.json` with the `layout.set` command, to add or remove the side-panel blocks of `panels.json`.
+- It runs Herdr commands only: `agent.focus`, `terminal.pin`, `tab.select`, `space.select`, `pane.focus`, `pane.zoom`, `layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, `layout.set`, `layout.switch`, `tab.new`, `window.*`, and the `run` of a command entry of `panels.json`.
 - It runs no program and uses no network.
 
 ## Limits

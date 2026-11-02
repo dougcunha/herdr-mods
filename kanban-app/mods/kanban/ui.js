@@ -1,5 +1,5 @@
 // Visual pieces of the Kanban mod: icon buttons, chips, a segmented control and the search box.
-import { div, svg } from "gpui-kit";
+import { div, svg, image } from "gpui-kit";
 import { h_flex, Input } from "gpui-base";
 import { settings } from "herdr";
 
@@ -78,16 +78,24 @@ export function pill(t, { label, symbol, code = false, color }) {
     .child(div().truncate().child(label));
 }
 
-/** A toggle for a side panel: an icon (a path in the Herdr home) and the panel name. Lit while its panel shows. */
+/** A button for a side panel, a tab or a command: an icon (a path in the Herdr home: `.svg` is tinted,
+ *  anything else is a picture) and a name. Lit while `on`. */
 export function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "") {
-  return h_flex().id(id).h(28).px(9).gap(6).flex_none().items_center().rounded(8).text_size(12).cursor_pointer()
+  return h_flex().id(id).h(26).px(9).gap(6).flex_none().items_center().rounded(7).text_size(12).cursor_pointer()
     .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .when(on, (e) => e.bg(tint(t.accent, "26")).text_color(t.accent))
     .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
     .on_mouse_down("left", stop)
     .on_click((_e, cx) => onClick(cx))
-    .child(svg(symbolPath).size(14).flex_none())
+    .child(String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none())
     .child(label);
+}
+
+/** A rounded group that holds several panel buttons. */
+export function buttonGroup(t, children) {
+  return h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
+    .bg(tint(t.foreground, "0f")).border_1().border_color(t.border)
+    .children(children);
 }
 
 /** A text button. */

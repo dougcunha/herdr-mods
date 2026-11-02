@@ -5,8 +5,10 @@
 // The two parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder } from "herdr";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, stop } from "./ui.js";
+import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder,
+  appHome, readTextFile, watchFolder, notify } from "herdr";
+import * as fs from "fs/promises";
+import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, stop } from "./ui.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
 const KEY_QUERY = "kanban.query"; // the search text
@@ -71,6 +73,31 @@ const STR = {
   },
 };
 
+// The buttons of dock/panels.json (the same file the Dock layout reads). Entry:
+//   { id, label, icon, mod, props?, opens?: "panel" | "tab" | "command", name?, run?, args? }
+//   "panel" (default): a block of the side panel, added to this layout by this bar.
+//   "tab": a tab per space with `mod` as its only pane.
+//   "command": runs a Herdr command (`run`, `args`).
+const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const ids = (node, out = new Set()) => {
+  if (node?.id) out.add(node.id);
+  for (const child of node?.children ?? []) ids(child, out);
+  return out;
+};
+
+// One tab per space for this mod: focus it if it exists, otherwise create it.
+function showTab(mod, name) {
+  const active = spaces().find((p) => p.active);
+  const tabIds = new Set(active?.tabs.map((tab) => tab.id) ?? []);
+  const open = panes().find((pane) => pane.mod === mod && tabIds.has(pane.tab));
+  if (open) {
+    const zoomed = panes().find((pane) => pane.tab === open.tab && pane.zoomed);
+    if (zoomed && zoomed.pane !== open.pane) run("pane.zoom", { pane: zoomed.pane });
+    return run("pane.focus", { pane: open.pane });
+  }
+  return run("tab.new", { name, mod });
+}
+
 const fill = (text, vars = {}) => text.replace(/\{(\w+)\}/g, (_m, k) => String(vars[k] ?? ""));
 const find = (node, id) => {
   if (node?.id === id) return node;
@@ -91,6 +118,22 @@ export default class Kanban extends View {
     if (this.part === "bar") {
       this.query = InputState.new({ placeholder: this.s("search"), value: String(shared(KEY_QUERY) ?? "") });
       this.query.on("change", () => setShared(KEY_QUERY, this.query.value()));
+      this.entries = []; // the buttons of dock/panels.json
+      this.loaded = false;
+      this.version = 0;
+      this.lastTry = null;
+      this.injected = new Set();
+      try { this.injected = new Set(JSON.parse(localStorage.getItem("kanban.injected") ?? "[]")); } catch {}
+      const dir = `${appHome()}/dock`;
+      cx.spawn(async (cx) => {
+        try { await fs.mkdir(dir, { recursive: true }); } catch {}
+        await this.loadEntries(cx);
+        // The file is the whole interface: a save shows up in the bar at once.
+        for (;;) {
+          try { await watchFolder(dir); } catch { return; }
+          await this.loadEntries(cx);
+        }
+      });
     } else {
       cx.timer.every(30000, (cx) => cx.notify()); // keeps "3 min ago" fresh
     }
@@ -159,6 +202,77 @@ export default class Kanban extends View {
   select(a) {
     run("agent.focus", { terminal: a.address });
     if (this.detailHidden()) run("layout.show", { id: "detail" });
+  }
+
+  /** Reads dock/panels.json. A missing file is an empty list. A broken file keeps the last good list. */
+  async loadEntries(cx) {
+    let problem = null;
+    try {
+      const text = await readTextFile(`${appHome()}/dock/panels.json`);
+      if (text === null) this.entries = [];
+      else {
+        const mods = new Set(await fs.readdir(`${appHome()}/mods`));
+        const list = JSON.parse(text)?.panels;
+        if (!Array.isArray(list)) throw new Error('expected {"panels": [...]}');
+        const seen = new Set(), entries = [];
+        for (const raw of list) {
+          const command = raw?.opens === "command";
+          const why = !raw || typeof raw !== "object" ? "not an object"
+            : !ID.test(String(raw.id)) ? `bad id "${raw.id}" (use a-z, 0-9, -)`
+            : seen.has(raw.id) ? `id "${raw.id}" twice`
+            : typeof raw.label !== "string" || !raw.label ? `"${raw.id}" has no label`
+            : typeof raw.icon !== "string" || !raw.icon ? `"${raw.id}" has no icon`
+            : command && (typeof raw.run !== "string" || !raw.run) ? `"${raw.id}" has no run`
+            : !command && (typeof raw.mod !== "string" || !mods.has(raw.mod)) ? `"${raw.id}": mod "${raw.mod}" is not in mods/`
+            : null;
+          if (why) { problem = problem ?? why; continue; }
+          seen.add(raw.id);
+          entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props,
+            run: command ? raw.run : undefined, args: command && raw.args && typeof raw.args === "object" ? raw.args : {},
+            opens: command ? "command" : raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
+        }
+        this.entries = entries;
+      }
+    } catch (e) {
+      problem = `panels.json: ${e?.message ?? e}`;
+    }
+    this.loaded = true;
+    this.version++;
+    if (problem && problem !== this.problem) notify({ title: "Kanban: panels.json", body: problem, level: "error", timeout: 6000 });
+    this.problem = problem;
+    cx.notify();
+  }
+
+  /** Adds the blocks the file asks for to the side panel stack, and takes away the ones this bar
+   *  added before that the file no longer lists. One attempt per file version and layout. */
+  inject(root, body, wanted) {
+    const keep = new Set(wanted.map((e) => e.id));
+    const missing = wanted.filter((e) => !body.children.some((c) => c.id === e.id));
+    const stale = body.children.filter((c) => this.injected.has(c.id) && !keep.has(c.id));
+    if (!missing.length && !stale.length) return;
+    const key = `${shared("layout")}|${this.version}`;
+    if (key === this.lastTry) return;
+    this.lastTry = key;
+    const tree = JSON.parse(JSON.stringify(root)), target = find(tree, "panel-body");
+    target.children = target.children.filter((c) => !stale.some((s) => s.id === c.id));
+    if (stale.some((s) => s.id === target.active)) target.active = "files";
+    for (const e of missing) target.children.push({ id: e.id, type: "block", content: { mod: e.mod, ...(e.props ? { props: e.props } : {}) } });
+    // The layout file keeps no marker on a block, so the bar remembers which ones it added.
+    for (const s of stale) this.injected.delete(s.id);
+    for (const e of missing) this.injected.add(e.id);
+    try { localStorage.setItem("kanban.injected", JSON.stringify([...this.injected])); } catch {}
+    run("layout.set", { layout: tree });
+  }
+
+  /** A button of dock/panels.json that is not a side panel: a tab or a command. */
+  runEntry(entry) {
+    if (entry.opens === "tab") {
+      showTab(entry.mod, entry.name);
+      run("layout.select", { stack: "view", child: "tabs-view" }); // the tab shows in the Terminals view
+      return;
+    }
+    if (entry.run === "layout.switch") setShared("layout.previous", shared("layout"));
+    run(entry.run, entry.args ?? {});
   }
 
   /** Opens the side panel on `id`, or closes it when it already shows that one. */
@@ -329,13 +443,31 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
-  /** One toggle per side panel the layout has (Files, Changes). Empty when the layout has no `panel`. */
+  /** The buttons of the side panel and of dock/panels.json, in one group: Files and Changes, then the
+   *  entries of the file in the order listed (side panels and tabs), then its commands. Empty when the
+   *  layout has no `panel`. */
   panelButtons(t) {
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     if (!panel || !body) return [];
-    return PANELS.filter((p) => body.children?.some((c) => c.id === p.id)).map((p) =>
-      panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, !panel.hidden && body.active === p.id,
-        () => this.togglePanel(p.id), this.s("panelTip", { name: p.label })));
+    // The entries that may use the panel stack: not the id of any other node of the layout.
+    const taken = ids(root);
+    for (const c of body.children ?? []) taken.delete(c.id);
+    const usable = this.entries.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
+    if (this.loaded) this.inject(root, body, usable.filter((e) => e.opens === "panel"));
+    const present = new Set((body.children ?? []).map((c) => c.id));
+    const lit = (id) => !panel.hidden && body.active === id;
+    const tip = (name) => this.s("panelTip", { name });
+    const buttons = [
+      ...PANELS.filter((p) => present.has(p.id)).map((p) =>
+        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label))),
+      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
+        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e))
+        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label))),
+      // A command that switches to the layout shown now would do nothing: leave it out.
+      ...this.entries.filter((e) => e.opens === "command" && !(e.run === "layout.switch" && e.args?.name === shared("layout")))
+        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e))),
+    ];
+    return buttons.length ? [buttonGroup(t, buttons)] : [];
   }
 
   /** [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
