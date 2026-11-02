@@ -20,7 +20,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it shows |
 | ---- | ------------- |
-| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a button for the terminal panel and **New agent**. |
+| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a button for the terminal panel, a button back to the previous layout and **New agent**. |
 | Columns | Idle, Needs you, Working, Done, in that order. Each has a color, a count and an eye button that hides it. |
 | Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
@@ -28,6 +28,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 ## How it behaves
 
 - **Hide a column:** click its chip in the top bar, or the eye button in the column header. A hidden chip is dim with a struck name. The choice is saved. If you hide all of them, a button shows them again.
+- **Column width:** the − and + buttons set the widest a column may be: 150, 180, 220, 260, 320, 400 px or **Auto** (the columns share the whole board). A column is never narrower than 150 px; below that the board scrolls sideways. On a super wide monitor, pick 220 or 260 px to get narrow cards. The choice is saved in `shared("kanban.width")`.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.

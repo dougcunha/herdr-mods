@@ -58,7 +58,7 @@
                   "id": "board",
                   "type": "block",
                   "content": { "mod": "kanban", "props": { "part": "board" } },
-                  "min": 260
+                  "min": 160
                 },
                 {
                   "id": "detail",

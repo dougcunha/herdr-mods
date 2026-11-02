@@ -11,6 +11,10 @@ import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button,
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
 const KEY_QUERY = "kanban.query"; // the search text
 const KEY_SCOPE = "kanban.scope"; // "all" | "space"
+const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: columns share the board
+// Steps of the width control. null = Auto: the columns share the whole board.
+const WIDTHS = [150, 180, 220, 260, 320, 400, null];
+const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
 
 // The order the person asked for: idle, needs you, working, done.
 const COLUMNS = [
@@ -37,6 +41,8 @@ const STR = {
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
     newTab: "New tab", backTip: "Switch to the {name} layout",
+    auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
+    narrower: "Narrower columns", wider: "Wider columns",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -54,6 +60,8 @@ const STR = {
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
     newTab: "Nova aba", backTip: "Trocar para o layout {name}",
+    auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
+    narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
   },
 };
 
@@ -101,6 +109,19 @@ export default class Kanban extends View {
   }
 
   scope() { return shared(KEY_SCOPE) === "space" ? "space" : "all"; }
+
+  /** The widest a column may be (px), or null for Auto. */
+  maxWidth() {
+    const w = shared(KEY_WIDTH);
+    return typeof w === "number" && w >= MIN_COLUMN ? w : null;
+  }
+
+  /** Moves the width control one step: -1 narrower, +1 wider. Auto is the widest step. */
+  stepWidth(dir) {
+    const now = WIDTHS.indexOf(this.maxWidth());
+    const next = Math.min(WIDTHS.length - 1, Math.max(0, (now < 0 ? WIDTHS.length - 1 : now) + dir));
+    setShared(KEY_WIDTH, WIDTHS[next]);
+  }
 
   /** Agents after the scope and the search text. */
   visible() {
@@ -222,7 +243,9 @@ export default class Kanban extends View {
     const urgent = c.id === "blocked" && list.length > 0;
     const tile = div().size(26).rounded(8).flex_none().flex().items_center().justify_center().bg(tint(color, "26"))
       .child(svg(icon(c.symbol)).size(14).text_color(color));
-    return v_flex().id(`col-${c.id}`).flex_1().h_full().min_w(236).min_h(0).rounded(16).overflow_hidden()
+    const cap = this.maxWidth();
+    return v_flex().id(`col-${c.id}`).flex_1().h_full().min_w(MIN_COLUMN).min_h(0).rounded(16).overflow_hidden()
+      .when(cap !== null, (e) => e.max_w(cap))
       .border_1().border_color(urgent ? tint(color, "66") : tint(color, "26")).bg(tint(color, "0d"))
       .child(h_flex().h(48).flex_none().px(12).gap(9).items_center()
         .child(urgent ? tile.loop("opacity", { from: 0.55, to: 1, period: 1200 }) : tile)
@@ -292,6 +315,20 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
+  /** [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
+  widthControl(t) {
+    const cap = this.maxWidth();
+    const atMin = cap === WIDTHS[0], atMax = cap === null;
+    return h_flex().h(32).flex_none().px(3).gap(1).items_center().rounded(10)
+      .bg(tint(t.foreground, "0f")).border_1().border_color(t.border)
+      .tooltip(this.s("widthTip", { w: cap === null ? this.s("auto") : `${cap} px` }))
+      .child(iconButton(t, "kb-narrower", "minus", () => this.stepWidth(-1),
+        { tooltip: this.s("narrower"), size: 24, glyph: 13, color: atMin ? t.dim : t.muted }))
+      .child(div().w(34).flex_none().text_center().text_size(11).text_color(t.muted).child(cap === null ? this.s("auto") : String(cap)))
+      .child(iconButton(t, "kb-wider", "plus", () => this.stepWidth(1),
+        { tooltip: this.s("wider"), size: 24, glyph: 13, color: atMax ? t.dim : t.muted }));
+  }
+
   bar(t) {
     const hidden = this.hidden();
     const all = agents();
@@ -333,6 +370,7 @@ export default class Kanban extends View {
           })))
         .child(iconButton(t, "kb-scope", "layers", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
           { active: this.scope() === "space", tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }))
+        .child(this.widthControl(t))
         .child(iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
           { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") })))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
