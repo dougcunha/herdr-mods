@@ -51,7 +51,7 @@ The side panel is 368px wide (min 280, max 900), hidden at first, on the right o
 
 ## Built from
 
-- `layouts/main-dock.json`: Herdr 0.1.11's `main` layout (a row: `sidebar` with `brand`, `spaces`, `agents`, `sidebar-footer`; `work` column with `tabs` 42px, `work-body`, `status` 28px), with `tabs` set to the mod `tabs-dock`, and `panel-body` holding only `files` (mod `files`) and `changes` (mod `changes`). Ids `panel`, `panel-body`, `files` and `changes` must stay: the bar and other mods look them up.
+- `layouts/main-dock.json`: Herdr's `main` layout, the same in 0.1.11 and 0.1.12 (a row: `sidebar` with `brand`, `spaces`, `agents`, `sidebar-footer`; `work` column with `tabs` 42px, `work-body`, `status` 28px), with `tabs` set to the mod `tabs-dock`, and `panel-body` holding only `files` (mod `files`) and `changes` (mod `changes`). Ids `panel`, `panel-body`, `files` and `changes` must stay: the bar and other mods look them up.
 - `mods/tabs-dock/`, `mod.json` `{ "place": "none", "title": "Dock tabs" }`. `main.js` is Herdr's `tabs` mod (tab pills, drag to reorder, rename, close, window buttons, per-space panel memory) with the dock added.
 - `herdr` functions: `layout()`, `shared()`, `spaces()`, `panes()`, `appHome()`, `readTextFile`, `watchFolder`, `nextCommand`, `notify`, `openOverlay`, `run`. Commands: `layout.set`, `layout.select`, `layout.show`, `layout.hide`, `tab.new`, `tab.select`, `tab.move`, `tab.rename`, `tab.close`, `tab.next`, `tab.prev`, `pane.focus`, `pane.zoom`, `window.*`. `fs/promises`: `mkdir`, `readdir`.
 - Shipped mods it uses: `workspace-chrome`, `spaces`, `agents`, `pane`, `workspace-status`, `files`, `changes`, `new-menu`, `menu`.
@@ -60,7 +60,7 @@ The side panel is 368px wide (min 280, max 900), hidden at first, on the right o
 
 ## Watch out
 
-- **`layout.set` only works on personal layouts.** Herdr's own `main` refuses it, so this is a layout of its own. Clone it again from the shipped `main` when Herdr changes the tab bar: this copy is frozen at 0.1.11.
+- **`layout.set` only works on personal layouts.** Herdr's own `main` refuses it, so this is a layout of its own. Clone it again from the shipped `main` when Herdr changes the tab bar: this copy is frozen at 0.1.12 (it equals 0.1.11). To merge a Herdr update, compare the new shipped `main.json` and `mods/tabs/main.js` with this copy: only your own edits (the `tabs` mod name, `panel-body` children, the dock code in the bar) should differ.
 - `layout.set` replaces the whole tree. Read `layout()` and change only `panel-body`, or you lose the person's other edits. A block does not keep unknown fields (a `"dock": true` marker was dropped), so the bar keeps its own list of the blocks it added.
 - Never call `layout.set` from `render()` without a guard: it re-renders. The bar keeps a key of layout name plus file version and tries once for each key.
 - `watchFolder` needs a folder that exists. The bar makes `dock/` with `mkdir` before it watches. Watch `dock/`, not the Herdr home: the home changes all the time.
