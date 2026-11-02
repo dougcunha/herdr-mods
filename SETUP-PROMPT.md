@@ -33,7 +33,7 @@ You will install and configure my Herdr app mods on a new machine. The Herdr app
 
 For each item, read the `README.md` and the `RECIPE.md` of the folder before you copy.
 
-1. `dock-app`: the `main-dock` layout and the `tabs-dock` mod.
+1. `dock-app`: the `main-dock` layout and the mods `tabs-dock` and `files-md`. The `files-md` mod opens Markdown files in `markdown-reader` and images in `image-viewer`, so install those two as well.
 2. `ci-dash-app`: the `ci-dash` mod.
 3. `git-dash-app`: the `git-dash` mod.
 4. `image-viewer-app`: the `image-viewer` mod.

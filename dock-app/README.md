@@ -26,6 +26,7 @@ To add a button later, for example the [Git Graph](https://github.com/rabeeh-ta/
 | ---- | ---------- |
 | `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes. |
 | `mods/tabs-dock/` | Herdr's tab bar plus the dock: it reads `dock/panels.json`, draws the buttons and adds the panels to the layout. |
+| `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12) that opens a Markdown file in the [Markdown Reader](https://github.com/kissmikijr/herdr-markdown-reader) and an image in the [Image Viewer](../image-viewer-app), beside the terminal. Other files open in the panel preview, as before. |
 
 Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
@@ -65,6 +66,7 @@ A `layout.switch` button saves the shown layout in `shared("layout.previous")` f
 
 ## Limits
 
+- `files-md` needs the `markdown-reader` mod (third party) and the `image-viewer` mod (this repository) to open those files. Without one of them, a click on that kind of file does nothing useful. Install them, or point the `files` block of `layouts/main-dock.json` back to the mod `files`.
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,
   clone `main` and `tabs` again.
