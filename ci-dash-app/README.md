@@ -1,63 +1,58 @@
-# CI Dash for the Herdr app (prototype)
+# CI Dash for the Herdr app
 
-A side panel for the **Herdr app** (the desktop window, not the TUI) that shows
-the GitHub Actions runs and artifacts of the repository you are working in, and
-starts workflows with `workflow_dispatch`. It is a port of the
+![CI Dash](preview.png)
+
+A mod for the **Herdr app** (the desktop window, not the TUI) that shows the
+GitHub Actions runs of the repository you are working in, starts workflows with
+`workflow_dispatch`, and downloads build artifacts. It is a port of the
 [`ci-dash`](../ci-dash) TUI plugin and has three tabs: **Runs**, **Dispatch**
-and **Artifacts**.
-
-The panel sits next to Files and Changes and opens from a **CI** button in the
-tab bar. It remembers, per space, whether it was open.
+and **Artifacts**. [`RECIPE.md`](RECIPE.md) describes it in full.
 
 ## Requirements
 
-- Herdr app 0.1.11 or newer (the layout was cloned from that version).
-- Node.js 20 or newer, to run the installer.
-- The [GitHub CLI](https://cli.github.com/) logged in with `gh auth login`.
+- The Herdr app (tested on 0.1.11).
+- The [GitHub CLI](https://cli.github.com/) logged in with `gh auth login`. The
+  token needs `repo` scope for private repositories and permission for Actions.
+
+The mod runs `gh`, `git` and your file manager through the app's `exec`, and
+reaches GitHub through your `gh` login. It stores no credentials and reads no
+files of its own.
 
 ## Install
 
-From this folder:
+Copy the mod folder into the Herdr home, then check it:
 
 ```sh
-node install.mjs
-herdr-app do layout.switch '{"name":"main-ci"}'
+cp -r mods/ci-dash ~/.config/herdr-app/mods/ci-dash
+herdr-app check ~/.config/herdr-app/mods/ci-dash
 ```
 
-Then click **CI** in the tab bar, top right.
+On Windows PowerShell:
 
-The installer copies `mods/ci-dash` and `mods/tabs-ci` into
-`~/.config/herdr-app/mods/` and `layouts/main-ci.json` into
-`~/.config/herdr-app/layouts/`, then runs `herdr-app check` on each mod.
+```powershell
+Copy-Item -Recurse mods\ci-dash "$env:USERPROFILE\.config\herdr-app\mods\ci-dash"
+herdr-app check "$env:USERPROFILE\.config\herdr-app\mods\ci-dash"
+```
 
-| Option | Effect |
-| --- | --- |
-| `--dir <folder>` | Install into another Herdr home (default: `$HERDR_APP_HOME`, else `~/.config/herdr-app`). |
-| `--force` | Replace an existing `main-ci.json`. The old file is kept as `main-ci.json.bak-<time>`. |
-| `--no-check` | Skip `herdr-app check`. |
+Open it in a tab or beside your terminal:
 
-Mods are always overwritten. The layout is copied only when absent, so edits
-you made to `main-ci.json` survive an update.
+```sh
+herdr-app do tab.new --name "CI" --mod ci-dash
+herdr-app do pane.split --direction right --mod ci-dash
+```
 
-## Why a layout and a bar mod come with it
+To bind a key, add `"ctrl-shift-g": "mod.open:ci-dash"` to the `global`
+section of `~/.config/herdr-app/keys.json`.
 
-Herdr's own layouts and mods are read-only, and the right-hand panel is a fixed
-stack of Files and Changes. Adding a third panel needs two clones:
-
-- `layouts/main-ci.json`: a clone of `main` with a `ci` block added to the
-  `panel-body` stack, and its tab bar set to `tabs-ci`.
-- `mods/tabs-ci`: a clone of `tabs` with one extra **CI** button.
-
-Both are copies, so they do not receive later updates to `main` and `tabs`.
-When Herdr ships a new version of those, redo the clones (`layout.clone`,
-`mod.clone`) and re-apply the two small changes.
+For a **CI** button in the tab bar that opens it as a side panel next to Files
+and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
 
 ## Use
 
-- **Runs**: the 30 latest runs of the repository. Click one for its jobs and
-  steps, live status, **Open** (browser), **Cancel**, and **Rerun**. Open runs
-  poll every 5 s, backing off to 30 s. A notification fires when a run you were
-  watching finishes.
+- **Runs**: the 30 latest runs. Click one for its jobs and steps, live status,
+  **Open** (browser), **Cancel**, and **Rerun**. Open runs poll every 5 s,
+  backing off to 30 s. A notification fires when a run you were watching
+  finishes.
 - **Dispatch**: four steps, like the TUI plugin.
   1. **Workflow**: the active workflows that declare `workflow_dispatch` on the
      default branch, with a filter box. The list loads the first time the tab
@@ -87,22 +82,6 @@ Props of the block (or of `tab.new --props`) are read once when the mod starts:
 | `ref` | Dispatch tab: with `workflow`, also pre-select this branch. It stops at the inputs or the Review step and never dispatches. |
 
 Example, read only: `herdr-app do tab.new --mod ci-dash --props '{"tab":"dispatch","workflow":"publish","ref":"main"}'`.
-
-Without the layout, the mod still works on its own:
-
-```sh
-herdr-app do tab.new --name "CI" --mod ci-dash
-herdr-app do pane.split --direction right --mod ci-dash
-```
-
-## Uninstall
-
-```sh
-herdr-app do layout.switch '{"name":"main"}'
-```
-
-Then delete `mods/ci-dash`, `mods/tabs-ci` and `layouts/main-ci.json` from the
-Herdr home folder.
 
 ## Known limits
 

@@ -3,7 +3,8 @@
 //
 //   node install.mjs [--dir <herdr-app home>] [--force] [--no-check]
 //
-// - mods/*           are copied over (they belong to this package).
+// - mods/ci-dash     comes from the sibling ../ci-dash-app folder (the mod itself).
+// - mods/*           of this folder (tabs-ci) are copied over as well.
 // - layouts/main-ci  is copied only when absent, so your own edits survive.
 //                    --force replaces it and keeps the old file as *.bak-<time>.
 // - Every mod is validated with `herdr-app check` unless --no-check is given.
@@ -28,10 +29,20 @@ if (!existsSync(home)) {
 
 console.log(`Installing into ${home}`);
 
-const mods = readdirSync(join(here, "mods"), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-for (const name of mods) {
+const sources = [join(here, "..", "ci-dash-app", "mods"), join(here, "mods")];
+const found = new Map(); // mod name -> source folder
+for (const root of sources) {
+  if (!existsSync(root)) continue;
+  for (const entry of readdirSync(root, { withFileTypes: true })) if (entry.isDirectory()) found.set(entry.name, join(root, entry.name));
+}
+if (!found.has("ci-dash")) {
+  console.error("The ci-dash mod was not found. Run this script from a checkout that has the ci-dash-app folder next to ci-dash-app-panel.");
+  process.exit(1);
+}
+const mods = [...found.keys()];
+for (const [name, from] of found) {
   mkdirSync(join(home, "mods", name), { recursive: true });
-  cpSync(join(here, "mods", name), join(home, "mods", name), { recursive: true, force: true });
+  cpSync(from, join(home, "mods", name), { recursive: true, force: true });
   console.log(`  mod     ${name}`);
 }
 
