@@ -4,7 +4,7 @@
 //   node install.mjs [--dir <herdr-app home>] [--force] [--no-check]
 //
 // - mods/ci-dash     comes from the sibling ../ci-dash-app folder (the mod itself).
-// - mods/*           of this folder (tabs-ci) are copied over as well.
+// - mods/*           of this folder (tabs-ci, files-md) are copied over as well.
 // - layouts/main-ci  is copied only when absent, so your own edits survive.
 //                    --force replaces it and keeps the old file as *.bak-<time>.
 // - Every mod is validated with `herdr-app check` unless --no-check is given.
@@ -77,4 +77,11 @@ Next steps:
      (or press Ctrl+Shift+L until "main-ci" shows). Ctrl+Shift+L goes back to "main".
   2. Click the CI button in the tab bar to open the panel.
 Requires the GitHub CLI logged in: gh auth login`);
+if (!existsSync(join(home, "mods", "markdown-reader"))) {
+  console.log(`
+Note: the Files panel (files-md) opens Markdown files in the markdown-reader mod,
+which is not installed here. Until it is, clicking a .md file in Files will not open a reader.
+Install it from https://github.com/kissmikijr/herdr-markdown-reader (folders mods/markdown-reader
+and mods/markdown-reader-pane).`);
+}
 process.exit(failed ? 1 : 0);

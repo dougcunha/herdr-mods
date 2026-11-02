@@ -18,6 +18,27 @@ When Herdr ships a new version of those, redo the clones (`layout.clone`,
 `mod.clone`) and re-apply the two small changes. They were cloned from Herdr
 0.1.11.
 
+## Markdown files open in a reader
+
+The layout also swaps the Files panel for `mods/files-md`, a clone of `files`
+with one change: clicking a Markdown file (`.md`, `.markdown`, `.mdown`, `.mkd`,
+`.mdx`) opens it in the
+[Markdown Reader](https://github.com/kissmikijr/herdr-markdown-reader) mod, in a
+pane to the right of the tab's terminal, with the reader's own file tree hidden
+so the text gets the room. The sidebar button at the left of the reader's toolbar
+shows the tree again. The reader remembers that choice for each folder.
+
+- One reader per tab: an open reader pane is closed first, so panes do not stack.
+- A tab with no terminal opens the reader as a dialog instead.
+- Other files still preview inside the Files panel.
+- The reader pane closes with the **×** in its header (it shows while the pointer
+  is over the header) or with Ctrl+Shift+X.
+- While the reader has focus, Files keeps the folder of a terminal in the same
+  tab (a mod pane has no folder of its own).
+- The reader is a separate mod and is not part of this repository. Install its
+  `markdown-reader` and `markdown-reader-pane` folders from the link above. The
+  installer prints a note when `mods/markdown-reader` is missing.
+
 ## Requirements
 
 - Herdr app 0.1.11 or newer.
@@ -37,7 +58,7 @@ herdr-app do layout.switch '{"name":"main-ci"}'
 
 Then click **CI** in the tab bar, top right.
 
-The installer copies `ci-dash` and `tabs-ci` into `~/.config/herdr-app/mods/`
+The installer copies `ci-dash`, `tabs-ci` and `files-md` into `~/.config/herdr-app/mods/`
 and `layouts/main-ci.json` into `~/.config/herdr-app/layouts/`, then runs
 `herdr-app check` on each mod.
 
@@ -56,5 +77,5 @@ you made to `main-ci.json` survive an update.
 herdr-app do layout.switch '{"name":"main"}'
 ```
 
-Then delete `mods/tabs-ci` and `layouts/main-ci.json` from the Herdr home
+Then delete `mods/tabs-ci`, `mods/files-md` and `layouts/main-ci.json` from the Herdr home
 folder. Delete `mods/ci-dash` too if you no longer want the mod.
