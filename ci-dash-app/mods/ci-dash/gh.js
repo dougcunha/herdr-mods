@@ -1,0 +1,104 @@
+// GitHub access for the CI Dash mod. Every call goes through the `gh` CLI, so
+// the existing `gh auth login` session is reused and no credential is stored.
+import { exec } from "herdr";
+
+export class GhError extends Error {
+  constructor(message, { status = null, path = "" } = {}) {
+    super(message);
+    this.name = "GhError";
+    this.status = status;
+    this.path = path;
+  }
+}
+
+function cleanError(stderr, stdout) {
+  const text = String(stderr || stdout || "").trim();
+  if (!text) return "";
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed.message) return parsed.message;
+  } catch {}
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 3).join(" ");
+}
+
+export function errorHint(error) {
+  if (!(error instanceof GhError)) return "";
+  if (error.status === 401) return "Run gh auth login and try again.";
+  if (error.status === 403) return "The token may need Actions permission, or the organization may require SSO authorization.";
+  if (error.status === 404) return "The repository was not found, or the token has no access.";
+  if (error.status === 429) return "GitHub rate limit reached. Wait a moment and retry.";
+  return "";
+}
+
+// exec() resolves with a non-zero code instead of rejecting; turn that into an error.
+async function gh(args, { cwd, on } = {}) {
+  let result;
+  try {
+    result = await exec("gh", args, { cwd, on });
+  } catch (e) {
+    throw new GhError(`Could not start gh: ${e}. Install it from https://cli.github.com and run gh auth login.`);
+  }
+  if (result.code !== 0) {
+    const message = cleanError(result.stderr, result.stdout) || `gh exited with status ${result.code}`;
+    const status = /HTTP (\d{3})/.exec(result.stderr)?.[1];
+    throw new GhError(message, { status: status ? Number(status) : null, path: args.slice(0, 4).join(" ") });
+  }
+  return result.stdout;
+}
+
+/** Finds the GitHub repository of a folder with `gh repo view`. */
+export async function resolveRepo({ cwd, on, override }) {
+  const args = ["repo", "view", ...(override ? [override] : []), "--json", "nameWithOwner,url,isPrivate,defaultBranchRef"];
+  const out = await gh(args, { cwd, on });
+  const data = JSON.parse(out);
+  const [owner, name] = data.nameWithOwner.split("/");
+  const host = new URL(data.url).host;
+  return { host, owner, name, slug: data.nameWithOwner, isPrivate: Boolean(data.isPrivate), defaultBranch: data.defaultBranchRef?.name || "" };
+}
+
+export class Gh {
+  constructor({ repo, cwd, on }) {
+    this.repo = repo;
+    this.cwd = cwd;
+    this.on = on;
+  }
+
+  rp(suffix = "") { return `repos/${this.repo.owner}/${this.repo.name}${suffix}`; }
+
+  async json(path, { method, paginate = false } = {}) {
+    const args = ["api", "--hostname", this.repo.host];
+    if (method) args.push("--method", method);
+    if (paginate) args.push("--paginate", "--slurp");
+    args.push("--header", "Accept: application/vnd.github+json", path);
+    const out = (await gh(args, { cwd: this.cwd, on: this.on })).trim();
+    if (!out) return null;
+    try { return JSON.parse(out); } catch { throw new GhError(`GitHub returned invalid JSON for ${path}`, { path }); }
+  }
+
+  async pages(path, key) {
+    const data = await this.json(path, { paginate: true });
+    return (Array.isArray(data) ? data : [data]).flatMap((page) => page?.[key] || []);
+  }
+
+  async getLogin() { return (await this.json("user")).login; }
+  async listRuns(perPage = 30) { return (await this.json(this.rp(`/actions/runs?per_page=${perPage}`))).workflow_runs || []; }
+  async getRun(id) { return this.json(this.rp(`/actions/runs/${id}`)); }
+  async listJobs(id) { return this.pages(this.rp(`/actions/runs/${id}/jobs?per_page=100`), "jobs"); }
+  async listArtifacts(id) { return this.pages(this.rp(`/actions/runs/${id}/artifacts?per_page=100`), "artifacts"); }
+  async listWorkflows() { return this.pages(this.rp("/actions/workflows?per_page=100"), "workflows"); }
+  async latestRuns(workflowId, perPage = 5) { return (await this.json(this.rp(`/actions/workflows/${workflowId}/runs?per_page=${perPage}`))).workflow_runs || []; }
+  async cancelRun(id) { await this.json(this.rp(`/actions/runs/${id}/cancel`), { method: "POST" }); }
+  async rerunRun(id) { await this.json(this.rp(`/actions/runs/${id}/rerun`), { method: "POST" }); }
+  async openRunWeb(id) { await gh(["run", "view", String(id), "--web", "-R", `${this.repo.host}/${this.repo.slug}`], { cwd: this.cwd, on: this.on }); }
+
+  /** Downloads one artifact into `dir`. exec() allows 30 s, so very large artifacts can time out. */
+  async downloadArtifact(runId, name, dir) {
+    await gh(["run", "download", String(runId), "--name", name, "--dir", dir, "-R", `${this.repo.host}/${this.repo.slug}`], { cwd: this.cwd, on: this.on });
+  }
+}
+
+/** A folder name that is safe on Windows, macOS and Linux. */
+export function safeName(name) {
+  const cleaned = String(name || "").trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").replace(/^\.+/, "_").replace(/[. ]+$/, "");
+  return cleaned || "artifact";
+}
