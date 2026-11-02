@@ -1,10 +1,14 @@
 // The Dispatch tab: pick a workflow, a branch and its `workflow_dispatch`
 // inputs, review, then start the run. Mirrors the TUI plugin's four steps.
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { settings } from "herdr";
 import { GhError } from "./gh.js";
 import { parseWorkflowInputs } from "./workflow-inputs.js";
 import { mapLimit } from "./format.js";
+import { icon, pill, searchBox } from "./ui.js";
+
+const mono = () => settings().font_family ?? "JetBrains Mono";
 
 const LOCATE_ATTEMPTS = 18; // one per 5 s tick, so about 90 s
 
@@ -48,7 +52,7 @@ export class Dispatch {
           try {
             const yaml = await gh.rawFile(workflow.path, def);
             const parsed = parseWorkflowInputs(yaml);
-            return { workflow: { ...workflow, yaml }, ok: parsed.dispatchable, name: parsed.name };
+            return { workflow: { ...workflow, yaml, inputCount: parsed.inputs.length }, ok: parsed.dispatchable, name: parsed.name };
           } catch (error) { return { workflow, ok: false, error }; }
         });
         if (this.app.gh !== gh) return;
@@ -284,14 +288,18 @@ export class Dispatch {
     if (!this.loaded) return app.message(t, "Reading workflows…", "Checking which ones can be started manually.");
     const query = this.filter.value().trim().toLowerCase();
     const list = query ? this.workflows.filter((w) => `${w.name} ${w.path}`.toLowerCase().includes(query)) : this.workflows;
+    const clear = (cx) => { this.filter.set_value(""); cx.notify(); };
     return v_flex().flex_1().min_h(0)
-      .child(v_flex().flex_none().p(12).pb(8).child(this.box("dsp-filter", this.filter, t)))
-      .child(v_flex().id("dsp-wf-scroll").flex_1().min_h(0).overflow_y_scrollbar()
-        .children(list.map((w) => v_flex().id(`wf-${w.id}`).w_full().flex_none().px(12).py(8).gap(2).cursor_pointer().hover((s) => s.bg(t.hover))
+      .child(v_flex().flex_none().px(12).pt(10).pb(6)
+        .child(searchBox(t, "dsp-filter", this.filter, { right: query ? `${list.length}/${this.workflows.length}` : `${this.workflows.length}`, onClear: clear })))
+      .child(v_flex().id("dsp-wf-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
+        .children(list.map((w) => v_flex().id(`wf-${w.id}`).w_full().flex_none().px(14).py(8).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.chooseWorkflow(w, cx))
-          .child(div().truncate().child(w.name))
+          .child(h_flex().gap(10).items_center()
+            .child(div().flex_1().min_w(0).truncate().text_size(14).child(w.name))
+            .child(pill(t, { label: w.inputCount ? `${w.inputCount} input${w.inputCount === 1 ? "" : "s"}` : "no inputs", color: w.inputCount ? t.accent : undefined })))
           .child(div().truncate().text_size(11).text_color(t.dim).child(w.path))))
-        .when(!list.length, (e) => e.child(div().p(12).text_size(12).text_color(t.dim).child("No workflow matches."))));
+        .when(!list.length, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child("No workflow matches."))));
   }
 
   refsView(t) {
@@ -300,15 +308,17 @@ export class Dispatch {
     const list = query ? this.refs.filter((b) => b.name.toLowerCase().includes(query)) : this.refs;
     return v_flex().flex_1().min_h(0)
       .child(this.bar(t, "‹ Workflows", this.workflow.name))
-      .child(v_flex().flex_none().p(12).pb(8).gap(6).child(this.box("dsp-ref-filter", this.refFilter, t))
+      .child(v_flex().flex_none().px(12).pt(10).pb(6).gap(6)
+        .child(searchBox(t, "dsp-ref-filter", this.refFilter, { right: query ? `${list.length}/${this.refs.length}` : `${this.refs.length}`, onClear: (cx) => { this.refFilter.set_value(""); cx.notify(); } }))
         .when(Boolean(this.problem), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(this.problem))))
-      .child(v_flex().id("dsp-ref-scroll").flex_1().min_h(0).overflow_y_scrollbar()
-        .children(list.map((b) => h_flex().id(`ref-${b.name}`).w_full().flex_none().h(32).px(12).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
+      .child(v_flex().id("dsp-ref-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
+        .children(list.map((b) => h_flex().id(`ref-${b.name}`).w_full().flex_none().h(36).px(14).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.chooseRef(b.name, cx))
-          .child(div().flex_1().min_w(0).truncate().child(b.name))
-          .when(b.name === def, (e) => e.child(div().flex_none().text_size(10).text_color(t.accent).child("default")))
-          .when(b.name === cur && b.name !== def, (e) => e.child(div().flex_none().text_size(10).text_color(t.muted).child("current")))))
-        .when(!list.length, (e) => e.child(div().p(12).text_size(12).text_color(t.dim).child("No branch matches."))));
+          .child(svg(icon("branch")).size(13).flex_none().text_color(t.dim))
+          .child(div().flex_1().min_w(0).truncate().font_family(mono()).text_size(12).child(b.name))
+          .when(b.name === def, (e) => e.child(pill(t, { label: "default", color: t.accent })))
+          .when(b.name === cur && b.name !== def, (e) => e.child(pill(t, { label: "current" })))))
+        .when(!list.length, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child("No branch matches."))));
   }
 
   fieldCard(f, t) {

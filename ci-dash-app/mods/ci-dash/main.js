@@ -1,15 +1,34 @@
-// CI Dash for the Herdr app: GitHub Actions runs and artifacts of the focused
-// repository. Port of the ci-dash TUI plugin; this first slice covers the
-// Runs tab (list, live detail, cancel, rerun) and the Artifacts tab.
+// CI Dash for the Herdr app: GitHub Actions runs, dispatch and artifacts of the
+// focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, InputState } from "gpui-base";
 import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
+import { MOD, icon, pill, section, searchBox, filterChip } from "./ui.js";
 
-const MOD = "ci-dash"; // folder name under ~/.config/herdr-app/mods
 const POLL_MS = 5000;
+
+// Runs are grouped by what the person has to do about them.
+const RUN_GROUPS = [
+  { id: "live", label: "IN PROGRESS", filter: "Running", color: (t) => t.working },
+  { id: "attention", label: "NEEDS ATTENTION", filter: "Failed", color: (t) => t.ansi1 },
+  { id: "passed", label: "PASSED", filter: "Passed", color: (t) => t.ansi2 },
+  { id: "other", label: "OTHER", filter: "Other", color: (t) => t.dim },
+];
+const groupOf = (run) => {
+  const kind = stateOf(run).kind;
+  if (kind === "running" || kind === "queued") return "live";
+  if (kind === "failure" || kind === "warning") return "attention";
+  return kind === "success" ? "passed" : "other";
+};
+
+const ART_GROUPS = [
+  { id: "available", filter: "Available", color: (t) => t.accent },
+  { id: "downloaded", filter: "Downloaded", color: (t) => t.ansi2 },
+  { id: "expired", filter: "Expired", color: (t) => t.ansi1 },
+];
 
 const isWin = () => /^[A-Za-z]:[\\/]/.test(home());
 const sep = (root) => (root.includes("\\") ? "\\" : "/");
@@ -61,8 +80,16 @@ export default class CiDash extends View {
     this.resolving = false;
     this.repo = null; this.gh = null; this.root = null; this.error = null;
     this.dsp = new Dispatch(this);
+    this.runFilter = this.makeFilter("Filter runs…");
+    this.artFilter = this.makeFilter("Filter artifacts…");
     this.reset();
     cx.timer.every(POLL_MS, (cx) => this.tick(cx));
+  }
+
+  makeFilter(placeholder) {
+    const state = InputState.new({ placeholder });
+    state.on("change", (_e, cx) => cx.notify());
+    return state;
   }
 
   reset() {
@@ -70,7 +97,19 @@ export default class CiDash extends View {
     this.detail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
+    this.runStatus = "all"; this.artStatus = "all";
+    this.runFilter.set_value(""); this.artFilter.set_value("");
     this.dsp.reset();
+  }
+
+  /** Props `filter` and `status` pre-fill the filter box and chip of the Runs and Artifacts tabs, once. */
+  applyFilterProps() {
+    if (this.filterPropsApplied) return;
+    this.filterPropsApplied = true;
+    const { filter, status } = this.props;
+    if (filter) { this.runFilter.set_value(String(filter)); this.artFilter.set_value(String(filter)); }
+    if (RUN_GROUPS.some((g) => g.id === status)) this.runStatus = status;
+    if (ART_GROUPS.some((g) => g.id === status)) this.artStatus = status;
   }
 
   /** Loads what a tab needs the first time it is shown. */
@@ -101,6 +140,7 @@ export default class CiDash extends View {
         const changed = !this.repo || this.repo.slug !== repo.slug || this.repo.host !== repo.host;
         if (changed) {
           this.repo = repo; this.gh = new Gh({ repo, cwd, on }); this.reset(); this.error = null;
+          this.applyFilterProps();
           const top = cwd ? await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }).catch(() => null) : null;
           this.root = top && top.code === 0 ? top.stdout.trim() : cwd;
           this.loadRuns(cx);
@@ -320,8 +360,14 @@ export default class CiDash extends View {
   }
 
   icon(state, t) {
-    if (state.kind === "running") return svg(`mods/${MOD}/spinner.svg`).size(14).flex_none().text_color(t.working).spin(900);
+    if (state.kind === "running") return svg(icon("spinner")).size(14).flex_none().text_color(t.working).spin(900);
     return div().w(14).flex_none().text_center().text_size(13).text_color(this.color(state.kind, t)).child(GLYPH[state.kind] ?? "•");
+  }
+
+  /** The tinted status pill: `passed`, `failed`, `running`… */
+  statePill(state, t) {
+    const label = state.label === "success" ? "passed" : state.label;
+    return pill(t, { label, color: this.color(state.kind, t), glyph: state.kind === "running" ? undefined : GLYPH[state.kind], spin: state.kind === "running" });
   }
 
   button(id, label, onClick, t, { primary = false, active = false, disabled = false } = {}) {
@@ -334,18 +380,22 @@ export default class CiDash extends View {
 
   header(t, cx) {
     const onArtifacts = this.tab === "artifacts";
-    const tab = (id, label) => {
+    const tab = (id, label, count) => {
       const active = this.tab === id;
-      return div().id(`tab-${id}`).h(32).px(12).flex_none().flex().items_center().text_size(12)
-        .border_b(2).border_color(active ? t.accent : t.background)
-        .text_color(active ? t.foreground : t.muted).cursor_pointer().hover((s) => s.text_color(t.foreground))
+      return h_flex().id(`tab-${id}`).h(28).px(10).gap(6).flex_none().items_center().rounded(8).text_size(12)
+        .bg(active ? t.raised : t.background).border_1().border_color(active ? t.border : t.background)
+        .text_color(active ? t.foreground : t.muted).cursor_pointer().hover((s) => s.bg(active ? t.raised : t.hover))
         .on_click((_e, cx) => {
           this.tab = id; this.note = "";
           if (id === "runs") this.detail = null;
           this.enterTab(cx);
           cx.notify();
-        }).child(label);
+        })
+        .child(label)
+        .when(count != null, (e) => e.child(div().h(16).px(6).rounded(8).flex().items_center().text_size(10)
+          .bg(active ? t.hover : t.raised).text_color(t.dim).child(String(count))));
     };
+    const artifactCount = this.art.groups.reduce((sum, g) => sum + g.artifacts.length, 0);
     return v_flex().flex_none()
       .child(h_flex().h(38).flex_none().px(12).gap(8).items_center()
         .child(div().font_semibold().flex_none().child("CI Dash"))
@@ -357,8 +407,10 @@ export default class CiDash extends View {
           else if (this.detail) { this.detail.artLoaded = false; this.pollDetail(cx); }
           else this.loadRuns(cx);
         }, t, { disabled: !this.gh })))
-      .child(h_flex().h(32).flex_none().px(4).border_b(1).border_color(t.border)
-        .child(tab("runs", "Runs")).child(tab("dispatch", "Dispatch")).child(tab("artifacts", "Artifacts")));
+      .child(h_flex().h(40).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
+        .child(tab("runs", "Runs", this.runsLoaded ? this.runs.length : null))
+        .child(tab("dispatch", "Dispatch", this.dsp.loaded ? this.dsp.workflows.length : null))
+        .child(tab("artifacts", "Artifacts", this.art.loaded ? artifactCount : null)));
   }
 
   message(t, title, detail) {
@@ -370,28 +422,68 @@ export default class CiDash extends View {
     return this.message(t, text, errorHint(error));
   }
 
+  /** Title and #number on top, then pills: branch, status, duration, trigger. */
   runRow(r, t) {
     const st = stateOf(r), now = Date.now();
-    const dur = st.done ? duration(r.run_started_at || r.created_at, r.updated_at) : duration(r.run_started_at || r.created_at, now);
-    return h_flex().id(`run-${r.id}`).w_full().flex_none().h(50).px(12).gap(10).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
+    const dur = duration(r.run_started_at || r.created_at, st.done ? r.updated_at : now);
+    const by = [r.name, r.actor?.login].filter(Boolean).join(" · ");
+    return v_flex().id(`run-${r.id}`).w_full().flex_none().px(14).py(8).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.openRun(r.id, cx))
-      .child(this.icon(st, t))
-      .child(v_flex().flex_1().min_w(0).gap(2)
-        .child(div().truncate().child(r.display_title || r.name || `Run ${r.id}`))
-        .child(div().truncate().text_size(11).text_color(t.dim).child([r.name, `#${r.run_number}`, r.head_branch, r.actor?.login, relTime(r.created_at, now)].filter(Boolean).join(" · "))))
-      .child(div().flex_none().text_size(11).text_color(t.muted).child(dur));
+      .child(h_flex().gap(10).items_center()
+        .child(this.icon(st, t))
+        .child(div().flex_1().min_w(0).truncate().text_size(14).child(r.display_title || r.name || `Run ${r.id}`))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(`#${r.run_number}`))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(relTime(r.created_at, now))))
+      .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
+        .when(Boolean(r.head_branch), (e) => e.child(pill(t, { label: r.head_branch, symbol: "branch", code: true })))
+        .child(this.statePill(st, t))
+        .when(Boolean(dur), (e) => e.child(pill(t, { label: dur })))
+        .when(Boolean(r.event) && r.event !== "push", (e) => e.child(pill(t, { label: r.event.replace(/_/g, " "), color: t.accent })))
+        .when((r.run_attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${r.run_attempt}` })))
+        .when(Boolean(by), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(by))));
   }
+
+  clearRunFilters(cx) { this.runFilter.set_value(""); this.runStatus = "all"; cx.notify(); }
 
   runsView(t) {
     if (this.runsError && !this.runs.length) return this.errorView(t, this.runsError);
     if (!this.runsLoaded) return this.message(t, "Loading runs…");
     if (!this.runs.length) return this.message(t, "No workflow runs yet.", "Runs appear here after a workflow executes.");
-    return v_flex().id("runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().children(this.runs.map((r) => this.runRow(r, t)));
+
+    const q = this.runFilter.value().trim().toLowerCase();
+    const matches = this.runs.filter((r) => !q || [r.display_title, r.name, r.head_branch, r.actor?.login, r.event, `#${r.run_number}`]
+      .filter(Boolean).join(" ").toLowerCase().includes(q));
+    const count = (id) => matches.filter((r) => groupOf(r) === id).length;
+    const shown = this.runStatus === "all" ? matches : matches.filter((r) => groupOf(r) === this.runStatus);
+
+    const chips = [filterChip(t, "rf-all", "All", matches.length, this.runStatus === "all", (cx) => { this.runStatus = "all"; cx.notify(); })];
+    for (const g of RUN_GROUPS) {
+      if (count(g.id) > 0 || this.runStatus === g.id) {
+        chips.push(filterChip(t, `rf-${g.id}`, g.filter, count(g.id), this.runStatus === g.id, (cx) => { this.runStatus = g.id; cx.notify(); }, g.color(t)));
+      }
+    }
+
+    const rows = [];
+    for (const g of RUN_GROUPS) {
+      const inGroup = shown.filter((r) => groupOf(r) === g.id);
+      if (!inGroup.length) continue;
+      rows.push(section(t, g.label, inGroup.length, g.color(t)));
+      for (const r of inGroup) rows.push(this.runRow(r, t));
+    }
+
+    return v_flex().flex_1().min_h(0)
+      .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(8)
+        .child(searchBox(t, "run-filter", this.runFilter, { right: q || this.runStatus !== "all" ? `${shown.length}/${this.runs.length}` : `${this.runs.length}`, onClear: (cx) => { this.runFilter.set_value(""); cx.notify(); } }))
+        .child(h_flex().flex_wrap().gap(4).children(chips)))
+      .child(v_flex().id("runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8).children(rows)
+        .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
+          .child(div().text_size(12).text_color(t.dim).child("No run matches the filters."))
+          .child(this.button("clear-run-filters", "Clear filters", (cx) => this.clearRunFilters(cx), t)))));
   }
 
   stepRow(s, t) {
     const st = stateOf(s);
-    return h_flex().h(22).flex_none().pl(30).pr(12).gap(8).items_center().text_size(12).text_color(st.done ? t.muted : t.foreground)
+    return h_flex().h(22).flex_none().pl(32).pr(14).gap(8).items_center().text_size(12).text_color(st.done ? t.muted : t.foreground)
       .child(this.icon(st, t))
       .child(div().flex_1().min_w(0).truncate().child(s.name))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(s.started_at && s.completed_at ? duration(s.started_at, s.completed_at) : ""));
@@ -400,23 +492,38 @@ export default class CiDash extends View {
   jobBlock(j, t) {
     const st = stateOf(j), now = Date.now();
     return v_flex().flex_none().pb(4)
-      .child(h_flex().h(28).flex_none().px(12).gap(8).items_center().font_semibold()
+      .child(h_flex().h(28).flex_none().px(14).gap(8).items_center().font_semibold()
         .child(this.icon(st, t))
         .child(div().flex_1().min_w(0).truncate().child(j.name))
         .child(div().flex_none().text_size(11).text_color(t.muted).child(j.started_at ? duration(j.started_at, j.completed_at ? Date.parse(j.completed_at) : now) : "")))
       .children((j.steps || []).map((s) => this.stepRow(s, t)));
   }
 
+  artifactStatus(runId, a) {
+    if (a.expired) return "expired";
+    return this.dl[`${runId}:${a.id}`]?.state === "done" ? "downloaded" : "available";
+  }
+
+  /** Name and action on top, then pills: size, age, and what happened to it. */
   artifactRow(runId, a, t) {
     const key = `${runId}:${a.id}`, dl = this.dl[key];
-    const state = a.expired ? "expired" : dl?.state === "busy" ? "Downloading…" : dl?.state === "done" ? "✓ Downloaded" : dl?.state === "error" ? "Retry" : "Download";
-    const sub = dl?.state === "error" ? dl.msg : dl?.state === "done" ? dl.dir : [bytes(a.size_in_bytes), relTime(a.created_at)].filter(Boolean).join(" · ");
-    return h_flex().id(`art-${key}`).w_full().flex_none().h(46).px(12).gap(10).items_center()
+    const busy = dl?.state === "busy";
+    const action = a.expired ? "" : busy ? "Downloading…" : dl?.state === "error" ? "Retry" : dl?.state === "done" ? "Again" : "Download";
+    return v_flex().id(`art-${key}`).w_full().flex_none().px(14).py(8).gap(6)
       .when(!a.expired, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.download(runId, a, cx)))
-      .child(v_flex().flex_1().min_w(0).gap(2)
-        .child(div().truncate().text_color(a.expired ? t.dim : t.foreground).child(a.name))
-        .child(div().truncate().text_size(11).text_color(dl?.state === "error" ? t.ansi1 : t.dim).child(sub)))
-      .child(div().flex_none().text_size(11).text_color(dl?.state === "done" ? t.ansi2 : a.expired ? t.dim : t.accent).child(state));
+      .child(h_flex().gap(10).items_center()
+        .child(svg(icon("package")).size(15).flex_none().text_color(a.expired ? t.dim : t.accent))
+        .child(div().flex_1().min_w(0).truncate().text_size(14).text_color(a.expired ? t.dim : t.foreground).child(a.name))
+        .child(div().flex_none().text_size(11).text_color(t.accent).child(action)))
+      .child(h_flex().pl(25).flex_wrap().gap(6).items_center()
+        .when(Number.isFinite(a.size_in_bytes), (e) => e.child(pill(t, { label: bytes(a.size_in_bytes) })))
+        .when(Boolean(a.created_at), (e) => e.child(pill(t, { label: relTime(a.created_at) })))
+        .when(a.expired, (e) => e.child(pill(t, { label: "expired", color: t.ansi1 })))
+        .when(dl?.state === "done", (e) => e.child(pill(t, { label: "downloaded", glyph: "✓", color: t.ansi2 })))
+        .when(dl?.state === "error", (e) => e.child(pill(t, { label: "failed", glyph: "✕", color: t.ansi1 })))
+        .when(busy, (e) => e.child(pill(t, { label: "downloading", spin: true, color: t.working })))
+        .when(dl?.state === "done" || dl?.state === "error", (e) => e.child(div().min_w(0).truncate().text_size(11)
+          .text_color(dl?.state === "error" ? t.ansi1 : t.dim).child(dl.state === "error" ? dl.msg : dl.dir))));
   }
 
   detailView(t) {
@@ -432,16 +539,23 @@ export default class CiDash extends View {
         .when(!st.done, (e) => e.child(this.button("cancel", "Cancel", (cx) => this.cancel(cx), t)))
         .when(st.done, (e) => e.child(this.button("rerun", "Rerun", (cx) => this.rerun(cx), t, { primary: true }))))
       .child(v_flex().id("detail-scroll").flex_1().min_h(0).overflow_y_scrollbar()
-        .child(v_flex().flex_none().px(12).py(10).gap(4)
-          .child(h_flex().gap(8).items_center().child(this.icon(st, t)).child(div().flex_1().min_w(0).truncate().font_semibold().child(run.display_title || run.name)))
-          .child(div().text_size(11).text_color(t.dim).child([`${run.name} #${run.run_number}`, run.head_branch, run.event, run.actor?.login].filter(Boolean).join(" · ")))
-          .child(div().text_size(11).text_color(this.color(st.kind, t)).child([st.label, dur].filter(Boolean).join(" · "))))
+        .child(v_flex().flex_none().px(14).py(12).gap(8)
+          .child(h_flex().gap(10).items_center().child(this.icon(st, t))
+            .child(div().flex_1().min_w(0).truncate().text_size(15).font_semibold().child(run.display_title || run.name))
+            .child(div().flex_none().text_size(11).text_color(t.dim).child(`#${run.run_number}`)))
+          .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
+            .child(this.statePill(st, t))
+            .when(Boolean(dur), (e) => e.child(pill(t, { label: dur })))
+            .when(Boolean(run.head_branch), (e) => e.child(pill(t, { label: run.head_branch, symbol: "branch", code: true })))
+            .when(Boolean(run.event), (e) => e.child(pill(t, { label: run.event.replace(/_/g, " "), color: t.accent })))
+            .when((run.run_attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${run.run_attempt}` }))))
+          .child(div().pl(24).text_size(11).text_color(t.dim).child([run.name, run.actor?.login, relTime(run.created_at, now)].filter(Boolean).join(" · "))))
         .when(d.error, (e) => e.child(div().px(12).pb(6).text_size(11).text_color(t.ansi1).child(`Update failed: ${d.error.message || d.error}`)))
         .children(d.jobs.map((j) => this.jobBlock(j, t)))
         .when(!d.jobs.length && !d.error, (e) => e.child(div().px(12).py(6).text_size(12).text_color(t.dim).child("Waiting for jobs…")))
         .when(st.done && (d.artifacts.length > 0 || d.artError), (e) => e
-          .child(div().px(12).pt(10).pb(4).text_size(11).font_semibold().text_color(t.muted).child("ARTIFACTS"))
-          .when(Boolean(d.artError), (x) => x.child(div().px(12).text_size(11).text_color(t.ansi1).child(`Could not list artifacts: ${d.artError.message}`)))
+          .child(section(t, "ARTIFACTS", d.artifacts.length, t.muted))
+          .when(Boolean(d.artError), (x) => x.child(div().px(14).text_size(11).text_color(t.ansi1).child(`Could not list artifacts: ${d.artError.message}`)))
           .children(d.artifacts.map((a) => this.artifactRow(run.id, a, t)))));
   }
 
@@ -451,13 +565,41 @@ export default class CiDash extends View {
     if (art.loading && !art.loaded) return this.message(t, "Loading artifacts…", "Reading the latest runs of every workflow.");
     if (!art.loaded) return this.message(t, "Loading artifacts…");
     if (!art.groups.length) return this.message(t, "No artifacts found.", "None of the latest runs of any workflow produced artifacts.");
-    return v_flex().id("art-scroll").flex_1().min_h(0).overflow_y_scrollbar()
-      .when(art.failed > 0, (e) => e.child(div().px(12).py(6).text_size(11).text_color(t.blocked).child(`${art.failed} workflow(s) could not be read.`)))
-      .children(art.groups.flatMap((g) => [
-        div().flex_none().px(12).pt(10).pb(2).text_size(11).font_semibold().text_color(t.muted).truncate()
-          .child(`${g.workflow.name.toUpperCase()} · #${g.run.run_number} · ${g.run.head_branch}`),
-        ...g.artifacts.map((a) => this.artifactRow(g.run.id, a, t)),
-      ]));
+
+    const q = this.artFilter.value().trim().toLowerCase();
+    const matches = art.groups.flatMap((g) => g.artifacts
+      .filter((a) => !q || `${a.name} ${g.workflow.name} ${g.run.head_branch || ""}`.toLowerCase().includes(q))
+      .map((a) => ({ g, a, status: this.artifactStatus(g.run.id, a) })));
+    const count = (id) => matches.filter((m) => m.status === id).length;
+    const total = art.groups.reduce((sum, g) => sum + g.artifacts.length, 0);
+    const keep = (m) => this.artStatus === "all" || m.status === this.artStatus;
+    const shown = matches.filter(keep);
+
+    const chips = [filterChip(t, "af-all", "All", matches.length, this.artStatus === "all", (cx) => { this.artStatus = "all"; cx.notify(); })];
+    for (const g of ART_GROUPS) {
+      if (count(g.id) > 0 || this.artStatus === g.id) {
+        chips.push(filterChip(t, `af-${g.id}`, g.filter, count(g.id), this.artStatus === g.id, (cx) => { this.artStatus = g.id; cx.notify(); }, g.color(t)));
+      }
+    }
+
+    const rows = [];
+    for (const g of art.groups) {
+      const inGroup = shown.filter((m) => m.g === g);
+      if (!inGroup.length) continue;
+      rows.push(section(t, g.workflow.name.toUpperCase(), inGroup.length, t.muted, `#${g.run.run_number} · ${g.run.head_branch || ""}`));
+      for (const m of inGroup) rows.push(this.artifactRow(g.run.id, m.a, t));
+    }
+
+    return v_flex().flex_1().min_h(0)
+      .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(8)
+        .child(searchBox(t, "art-filter", this.artFilter, { right: q || this.artStatus !== "all" ? `${shown.length}/${total}` : `${total}`, onClear: (cx) => { this.artFilter.set_value(""); cx.notify(); } }))
+        .child(h_flex().flex_wrap().gap(4).children(chips)))
+      .child(v_flex().id("art-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
+        .when(art.failed > 0, (e) => e.child(div().px(14).pt(8).text_size(11).text_color(t.blocked).child(`${art.failed} workflow(s) could not be read.`)))
+        .children(rows)
+        .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
+          .child(div().text_size(12).text_color(t.dim).child("No artifact matches the filters."))
+          .child(this.button("clear-art-filters", "Clear filters", (cx) => { this.artFilter.set_value(""); this.artStatus = "all"; cx.notify(); }, t)))));
   }
 
   render(cx) {

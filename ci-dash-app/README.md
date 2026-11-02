@@ -49,10 +49,14 @@ and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
 
 ## Use
 
-- **Runs**: the 30 latest runs. Click one for its jobs and steps, live status,
-  **Open** (browser), **Cancel**, and **Rerun**. Open runs poll every 5 s,
-  backing off to 30 s. A notification fires when a run you were watching
-  finishes.
+- **Runs**: the 30 latest runs, grouped as *In progress*, *Needs attention*,
+  *Passed* and *Other*. Each run shows pills for its branch, status, duration
+  and trigger. A **filter box** at the top matches title, workflow, branch,
+  actor, trigger and `#number`, and **chips** (`All`, `Running`, `Failed`,
+  `Passed`, `Other`, with counts) narrow by status. Click a run for its jobs and
+  steps, live status, **Open** (browser), **Cancel**, and **Rerun**. Open runs
+  poll every 5 s, backing off to 30 s. A notification fires when a run you were
+  watching finishes.
 - **Dispatch**: four steps, like the TUI plugin.
   1. **Workflow**: the active workflows that declare `workflow_dispatch` on the
      default branch, with a filter box. The list loads the first time the tab
@@ -67,7 +71,8 @@ and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
   4. **Review**: nothing starts until you press **Dispatch**. The mod then finds
      the new run and opens it in the Runs tab.
 - **Artifacts**: the artifacts of the latest run that produced any, per
-  workflow. Click a row to download it to
+  workflow, with a filter box (name, workflow, branch) and chips (`Available`,
+  `Downloaded`, `Expired`). Click a row to download it to
   `<repo>/.ci-dash/artifacts/<run-id>/<name>`. `↗` opens that folder.
 - The repository follows the focused terminal's folder, falling back to the
   other terminals of the space, then to the last repository found.
@@ -80,6 +85,8 @@ Props of the block (or of `tab.new --props`) are read once when the mod starts:
 | `repo` | Pin a repository, `owner/repo` or `host/owner/repo`. |
 | `workflow` | Dispatch tab: pre-select the first workflow whose name or path contains this text. |
 | `ref` | Dispatch tab: with `workflow`, also pre-select this branch. It stops at the inputs or the Review step and never dispatches. |
+| `filter` | Text to put in the Runs and Artifacts filter boxes. |
+| `status` | Chip to select: `live`, `attention`, `passed` or `other` (runs); `available`, `downloaded` or `expired` (artifacts). |
 
 Example, read only: `herdr-app do tab.new --mod ci-dash --props '{"tab":"dispatch","workflow":"publish","ref":"main"}'`.
 
