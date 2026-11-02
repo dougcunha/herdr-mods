@@ -20,7 +20,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it shows |
 | ---- | ------------- |
-| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a button for the terminal panel, a button back to the previous layout and **New agent**. |
+| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
 | Columns | Idle, Needs you, Working, Done, in that order. Each has a color, a count and an eye button that hides it. |
 | Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
@@ -32,6 +32,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.
+- **Files and Changes:** the two buttons in the top bar open Herdr's own Files and Changes mods in a side panel at the right (368 px, drag its edge to resize). Click the same button again to close the panel; click the other one to switch. The panel works in the Board and the Terminals views. It starts closed.
 - **Back button:** the top bar has a button with the name of the previous layout (for example `main-dock`). It runs `layout.switch`. The previous layout is the one you came from: `shared("layout.previous")`. Without it, the button uses `props.back` of the bar block, then `main`, then the first other layout.
 - **Button in the other layout:** with the [Dock](../dock-app) layout, add a command entry to `~/.config/herdr-app/dock/panels.json` and the tab bar shows a **Kanban** button that switches to this layout:
   `{ "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } }`

@@ -6,7 +6,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder } from "herdr";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, stop } from "./ui.js";
+import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, stop } from "./ui.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
 const KEY_QUERY = "kanban.query"; // the search text
@@ -15,6 +15,12 @@ const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: colu
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
+
+// The side panel of the layout (node "panel", stack "panel-body"): Herdr's own Files and Changes mods.
+const PANELS = [
+  { id: "files", label: "Files", icon: "mods/files/file.svg" },
+  { id: "changes", label: "Changes", icon: "mods/changes/changes.svg" },
+];
 
 // The order the person asked for: idle, needs you, working, done.
 const COLUMNS = [
@@ -40,7 +46,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    newTab: "New tab", backTip: "Switch to the {name} layout",
+    newTab: "New tab", backTip: "Switch to the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     narrower: "Narrower columns", wider: "Wider columns",
   },
@@ -59,7 +65,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    newTab: "Nova aba", backTip: "Trocar para o layout {name}",
+    newTab: "Nova aba", backTip: "Trocar para o layout {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
   },
@@ -153,6 +159,14 @@ export default class Kanban extends View {
   select(a) {
     run("agent.focus", { terminal: a.address });
     if (this.detailHidden()) run("layout.show", { id: "detail" });
+  }
+
+  /** Opens the side panel on `id`, or closes it when it already shows that one. */
+  togglePanel(id) {
+    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+    if (!panel || !body) return;
+    if (!panel.hidden && body.active === id) run("layout.hide", { id: "panel" });
+    else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
   }
 
   openInTab(a) {
@@ -315,6 +329,15 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
+  /** One toggle per side panel the layout has (Files, Changes). Empty when the layout has no `panel`. */
+  panelButtons(t) {
+    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+    if (!panel || !body) return [];
+    return PANELS.filter((p) => body.children?.some((c) => c.id === p.id)).map((p) =>
+      panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, !panel.hidden && body.active === p.id,
+        () => this.togglePanel(p.id), this.s("panelTip", { name: p.label })));
+  }
+
   /** [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
   widthControl(t) {
     const cap = this.maxWidth();
@@ -374,6 +397,7 @@ export default class Kanban extends View {
         .child(iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
           { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") })))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
+      .children(this.panelButtons(t))
       .when(Boolean(back), (e) => e.child(button(t, "kb-back", back, () => this.goBack(back),
         { symbol: "swap", tooltip: this.s("backTip", { name: back }) })))
       .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus" }))

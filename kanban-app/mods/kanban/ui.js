@@ -78,6 +78,18 @@ export function pill(t, { label, symbol, code = false, color }) {
     .child(div().truncate().child(label));
 }
 
+/** A toggle for a side panel: an icon (a path in the Herdr home) and the panel name. Lit while its panel shows. */
+export function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "") {
+  return h_flex().id(id).h(28).px(9).gap(6).flex_none().items_center().rounded(8).text_size(12).cursor_pointer()
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .when(on, (e) => e.bg(tint(t.accent, "26")).text_color(t.accent))
+    .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
+    .on_mouse_down("left", stop)
+    .on_click((_e, cx) => onClick(cx))
+    .child(svg(symbolPath).size(14).flex_none())
+    .child(label);
+}
+
 /** A text button. */
 export function button(t, id, label, onClick, { primary = false, symbol, tooltip = "" } = {}) {
   return h_flex().id(id).h(32).px(14).gap(7).flex_none().max_w(200).items_center().rounded(9).text_size(12).font_semibold()

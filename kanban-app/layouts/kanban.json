@@ -44,57 +44,82 @@
           "window_drag": true
         },
         {
-          "id": "view",
-          "type": "stack",
-          "active": "board-view",
+          "id": "work-body",
+          "type": "row",
+          "padding": 12,
+          "gap": 12,
           "children": [
             {
-              "id": "board-view",
-              "type": "row",
-              "padding": 12,
-              "gap": 12,
+              "id": "view",
+              "type": "stack",
+              "active": "board-view",
               "children": [
                 {
-                  "id": "board",
-                  "type": "block",
-                  "content": { "mod": "kanban", "props": { "part": "board" } },
-                  "min": 160
+                  "id": "board-view",
+                  "type": "row",
+                  "gap": 12,
+                  "children": [
+                    {
+                      "id": "board",
+                      "type": "block",
+                      "content": { "mod": "kanban", "props": { "part": "board" } },
+                      "min": 160
+                    },
+                    {
+                      "id": "detail",
+                      "type": "block",
+                      "content": { "agent": "focused" },
+                      "size": { "px": 460 },
+                      "min": 200,
+                      "max": 4000,
+                      "background": "background",
+                      "border": { "width": 1, "color": "border" },
+                      "radius": 14,
+                      "shadow": "md"
+                    }
+                  ]
                 },
                 {
-                  "id": "detail",
+                  "id": "tabs-view",
                   "type": "block",
-                  "content": { "agent": "focused" },
-                  "size": { "px": 460 },
-                  "min": 200,
-                  "max": 4000,
-                  "background": "background",
-                  "border": { "width": 1, "color": "border" },
-                  "radius": 14,
-                  "shadow": "md"
+                  "content": {
+                    "tab": "active",
+                    "pane": {
+                      "header": {
+                        "content": { "mod": "pane" },
+                        "reveal": "always",
+                        "height": 30,
+                        "position": "top"
+                      },
+                      "background": "background",
+                      "border": { "width": 1, "color": "border" },
+                      "focus": { "width": 1, "color": "accent" },
+                      "radius": 10,
+                      "gap": 8,
+                      "lone": true
+                    }
+                  }
                 }
               ]
             },
             {
-              "id": "tabs-view",
-              "type": "block",
-              "padding": 12,
-              "content": {
-                "tab": "active",
-                "pane": {
-                  "header": {
-                    "content": { "mod": "pane" },
-                    "reveal": "always",
-                    "height": 30,
-                    "position": "top"
-                  },
-                  "background": "background",
-                  "border": { "width": 1, "color": "border" },
-                  "focus": { "width": 1, "color": "accent" },
-                  "radius": 10,
-                  "gap": 8,
-                  "lone": true
+              "id": "panel",
+              "type": "column",
+              "children": [
+                {
+                  "id": "panel-body",
+                  "type": "stack",
+                  "active": "files",
+                  "children": [
+                    { "id": "files", "type": "block", "content": { "mod": "files" } },
+                    { "id": "changes", "type": "block", "content": { "mod": "changes" } }
+                  ]
                 }
-              }
+              ],
+              "size": { "px": 368 },
+              "min": 240,
+              "max": 1200,
+              "hidden": true
             }
           ]
         },
