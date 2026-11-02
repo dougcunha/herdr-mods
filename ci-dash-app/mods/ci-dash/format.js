@@ -1,4 +1,19 @@
-// Small formatting helpers for the CI Dash mod.
+// Small helpers for the CI Dash mod.
+
+/** Runs an async mapper over a list with a bounded number of workers. */
+export async function mapLimit(items, limit, mapper) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      out[i] = await mapper(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
 
 export function relTime(iso, now = Date.now()) {
   const t = Date.parse(iso || "");

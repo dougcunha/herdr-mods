@@ -5,7 +5,8 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
-import { relTime, duration, bytes, stateOf, GLYPH } from "./format.js";
+import { relTime, duration, bytes, stateOf, mapLimit, GLYPH } from "./format.js";
+import { Dispatch } from "./dispatch.js";
 
 const MOD = "ci-dash"; // folder name under ~/.config/herdr-app/mods
 const POLL_MS = 5000;
@@ -30,21 +31,9 @@ function location() {
   const inSpace = all.find((p) => spaceTabs.has(p.tab) && p.cwd)?.cwd;
   const cwd = pane?.cwd || f?.cwd || inTab || inSpace || lastCwd || space?.folder;
   if (pane?.cwd || f?.cwd || inTab || inSpace) lastCwd = cwd;
-  return { cwd, on };
-}
-
-async function mapLimit(items, limit, mapper) {
-  const out = new Array(items.length);
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
-    for (;;) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      out[i] = await mapper(items[i], i);
-    }
-  });
-  await Promise.all(workers);
-  return out;
+  // The branch is the one shown next to the folder that was chosen.
+  const branch = (pane?.cwd ? pane : all.find((p) => p.cwd === cwd && p.branch))?.branch || null;
+  return { cwd, on, branch };
 }
 
 async function dirExists(dir, on) {
@@ -62,11 +51,16 @@ async function openFolder(dir) {
 }
 
 export default class CiDash extends View {
-  init(_props, cx) {
-    this.tab = "runs";
-    this.key = null;
+  init(given, cx) {
+    // Read props once, here, and keep them: props() inside a later callback can
+    // answer for another copy. Fall back to props() when the argument is empty.
+    this.props = (given && Object.keys(given).length ? given : props()) || {};
+    const first = this.props.tab;
+    this.tab = ["runs", "dispatch", "artifacts"].includes(first) ? first : "runs";
+    this.key = null; this.branch = null;
     this.resolving = false;
     this.repo = null; this.gh = null; this.root = null; this.error = null;
+    this.dsp = new Dispatch(this);
     this.reset();
     cx.timer.every(POLL_MS, (cx) => this.tick(cx));
   }
@@ -76,12 +70,20 @@ export default class CiDash extends View {
     this.detail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
+    this.dsp.reset();
+  }
+
+  /** Loads what a tab needs the first time it is shown. */
+  enterTab(cx) {
+    if (this.tab === "dispatch") this.dsp.load(cx);
+    else if (this.tab === "artifacts" && !this.art.loaded && !this.art.loading) this.loadArtifactTab(cx);
   }
 
   // ---- repository --------------------------------------------------------
 
   ensureContext(cx) {
-    const { cwd, on } = location();
+    const { cwd, on, branch } = location();
+    if (branch) this.branch = branch;
     const key = `${on ?? ""}|${cwd ?? ""}`;
     if (key === this.key) return;
     this.key = key;
@@ -91,7 +93,7 @@ export default class CiDash extends View {
   resolve(cx, cwd, on) {
     if (this.resolving) { this.pending = { cwd, on }; return; }
     this.resolving = true;
-    const override = props()?.repo;
+    const override = this.props.repo;
     cx.spawn(async (cx) => {
       try {
         if (!cwd && !override) throw new Error("No folder to look for a repository in.");
@@ -102,6 +104,7 @@ export default class CiDash extends View {
           const top = cwd ? await exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }).catch(() => null) : null;
           this.root = top && top.code === 0 ? top.stdout.trim() : cwd;
           this.loadRuns(cx);
+          this.enterTab(cx);
         } else {
           this.gh.cwd = cwd; this.gh.on = on;
         }
@@ -121,6 +124,7 @@ export default class CiDash extends View {
 
   tick(cx) {
     if (!this.gh) return;
+    if (this.dsp.locate) this.dsp.tryLocate(cx);
     const d = this.detail;
     if (d) {
       const holding = d.hold && Date.now() < d.hold;
@@ -330,18 +334,31 @@ export default class CiDash extends View {
 
   header(t, cx) {
     const onArtifacts = this.tab === "artifacts";
-    return h_flex().h(42).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(div().font_semibold().flex_none().child("CI Dash"))
-      .child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.repo ? this.repo.slug : ""))
-      .child(div().flex_1())
-      .child(this.button("tab-runs", "Runs", (cx) => { this.tab = "runs"; this.detail = null; this.note = ""; cx.notify(); }, t, { active: !onArtifacts }))
-      .child(this.button("tab-art", "Artifacts", (cx) => { this.tab = "artifacts"; this.note = ""; if (!this.art.loaded && !this.art.loading) this.loadArtifactTab(cx); else cx.notify(); }, t, { active: onArtifacts }))
-      .when(onArtifacts, (e) => e.child(this.button("folder", "↗", (cx) => this.openArtifactsFolder(cx), t, { disabled: !this.root })))
-      .child(this.button("refresh", "⟳", (cx) => {
-        if (onArtifacts) this.loadArtifactTab(cx);
-        else if (this.detail) { this.detail.artLoaded = false; this.pollDetail(cx); }
-        else this.loadRuns(cx);
-      }, t, { disabled: !this.gh }));
+    const tab = (id, label) => {
+      const active = this.tab === id;
+      return div().id(`tab-${id}`).h(32).px(12).flex_none().flex().items_center().text_size(12)
+        .border_b(2).border_color(active ? t.accent : t.background)
+        .text_color(active ? t.foreground : t.muted).cursor_pointer().hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => {
+          this.tab = id; this.note = "";
+          if (id === "runs") this.detail = null;
+          this.enterTab(cx);
+          cx.notify();
+        }).child(label);
+    };
+    return v_flex().flex_none()
+      .child(h_flex().h(38).flex_none().px(12).gap(8).items_center()
+        .child(div().font_semibold().flex_none().child("CI Dash"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.repo ? this.repo.slug : ""))
+        .when(onArtifacts, (e) => e.child(this.button("folder", "↗", (cx) => this.openArtifactsFolder(cx), t, { disabled: !this.root })))
+        .child(this.button("refresh", "⟳", (cx) => {
+          if (this.tab === "artifacts") this.loadArtifactTab(cx);
+          else if (this.tab === "dispatch") { this.dsp.loaded = false; this.dsp.reset(); this.dsp.load(cx); }
+          else if (this.detail) { this.detail.artLoaded = false; this.pollDetail(cx); }
+          else this.loadRuns(cx);
+        }, t, { disabled: !this.gh })))
+      .child(h_flex().h(32).flex_none().px(4).border_b(1).border_color(t.border)
+        .child(tab("runs", "Runs")).child(tab("dispatch", "Dispatch")).child(tab("artifacts", "Artifacts")));
   }
 
   message(t, title, detail) {
@@ -449,6 +466,7 @@ export default class CiDash extends View {
     let body;
     if (!this.repo) body = this.error ? this.errorView(t, this.error) : this.message(t, "Looking for a GitHub repository…");
     else if (this.tab === "artifacts") body = this.artifactsView(t);
+    else if (this.tab === "dispatch") body = this.dsp.view(t);
     else body = this.detail ? this.detailView(t) : this.runsView(t);
 
     return v_flex().id("ci-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)

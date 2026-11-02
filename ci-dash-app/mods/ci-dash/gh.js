@@ -46,6 +46,16 @@ async function gh(args, { cwd, on } = {}) {
   return result.stdout;
 }
 
+/** The argv of the dispatch call. Kept separate so it can be inspected and tested. */
+export function dispatchArgs(repo, workflowId, ref, inputs) {
+  const args = ["api", "--hostname", repo.host, "--method", "POST", "--header", "Accept: application/vnd.github+json",
+    `repos/${repo.owner}/${repo.name}/actions/workflows/${workflowId}/dispatches`,
+    "-f", `ref=${ref}`];
+  for (const [name, value] of Object.entries(inputs)) args.push("-f", `inputs[${name}]=${value}`);
+  args.push("-F", "return_run_details=true");
+  return args;
+}
+
 /** Finds the GitHub repository of a folder with `gh repo view`. */
 export async function resolveRepo({ cwd, on, override }) {
   const args = ["repo", "view", ...(override ? [override] : []), "--json", "nameWithOwner,url,isPrivate,defaultBranchRef"];
@@ -78,6 +88,39 @@ export class Gh {
   async pages(path, key) {
     const data = await this.json(path, { paginate: true });
     return (Array.isArray(data) ? data : [data]).flatMap((page) => page?.[key] || []);
+  }
+
+  /** A file as raw text. The mod runtime has no Buffer, so never ask for base64. */
+  async rawFile(path, ref) {
+    const args = ["api", "--hostname", this.repo.host, "--header", "Accept: application/vnd.github.raw+json",
+      this.rp(`/contents/${String(path).split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`)];
+    const text = await gh(args, { cwd: this.cwd, on: this.on });
+    if (!text.trim()) throw new GhError(`${path} is empty on ${ref}`);
+    return text;
+  }
+
+  async listBranches() {
+    const pages = await this.json(this.rp("/branches?per_page=100"), { paginate: true });
+    return (Array.isArray(pages) ? pages.flat() : []).map((b) => ({ name: b.name, protected: Boolean(b.protected) }));
+  }
+
+  /**
+   * Starts a workflow run. exec() has no stdin, so the body is sent as fields:
+   * -f keeps every input a string (-F would turn "true" or "12" into JSON types).
+   * Resolves with the new run id when GitHub returns it, else null.
+   */
+  async dispatch(workflowId, ref, inputs) {
+    const args = dispatchArgs(this.repo, workflowId, ref, inputs);
+    const out = (await gh(args, { cwd: this.cwd, on: this.on })).trim();
+    if (!out) return { runId: null };
+    try { const data = JSON.parse(out); return { runId: data.workflow_run_id ?? null }; } catch { return { runId: null }; }
+  }
+
+  async listDispatchRuns(workflowId, { ref, actor, perPage = 20 } = {}) {
+    const params = new URLSearchParams({ event: "workflow_dispatch", per_page: String(perPage) });
+    if (ref) params.set("branch", ref);
+    if (actor) params.set("actor", actor);
+    return (await this.json(this.rp(`/actions/workflows/${workflowId}/runs?${params}`))).workflow_runs || [];
   }
 
   async getLogin() { return (await this.json("user")).login; }
