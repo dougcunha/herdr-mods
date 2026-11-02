@@ -22,12 +22,22 @@ For the Herdr TUI:
 
 `Install and configure ci-dash: https://raw.githubusercontent.com/dougcunha/herdr-plugins/refs/heads/main/ci-dash/README.md`
 
-For the Herdr app:
+For the Herdr app, the CI Dash mod:
 
-`Add this Herdr app mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app`
 
-The agent reads the folder, tells you what the mod runs, and copies it into
-`~/.config/herdr-app/mods/`.
+For the Herdr app, the **CI** side panel (the `main-ci` layout and its mods):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+
+Optional, to open Markdown files from the Files panel:
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/kissmikijr/herdr-markdown-reader`
+
+`AGENTS.md` is the file that the Herdr app writes in its home folder. It tells
+the agent how to add a mod or a layout. The agent reads the folder, tells you
+what the mod runs, and copies it into `~/.config/herdr-app/`. It never
+overwrites a file that exists.
 
 ## Herdr TUI plugins
 

@@ -1,8 +1,11 @@
 # CI Dash side panel for the Herdr app
 
+![CI Dash side panel](preview.png)
+
 Adds a **CI** button to the Herdr app's tab bar. It opens the
 [CI Dash mod](../ci-dash-app) as a side panel, next to Files and Changes. The
 panel remembers, per space, whether it was open.
+[`RECIPE.md`](RECIPE.md) describes the layout and its mods in full.
 
 ## Why a layout and a bar mod come with it
 
@@ -49,7 +52,16 @@ shows the tree again. The reader remembers that choice for each folder.
 
 ## Install
 
-From this folder:
+With an agent (Claude Code or any agent that can read files), paste this prompt.
+The layout needs the `ci-dash` mod from the sibling folder, so the prompt adds it first:
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+
+To open Markdown files from the Files panel, also add the Markdown Reader:
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/kissmikijr/herdr-markdown-reader`
+
+Or install it yourself, from this folder:
 
 ```sh
 node install.mjs
