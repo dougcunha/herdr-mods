@@ -35,6 +35,26 @@ export function duration(from, to = Date.now()) {
   return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
 
+// Artifact names are free text ("Notepad++.gcc.x86_64.Release"), so only a
+// known extension counts as a file type; "Release" or "x86_64" do not.
+const KNOWN_TYPES = new Set([
+  "zip", "7z", "rar", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst", "tar.lz4", "tgz", "gz", "bz2", "xz", "zst",
+  "exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "dll", "pdb", "lib", "obj",
+  "dmg", "pkg", "app", "dylib", "ipa",
+  "deb", "rpm", "apk", "aab", "appimage", "flatpak", "snap", "so", "a",
+  "jar", "war", "ear", "whl", "egg", "nupkg", "snupkg", "vsix", "crate", "gem",
+  "iso", "img", "bin", "wasm", "elf",
+  "pdf", "html", "htm", "json", "xml", "yml", "yaml", "toml", "txt", "log", "csv", "md", "sarif", "lcov", "trx",
+  "xlsx", "docx", "pptx", "png", "jpg", "jpeg", "gif", "svg", "webp", "mp4", "mov", "webm",
+  "sh", "ps1", "bat", "cmd", "py", "js", "ts",
+]);
+
+/** The file extension of an artifact name when it is a known type (`zip`, `exe`, `tar.gz`), else "". */
+export function fileType(name) {
+  const m = /\.(tar\.(?:gz|bz2|xz|zst|lz4)|[a-z0-9]+)$/.exec(String(name || "").toLowerCase());
+  return m && KNOWN_TYPES.has(m[1]) ? m[1] : "";
+}
+
 export function bytes(n) {
   if (!Number.isFinite(n)) return "";
   const units = ["B", "KB", "MB", "GB"];

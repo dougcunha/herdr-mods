@@ -4,7 +4,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
-import { relTime, duration, bytes, stateOf, mapLimit, GLYPH } from "./format.js";
+import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
 import { icon, pill, section, searchBox, filterChip, busy } from "./ui.js";
 
@@ -97,7 +97,7 @@ export default class CiDash extends View {
     this.detail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
-    this.runStatus = "all"; this.artStatus = "all";
+    this.runStatus = "all"; this.artStatus = "all"; this.artType = "all";
     this.runFilter.set_value(""); this.artFilter.set_value("");
     this.dsp.reset();
   }
@@ -106,10 +106,11 @@ export default class CiDash extends View {
   applyFilterProps() {
     if (this.filterPropsApplied) return;
     this.filterPropsApplied = true;
-    const { filter, status } = this.props;
+    const { filter, status, type } = this.props;
     if (filter) { this.runFilter.set_value(String(filter)); this.artFilter.set_value(String(filter)); }
     if (RUN_GROUPS.some((g) => g.id === status)) this.runStatus = status;
     if (ART_GROUPS.some((g) => g.id === status)) this.artStatus = status;
+    if (type) this.artType = String(type).toLowerCase().replace(/^\./, "");
   }
 
   /** Loads what a tab needs the first time it is shown. */
@@ -516,6 +517,7 @@ export default class CiDash extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(14).text_color(a.expired ? t.dim : t.foreground).child(a.name))
         .child(div().flex_none().text_size(11).text_color(t.accent).child(action)))
       .child(h_flex().pl(25).flex_wrap().gap(6).items_center()
+        .when(Boolean(fileType(a.name)), (e) => e.child(pill(t, { label: `.${fileType(a.name)}`, color: t.accent, code: true })))
         .when(Number.isFinite(a.size_in_bytes), (e) => e.child(pill(t, { label: bytes(a.size_in_bytes) })))
         .when(Boolean(a.created_at), (e) => e.child(pill(t, { label: relTime(a.created_at) })))
         .when(a.expired, (e) => e.child(pill(t, { label: "expired", color: t.ansi1 })))
@@ -569,18 +571,33 @@ export default class CiDash extends View {
     const q = this.artFilter.value().trim().toLowerCase();
     const matches = art.groups.flatMap((g) => g.artifacts
       .filter((a) => !q || `${a.name} ${g.workflow.name} ${g.run.head_branch || ""}`.toLowerCase().includes(q))
-      .map((a) => ({ g, a, status: this.artifactStatus(g.run.id, a) })));
-    const count = (id) => matches.filter((m) => m.status === id).length;
+      .map((a) => ({ g, a, status: this.artifactStatus(g.run.id, a), type: fileType(a.name) || "other" })));
     const total = art.groups.reduce((sum, g) => sum + g.artifacts.length, 0);
-    const keep = (m) => this.artStatus === "all" || m.status === this.artStatus;
-    const shown = matches.filter(keep);
+    const statusOk = (m) => this.artStatus === "all" || m.status === this.artStatus;
+    const typeOk = (m) => this.artType === "all" || m.type === this.artType;
+    const shown = matches.filter((m) => statusOk(m) && typeOk(m));
 
-    const chips = [filterChip(t, "af-all", "All", matches.length, this.artStatus === "all", (cx) => { this.artStatus = "all"; cx.notify(); })];
+    // Each row of chips counts what the other one already allows, so a number
+    // is always what you get by clicking that chip.
+    const byStatus = matches.filter(typeOk), byType = matches.filter(statusOk);
+    const count = (id) => byStatus.filter((m) => m.status === id).length;
+    const chips = [filterChip(t, "af-all", "All", byStatus.length, this.artStatus === "all", (cx) => { this.artStatus = "all"; cx.notify(); })];
     for (const g of ART_GROUPS) {
       if (count(g.id) > 0 || this.artStatus === g.id) {
         chips.push(filterChip(t, `af-${g.id}`, g.filter, count(g.id), this.artStatus === g.id, (cx) => { this.artStatus = g.id; cx.notify(); }, g.color(t)));
       }
     }
+
+    // File types come from the names that are on screen, most common first;
+    // names without a known extension are grouped as "other".
+    const typeCounts = new Map();
+    for (const m of byType) typeCounts.set(m.type, (typeCounts.get(m.type) || 0) + 1);
+    if (this.artType !== "all" && !typeCounts.has(this.artType)) typeCounts.set(this.artType, 0);
+    const typeIds = [...typeCounts.keys()].sort((a, b) => (a === "other") - (b === "other") || typeCounts.get(b) - typeCounts.get(a) || a.localeCompare(b));
+    const hasTypes = art.groups.some((g) => g.artifacts.some((a) => fileType(a.name)));
+    const typeChips = hasTypes ? [filterChip(t, "at-all", "All types", byType.length, this.artType === "all", (cx) => { this.artType = "all"; cx.notify(); }),
+      ...typeIds.map((id) => filterChip(t, `at-${id}`, id === "other" ? "other" : `.${id}`, typeCounts.get(id), this.artType === id, (cx) => { this.artType = id; cx.notify(); }))] : [];
+    const filtering = q || this.artStatus !== "all" || this.artType !== "all";
 
     const rows = [];
     for (const g of art.groups) {
@@ -592,14 +609,17 @@ export default class CiDash extends View {
 
     return v_flex().flex_1().min_h(0)
       .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(8)
-        .child(searchBox(t, "art-filter", this.artFilter, { right: q || this.artStatus !== "all" ? `${shown.length}/${total}` : `${total}`, onClear: (cx) => { this.artFilter.set_value(""); cx.notify(); } }))
-        .child(h_flex().flex_wrap().gap(4).children(chips)))
+        .child(searchBox(t, "art-filter", this.artFilter, { right: filtering ? `${shown.length}/${total}` : `${total}`, onClear: (cx) => { this.artFilter.set_value(""); cx.notify(); } }))
+        .child(h_flex().flex_wrap().gap(4).children(chips))
+        .when(typeChips.length > 0, (e) => e.child(h_flex().flex_wrap().gap(4).items_center()
+          .child(div().px(4).flex_none().text_size(11).text_color(t.dim).child("Type"))
+          .children(typeChips))))
       .child(v_flex().id("art-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
         .when(art.failed > 0, (e) => e.child(div().px(14).pt(8).text_size(11).text_color(t.blocked).child(`${art.failed} workflow(s) could not be read.`)))
         .children(rows)
         .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
           .child(div().text_size(12).text_color(t.dim).child("No artifact matches the filters."))
-          .child(this.button("clear-art-filters", "Clear filters", (cx) => { this.artFilter.set_value(""); this.artStatus = "all"; cx.notify(); }, t)))));
+          .child(this.button("clear-art-filters", "Clear filters", (cx) => { this.artFilter.set_value(""); this.artStatus = "all"; this.artType = "all"; cx.notify(); }, t)))));
   }
 
   render(cx) {

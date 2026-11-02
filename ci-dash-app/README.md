@@ -77,8 +77,12 @@ and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
      you press **Dispatch**. The mod then finds the new run and opens it in the
      Runs tab.
 - **Artifacts**: the artifacts of the latest run that produced any, per
-  workflow, with a filter box (name, workflow, branch) and chips (`Available`,
-  `Downloaded`, `Expired`). Click a row to download it to
+  workflow, with a filter box (name, workflow, branch), status chips
+  (`Available`, `Downloaded`, `Expired`) and, when the names allow it, a **Type**
+  row with a chip for each file type found (`.zip`, `.exe`, `.7z`, `.tar.gz`…)
+  and its count. GitHub's list has only names and sizes, so the type is the
+  known extension at the end of the name; anything else is `other`. Click a row
+  to download it to
   `<repo>/.ci-dash/artifacts/<run-id>/<name>`. `↗` opens that folder.
 - The repository follows the focused terminal's folder, falling back to the
   other terminals of the space, then to the last repository found.
@@ -93,6 +97,7 @@ Props of the block (or of `tab.new --props`) are read once when the mod starts:
 | `ref` | Dispatch tab: with `workflow`, also pre-select this branch. It stops at the inputs or the Review step and never dispatches. |
 | `filter` | Text to put in the Runs and Artifacts filter boxes. |
 | `status` | Chip to select: `live`, `attention`, `passed` or `other` (runs); `available`, `downloaded` or `expired` (artifacts). |
+| `type` | Artifacts file type to select, such as `zip` or `exe`. |
 
 Example, read only: `herdr-app do tab.new --mod ci-dash --props '{"tab":"dispatch","workflow":"publish","ref":"main"}'`.
 
