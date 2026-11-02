@@ -9,7 +9,7 @@ This repository has two kinds of tools, one for each way to run Herdr:
 | You run | You install | Folder |
 | ------- | ----------- | ------ |
 | The Herdr **TUI** (in a terminal) | a plugin | [`ci-dash`](ci-dash) |
-| The Herdr **app** (the desktop window) | a mod or a layout | [`ci-dash-app`](ci-dash-app), [`dock-app`](dock-app) and [`image-viewer-app`](image-viewer-app) |
+| The Herdr **app** (the desktop window) | a mod or a layout | [`ci-dash-app`](ci-dash-app), [`dock-app`](dock-app), [`image-viewer-app`](image-viewer-app) and [`git-dash-app`](git-dash-app) |
 
 Plugins and mods are different things. A TUI plugin does not run in the app,
 and an app mod does not run in the TUI. Both show the same CI Dash idea.
@@ -37,6 +37,10 @@ For a **CI** button in the Dock, add the CI Dash mod and then the button:
 For the Herdr app, the Image Viewer mod (shows an image file, with fit and zoom):
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app`
+
+For the Herdr app, the Git Dash mod (pending work of every repository under a base folder, with a **Repos** button in the Dock):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/git-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
 
 Optional, to open Markdown files from the Files panel:
 
@@ -90,6 +94,7 @@ bunx @dougcunha/ci-dash@latest uninstall
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
 | [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds one mod, `tabs-dock`. |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
+| [`git-dash-app`](git-dash-app/README.md) | The Git Dash mod. It scans a base folder and lists the Git repositories with pending work (unpushed commits, stash, changes, conflicts). It has a refresh button and a **Repos** button for the Dock. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)
 
