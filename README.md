@@ -9,7 +9,7 @@ This repository has two kinds of tools, one for each way to run Herdr:
 | You run | You install | Folder |
 | ------- | ----------- | ------ |
 | The Herdr **TUI** (in a terminal) | a plugin | [`ci-dash`](ci-dash) |
-| The Herdr **app** (the desktop window) | a mod | [`ci-dash-app`](ci-dash-app) and [`ci-dash-app-panel`](ci-dash-app-panel) |
+| The Herdr **app** (the desktop window) | a mod | [`ci-dash-app`](ci-dash-app), [`ci-dash-app-panel`](ci-dash-app-panel) and [`image-viewer-app`](image-viewer-app) |
 
 Plugins and mods are different things. A TUI plugin does not run in the app,
 and an app mod does not run in the TUI. Both show the same CI Dash idea.
@@ -28,7 +28,11 @@ For the Herdr app, the CI Dash mod:
 
 For the Herdr app, the **CI** side panel (the `main-ci` layout and its mods):
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+
+For the Herdr app, the Image Viewer mod (shows an image file, with fit and zoom):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app`
 
 Optional, to open Markdown files from the Files panel:
 
@@ -81,6 +85,7 @@ bunx @dougcunha/ci-dash@latest uninstall
 | ------ | ---------- |
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
 | [`ci-dash-app-panel`](ci-dash-app-panel/README.md) | A layout (`main-ci`) that adds a **CI** button to the tab bar. The button opens CI Dash as a side panel next to Files and Changes. It also holds two mod clones, `tabs-ci` and `files-md`. |
+| [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. The `files-md` clone opens it when you click an image in Files. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)
 
@@ -125,7 +130,7 @@ node install.mjs
 herdr-app do layout.switch '{"name":"main-ci"}'
 ```
 
-The installer copies `ci-dash`, `tabs-ci` and `files-md` into
+The installer copies `ci-dash`, `image-viewer`, `tabs-ci` and `files-md` into
 `~/.config/herdr-app/mods/` and the `main-ci` layout into
 `~/.config/herdr-app/layouts/`. It then runs `herdr-app check` on each mod.
 `Ctrl+Shift+L` goes back to the `main` layout.
@@ -140,6 +145,9 @@ redo them.
 you click it in Files. That mod belongs to another author and is not part of
 this repository. Install it if you want this feature. Without it, only
 the click on a `.md` file fails.
+
+A click on an image in Files opens it in the
+[Image Viewer](image-viewer-app/README.md), which is part of this repository.
 
 ## Topics
 

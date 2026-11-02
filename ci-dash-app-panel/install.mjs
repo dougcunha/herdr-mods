@@ -4,6 +4,7 @@
 //   node install.mjs [--dir <herdr-app home>] [--force] [--no-check]
 //
 // - mods/ci-dash     comes from the sibling ../ci-dash-app folder (the mod itself).
+// - mods/image-viewer comes from the sibling ../image-viewer-app folder (images opened from Files).
 // - mods/*           of this folder (tabs-ci, files-md) are copied over as well.
 // - layouts/main-ci  is copied only when absent, so your own edits survive.
 //                    --force replaces it and keeps the old file as *.bak-<time>.
@@ -29,7 +30,7 @@ if (!existsSync(home)) {
 
 console.log(`Installing into ${home}`);
 
-const sources = [join(here, "..", "ci-dash-app", "mods"), join(here, "mods")];
+const sources = [join(here, "..", "ci-dash-app", "mods"), join(here, "..", "image-viewer-app", "mods"), join(here, "mods")];
 const found = new Map(); // mod name -> source folder
 for (const root of sources) {
   if (!existsSync(root)) continue;
@@ -77,6 +78,11 @@ Next steps:
      (or press Ctrl+Shift+L until "main-ci" shows). Ctrl+Shift+L goes back to "main".
   2. Click the CI button in the tab bar to open the panel.
 Requires the GitHub CLI logged in: gh auth login`);
+if (!existsSync(join(home, "mods", "image-viewer"))) {
+  console.log(`
+Note: the Files panel (files-md) opens images in the image-viewer mod, which was not found.
+Run this script from a checkout that has the image-viewer-app folder next to ci-dash-app-panel.`);
+}
 if (!existsSync(join(home, "mods", "markdown-reader"))) {
   console.log(`
 Note: the Files panel (files-md) opens Markdown files in the markdown-reader mod,

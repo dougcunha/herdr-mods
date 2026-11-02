@@ -42,20 +42,34 @@ shows the tree again. The reader remembers that choice for each folder.
   `markdown-reader` and `markdown-reader-pane` folders from the link above. The
   installer prints a note when `mods/markdown-reader` is missing.
 
+## Images open in a viewer
+
+Clicking an image in Files (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`,
+`.svg`, `.ico`, `.tif`, `.tiff`) opens it in the
+[Image Viewer](../image-viewer-app) mod. It works like the Markdown reader: a
+pane to the right of the tab's terminal, one viewer per tab (a second click
+replaces the first viewer), and a dialog when the tab has no terminal. The
+viewer fits the image to the pane, or zooms it from 10% to 800%.
+
+- The viewer is part of this repository, in the `image-viewer-app` folder. The
+  installer copies it with the other mods.
+- Unlike the Markdown reader, the Files panel stays visible.
+- Close the viewer like any other pane.
+
 ## Requirements
 
 - Herdr app 0.1.11 or newer.
 - Node.js 20 or newer, to run the installer.
-- The `ci-dash-app` folder next to this one (the installer takes the mod from
-  there), and the [GitHub CLI](https://cli.github.com/) logged in with
-  `gh auth login`.
+- The `ci-dash-app` and `image-viewer-app` folders next to this one (the
+  installer takes those mods from there), and the
+  [GitHub CLI](https://cli.github.com/) logged in with `gh auth login`.
 
 ## Install
 
 With an agent (Claude Code or any agent that can read files), paste this prompt.
 The layout needs the `ci-dash` mod from the sibling folder, so the prompt adds it first:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
 
 To open Markdown files from the Files panel, also add the Markdown Reader:
 
@@ -70,7 +84,7 @@ herdr-app do layout.switch '{"name":"main-ci"}'
 
 Then click **CI** in the tab bar, top right.
 
-The installer copies `ci-dash`, `tabs-ci` and `files-md` into `~/.config/herdr-app/mods/`
+The installer copies `ci-dash`, `image-viewer`, `tabs-ci` and `files-md` into `~/.config/herdr-app/mods/`
 and `layouts/main-ci.json` into `~/.config/herdr-app/layouts/`, then runs
 `herdr-app check` on each mod.
 
@@ -90,4 +104,4 @@ herdr-app do layout.switch '{"name":"main"}'
 ```
 
 Then delete `mods/tabs-ci`, `mods/files-md` and `layouts/main-ci.json` from the Herdr home
-folder. Delete `mods/ci-dash` too if you no longer want the mod.
+folder. Delete `mods/ci-dash` and `mods/image-viewer` too if you no longer want those mods.
