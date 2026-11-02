@@ -47,8 +47,11 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 | `icon` | A path in the Herdr home: `.svg` (drawn in the text color) or a picture. |
 | `mod` | The folder in `mods/` to show. It must exist. |
 | `props` | Optional. Given to the mod as its `props()`. |
-| `opens` | `"panel"` (default): a block in the side panel. `"tab"`: a tab per space with the mod as its only pane. |
+| `opens` | `"panel"` (default): a block in the side panel. `"tab"`: a tab per space with the mod as its only pane. `"command"`: a button that runs a Herdr command (no `mod`). |
 | `name` | For `"tab"`: the tab name. |
+| `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
+
+A `layout.switch` button saves the shown layout in `shared("layout.previous")` first. The [Kanban](../kanban-app) layout reads it, so its button goes back to the layout you came from.
 
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.

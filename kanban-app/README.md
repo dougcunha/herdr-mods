@@ -31,6 +31,10 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.
+- **Back button:** the top bar has a button with the name of the previous layout (for example `main-dock`). It runs `layout.switch`. The previous layout is the one you came from: `shared("layout.previous")`. Without it, the button uses `props.back` of the bar block, then `main`, then the first other layout.
+- **Button in the other layout:** with the [Dock](../dock-app) layout, add a command entry to `~/.config/herdr-app/dock/panels.json` and the tab bar shows a **Kanban** button that switches to this layout:
+  `{ "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } }`
+  The Dock keeps the name of the layout in `layout.previous` before it switches, so the back button returns there. This needs the `tabs-dock` of this repository (it adds `"opens": "command"`).
 - **Terminals view** shows the tabs of the current space as in the normal layout, so you can still use plain terminals.
 - `agent.next` and `agent.prev` follow the order of the cards on the board.
 - Window buttons, drag area and resize work as in the Dock layout (`titlebar: none`).

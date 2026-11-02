@@ -79,8 +79,9 @@ export function pill(t, { label, symbol, code = false, color }) {
 }
 
 /** A text button. */
-export function button(t, id, label, onClick, { primary = false, symbol } = {}) {
-  return h_flex().id(id).h(32).px(14).gap(7).flex_none().items_center().rounded(9).text_size(12).font_semibold()
+export function button(t, id, label, onClick, { primary = false, symbol, tooltip = "" } = {}) {
+  return h_flex().id(id).h(32).px(14).gap(7).flex_none().max_w(200).items_center().rounded(9).text_size(12).font_semibold()
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .border_1().border_color(primary ? t.accent : t.border)
     .bg(primary ? tint(t.accent, "26") : tint(t.foreground, "0f"))
     .text_color(primary ? t.accent : t.muted)
@@ -88,7 +89,7 @@ export function button(t, id, label, onClick, { primary = false, symbol } = {}) 
     .on_mouse_down("left", stop)
     .on_click((_e, cx) => onClick(cx))
     .when(Boolean(symbol), (e) => e.child(svg(icon(symbol)).size(14).flex_none()))
-    .child(label);
+    .child(div().truncate().child(label));
 }
 
 export { stop };

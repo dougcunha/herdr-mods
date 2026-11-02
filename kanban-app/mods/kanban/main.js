@@ -5,7 +5,7 @@
 // The two parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { agents, spaces, panes, focused, layout, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder } from "herdr";
+import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder } from "herdr";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, stop } from "./ui.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
@@ -36,7 +36,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    newTab: "New tab",
+    newTab: "New tab", backTip: "Switch to the {name} layout",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -53,7 +53,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    newTab: "Nova aba",
+    newTab: "Nova aba", backTip: "Trocar para o layout {name}",
   },
 };
 
@@ -139,6 +139,19 @@ export default class Kanban extends View {
     run("tab.select", { id: a.tab });
     run("pane.focus", { terminal: a.address });
     run("layout.select", { stack: "view", child: "tabs-view" });
+  }
+
+  /** The layout the back button goes to: the one the person came from (saved by the dock
+   *  button or by this button), else props.back, else "main", else the first other layout. */
+  back() {
+    const names = layouts(), here = shared("layout");
+    return [shared("layout.previous"), this.props.back, "main", ...names]
+      .find((n) => typeof n === "string" && n !== here && names.includes(n)) ?? null;
+  }
+
+  goBack(name) {
+    setShared("layout.previous", shared("layout")); // so the other layout can come back here
+    run("layout.switch", { name });
   }
 
   newAgent() { openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }); }
@@ -290,6 +303,7 @@ export default class Kanban extends View {
       .on_click(action).child(glyph);
     const win = w?.platform === "windows";
     const onBoard = view !== "tabs-view";
+    const back = this.back();
 
     return h_flex().size_full().min_w(0).px(14).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .child(div().size(28).rounded(9).flex_none().flex().items_center().justify_center().bg(tint(t.accent, "26"))
@@ -322,6 +336,8 @@ export default class Kanban extends View {
         .child(iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
           { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") })))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
+      .when(Boolean(back), (e) => e.child(button(t, "kb-back", back, () => this.goBack(back),
+        { symbol: "swap", tooltip: this.s("backTip", { name: back }) })))
       .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus" }))
       .when(w?.buttons, (e) => e
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))

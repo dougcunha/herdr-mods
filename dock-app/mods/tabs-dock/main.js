@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, setShared, layout, settings, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
 // The dock: the tab bar draws one button per entry of dock/panels.json, and adds
@@ -10,6 +10,9 @@ import * as fs from "fs/promises";
 // Entry: { id, label, icon, mod, props?, opens?: "panel" | "tab", name? }
 //   opens "panel" (default): a block of the side panel, `mod` with `props`.
 //   opens "tab": a tab per space with `mod` as its only pane (focus it, or make it).
+//   opens "command": a button that runs a Herdr command: { run: "layout.switch", args: { name: "kanban" } }.
+//     A layout.switch first saves the shown layout in shared("layout.previous"), so the
+//     target layout can offer a button back (the Kanban layout does).
 
 const BUILTIN = [
   { id: "files", label: "Files", icon: "mods/files/file.svg" },
@@ -78,17 +81,20 @@ export default class Tabs extends View {
         if (!Array.isArray(list)) throw new Error('expected {"panels": [...]}');
         const seen = new Set(), entries = [];
         for (const raw of list) {
+          const command = raw?.opens === "command";
           const why = !raw || typeof raw !== "object" ? "not an object"
             : !ID.test(String(raw.id)) ? `bad id "${raw.id}" (use a-z, 0-9, -)`
             : seen.has(raw.id) ? `id "${raw.id}" twice`
             : typeof raw.label !== "string" || !raw.label ? `"${raw.id}" has no label`
             : typeof raw.icon !== "string" || !raw.icon ? `"${raw.id}" has no icon`
-            : typeof raw.mod !== "string" || !mods.has(raw.mod) ? `"${raw.id}": mod "${raw.mod}" is not in mods/`
+            : command && (typeof raw.run !== "string" || !raw.run) ? `"${raw.id}" has no run`
+            : !command && (typeof raw.mod !== "string" || !mods.has(raw.mod)) ? `"${raw.id}": mod "${raw.mod}" is not in mods/`
             : null;
           if (why) { problem = problem ?? why; continue; }
           seen.add(raw.id);
           entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props,
-            opens: raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
+            run: command ? raw.run : undefined, args: command && raw.args && typeof raw.args === "object" ? raw.args : {},
+            opens: command ? "command" : raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
         }
         this.entries = entries;
       } else this.entries = [];
@@ -101,7 +107,15 @@ export default class Tabs extends View {
     cx.notify();
   }
 
+  // A command button. Switching layout records where the person came from.
+  runEntry(entry) {
+    if (entry.run === "layout.switch") setShared("layout.previous", shared("layout"));
+    run(entry.run, entry.args ?? {});
+  }
+
   toggle(id) {
+    const command = this.entries.find(e => e.id === id && e.opens === "command");
+    if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     if (!panel || !body?.children?.some(c => c.id === id)) {
       const entry = this.entries.find(e => e.id === id && e.opens === "tab");
@@ -199,7 +213,8 @@ export default class Tabs extends View {
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body?.children ?? []) taken.delete(c.id);
-    const wanted = this.entries.filter(e => !taken.has(e.id) && !BUILTIN.some(b => b.id === e.id));
+    const wanted = this.entries.filter(e => e.opens !== "command" && !taken.has(e.id) && !BUILTIN.some(b => b.id === e.id));
+    const commands = this.entries.filter(e => e.opens === "command");
     const panelEntries = wanted.filter(e => e.opens === "panel");
     const injecting = panel && body ? this.inject(root, body, panelEntries) : false;
 
@@ -225,7 +240,12 @@ export default class Tabs extends View {
       .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
       .on_click(() => showTab(e.mod, e.name))
       .child(e.icon.endsWith(".svg") ? svg(e.icon).size(14) : image(e.icon).size(14)).child(e.label);
-    // Buttons keep the order of the file; panel and tab entries mix as listed.
+    const commandButton = (e) => h_flex().id(`cmd-${e.id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
+      .text_size(12).bg(t.chrome).text_color(t.muted)
+      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
+      .on_click(() => this.runEntry(e))
+      .child(e.icon.endsWith(".svg") ? svg(e.icon).size(14) : image(e.icon).size(14)).child(e.label);
+    // Buttons keep the order of the file; panel and tab entries mix as listed. Commands come last.
     const dynamic = wanted.filter(e => e.opens === "tab" || present.has(e.id));
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
@@ -234,6 +254,7 @@ export default class Tabs extends View {
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
       .children(builtins.map(panelButton))
       .children(dynamic.map(e => (e.opens === "tab" ? tabButton(e) : panelButton(e))))
+      .children(commands.map(commandButton))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs-dock/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/tabs-dock/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
