@@ -38,7 +38,7 @@ One pane with two bands, on the `canvas` background (13 px text):
   - On Windows one `powershell -NoProfile -Command` call checks the size, makes the folder, runs `Copy-Item`, and reads the width and height with `System.Drawing`. It prints `<bytes> <width> <height>`, or `big <bytes>` above 64 MiB. Elsewhere `sh -c` runs `wc -c`, `mkdir -p` and `cp`, and prints `<bytes> 0 0`. Paths go in as quoted arguments, never as shell code.
   - The root element is `v_flex().id("image-viewer")` with `on_size_change`. It stores the visible area (width − 20, height − 62).
   - `close(cx)` deletes the copy (`Remove-Item` or `rm -f`). At start, a sweep deletes copies older than 1 day in `data/image-viewer/`.
-- The Files panel opens it with `pane.split {pane, direction: "right", mod: "image-viewer", props: {file, fileOn}}`, or with `openOverlay` when the tab has no terminal. See the recipe of `ci-dash-app-panel` (mod `files-md`).
+- A Files panel can open it with `pane.split {pane, direction: "right", mod: "image-viewer", props: {file, fileOn}}`, or with `openOverlay` when the tab has no terminal. This repository ships no such Files panel.
 - Programs that the mod runs with `exec`: `powershell` on Windows; `sh`, `rm` and `find` elsewhere. It uses no network.
 
 ## Watch out

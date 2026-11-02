@@ -9,7 +9,7 @@ This repository has two kinds of tools, one for each way to run Herdr:
 | You run | You install | Folder |
 | ------- | ----------- | ------ |
 | The Herdr **TUI** (in a terminal) | a plugin | [`ci-dash`](ci-dash) |
-| The Herdr **app** (the desktop window) | a mod | [`ci-dash-app`](ci-dash-app), [`ci-dash-app-panel`](ci-dash-app-panel) and [`image-viewer-app`](image-viewer-app) |
+| The Herdr **app** (the desktop window) | a mod or a layout | [`ci-dash-app`](ci-dash-app), [`dock-app`](dock-app) and [`image-viewer-app`](image-viewer-app) |
 
 Plugins and mods are different things. A TUI plugin does not run in the app,
 and an app mod does not run in the TUI. Both show the same CI Dash idea.
@@ -26,9 +26,13 @@ For the Herdr app, the CI Dash mod:
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app`
 
-For the Herdr app, the **CI** side panel (the `main-ci` layout and its mods):
+For the Herdr app, the **Dock** layout (a tab bar whose side-panel buttons come from a file, so you add a button without a new clone):
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app and then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app-panel`
+`Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/dock-app`
+
+For a **CI** button in the Dock, add the CI Dash mod and then the button:
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
 
 For the Herdr app, the Image Viewer mod (shows an image file, with fit and zoom):
 
@@ -84,8 +88,8 @@ bunx @dougcunha/ci-dash@latest uninstall
 | Folder | What it is |
 | ------ | ---------- |
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
-| [`ci-dash-app-panel`](ci-dash-app-panel/README.md) | A layout (`main-ci`) that adds a **CI** button to the tab bar. The button opens CI Dash as a side panel next to Files and Changes. It also holds two mod clones, `tabs-ci` and `files-md`. |
-| [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. The `files-md` clone opens it when you click an image in Files. |
+| [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds one mod, `tabs-dock`. |
+| [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)
 
@@ -120,40 +124,28 @@ The mod runs `gh`, `git` and your file manager through the app's `exec`. It
 reaches GitHub through your `gh` login and stores no credentials.
 [`ci-dash-app/RECIPE.md`](ci-dash-app/RECIPE.md) describes it in full.
 
-### Install the side panel
+### Add a **CI** button with the Dock
 
-To get the **CI** button in the tab bar, run the installer from a checkout:
+Install the CI Dash mod (above) and the [`dock-app`](dock-app/README.md)
+layout. Then add one entry to `~/.config/herdr-app/dock/panels.json`:
 
-```sh
-cd ci-dash-app-panel
-node install.mjs
-herdr-app do layout.switch '{"name":"main-ci"}'
+```json
+{ "panels": [ { "id": "ci", "label": "CI", "icon": "mods/ci-dash/ci.svg", "mod": "ci-dash" } ] }
 ```
 
-The installer copies `ci-dash`, `image-viewer`, `tabs-ci` and `files-md` into
-`~/.config/herdr-app/mods/` and the `main-ci` layout into
-`~/.config/herdr-app/layouts/`. It then runs `herdr-app check` on each mod.
-`Ctrl+Shift+L` goes back to the `main` layout.
+The button shows in the tab bar within seconds, and it opens CI Dash as a side
+panel next to Files and Changes. `Ctrl+Shift+L` switches layouts.
 
-The layout and the two clones are copies of Herdr 0.1.11 files. They do not
-receive later Herdr updates. The
-[`ci-dash-app-panel` README](ci-dash-app-panel/README.md) explains how to
-redo them.
-
-`files-md` opens a Markdown file in the
-[Markdown Reader](https://github.com/kissmikijr/herdr-markdown-reader) mod when
-you click it in Files. That mod belongs to another author and is not part of
-this repository. Install it if you want this feature. Without it, only
-the click on a `.md` file fails.
-
-A click on an image in Files opens it in the
-[Image Viewer](image-viewer-app/README.md), which is part of this repository.
+The `main-dock` layout is a copy of a Herdr 0.1.11 file. It does not receive
+later Herdr updates. The [`dock-app` README](dock-app/README.md) explains the
+limits.
 
 ## Topics
 
 This repository is tagged with
-[`herdr-plugin`](https://github.com/topics/herdr-plugin) for the TUI plugin and
-[`herdr-mod`](https://github.com/topics/herdr-mod) for the app mod.
+[`herdr-plugin`](https://github.com/topics/herdr-plugin) for the TUI plugin,
+[`herdr-mod`](https://github.com/topics/herdr-mod) for the app mod and
+[`herdr-layout`](https://github.com/topics/herdr-layout) for the app layout.
 
 ## License
 

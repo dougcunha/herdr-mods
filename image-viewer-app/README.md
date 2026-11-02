@@ -4,7 +4,7 @@
 
 A Herdr app mod that shows one image file: it fits the pane, or you zoom it from 10% to 800% and scroll. It opens PNG, JPEG, GIF, WebP, BMP, SVG, ICO and TIFF files. It never changes the file.
 
-The [CI side panel](../ci-dash-app-panel) opens it when you click an image in the Files panel. You can also open it yourself with `pane.split` or `tab.new` (see below).
+Open it with `pane.split` or `tab.new` (see below), or from a Files panel that calls `pane.split` with this mod.
 [`RECIPE.md`](RECIPE.md) describes the mod in full.
 
 ## Install
@@ -38,8 +38,6 @@ herdr-app do tab.new --name img --mod image-viewer --props '{"file":"/path/to/pi
 ```
 
 Or beside a terminal: `herdr-app do pane.split --pane <pane id> --direction right --mod image-viewer --props '{"file":"/path/to/picture.png"}'`.
-
-With the side panel, click an image in **Files**. It opens to the right of the tab's terminal. A tab keeps one viewer: a second click replaces the first viewer.
 
 ## Props
 

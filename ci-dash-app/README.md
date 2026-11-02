@@ -49,7 +49,8 @@ To bind a key, add `"ctrl-shift-g": "mod.open:ci-dash"` to the `global`
 section of `~/.config/herdr-app/keys.json`.
 
 For a **CI** button in the tab bar that opens it as a side panel next to Files
-and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
+and Changes, use the [`dock-app`](../dock-app) layout and add a `ci` entry to
+its `panels.json`.
 
 ## Use
 

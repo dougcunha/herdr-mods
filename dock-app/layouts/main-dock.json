@@ -1,9 +1,5 @@
 {
   "id": "root",
-  "cloned_from": {
-    "name": "main",
-    "version": "0.1.11"
-  },
   "type": "row",
   "children": [
     {
@@ -79,7 +75,7 @@
           "id": "tabs",
           "type": "block",
           "content": {
-            "mod": "tabs-ci"
+            "mod": "tabs-dock"
           },
           "size": {
             "px": 42
@@ -131,7 +127,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "files-md"
+                        "mod": "files"
                       }
                     },
                     {
@@ -139,13 +135,6 @@
                       "type": "block",
                       "content": {
                         "mod": "changes"
-                      }
-                    },
-                    {
-                      "id": "ci",
-                      "type": "block",
-                      "content": {
-                        "mod": "ci-dash"
                       }
                     }
                   ],
