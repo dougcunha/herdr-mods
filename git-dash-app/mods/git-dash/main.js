@@ -23,7 +23,8 @@ const STR = {
     scanning: "Scanning folders…", analyzing: "Analyzing {done}/{total}", updated: "Updated {t}",
     allClean: "All repositories are clean.", none: "No Git repository found.", noMatch: "No repository matches the filter.",
     noneHint: "Look in {root}, up to {depth} levels deep.", filterPh: "Filter repositories…",
-    moreFiles: "… {n} more file(s)", fetchOn: "Fetch on refresh: on", fetchOff: "Fetch on refresh: off",
+    moreFiles: "… {n} more file(s)", fetchTipOn: "Fetch on refresh: ON. Refresh runs git fetch first, so “behind” counts are current. Slower. Click to turn off.",
+    fetchTipOff: "Fetch on refresh: OFF. Refresh reads local data only (fast). Click to run git fetch on refresh and update “behind” counts.",
     unpushed: "{n} unpushed", staged: "{n} staged", modified: "{n} modified", untracked: "{n} new",
     stash: "{n} stash", conflicts: "{n} conflicts", behind: "↓{n} behind", operation: "{op} in progress",
     noRemote: "No remote", noUpstream: "Branch has no upstream", upstreamGone: "Upstream branch was removed",
@@ -42,7 +43,8 @@ const STR = {
     scanning: "Procurando pastas…", analyzing: "Analisando {done}/{total}", updated: "Atualizado {t}",
     allClean: "Todos os repositórios estão limpos.", none: "Nenhum repositório Git encontrado.", noMatch: "Nenhum repositório combina com o filtro.",
     noneHint: "Busca em {root}, até {depth} níveis.", filterPh: "Filtrar repositórios…",
-    moreFiles: "… mais {n} arquivo(s)", fetchOn: "Fetch ao atualizar: ligado", fetchOff: "Fetch ao atualizar: desligado",
+    moreFiles: "… mais {n} arquivo(s)", fetchTipOn: "Fetch ao atualizar: LIGADO. O refresh roda git fetch antes, então “atrás” fica em dia. Mais lento. Clique para desligar.",
+    fetchTipOff: "Fetch ao atualizar: DESLIGADO. O refresh lê só dados locais (rápido). Clique para rodar git fetch no refresh e atualizar “atrás”.",
     unpushed: "{n} não enviado(s)", staged: "{n} staged", modified: "{n} modificado(s)", untracked: "{n} novo(s)",
     stash: "{n} stash", conflicts: "{n} conflitos", behind: "↓{n} atrás", operation: "{op} em andamento",
     noRemote: "Sem remoto", noUpstream: "Branch sem upstream", upstreamGone: "Upstream removido",
@@ -171,9 +173,11 @@ export default class GitDash extends View {
       .child(svg(icon("repos")).size(16).flex_none().text_color(t.accent))
       .child(div().font_semibold().flex_none().child(this.s("title")))
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.root ? base(this.root) : ""))
-      .child(iconButton(t, "gd-fetch", "download", (cx) => this.toggleFetch(cx), { active: this.fetch }))
-      .child(iconButton(t, "gd-folder", "folder", (cx) => this.chooseFolder(cx)))
-      .child(iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx), { disabled: !this.root, spin: this.loading }));
+      .child(iconButton(t, "gd-fetch", "download", (cx) => this.toggleFetch(cx),
+        { active: this.fetch, tooltip: this.s(this.fetch ? "fetchTipOn" : "fetchTipOff") }))
+      .child(iconButton(t, "gd-folder", "folder", (cx) => this.chooseFolder(cx), { tooltip: this.s("choose") }))
+      .child(iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx),
+        { disabled: !this.root, spin: this.loading, tooltip: this.s("refresh") }));
   }
 
   /** `12 repositories · 5 with pending` on the left, the progress or age on the right. */

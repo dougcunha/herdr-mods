@@ -55,10 +55,11 @@ export function filterChip(t, id, label, count, active, onClick, color) {
     .child(div().h(16).px(6).rounded(8).flex().items_center().text_size(10).bg(active ? t.hover : t.raised).text_color(t.dim).child(String(count)));
 }
 
-/** A square button that holds an icon. `spin` swaps the icon for a spinner. */
-export function iconButton(t, id, name, onClick, { active = false, disabled = false, spin = false } = {}) {
+/** A square button that holds an icon. `spin` swaps the icon for a spinner; `tooltip` is the hover label. */
+export function iconButton(t, id, name, onClick, { active = false, disabled = false, spin = false, tooltip = "" } = {}) {
   const color = disabled ? t.dim : active || spin ? t.accent : t.muted;
   return div().id(id).size(28).flex_none().flex().items_center().justify_center().rounded(7)
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .when(active, (e) => e.bg(tint(t.accent, "26")))
     .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.bg(active ? tint(t.accent, "33") : t.hover)).on_click((_e, cx) => onClick(cx)))
     .child(spin

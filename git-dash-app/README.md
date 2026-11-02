@@ -29,7 +29,7 @@ With the [`dock-app`](../dock-app/README.md) layout, add one entry to `~/.config
 
 ```json
 { "id": "repos", "label": "Repos", "icon": "mods/git-dash/repos.svg", "mod": "git-dash",
-  "props": { "root": "D:/Projetos", "lang": "pt" } }
+  "props": { "root": "D:/Projetos" } }
 ```
 
 The **Repos** button shows in the tab bar next to **Changes** and **CI**. A click shows the panel and a second click hides it.
