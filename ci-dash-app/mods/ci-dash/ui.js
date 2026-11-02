@@ -1,7 +1,7 @@
 // Shared visual pieces of the CI Dash mod: pills, section headers, the search
 // box and the filter chips.
 import { div, svg } from "gpui-kit";
-import { h_flex, Input } from "gpui-base";
+import { v_flex, h_flex, Input } from "gpui-base";
 import { settings } from "herdr";
 
 export const MOD = "ci-dash"; // folder name under ~/.config/herdr-app/mods
@@ -19,7 +19,8 @@ const mono = () => settings().font_family ?? "JetBrains Mono";
 export function pill(t, { label, color, glyph, symbol, spin = false, code = false }) {
   const fg = color || t.muted;
   return h_flex().h(20).px(7).gap(4).flex_none().items_center().rounded(6).text_size(11)
-    .bg(color ? tint(color) : t.raised).text_color(fg)
+    // A neutral pill is a faint wash of the text color, so it shows on both the page and the cards.
+    .bg(color ? tint(color) : tint(t.foreground, "1a")).text_color(fg)
     .when(code, (e) => e.font_family(mono()))
     .when(Boolean(glyph), (e) => e.child(div().flex_none().child(glyph)))
     .when(Boolean(symbol) && !spin, (e) => e.child(svg(icon(symbol)).size(11).flex_none()))
@@ -48,6 +49,53 @@ export function searchBox(t, id, state, { right = "", onClear } = {}) {
     .when(typed && Boolean(onClear), (e) => e.child(div().id(`${id}-clear`).size(18).flex_none().flex().items_center().justify_center()
       .rounded(5).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClear(cx))
       .child(svg(icon("close")).size(11).text_color(t.muted))));
+}
+
+/** A centered spinner with a title and an optional hint, for loading states. */
+export function busy(t, title, detail = "") {
+  return v_flex().flex_1().min_h(0).items_center().justify_center().gap(10).p(24)
+    .child(svg(icon("spinner")).size(22).flex_none().text_color(t.accent).spin(900))
+    .child(div().text_size(13).text_color(t.foreground).child(title))
+    .when(Boolean(detail), (e) => e.child(div().text_size(11).text_color(t.dim).child(detail)));
+}
+
+/** A rounded square holding an icon, tinted with `color`. */
+export function iconTile(t, name, color, size = 28) {
+  return div().size(size).flex_none().flex().items_center().justify_center().rounded(8).bg(tint(color, "26"))
+    .child(svg(icon(name)).size(Math.round(size / 2)).text_color(color));
+}
+
+/** Connected one-choice buttons, such as `true | false`. */
+export function segmented(t, id, options, value, onPick) {
+  return h_flex().id(id).flex_none().self_start().h(28).rounded(8).overflow_hidden().border_1().border_color(t.border)
+    .children(options.map((option, i) => {
+      const on = option === value;
+      return div().id(`${id}-${option}`).h_full().px(16).flex().items_center().text_size(12).cursor_pointer()
+        .when(i > 0, (e) => e.border_l(1).border_color(t.border))
+        .bg(on ? tint(t.accent, "33") : t.background).text_color(on ? t.accent : t.muted).when(on, (e) => e.font_semibold())
+        .hover((s) => s.bg(on ? tint(t.accent, "33") : t.hover))
+        .on_click((_e, cx) => onPick(option, cx)).child(option);
+    }));
+}
+
+/**
+ * Numbered steps joined by lines. Done steps are clickable (`onGo(n)`).
+ * Labels show for every step when `wide`, else only for the current one.
+ */
+export function stepper(t, id, steps, current, wide, onGo) {
+  const items = [];
+  steps.forEach((label, i) => {
+    const n = i + 1, done = n < current, active = n === current;
+    if (i > 0) items.push(div().flex_1().min_w(6).h(1).bg(n <= current ? tint(t.ansi2, "88") : t.border));
+    items.push(h_flex().id(`${id}-${n}`).flex_none().gap(6).items_center().when(done, (e) => e.cursor_pointer().on_click((_e, cx) => onGo(n, cx)))
+      .child(div().size(20).rounded(10).flex_none().flex().items_center().justify_center().text_size(11).font_semibold()
+        .bg(active ? t.accent : done ? tint(t.ansi2, "33") : t.raised)
+        .text_color(active ? t.accent_foreground : done ? t.ansi2 : t.dim)
+        .child(done ? "✓" : String(n)))
+      .when(wide || active, (e) => e.child(div().text_size(12).text_color(active ? t.foreground : done ? t.muted : t.dim)
+        .when(active, (x) => x.font_semibold()).child(label))));
+  });
+  return h_flex().id(id).flex_none().w_full().px(14).py(10).gap(8).items_center().children(items);
 }
 
 /** A selectable filter such as `Failed 2`. */

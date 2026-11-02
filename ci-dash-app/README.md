@@ -57,19 +57,25 @@ and Changes, use [`ci-dash-app-panel`](../ci-dash-app-panel).
   steps, live status, **Open** (browser), **Cancel**, and **Rerun**. Open runs
   poll every 5 s, backing off to 30 s. A notification fires when a run you were
   watching finishes.
-- **Dispatch**: four steps, like the TUI plugin.
-  1. **Workflow**: the active workflows that declare `workflow_dispatch` on the
-     default branch, with a filter box. The list loads the first time the tab
-     opens, one file read per workflow.
+- **Dispatch**: four steps, like the TUI plugin, shown in a step indicator you
+  can click to go back.
+
+  ![CI Dash Dispatch tab: the inputs step](preview-dispatch.png)
+
+  1. **Workflow**: a card for each active workflow that declares
+     `workflow_dispatch` on the default branch, with its number of inputs and
+     the status of its latest run. A filter box narrows the list. The list loads
+     the first time the tab opens, one file read per workflow.
   2. **Branch**: the default and the current branch come first. Tags are not
      listed.
-  3. **Inputs**: every input of `on.workflow_dispatch.inputs`. `string`,
-     `number` and `environment` are text boxes, `boolean` is a true/false
-     toggle, and `choice` is a row of options. Required fields are marked `*`
-     and numbers are checked before dispatch. A workflow with no inputs skips
-     this step.
-  4. **Review**: nothing starts until you press **Dispatch**. The mod then finds
-     the new run and opens it in the Runs tab.
+  3. **Inputs**: a card for every input of `on.workflow_dispatch.inputs`, marked
+     `required` or `optional`, with its type and description. `string`,
+     `number` and `environment` are text boxes, `boolean` is a `true | false`
+     control, and `choice` is a row of options. Numbers and required fields are
+     checked before dispatch. A workflow with no inputs skips this step.
+  4. **Review**: the workflow, the branch and every value. Nothing starts until
+     you press **Dispatch**. The mod then finds the new run and opens it in the
+     Runs tab.
 - **Artifacts**: the artifacts of the latest run that produced any, per
   workflow, with a filter box (name, workflow, branch) and chips (`Available`,
   `Downloaded`, `Expired`). Click a row to download it to

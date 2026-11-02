@@ -6,7 +6,7 @@ import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr"
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
-import { MOD, icon, pill, section, searchBox, filterChip } from "./ui.js";
+import { icon, pill, section, searchBox, filterChip, busy } from "./ui.js";
 
 const POLL_MS = 5000;
 
@@ -447,7 +447,7 @@ export default class CiDash extends View {
 
   runsView(t) {
     if (this.runsError && !this.runs.length) return this.errorView(t, this.runsError);
-    if (!this.runsLoaded) return this.message(t, "Loading runs…");
+    if (!this.runsLoaded) return busy(t, "Loading runs…");
     if (!this.runs.length) return this.message(t, "No workflow runs yet.", "Runs appear here after a workflow executes.");
 
     const q = this.runFilter.value().trim().toLowerCase();
@@ -528,7 +528,7 @@ export default class CiDash extends View {
 
   detailView(t) {
     const d = this.detail, run = d.run;
-    if (!run) return d.error ? this.errorView(t, d.error) : this.message(t, "Loading run…");
+    if (!run) return d.error ? this.errorView(t, d.error) : busy(t, "Loading run…");
     const st = stateOf(run), now = Date.now();
     const dur = duration(run.run_started_at || run.created_at, st.done ? run.updated_at : now);
     return v_flex().flex_1().min_h(0)
@@ -562,8 +562,8 @@ export default class CiDash extends View {
   artifactsView(t) {
     const art = this.art;
     if (art.error) return this.errorView(t, art.error);
-    if (art.loading && !art.loaded) return this.message(t, "Loading artifacts…", "Reading the latest runs of every workflow.");
-    if (!art.loaded) return this.message(t, "Loading artifacts…");
+    if (art.loading && !art.loaded) return busy(t, "Loading artifacts…", "Reading the latest runs of every workflow.");
+    if (!art.loaded) return busy(t, "Loading artifacts…");
     if (!art.groups.length) return this.message(t, "No artifacts found.", "None of the latest runs of any workflow produced artifacts.");
 
     const q = this.artFilter.value().trim().toLowerCase();

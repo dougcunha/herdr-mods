@@ -5,8 +5,8 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { settings } from "herdr";
 import { GhError } from "./gh.js";
 import { parseWorkflowInputs } from "./workflow-inputs.js";
-import { mapLimit } from "./format.js";
-import { icon, pill, searchBox } from "./ui.js";
+import { mapLimit, relTime, stateOf } from "./format.js";
+import { icon, tint, pill, section, searchBox, busy, iconTile, segmented, stepper } from "./ui.js";
 
 const mono = () => settings().font_family ?? "JetBrains Mono";
 
@@ -23,6 +23,7 @@ export class Dispatch {
     this.workflows = []; this.loaded = false; this.loading = false; this.error = null;
     this.workflow = null; this.refs = []; this.ref = ""; this.inputs = []; this.warnings = [];
     this.problem = ""; this.busy = ""; this.notice = ""; this.locate = null; this.autoDone = false; this.login = "";
+    this.stepsWidth = 340;
     this.filter = this.makeFilter("Filter workflows");
     this.refFilter = this.makeFilter("Filter branches");
   }
@@ -242,63 +243,116 @@ export class Dispatch {
 
   // ---- UI ----------------------------------------------------------------
 
+  stepIndex() {
+    return { workflows: 1, refs: 2, inputs: 3, confirm: 4 }[this.step] ?? 0;
+  }
+
+  /** Going back to a finished step keeps what was loaded. */
+  goStep(n, cx) {
+    const target = { 1: "workflows", 2: "refs", 3: "inputs" }[n];
+    if (!target || n >= this.stepIndex() || (target === "inputs" && !this.inputs.length)) return;
+    this.step = target; this.problem = "";
+    cx.notify();
+  }
+
   box(id, state, t) {
-    return div().id(id).h(30).flex_none().px(10).flex().items_center().rounded(8).border_1().border_color(t.border).cursor_text()
+    return div().id(id).h(30).flex_none().px(10).flex().items_center().rounded(8).bg(t.background).border_1().border_color(t.border).cursor_text()
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .child(Input.new(state).h_full().w_full().text_size(12).text_color(t.foreground));
   }
 
+  /** A choice chip; the picked one is tinted with the accent color. */
   chip(id, label, active, onClick, t) {
-    return div().id(id).h(24).px(9).flex_none().flex().items_center().rounded(6).text_size(12).border_1()
-      .border_color(active ? t.accent : t.border).bg(active ? t.selected : t.background)
-      .text_color(active ? t.foreground : t.muted).cursor_pointer().hover((s) => s.bg(t.hover))
+    return div().id(id).h(26).px(10).flex_none().flex().items_center().rounded(7).text_size(12).border_1()
+      .border_color(active ? t.accent : t.border).bg(active ? tint(t.accent, "33") : t.background)
+      .text_color(active ? t.accent : t.muted).cursor_pointer().hover((s) => s.bg(active ? tint(t.accent, "33") : t.hover))
       .on_click((_e, cx) => onClick(cx)).child(label);
   }
 
-  bar(t, backLabel, title) {
-    return h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(this.app.button("dsp-back", backLabel, (cx) => this.back(cx), t))
-      .child(div().flex_1().min_w(0).truncate().font_semibold().child(title));
+  button(id, label, onClick, t) { return this.app.button(id, label, onClick, t); }
+
+  /** The strong call to action: `▶ Dispatch`, `Review →`. */
+  primary(id, label, onClick, t, symbol) {
+    return h_flex().id(id).h(32).px(16).gap(6).flex_none().items_center().rounded(8).bg(t.solid).text_color(t.solid_foreground)
+      .text_size(13).font_semibold().cursor_pointer().hover((s) => s.bg(t.accent)).on_click((_e, cx) => onClick(cx))
+      .when(Boolean(symbol), (e) => e.child(svg(icon(symbol)).size(13).flex_none()))
+      .child(label);
   }
 
-  footer(t, ...buttons) {
-    return h_flex().flex_none().px(12).py(8).gap(8).items_center().justify_end().border_t(1).border_color(t.border).children(buttons);
+  footer(t, left, right) {
+    return h_flex().flex_none().px(14).py(10).gap(8).items_center().justify_between().border_t(1).border_color(t.border)
+      .child(left ?? div()).child(right ?? div());
+  }
+
+  banner(t, text, color, symbol = "info") {
+    return h_flex().flex_none().px(12).py(8).gap(8).items_center().rounded(10).bg(tint(color, "1c")).border_1().border_color(tint(color, "44"))
+      .child(svg(icon(symbol)).size(14).flex_none().text_color(color))
+      .child(div().flex_1().min_w(0).text_size(12).text_color(color).child(text));
+  }
+
+  /** The workflow the next steps are about, and the branch once it is chosen. */
+  summary(t, withRef) {
+    const w = this.workflow;
+    return h_flex().flex_none().px(14).py(8).gap(10).items_center().border_t(1).border_b(1).border_color(t.border)
+      .child(iconTile(t, "play", t.accent))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().truncate().text_size(14).font_semibold().child(w.name))
+        .child(div().truncate().text_size(11).text_color(t.dim).font_family(mono()).child(w.path)))
+      .when(withRef && Boolean(this.ref), (e) => e.child(pill(t, { label: this.ref, symbol: "branch", code: true })));
   }
 
   view(t) {
-    const app = this.app;
-    if (this.busy) return app.message(t, this.busy);
-    switch (this.step) {
-      case "refs": return this.refsView(t);
-      case "inputs": return this.inputsView(t);
-      case "confirm": return this.confirmView(t);
-      case "notice": return v_flex().flex_1().min_h(0)
-        .child(this.bar(t, "‹ Back", this.workflow?.name || "Dispatch"))
-        .child(app.message(t, this.notice, ""));
-      default: return this.workflowsView(t);
-    }
+    const app = this.app, cur = this.stepIndex();
+    let body;
+    if (this.busy) body = busy(t, this.busy);
+    else if (this.step === "refs") body = this.refsView(t);
+    else if (this.step === "inputs") body = this.inputsView(t);
+    else if (this.step === "confirm") body = this.confirmView(t);
+    else if (this.step === "notice") body = this.noticeView(t);
+    else body = this.workflowsView(t);
+    const showSteps = cur > 0 && (this.loaded || this.workflow);
+    return v_flex().flex_1().min_h(0)
+      .when(showSteps, (e) => e.child(stepper(t, "dsp-steps", ["Workflow", "Branch", "Inputs", "Review"], cur, this.stepsWidth >= 420, (n, cx) => this.goStep(n, cx))
+        .on_size_change((size, cx) => { if (Math.abs((this.stepsWidth || 0) - size.width) > 1) { this.stepsWidth = size.width; cx.notify(); } })))
+      .child(body);
+  }
+
+  noticeView(t) {
+    return v_flex().flex_1().min_h(0).p(16).gap(12)
+      .child(this.banner(t, this.notice, t.blocked, "info"))
+      .child(h_flex().child(this.button("dsp-notice-back", "‹ Back", (cx) => { this.step = this.workflow ? "refs" : "workflows"; cx.notify(); }, t)));
   }
 
   workflowsView(t) {
     const app = this.app;
     if (this.error) {
       return v_flex().flex_1().min_h(0).child(app.errorView(t, this.error))
-        .child(this.footer(t, app.button("dsp-retry", "Retry", (cx) => { this.error = null; this.loaded = false; this.load(cx); }, t, { primary: true })));
+        .child(this.footer(t, null, app.button("dsp-retry", "Retry", (cx) => { this.error = null; this.loaded = false; this.load(cx); }, t, { primary: true })));
     }
-    if (!this.loaded) return app.message(t, "Reading workflows…", "Checking which ones can be started manually.");
+    if (!this.loaded) return busy(t, "Reading workflows…", "Checking which ones can be started manually.");
     const query = this.filter.value().trim().toLowerCase();
     const list = query ? this.workflows.filter((w) => `${w.name} ${w.path}`.toLowerCase().includes(query)) : this.workflows;
-    const clear = (cx) => { this.filter.set_value(""); cx.notify(); };
+    const now = Date.now();
     return v_flex().flex_1().min_h(0)
-      .child(v_flex().flex_none().px(12).pt(10).pb(6)
-        .child(searchBox(t, "dsp-filter", this.filter, { right: query ? `${list.length}/${this.workflows.length}` : `${this.workflows.length}`, onClear: clear })))
-      .child(v_flex().id("dsp-wf-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
-        .children(list.map((w) => v_flex().id(`wf-${w.id}`).w_full().flex_none().px(14).py(8).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => this.chooseWorkflow(w, cx))
-          .child(h_flex().gap(10).items_center()
-            .child(div().flex_1().min_w(0).truncate().text_size(14).child(w.name))
-            .child(pill(t, { label: w.inputCount ? `${w.inputCount} input${w.inputCount === 1 ? "" : "s"}` : "no inputs", color: w.inputCount ? t.accent : undefined })))
-          .child(div().truncate().text_size(11).text_color(t.dim).child(w.path))))
+      .child(v_flex().flex_none().px(12).pt(4).pb(6).gap(8)
+        .child(div().px(2).text_size(12).text_color(t.dim).child("Pick a workflow to run by hand."))
+        .child(searchBox(t, "dsp-filter", this.filter, { right: query ? `${list.length}/${this.workflows.length}` : `${this.workflows.length}`, onClear: (cx) => { this.filter.set_value(""); cx.notify(); } })))
+      .child(v_flex().id("dsp-wf-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(12).pt(2).pb(12).gap(8)
+        .children(list.map((w) => {
+          const last = app.runs.find((r) => r.workflow_id === w.id);
+          return v_flex().id(`wf-${w.id}`).w_full().flex_none().p(12).gap(8).rounded(10).bg(t.raised).border_1().border_color(t.border)
+            .cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.chooseWorkflow(w, cx))
+            .child(h_flex().gap(10).items_center()
+              .child(iconTile(t, "play", t.accent))
+              .child(v_flex().flex_1().min_w(0).gap(1)
+                .child(div().truncate().text_size(14).child(w.name))
+                .child(div().truncate().text_size(11).text_color(t.dim).font_family(mono()).child(w.path)))
+              .child(div().flex_none().text_size(16).text_color(t.dim).child("›")))
+            .child(h_flex().pl(38).flex_wrap().gap(6).items_center()
+              .child(pill(t, { label: w.inputCount ? `${w.inputCount} input${w.inputCount === 1 ? "" : "s"}` : "no inputs", color: w.inputCount ? t.accent : undefined }))
+              .when(Boolean(last), (e) => e.child(app.statePill(stateOf(last), t)).child(div().text_size(11).text_color(t.dim).child(`last run ${relTime(last.created_at, now)}`)))
+              .when(!last, (e) => e.child(div().text_size(11).text_color(t.dim).child("no recent run"))));
+        }))
         .when(!list.length, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child("No workflow matches."))));
   }
 
@@ -307,59 +361,68 @@ export class Dispatch {
     const query = this.refFilter.value().trim().toLowerCase();
     const list = query ? this.refs.filter((b) => b.name.toLowerCase().includes(query)) : this.refs;
     return v_flex().flex_1().min_h(0)
-      .child(this.bar(t, "‹ Workflows", this.workflow.name))
-      .child(v_flex().flex_none().px(12).pt(10).pb(6).gap(6)
+      .child(this.summary(t, false))
+      .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(6)
         .child(searchBox(t, "dsp-ref-filter", this.refFilter, { right: query ? `${list.length}/${this.refs.length}` : `${this.refs.length}`, onClear: (cx) => { this.refFilter.set_value(""); cx.notify(); } }))
-        .when(Boolean(this.problem), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(this.problem))))
+        .when(Boolean(this.problem), (e) => e.child(this.banner(t, this.problem, t.ansi1, "info"))))
       .child(v_flex().id("dsp-ref-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8)
-        .children(list.map((b) => h_flex().id(`ref-${b.name}`).w_full().flex_none().h(36).px(14).gap(8).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
+        .child(section(t, "BRANCHES", list.length, t.muted, "Choose where the run starts"))
+        .children(list.map((b) => h_flex().id(`ref-${b.name}`).w_full().flex_none().h(38).px(14).gap(10).items_center().cursor_pointer().hover((s) => s.bg(t.hover))
           .on_click((_e, cx) => this.chooseRef(b.name, cx))
-          .child(svg(icon("branch")).size(13).flex_none().text_color(t.dim))
+          .child(svg(icon("branch")).size(14).flex_none().text_color(b.name === def ? t.accent : t.dim))
           .child(div().flex_1().min_w(0).truncate().font_family(mono()).text_size(12).child(b.name))
           .when(b.name === def, (e) => e.child(pill(t, { label: "default", color: t.accent })))
-          .when(b.name === cur && b.name !== def, (e) => e.child(pill(t, { label: "current" })))))
-        .when(!list.length, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child("No branch matches."))));
+          .when(b.name === cur && b.name !== def, (e) => e.child(pill(t, { label: "current" })))
+          .child(div().flex_none().text_size(16).text_color(t.dim).child("›"))))
+        .when(!list.length, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child("No branch matches."))))
+      .child(this.footer(t, this.button("dsp-back", "‹ Workflows", (cx) => this.goStep(1, cx), t)));
   }
 
   fieldCard(f, t) {
     const setValue = (v, cx) => { f.value = v; cx.notify(); };
     let editor;
     if (f.state) editor = this.box(`in-${f.name}`, f.state, t);
-    else if (f.type === "boolean") {
-      editor = h_flex().gap(6).children(["true", "false"].map((v) => this.chip(`in-${f.name}-${v}`, v, f.value === v, (cx) => setValue(v, cx), t)));
-    } else {
-      editor = h_flex().flex_wrap().gap(6).children(f.options.map((o) => this.chip(`in-${f.name}-${o}`, o, f.value === o, (cx) => setValue(o, cx), t)));
-    }
-    return v_flex().flex_none().px(12).py(8).gap(4)
-      .child(h_flex().gap(6).items_center()
-        .child(div().font_semibold().child(f.name))
-        .when(f.required, (e) => e.child(div().text_color(t.ansi1).child("*")))
-        .child(div().text_size(10).text_color(t.dim).child(f.type)))
+    else if (f.type === "boolean") editor = segmented(t, `in-${f.name}`, ["true", "false"], f.value, setValue);
+    else editor = h_flex().flex_wrap().gap(6).children(f.options.map((o) => this.chip(`in-${f.name}-${o}`, o, f.value === o, (cx) => setValue(o, cx), t)));
+    return v_flex().flex_none().p(12).gap(8).rounded(10).bg(t.raised).border_1().border_color(t.border)
+      .child(h_flex().gap(8).items_center()
+        .child(div().min_w(0).truncate().font_semibold().text_size(13).child(f.name))
+        .child(f.required ? pill(t, { label: "required", color: t.ansi1 }) : pill(t, { label: "optional" }))
+        .child(div().flex_1())
+        .child(pill(t, { label: f.type, code: true })))
       .when(Boolean(f.description), (e) => e.child(div().text_size(11).text_color(t.dim).child(f.description)))
       .child(editor);
   }
 
   inputsView(t) {
     return v_flex().flex_1().min_h(0)
-      .child(this.bar(t, "‹ Branches", this.workflow.name))
-      .child(v_flex().id("dsp-in-scroll").flex_1().min_h(0).overflow_y_scrollbar()
-        .child(div().px(12).pt(10).text_size(11).text_color(t.dim).child(`Run from ${this.ref}`))
-        .children(this.warnings.map((w) => div().px(12).pt(4).text_size(11).text_color(t.blocked).child(w)))
+      .child(this.summary(t, true))
+      .child(v_flex().id("dsp-in-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(12).gap(10)
+        .children(this.warnings.map((w) => this.banner(t, w, t.blocked, "info")))
         .children(this.inputs.map((f) => this.fieldCard(f, t))))
-      .when(Boolean(this.problem), (e) => e.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.ansi1).child(this.problem)))
-      .child(this.footer(t, this.app.button("dsp-review", "Review", (cx) => this.review(cx), t, { primary: true })));
+      .when(Boolean(this.problem), (e) => e.child(v_flex().flex_none().px(12).pb(8).child(this.banner(t, this.problem, t.ansi1, "info"))))
+      .child(this.footer(t, this.button("dsp-back", "‹ Branches", (cx) => this.goStep(2, cx), t), this.primary("dsp-review", "Review →", (cx) => this.review(cx), t)));
   }
 
   confirmView(t) {
-    const rows = [["Workflow", this.workflow.name], ["Branch", this.ref], ...this.inputs.map((f) => [f.name, String(f.state ? f.state.value() : f.value ?? "") || "(empty)"])];
+    const rows = this.inputs.map((f) => [f.name, String(f.state ? f.state.value() : f.value ?? "")]);
     return v_flex().flex_1().min_h(0)
-      .child(this.bar(t, "‹ Back", "Review"))
-      .child(v_flex().id("dsp-confirm-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(6)
-        .child(div().text_size(12).text_color(t.dim).child("Nothing starts until you press Dispatch."))
-        .children(rows.map(([k, v]) => v_flex().flex_none().gap(1)
-          .child(div().text_size(11).text_color(t.dim).child(k))
-          .child(div().text_size(13).child(v)))))
-      .when(Boolean(this.problem), (e) => e.child(div().flex_none().px(12).py(6).text_size(11).text_color(t.ansi1).child(this.problem)))
-      .child(this.footer(t, this.app.button("dsp-go", "Dispatch", (cx) => this.dispatch(cx), t, { primary: true })));
+      .child(this.summary(t, true))
+      .child(v_flex().id("dsp-confirm-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(12).py(12).gap(10)
+        .child(this.banner(t, "Nothing starts until you press Dispatch.", t.accent, "info"))
+        .when(rows.length > 0, (e) => e.child(section(t, "INPUTS", rows.length, t.muted)))
+        .when(rows.length > 0, (e) => e.child(v_flex().flex_none().rounded(10).bg(t.raised).border_1().border_color(t.border).overflow_hidden()
+          .children(rows.map(([k, v], i) => h_flex().w_full().px(12).py(8).gap(12).items_start()
+            .when(i > 0, (x) => x.border_t(1).border_color(t.border))
+            .child(div().w(110).flex_none().truncate().text_size(11).text_color(t.dim).font_family(mono()).child(k))
+            .child(div().flex_1().min_w(0).text_size(12).font_family(mono()).text_color(v === "" ? t.dim : t.foreground).child(v === "" ? "(empty)" : v))))))
+        .when(rows.length === 0, (e) => e.child(h_flex().flex_none().px(12).py(10).gap(10).items_center().rounded(10).bg(t.raised).border_1().border_color(t.border)
+          .child(iconTile(t, "play", t.muted, 24))
+          .child(v_flex().flex_1().min_w(0).gap(1)
+            .child(div().text_size(13).child("No inputs to fill"))
+            .child(div().text_size(11).text_color(t.dim).child(`The run starts on ${this.ref} with the workflow's own defaults.`)))))
+        .when(Boolean(this.problem), (e) => e.child(this.banner(t, this.problem, t.ansi1, "info"))))
+      .child(this.footer(t, this.button("dsp-back", "‹ Back", (cx) => { this.step = this.inputs.length ? "inputs" : "refs"; this.problem = ""; cx.notify(); }, t),
+        this.primary("dsp-go", "Dispatch", (cx) => this.dispatch(cx), t, "play")));
   }
 }
