@@ -9,7 +9,7 @@ This repository has two kinds of tools, one for each way to run Herdr:
 | You run | You install | Folder |
 | ------- | ----------- | ------ |
 | The Herdr **TUI** (in a terminal) | a plugin | [`ci-dash`](ci-dash) |
-| The Herdr **app** (the desktop window) | a mod or a layout | [`ci-dash-app`](ci-dash-app), [`dock-app`](dock-app), [`image-viewer-app`](image-viewer-app) and [`git-dash-app`](git-dash-app) |
+| The Herdr **app** (the desktop window) | a mod, a layout or a theme | [`ci-dash-app`](ci-dash-app), [`dock-app`](dock-app), [`image-viewer-app`](image-viewer-app), [`git-dash-app`](git-dash-app) and [`light-themes-app`](light-themes-app) |
 
 Plugins and mods are different things. A TUI plugin does not run in the app,
 and an app mod does not run in the TUI. Both show the same CI Dash idea.
@@ -45,6 +45,10 @@ For the Herdr app, the Git Dash mod (pending work of every repository under a ba
 For the Herdr app, the Agent Resume mod (starts your Claude Code, Codex, Antigravity and OpenCode sessions again after a reboot):
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/agent-resume-app and follow its README to install the hook of each agent that I have`
+
+For the Herdr app, five light themes (One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light):
+
+`Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-plugins/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
 
 Optional, to open Markdown files from the Files panel:
 
@@ -103,6 +107,7 @@ bunx @dougcunha/ci-dash@latest uninstall
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, done. You can hide any column. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
 | [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod, with hooks for Claude Code and Antigravity and a plugin for OpenCode (Codex needs none). After a reboot, it types the resume command of each agent (for example `claude --resume <id>`) in the shell that replaced its lost terminal. A status bar indicator opens a panel with the settings and the monitored sessions. |
 | [`git-dash-app`](git-dash-app/README.md) | The Git Dash mod. It scans a base folder and lists the Git repositories with pending work (unpushed commits, stash, changes, conflicts). Each card offers the safe fixes (commit, push, pull, publish) after a confirmation, and opens the repository in a terminal or a new space for the other problems. It has a refresh button and a **Repos** button for the Dock. |
+| [`light-themes-app`](light-themes-app/README.md) | Five light themes for `~/.config/herdr-app/themes/`: One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light. The app ships only one light theme (`paper`). |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)
 
