@@ -12,10 +12,33 @@ Code session continues where it stopped.
 
 ## What you see
 
-- A small block at the right of the status bar: `↻ 2 Claude tracked`. The
-  number is the count of terminals that have a recorded Claude session.
+- **The indicator**, at the right of the status bar: a green dot and
+  `Resume on · 2 sessions` (the count of terminals with a recorded Claude
+  session). When you turn auto resume off, the dot is gray and the text is
+  `Resume off`. After a resume, it adds `↻ <n>`.
+- **The panel**: click the indicator, or run the mod command
+  `agent-resume.panel` (bind it in `keys.json`, for example
+  `"global": { "ctrl-alt-r": "agent-resume.panel" }`, or run
+  `herdr-app do agent-resume.panel`).
+
+  ![Agent Resume panel](preview-panel.png)
+
+  - **Auto resume**: on or off. Off stops the automatic resume. The labels
+    stay, so you can turn it on again later.
+  - **Shell wait**: 1 to 30 s (default 4 s). The time a new shell gets before
+    the mod types in it.
+  - **Toast**: on or off. The notification after a resume.
+  - **Monitored sessions**: one row for each recorded terminal: its place, its
+    address, the start of the session id, the flags and the state:
+    `active` (Claude runs), `waiting for resume` (a new shell),
+    `resume failed` (the command ran, Claude did not start), `stopped`
+    (Claude ended in the same shell without `/exit`). **Resume** types the
+    resume command now (only into a shell). **Forget** removes the labels.
+
+  The settings are in `shared("agent-resume.config")`, so they stay after a
+  restart of the app.
 - After a resume, a toast: "2 Claude sessions resumed", with the place of each
-  terminal. The block then shows `2 resumed`.
+  terminal.
 
 ## How it works
 
@@ -31,7 +54,7 @@ Code session continues where it stopped.
 2. **The `agent-resume` mod** (`mods/agent-resume`). Every 3 s it looks for a
    live terminal that has `claude.session`, no agent status and a shell pid
    that is different from `claude.pid`. A different pid means that the shell
-   is new: the old one was lost. After the shell is 4 s old, the mod writes
+   is new: the old one was lost. After the shell wait (default 4 s), the mod writes
    `claude.tried=<id>` and types `claude --resume <id>`. The mark stops a
    second try if the resume fails. The next `SessionStart` removes it.
 
@@ -70,7 +93,7 @@ Or do it by hand:
    { "id": "status-row", "type": "row", "size": { "px": 28 }, "resizable": false,
      "children": [
        { "id": "status", "type": "block", "content": { "mod": "workspace-status" } },
-       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 150 } } ] }
+       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 190 } } ] }
    ```
 
    Herdr's own layouts are read-only: clone one first (`layout.clone`).
