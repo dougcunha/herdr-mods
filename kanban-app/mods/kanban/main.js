@@ -480,14 +480,12 @@ export default class Kanban extends View {
     return svg(icon("moon")).size(14).flex_none().text_color(t.dim);
   }
 
-  /** A card of 2 lines: the program icon, the space and the status mark, then the title and the age.
-   *  The icon tells the program, so the space names the card. While the pointer is on the card,
-   *  the pin and open buttons take the place of the age. */
+  /** A card of 2 lines: the program icon, the space and the status mark, then the title, with no
+   *  age so the title has room. The icon tells the program, so the space names the card. While the
+   *  pointer is on the card, the pin and open buttons show at the end of the title line. */
   summaryCard(a, t) {
     const color = t[a.status] ?? t.idle;
     const pane = panes().find((p) => p.pane === a.pane);
-    const tab = spaces().find((p) => p.id === a.space)?.tabs.find((x) => x.id === a.tab);
-    const since = a.status === "working" ? tab?.working_since ?? tab?.changed_at : tab?.changed_at;
     const selected = a.focused || focused()?.agent === a.address;
     const hot = a.status === "blocked";
     const name = a.program?.name || a.app || "Agent";
@@ -515,7 +513,6 @@ export default class Kanban extends View {
         .child(this.mark(a, t)))
       .child(h_flex().h(20).gap(4).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
-        .when(!over, (e) => e.child(div().flex_none().text_size(10).text_color(t.dim).child(this.age(since))))
         .when(over, (e) => e
           .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
