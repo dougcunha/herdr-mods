@@ -67,6 +67,22 @@ export function iconButton(t, id, name, onClick, { active = false, disabled = fa
       : svg(icon(name)).size(15).text_color(color));
 }
 
+/**
+ * A small text button for a card. It stops the click, so the card under it
+ * does not open or close. `tone`: "primary" (accent), "danger" (red) or none.
+ */
+export function smallButton(t, id, label, onClick, { tone = "", disabled = false, symbol = "", tooltip = "" } = {}) {
+  const color = disabled ? t.dim : tone === "danger" ? t.ansi1 : tone === "primary" ? t.accent : t.muted;
+  const filled = Boolean(tone) && !disabled;
+  return h_flex().id(id).h(24).px(9).gap(5).flex_none().items_center().rounded(6).text_size(11).font_semibold()
+    .border_1().border_color(filled ? color : t.border).bg(filled ? tint(color, "1f") : t.background).text_color(color)
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_click((_e, cx) => { cx.stop_propagation(); if (!disabled) onClick(cx); })
+    .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.bg(filled ? tint(color, "33") : t.hover)))
+    .when(Boolean(symbol), (e) => e.child(svg(icon(symbol)).size(12).flex_none()))
+    .child(label);
+}
+
 /** A text button. */
 export function button(t, id, label, onClick, { primary = false } = {}) {
   return div().id(id).h(30).px(14).flex_none().flex().items_center().rounded(8).text_size(12)

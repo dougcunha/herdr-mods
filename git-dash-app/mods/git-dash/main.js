@@ -1,10 +1,10 @@
 // Git Dash for the Herdr app: the pending work of every Git repository under
 // one base folder. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder } from "herdr";
-import { findRepos, analyze, mapLimit, pending, severity, MAX_REPOS } from "./git.js";
-import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button } from "./ui.js";
+import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { theme, props, shared, setShared, pickFolder, run } from "herdr";
+import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, show, MAX_REPOS } from "./git.js";
+import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint } from "./ui.js";
 
 const KEY_ROOT = "git-dash.root";
 const KEY_FETCH = "git-dash.fetch";
@@ -32,6 +32,20 @@ const STR = {
     otherBranches: "Other branches: {text}", fetchFailed: "Fetch failed", logFailed: "Could not list unpushed commits",
     capped: "Only the first {n} repositories show.",
     now: "just now", ago: "{n}m ago", agoH: "{n}h ago",
+    fix_commit: "Commit", fix_push: "Push", fix_pull: "Pull", fix_publish: "Publish to {remote}",
+    openTab: "Terminal", openSpace: "New space", retryTab: "Run in terminal",
+    openTabTip: "Open a terminal tab in this repository, in the current space, and run git status.",
+    openSpaceTip: "Open this repository in a new space and run git status.",
+    confirmRun: "Run this command?", confirmRunN: "Run these commands?", run: "Run", cancel: "Cancel", running: "Running…",
+    commitPh: "Commit message (Enter to commit)", noMsg: "Type a commit message.",
+    mode_staged: "Staged only", mode_tracked: "Tracked files", mode_all: "All, with new files",
+    allWarn: "New files go into the commit too. Look at the file list before you commit.",
+    done: "Done.", failed: "Failed.",
+    manual: "Resolve by hand: {text}",
+    m_error: "the repository cannot be read", m_conflicts: "conflicts", m_operation: "an operation in progress",
+    m_detached: "detached HEAD", m_diverged: "the branch is ahead and behind its upstream",
+    m_upstreamGone: "the upstream branch was removed", m_manyRemotes: "more than 1 remote and no origin",
+    m_noRemote: "no remote", m_stash: "stash", m_otherBranches: "unpushed commits on other branches",
   },
   pt: {
     title: "Git Dash", choose: "Escolher pasta", refresh: "Atualizar",
@@ -52,6 +66,20 @@ const STR = {
     otherBranches: "Outras branches: {text}", fetchFailed: "Fetch falhou", logFailed: "Falha ao listar commits não enviados",
     capped: "Só os primeiros {n} repositórios aparecem.",
     now: "agora", ago: "há {n} min", agoH: "há {n} h",
+    fix_commit: "Commit", fix_push: "Push", fix_pull: "Pull", fix_publish: "Publicar em {remote}",
+    openTab: "Terminal", openSpace: "Novo space", retryTab: "Rodar no terminal",
+    openTabTip: "Abre uma aba de terminal neste repositório, no space atual, e roda git status.",
+    openSpaceTip: "Abre este repositório em um novo space e roda git status.",
+    confirmRun: "Rodar este comando?", confirmRunN: "Rodar estes comandos?", run: "Rodar", cancel: "Cancelar", running: "Rodando…",
+    commitPh: "Mensagem do commit (Enter faz o commit)", noMsg: "Digite uma mensagem de commit.",
+    mode_staged: "Só staged", mode_tracked: "Arquivos rastreados", mode_all: "Tudo, com arquivos novos",
+    allWarn: "Os arquivos novos também entram no commit. Confira a lista de arquivos antes do commit.",
+    done: "Feito.", failed: "Falhou.",
+    manual: "Resolva à mão: {text}",
+    m_error: "o repositório não pode ser lido", m_conflicts: "conflitos", m_operation: "uma operação em andamento",
+    m_detached: "HEAD destacado", m_diverged: "a branch está à frente e atrás do upstream",
+    m_upstreamGone: "o upstream foi removido", m_manyRemotes: "mais de 1 remoto e nenhum origin",
+    m_noRemote: "sem remoto", m_stash: "stash", m_otherBranches: "commits não enviados em outras branches",
   },
 };
 
@@ -82,6 +110,14 @@ export default class GitDash extends View {
     this.open = new Set();
     this.query = InputState.new({ placeholder: this.s("filterPh") });
     this.query.on("change", (_e, cx) => cx.notify());
+
+    // Fixes. Only one card at a time asks for a confirmation or a commit message.
+    this.ask = null; // { path, kind: "confirm", fix } | { path, kind: "commit", mode }
+    this.running = new Map(); // path -> label of the fix that runs
+    this.result = new Map(); // path -> { ok, out, failed }
+    this.msg = InputState.new({ placeholder: this.s("commitPh") });
+    this.msg.on("change", (_e, cx) => cx.notify());
+    this.msg.on("submit", (_e, cx) => this.commit(cx));
 
     cx.timer.every(30000, (cx) => this.tick(cx));
     if (this.root) this.refresh(cx);
@@ -135,6 +171,7 @@ export default class GitDash extends View {
       const dir = await pickFolder({ prompt: this.s("pickPrompt") }).catch(() => null);
       if (!dir) return;
       this.gen += 1; this.loading = false; this.repos.clear(); this.open.clear();
+      this.ask = null; this.running.clear(); this.result.clear();
       this.root = dir; this.updated = 0; this.scanError = null;
       setShared(KEY_ROOT, dir);
       this.refresh(cx);
@@ -146,6 +183,68 @@ export default class GitDash extends View {
     this.fetch = !this.fetch;
     setShared(KEY_FETCH, this.fetch);
     cx.notify();
+  }
+
+  // ---- fixes -------------------------------------------------------------
+
+  /** Reads one repository again (its operations too), after a fix or a terminal. */
+  refreshOne(path, cx) {
+    const gen = this.gen, root = this.root;
+    cx.spawn(async (cx) => {
+      const found = await findRepos(path, 0).catch(() => null);
+      const same = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+      const entry = found?.find((e) => same(e.path) === same(path))
+        ?? { path, operations: this.repos.get(path)?.operations ?? [] };
+      const r = await analyze({ path, operations: entry.operations }, root);
+      if (gen !== this.gen || !this.repos.has(path)) return;
+      this.repos.set(path, r);
+      cx.notify();
+    });
+  }
+
+  /** Starts a fix: a commit asks for a message, the other fixes ask for a confirmation. */
+  startFix(r, fix, cx) {
+    this.result.delete(r.path);
+    if (fix.id === "commit") {
+      const mode = r.staged ? "staged" : r.modified ? "tracked" : "all";
+      this.ask = { path: r.path, kind: "commit", mode };
+      this.msg.set_value("");
+      this.msg.focus();
+    } else {
+      this.ask = { path: r.path, kind: "confirm", fix };
+    }
+    cx.notify();
+  }
+
+  execute(path, steps, label, cx) {
+    this.ask = null;
+    this.running.set(path, label);
+    this.result.delete(path);
+    cx.spawn(async (cx) => {
+      const res = await runSteps(path, steps);
+      this.running.delete(path);
+      this.result.set(path, res);
+      cx.notify();
+      this.refreshOne(path, cx);
+    });
+    cx.notify();
+  }
+
+  commit(cx) {
+    const a = this.ask;
+    if (!a || a.kind !== "commit") return;
+    const message = this.msg.value().trim();
+    if (!message) { this.result.set(a.path, { ok: false, out: this.s("noMsg") }); cx.notify(); return; }
+    this.execute(a.path, commitSteps(a.mode, message), this.s("fix_commit"), cx);
+  }
+
+  /** Opens the repository in a terminal tab of the current space, or in a new space. */
+  openTerminal(r, where, cx, argv = ["git", "status"]) {
+    const name = base(r.path);
+    if (where === "space") run("space.new", { name, folder: r.path, argv });
+    else run("tab.new", { name, folder: r.path, argv });
+    // The person works in the terminal. Read the repository again later.
+    for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
   }
 
   // ---- formatting --------------------------------------------------------
@@ -212,9 +311,72 @@ export default class GitDash extends View {
       .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(f.path));
   }
 
+  /** The fix area of an open card: buttons, a confirmation or the commit form, then the result. */
+  actions(r, fx, t) {
+    const p = r.path, key = (s) => `${s}-${p}`;
+    const label = this.running.get(p);
+    const res = this.result.get(p);
+    const ask = this.ask?.path === p ? this.ask : null;
+    const code = (step) => div().w_full().truncate().font_family(mono()).text_size(11).text_color(t.foreground).child(show(step));
+    const cancel = smallButton(t, key("gd-cancel"), this.s("cancel"), (cx) => { this.ask = null; cx.notify(); });
+    const panel = (...kids) => v_flex().gap(6).p(8).rounded(8).bg(t.raised).border_1().border_color(t.border).children(kids);
+
+    let main;
+    if (label) {
+      main = h_flex().gap(6).items_center().text_size(11).text_color(t.accent)
+        .child(svg(icon("spinner")).size(12).flex_none().text_color(t.accent).spin(900))
+        .child(`${label} · ${this.s("running")}`);
+    } else if (ask?.kind === "confirm") {
+      const { steps } = ask.fix;
+      main = panel(
+        div().text_size(11).text_color(t.muted).child(this.s(steps.length > 1 ? "confirmRunN" : "confirmRun")),
+        ...steps.map(code),
+        h_flex().gap(6)
+          .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.s(`fix_${ask.fix.id}`, { remote: ask.fix.remote }), cx), { tone: "primary" }))
+          .child(cancel));
+    } else if (ask?.kind === "commit") {
+      const modes = [r.staged && "staged", r.modified && "tracked", r.untracked && "all"].filter(Boolean);
+      const message = this.msg.value().trim();
+      main = panel(
+        h_flex().id(key("gd-msg")).h(30).px(10).items_center().rounded(7).bg(t.background).border_1().border_color(t.input).cursor_text()
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .child(Input.new(this.msg).h_full().flex_1().min_w(0).text_size(12).text_color(t.foreground)),
+        h_flex().flex_wrap().gap(4).children(modes.map((m) =>
+          smallButton(t, key(`gd-mode-${m}`), this.s(`mode_${m}`), (cx) => { ask.mode = m; cx.notify(); },
+            { tone: ask.mode === m ? (m === "all" ? "danger" : "primary") : "" }))),
+        ...(ask.mode === "all" ? [div().text_size(11).text_color(t.ansi1).child(this.s("allWarn"))] : []),
+        ...commitSteps(ask.mode, message || "…").map(code),
+        h_flex().gap(6)
+          .child(smallButton(t, key("gd-commit"), this.s("fix_commit"), (cx) => this.commit(cx), { tone: "primary", disabled: !message }))
+          .child(cancel));
+    } else {
+      main = h_flex().flex_wrap().gap(6)
+        .children(fx.auto.map((f) => smallButton(t, key(`gd-fix-${f.id}`), this.s(`fix_${f.id}`, { remote: f.remote }),
+          (cx) => this.startFix(r, f, cx), { tone: "primary" })))
+        .child(smallButton(t, key("gd-tab"), this.s("openTab"), (cx) => this.openTerminal(r, "tab", cx),
+          { symbol: "terminal", tooltip: this.s("openTabTip") }))
+        .child(smallButton(t, key("gd-space"), this.s("openSpace"), (cx) => this.openTerminal(r, "space", cx),
+          { tooltip: this.s("openSpaceTip") }));
+    }
+
+    const tail = res ? res.out.split("\n").filter(Boolean).slice(-4) : [];
+    return v_flex().id(key("gd-act")).pl(16).pt(4).gap(6)
+      .on_click((_e, cx) => cx.stop_propagation())
+      .when(fx.manual.length > 0, (e) => e.child(div().text_size(11).text_color(t.ansi3)
+        .child(this.s("manual", { text: fx.manual.map((m) => this.s(`m_${m}`)).join(", ") }))))
+      .child(main)
+      .when(Boolean(res), (e) => e.child(v_flex().gap(2).p(8).rounded(8).bg(tint(res.ok ? t.ansi2 : t.ansi1, "14"))
+        .child(div().text_size(11).font_semibold().text_color(res.ok ? t.ansi2 : t.ansi1).child(this.s(res.ok ? "done" : "failed")))
+        .children(tail.map((line) => div().w_full().truncate().font_family(mono()).text_size(10).text_color(t.muted).child(line)))
+        .when(!res.ok && Boolean(res.failed), (x) => x.child(h_flex().pt(4).child(
+          smallButton(t, key("gd-retry"), this.s("retryTab"), (cx) => this.openTerminal(r, "tab", cx, ["git", ...res.failed]),
+            { symbol: "terminal", tone: "danger" }))))));
+  }
+
   repoCard(r, t) {
     const open = this.open.has(r.path);
-    const expandable = !r.error && r.files.length > 0;
+    const fx = fixes(r);
+    const expandable = Boolean(r.error) || r.files.length > 0 || fx.auto.length > 0 || pending(r) || this.result.has(r.path);
     const notes = r.notes.map((n) => this.noteText(n));
     return v_flex().id(`repo-${r.path}`).w_full().flex_none().px(14).py(9).gap(6).border_b(1).border_color(t.border)
       .when(expandable, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => {
@@ -228,9 +390,10 @@ export default class GitDash extends View {
       .when(Boolean(r.error), (e) => e.child(div().pl(16).text_size(11).text_color(t.ansi1).child(r.error)))
       .when(!r.error, (e) => e.child(h_flex().pl(16).flex_wrap().gap(6).items_center().children(this.pills(r, t))))
       .when(notes.length > 0, (e) => e.child(div().pl(16).text_size(11).text_color(t.dim).child(notes.join(" · "))))
-      .when(open && expandable, (e) => e.child(v_flex().pl(16).pt(2)
+      .when(open && expandable && r.files.length > 0, (e) => e.child(v_flex().pl(16).pt(2)
         .children(r.files.slice(0, MAX_FILES).map((f) => this.fileRow(f, t)))
-        .when(r.files.length > MAX_FILES, (x) => x.child(div().h(20).text_size(11).text_color(t.dim).child(this.s("moreFiles", { n: r.files.length - MAX_FILES }))))));
+        .when(r.files.length > MAX_FILES, (x) => x.child(div().h(20).text_size(11).text_color(t.dim).child(this.s("moreFiles", { n: r.files.length - MAX_FILES }))))))
+      .when(open && expandable, (e) => e.child(this.actions(r, fx, t)));
   }
 
   emptyState(t, title, detail, withButton = false) {

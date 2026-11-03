@@ -131,7 +131,7 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
   const r = {
     path: repo,
     name: rel || repo.split(/[\\/]/).pop(),
-    branch: "", upstream: "", ahead: 0, behind: 0,
+    branch: "", upstream: "", ahead: 0, behind: 0, hasAb: false, remotes: [],
     unpushed: 0, byBranch: {}, stash: 0, staged: 0, modified: 0, untracked: 0, conflicts: 0,
     operations: [...operations], notes: [], files: [], error: null,
   };
@@ -193,8 +193,10 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
     let remote = Boolean(r.upstream);
     if (!remote) {
       const rm = await git(repo, ["remote"]);
-      remote = rm.code === 0 ? rm.stdout.trim().length > 0 : true;
+      if (rm.code === 0) r.remotes = rm.stdout.split(/\s+/).filter(Boolean);
+      remote = rm.code === 0 ? r.remotes.length > 0 : true;
     }
+    r.hasAb = hasAb;
 
     if (!remote) {
       r.notes.push({ id: "noRemote" });
@@ -231,6 +233,66 @@ export function pending(r) {
     r.unpushed || r.stash || r.staged || r.modified || r.untracked || r.conflicts || r.operations.length
     || r.notes.some((n) => n.id === "noRemote" || n.id === "aheadOfUpstream"),
   );
+}
+
+/**
+ * What the panel can do for a repository.
+ * `auto`: safe fixes the panel runs after a confirmation. Each has `id` and,
+ * except `commit` (its steps need a message), the Git `steps` to run.
+ * `manual`: problems that need a person; the panel only opens a terminal.
+ * A fix is safe when Git refuses on its own instead of losing work:
+ * `push` only when the branch is not behind, `pull` only as `--ff-only`.
+ */
+export function fixes(r) {
+  const auto = [], manual = [];
+  if (r.error) return { auto, manual: ["error"] };
+  if (r.conflicts) manual.push("conflicts");
+  if (r.operations.length) manual.push("operation");
+  const onBranch = Boolean(r.branch) && !r.branch.startsWith("(");
+  if (!onBranch) manual.push("detached");
+  if (!manual.length) {
+    if (r.staged || r.modified || r.untracked) auto.push({ id: "commit" });
+    if (r.upstream && r.hasAb) {
+      if (r.ahead && r.behind) manual.push("diverged");
+      else if (r.ahead) auto.push({ id: "push", steps: [["push"]] });
+      else if (r.behind) auto.push({ id: "pull", steps: [["pull", "--ff-only"]] });
+    } else if (r.upstream) {
+      manual.push("upstreamGone");
+    } else if (r.byBranch[r.branch]) {
+      const remote = r.remotes.includes("origin") ? "origin" : r.remotes.length === 1 ? r.remotes[0] : "";
+      if (remote) auto.push({ id: "publish", remote, steps: [["push", "-u", remote, r.branch]] });
+      else manual.push("manyRemotes");
+    }
+  }
+  if (r.notes.some((n) => n.id === "noRemote")) manual.push("noRemote");
+  if (r.stash) manual.push("stash");
+  if (r.notes.some((n) => n.id === "otherBranches")) manual.push("otherBranches");
+  return { auto, manual };
+}
+
+/** The Git steps of a commit. `mode`: "staged", "tracked" (git add -u) or "all" (git add -A). */
+export function commitSteps(mode, message) {
+  const add = mode === "all" ? [["add", "-A"]] : mode === "tracked" ? [["add", "-u"]] : [];
+  return [...add, ["commit", "-m", message]];
+}
+
+/** The command line of one step, for the confirmation text. */
+export const show = (step) => ["git", ...step.map((a) => (/[\s"]/.test(a) ? JSON.stringify(a) : a))].join(" ");
+
+/**
+ * Runs `steps` in `repo`, one after the other, and stops at the first failure.
+ * Never rejects. `failed` is the step that failed, so it can run again in a terminal.
+ * `exec` gives Git no input and stops it after 30 s: a password prompt fails here.
+ */
+export async function runSteps(repo, steps) {
+  let out = "";
+  for (const step of steps) {
+    const res = await exec("git", ["-c", "core.quotepath=false", ...step], { cwd: repo })
+      .catch((e) => ({ code: -1, stdout: "", stderr: String(e?.message || e) }));
+    out = `${res.stdout}\n${res.stderr}`.trim();
+    if (res.code !== 0) return { ok: false, out: out || `${show(step)}: exit ${res.code}`, failed: step };
+  }
+  return { ok: true, out };
 }
 
 /** Higher is more urgent. */
