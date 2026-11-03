@@ -5,7 +5,8 @@
 //   claude.pid     = the pid of the shell that runs Claude
 // After a reboot, herdr-core gives each kept terminal a new shell in its last folder.
 // The new shell has a different pid. When this mod sees a labeled terminal with a
-// different pid and no agent in it, it types "claude --resume <id>" in the shell.
+// different pid and no agent in it, it types "claude <flags> --resume <id>" in the shell.
+// <flags> comes from the label claude.args (for example --dangerously-skip-permissions).
 // Before it types, it writes claude.tried=<id>, so a failed resume is not repeated.
 
 import { View, div } from "gpui-kit";
@@ -90,12 +91,15 @@ export default class AgentResume extends View {
     const now = Date.now();
     if (!this.firstSeen[key]) this.firstSeen[key] = now;
     if (now - this.firstSeen[key] < SETTLE_MS) return false;
-    // Only session ids made of safe characters go to the shell.
+    // Only text made of safe characters goes to the shell.
     if (!/^[A-Za-z0-9-]+$/.test(sid)) return false;
+    const flags = (l["claude.args"] ?? "").trim();
+    if (!/^[\w.:/\\= -]*$/.test(flags)) return false;
+    const command = ["claude", flags, "--resume", sid].filter(Boolean).join(" ");
 
     const mark = await hc(["label", t.address, `claude.tried=${sid}`]);
     if (mark.code !== 0) return false;
-    const sent = await hc(["send", t.address, `claude --resume ${sid}`]);
+    const sent = await hc(["send", t.address, command]);
     return sent.code === 0;
   }
 

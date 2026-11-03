@@ -37,8 +37,13 @@ replaced a lost Claude Code terminal, and shows a toast.
   (`workspace-status`) and an `agent-resume` block of 150 px.
 - `herdr` functions: `terminals`, `hc`, `notify`, `theme`.
 - `hooks/herdr-claude-resume.ps1`, a Claude Code hook:
-  - `start` (SessionStart): `hc get $env:HC_TERMINAL_ID --json`, then
-    `hc label <t> claude.session=<id> claude.pid=<pid> claude.tried=`.
+  - `start` (SessionStart): finds the `claude.exe` process above the hook
+    (Win32_Process parents) and reads its command line. It stops if the line
+    has `-p` or `--print`. It keeps the flags, without `--resume`, `-r`,
+    `--continue`, `-c`, `--session-id`, `--fork-session`, `--from-pr` and
+    without prompt text. Then `hc get $env:HC_TERMINAL_ID --json` and
+    `hc label <t> claude.session=<id> claude.pid=<pid> claude.args=<flags> claude.tried=`.
+  - The mod types `claude <claude.args> --resume <id>`.
   - `end` (SessionEnd): only for reason `prompt_input_exit` or `logout`, and
     only when the label is the same session: removes the 3 labels.
   - It does nothing outside herdr-core (no `HC_TERMINAL_ID`) and for
@@ -54,6 +59,9 @@ replaced a lost Claude Code terminal, and shows a toast.
   `HC_TERMINAL_ID`, so the shell gets plain text.
 - After you exit Claude, the terminal status goes back to null. Without the
   `SessionEnd` hook, the next reboot resumes a session that you closed.
+- A `claude -p` run inside a Claude terminal also fires SessionStart with
+  the same `HC_TERMINAL_ID`. Without the `-p` check, it replaces the label of
+  the interactive session.
 - A mod runs only in a shown block. A hidden block never starts.
 - `claude --resume` keeps the same session id. The hook writes the labels
   again with the new pid, and removes `claude.tried`.

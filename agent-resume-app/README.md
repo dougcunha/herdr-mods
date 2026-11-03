@@ -23,7 +23,8 @@ Code session continues where it stopped.
 
 1. **A Claude Code hook** (`hooks/herdr-claude-resume.ps1`).
    - `SessionStart`: writes 2 labels on the herdr-core terminal
-     (`HC_TERMINAL_ID`): `claude.session=<id>` and `claude.pid=<shell pid>`.
+     (`HC_TERMINAL_ID`): `claude.session=<id>`, `claude.pid=<shell pid>` and
+     `claude.args=<flags>`. It skips `claude -p` and sub-agents.
    - `SessionEnd`: when you exit Claude (`/exit`, reason `prompt_input_exit`
      or `logout`), removes the labels. Other reasons (for example a Windows
      shutdown) keep them.
@@ -81,8 +82,11 @@ each open terminal (or run `/resume` in it) to record the session.
 ## Limits
 
 - Claude Code only. Other agents need their own hook and resume command.
-- The mod types `claude --resume <id>` with no other flags. If you start Claude
-  with flags (a model, a permission mode), they are not used again.
+- The hook keeps the flags of the `claude` command (for example
+  `--dangerously-skip-permissions`, `--model opus`) in the label
+  `claude.args`, and the mod uses them again. It drops the session flags
+  (`--resume`, `--continue`, `--session-id`) and any prompt text.
+- `claude -p` (print mode) is not recorded.
 - Claude asks to trust the folder again if the folder is not trusted.
 - The hook is for Windows (PowerShell). On macOS or Linux, write the same hook
   in sh.
