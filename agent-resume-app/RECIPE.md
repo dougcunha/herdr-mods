@@ -1,6 +1,6 @@
 # Agent Resume
 
-A small block at the right of the status bar. After a reboot of Windows (or a
+A small block at the left of the status bar. After a reboot of Windows (or a
 restart of herdr-core), it types `claude --resume <id>` in each shell that
 replaced a lost Claude Code terminal, and shows a toast.
 
@@ -8,9 +8,10 @@ replaced a lost Claude Code terminal, and shows a toast.
 
 ## What you see
 
-- In the status bar, at the right, a block of 190 px, 28 px high: background
+- In the status bar, at the left, a block of 190 px, 28 px high: background
   `chrome`, top border 1 px `border`, text 11.8 px `muted` (`foreground` on
-  hover), items at the right with 10 px side padding and a 6 px gap.
+  hover), items at the left with 14 px side padding (the same as
+  `workspace-status`) and a 6 px gap.
 - The block shows a dot of 7 px (`ansi2` when auto resume is on, else `dim`)
   and `Resume on · <n> sessions` or `Resume off`. After a resume it adds
   `↻ <n>` in `dim`. It has a tooltip.
@@ -64,8 +65,8 @@ replaced a lost Claude Code terminal, and shows a toast.
 - One mod, 2 roles: the panel is the same mod opened with
   `openOverlay({mod: "agent-resume", kind: "popup", at: "pointer", props: {panel: true}})`.
   The copy reads `props().panel` in `init` and starts no scanner.
-- Layout: a `row` of 28 px that holds the `status` block
-  (`workspace-status`) and an `agent-resume` block of 190 px.
+- Layout: a `row` of 28 px that holds an `agent-resume` block of 190 px
+  (first, at the left) and the `status` block (`workspace-status`).
 - `herdr` functions: `terminals`, `hc`, `notify`, `theme`, `props`,
   `openOverlay`, `closeOverlay`, `nextCommand`, `shared`, `setShared`.
 - `hooks/herdr-claude-resume.ps1`, a Claude Code hook:

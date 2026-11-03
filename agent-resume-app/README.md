@@ -12,7 +12,7 @@ Code session continues where it stopped.
 
 ## What you see
 
-- **The indicator**, at the right of the status bar: a green dot and
+- **The indicator**, at the left of the status bar: a green dot and
   `Resume on · 2 sessions` (the count of terminals with a recorded Claude
   session). When you turn auto resume off, the dot is gray and the text is
   `Resume off`. After a resume, it adds `↻ <n>`.
@@ -92,9 +92,12 @@ Or do it by hand:
    ```json
    { "id": "status-row", "type": "row", "size": { "px": 28 }, "resizable": false,
      "children": [
-       { "id": "status", "type": "block", "content": { "mod": "workspace-status" } },
-       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 190 } } ] }
+       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 190 } },
+       { "id": "status", "type": "block", "content": { "mod": "workspace-status" } } ] }
    ```
+
+   The indicator is at the left of the status bar. On a wide monitor, the
+   right end is far from the eye.
 
    Herdr's own layouts are read-only: clone one first (`layout.clone`).
 5. Run `herdr-app check ~/.config/herdr-app/mods/agent-resume`.
