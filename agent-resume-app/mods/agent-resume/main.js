@@ -1,13 +1,17 @@
-// agent-resume: starts the Claude Code sessions again after a reboot.
+// agent-resume: starts the sessions of coding agents again after a reboot.
+// Agents: Claude Code, Codex, Antigravity (agy) and OpenCode (see AGENTS in resume.js).
 //
-// The Claude hook (hooks/herdr-claude-resume.ps1) writes labels on the terminal:
-//   claude.session = the session id
-//   claude.pid     = the pid of the shell that runs Claude
-//   claude.args    = the flags of the claude command (for example --dangerously-skip-permissions)
+// A hook or a plugin of each agent writes labels on its herdr-core terminal:
+//   resume.agent, resume.session (the session id), resume.pid (the shell pid), resume.args (the flags)
 // After a reboot, herdr-core gives each kept terminal a new shell in its last folder.
 // The new shell has a different pid. When this mod sees a labeled terminal with a
-// different pid and no agent in it, it types "claude <flags> --resume <id>" in the shell.
-// Before it types, it writes claude.tried=<id>, so a failed resume is not repeated.
+// different pid and no agent in it, it types the resume command of that agent in the shell.
+// Before it types, it writes resume.tried=<shell pid>, so a failed resume is not repeated.
+//
+// The mod also:
+//   - removes the labels when an agent exits in the same shell (no reboot), and
+//   - records agents that have no hook (mode without a hook): no session id, so it
+//     resumes the last session in the folder.
 //
 // This file has 2 roles:
 //   - In the layout (the status bar): the indicator and the scanner.
@@ -15,12 +19,21 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { notify, theme, props, openOverlay, nextCommand } from "herdr";
-import { config, labeled, inspect, sessionState, resumeNow } from "./resume.js";
+import { notify, theme, props, openOverlay, nextCommand, agents, terminals, hc } from "herdr";
+import {
+  AGENTS, config, labeled, inspect, sessionState, resumeNow, forget,
+  agentForApp, recordWithoutHook, refreshPid,
+} from "./resume.js";
+import { codexSessions, matchCodex } from "./codex.js";
 import { Panel } from "./panel.js";
 
 // Time between 2 scans.
 const SCAN_MS = 3000;
+// An agent that stops its status for this long in the same shell has exited.
+// The delay keeps the labels during a shutdown, when the agents stop before the shells.
+const EXIT_MS = 10000;
+// An agent with no labels for this long has no hook: record it without a session id.
+const NO_HOOK_MS = 10000;
 
 export default class AgentResume extends View {
   init(_p, cx) {
@@ -29,7 +42,12 @@ export default class AgentResume extends View {
       this.panel = new Panel(cx);
       return;
     }
-    this.firstSeen = {}; // "<address>#<pid>" -> time the mod first saw that shell
+    this.firstSeen = {}; // "<address>#<pid>" -> time the mod first saw that new shell
+    this.active = {}; // address -> true after the mod saw an agent status there
+    this.quietSince = {}; // address -> time the agent status went away
+    this.unlabeledSince = {}; // address -> time the mod first saw an agent with no labels
+    this.agentSince = {}; // address -> time the agent started (0: it ran before the mod started)
+    this.scans = 0;
     this.busy = false;
     this.lastCount = 0; // sessions resumed in the last scan that resumed any
     cx.timer.every(SCAN_MS, (cx) => this.scan(cx));
@@ -44,18 +62,56 @@ export default class AgentResume extends View {
   }
 
   scan(cx) {
-    if (this.busy || !config().enabled) return;
-    // A terminal with an agent status runs an agent now: do not touch it.
-    const list = labeled().filter((t) => {
-      const l = t.labels;
-      return !t.status && l["claude.tried"] !== l["claude.session"];
-    });
-    if (list.length === 0) return;
+    if (this.busy) return;
+    const c = config();
+    const now = Date.now();
+    const toResume = [];
+    const toCheckExit = [];
+    const toRefresh = [];
+    const toForget = [];
+    const list = labeled();
+    const appOf = new Map(agents().map((a) => [a.address, agentForApp(a.app)]));
+    for (const t of list) {
+      // Another agent runs in this terminal now: the recorded session is not its session.
+      const runs = appOf.get(t.address);
+      if (t.status && runs && runs !== t.labels["resume.agent"]) {
+        toForget.push(t);
+        delete this.active[t.address];
+        delete this.agentSince[t.address];
+        continue;
+      }
+      if (t.status) {
+        if (!this.active[t.address]) {
+          // The agent started (or the mod started). The first scan cannot know when.
+          // A terminal that the mod just recorded keeps the time it was first seen.
+          if (!(t.address in this.agentSince)) this.agentSince[t.address] = this.scans === 0 ? 0 : now;
+          toRefresh.push(t);
+        }
+        this.active[t.address] = true;
+        delete this.quietSince[t.address];
+        continue;
+      }
+      if (this.active[t.address]) {
+        this.quietSince[t.address] ??= now;
+        if (now - this.quietSince[t.address] >= EXIT_MS) toCheckExit.push(t);
+        continue;
+      }
+      if (c.enabled) toResume.push(t);
+    }
+    const toRecord = this.unlabeledAgents(now, c.noHook);
+    const codexTerms = list.filter((t) => t.status && t.labels["resume.agent"] === "codex");
+    this.scans++;
+
     this.busy = true;
     cx.spawn(async (cx) => {
       const resumed = [];
       try {
-        for (const t of list) {
+        for (const t of toForget) await forget(t.address);
+        for (const t of toCheckExit) await this.checkExit(t);
+        for (const t of toRefresh) await refreshPid(t.address);
+        for (const a of toRecord) await recordWithoutHook(a.address, a.agent);
+        if (codexTerms.length > 0) await this.matchCodex(codexTerms, list);
+        for (const t of toResume) {
           if (await this.tryResume(t)) resumed.push(t);
         }
       } finally {
@@ -64,8 +120,9 @@ export default class AgentResume extends View {
       if (resumed.length === 0) return;
       this.lastCount = resumed.length;
       if (config().toast) {
+        const names = [...new Set(resumed.map((t) => AGENTS[t.labels["resume.agent"]].name))].join(", ");
         notify({
-          title: resumed.length === 1 ? "Claude session resumed" : `${resumed.length} Claude sessions resumed`,
+          title: resumed.length === 1 ? `${names} session resumed` : `${resumed.length} sessions resumed`,
           body: resumed.map((t) => t.labels?.where ?? t.address).join(", "),
           level: "success",
           timeout: 8000,
@@ -75,10 +132,64 @@ export default class AgentResume extends View {
     });
   }
 
+  // Codex: give each Codex terminal its session from the Codex session files.
+  async matchCodex(codexTerms, list) {
+    const sessions = await codexSessions();
+    const terms = codexTerms.map((t) => ({
+      address: t.address,
+      cwd: t.cwd,
+      session: t.labels["resume.session"] ?? "",
+      since: this.agentSince[t.address] ?? 0,
+    }));
+    const taken = list
+      .filter((t) => t.labels["resume.agent"] === "codex" && !codexTerms.includes(t))
+      .map((t) => t.labels["resume.session"])
+      .filter(Boolean);
+    for (const change of matchCodex(terms, sessions, taken)) {
+      await hc(["label", change.address, `resume.session=${change.id}`]);
+    }
+  }
+
+  // Agents (with a pane, not sub-agents) that have no labels after NO_HOOK_MS.
+  // Codex is always recorded (the mod finds its session). The others only with noHook on.
+  unlabeledAgents(now, noHook) {
+    const byAddress = new Map(terminals().map((t) => [t.address, t]));
+    const found = [];
+    const seen = new Set();
+    for (const a of agents()) {
+      const agent = agentForApp(a.app);
+      const term = byAddress.get(a.address);
+      if (!agent || !term || term.parent || term.labels?.["resume.agent"]) continue;
+      if (agent !== "codex" && !noHook) continue;
+      seen.add(a.address);
+      // The first scan cannot know when the agent started: 0.
+      this.unlabeledSince[a.address] ??= this.scans === 0 ? 0 : now;
+      // Codex has no hook to wait for: record it at once, with the time it was first seen.
+      const wait = agent === "codex" ? 0 : NO_HOOK_MS;
+      if (now - (this.unlabeledSince[a.address] || now - NO_HOOK_MS) >= wait) {
+        this.agentSince[a.address] = this.unlabeledSince[a.address];
+        found.push({ address: a.address, agent });
+      }
+    }
+    for (const address of Object.keys(this.unlabeledSince)) {
+      if (!seen.has(address)) delete this.unlabeledSince[address];
+    }
+    return found;
+  }
+
+  // The agent status went away. If the shell is the same, the agent exited: forget it.
+  async checkExit(t) {
+    delete this.active[t.address];
+    delete this.quietSince[t.address];
+    delete this.agentSince[t.address];
+    const info = await inspect(t.address);
+    if (info && !info.status && sessionState(info) === "stopped") await forget(t.address);
+  }
+
   // Returns true when the mod typed the resume command in the terminal.
   async tryResume(t) {
     const info = await inspect(t.address);
-    // Only a new shell (other pid) after a loss. The same pid: Claude ended in this shell.
+    // Only a new shell (other pid) after a loss.
     if (!info || sessionState(info) !== "waiting") return false;
     // Give the new shell time to show its prompt.
     const key = `${info.address}#${info.pid}`;
@@ -94,8 +205,8 @@ export default class AgentResume extends View {
       mod: "agent-resume",
       kind: atPointer ? "popup" : "dialog",
       ...(atPointer ? { at: "pointer" } : {}),
-      width: 420,
-      height: 460,
+      width: 440,
+      height: 520,
       props: { panel: true },
     });
   }
@@ -132,7 +243,7 @@ export default class AgentResume extends View {
     const last = this.lastCount > 0
       ? ` Last resume: ${this.lastCount} ${this.lastCount === 1 ? "session" : "sessions"}.`
       : "";
-    return (on ? "Agent Resume monitors your Claude sessions." : "Agent Resume is off.")
+    return (on ? "Agent Resume monitors your agent sessions." : "Agent Resume is off.")
       + last + " Click to open the panel.";
   }
 }

@@ -42,9 +42,9 @@ For the Herdr app, the Git Dash mod (pending work of every repository under a ba
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/git-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
 
-For the Herdr app, the Agent Resume mod (starts your Claude Code sessions again after a reboot):
+For the Herdr app, the Agent Resume mod (starts your Claude Code, Codex, Antigravity and OpenCode sessions again after a reboot):
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/agent-resume-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/agent-resume-app and follow its README to install the hook of each agent that I have`
 
 Optional, to open Markdown files from the Files panel:
 
@@ -101,7 +101,7 @@ bunx @dougcunha/ci-dash@latest uninstall
 | [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds two mods: `tabs-dock` and `files-md` (the Files panel that opens Markdown and images in their own mods). |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, done. You can hide any column. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
-| [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod and its Claude Code hook. After a reboot, it types `claude --resume <id>` in each shell that replaced a lost Claude Code terminal. |
+| [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod, with hooks for Claude Code and Antigravity and a plugin for OpenCode (Codex needs none). After a reboot, it types the resume command of each agent (for example `claude --resume <id>`) in the shell that replaced its lost terminal. A status bar indicator opens a panel with the settings and the monitored sessions. |
 | [`git-dash-app`](git-dash-app/README.md) | The Git Dash mod. It scans a base folder and lists the Git repositories with pending work (unpushed commits, stash, changes, conflicts). It has a refresh button and a **Repos** button for the Dock. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)

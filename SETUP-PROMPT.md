@@ -38,6 +38,7 @@ For each item, read the `README.md` and the `RECIPE.md` of the folder before you
 3. `git-dash-app`: the `git-dash` mod.
 4. `image-viewer-app`: the `image-viewer` mod.
 5. `kanban-app`: the `kanban` layout and the `kanban` mod.
+6. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
 
 Do not install the `ci-dash` folder (the one without `-app`). It is a Herdr TUI plugin and does not run in the app.
 
@@ -112,6 +113,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to t
 1. `herdr-app status` must show no errors. No `*.error` file may exist in `~/.config/herdr-app`.
 2. Every installed mod passed `herdr-app check`.
 3. The layouts `main-dock` and `kanban` show up with `ctrl-shift-l`.
+4. The `main-dock` status bar shows `Resume on · <n> sessions` at the left.
 
 ## Final report
 

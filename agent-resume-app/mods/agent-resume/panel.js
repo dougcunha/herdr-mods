@@ -5,7 +5,7 @@ import { div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
 import {
-  config, setConfig, labeled, inspect, sessionState, resumeNow, forget,
+  AGENTS, config, setConfig, labeled, inspect, sessionState, resumeNow, forget,
   SETTLE_MIN_MS, SETTLE_MAX_MS,
 } from "./resume.js";
 
@@ -68,12 +68,14 @@ export class Panel {
       .text_color(t.foreground)
       .child(this.header(t))
       .child(this.section(t, "Settings"))
-      .child(this.settingRow(t, "Auto resume", "Type claude --resume in each new shell after a reboot.",
+      .child(this.settingRow(t, "Auto resume", "Type the resume command in each new shell after a reboot.",
         this.toggle(t, "set-enabled", c.enabled, () => setConfig({ enabled: !c.enabled }))))
       .child(this.settingRow(t, "Shell wait", "Time a new shell gets before the mod types in it.",
         this.stepper(t, c.settleMs)))
       .child(this.settingRow(t, "Toast", "Show a notification after a resume.",
         this.toggle(t, "set-toast", c.toast, () => setConfig({ toast: !c.toast }))))
+      .child(this.settingRow(t, "Agents without a hook", "Record them too, and resume the last session in the folder.",
+        this.toggle(t, "set-nohook", c.noHook, () => setConfig({ noHook: !c.noHook }))))
       .child(this.section(t, `Monitored sessions (${rows.length})`))
       .child(
         v_flex()
@@ -85,13 +87,13 @@ export class Panel {
           .gap(6)
           .when(rows.length === 0, (el) => el.child(
             div().py(10).text_color(t.muted)
-              .child("No Claude session is recorded. Start Claude in a terminal of Herdr."),
+              .child("No agent session is recorded. Start an agent in a terminal of Herdr."),
           ))
           .children(rows.map((info) => this.sessionRow(t, info))),
       )
       .child(
         div().px(14).py(8).border_t(1).border_color(t.border).text_size(11.5).text_color(t.dim)
-          .child(this.message ?? "Sessions that started before the hook was installed are not recorded."),
+          .child(this.message ?? "Without a hook, the mod resumes the last session in the folder."),
       );
   }
 
@@ -157,8 +159,9 @@ export class Panel {
     const address = info.address;
     const state = info.pid !== undefined ? sessionState(info) : "active";
     const color = { active: t.ansi2, waiting: t.working, failed: t.blocked, stopped: t.dim }[state];
-    const sid = (l["claude.session"] ?? "").slice(0, 8);
-    const flags = l["claude.args"] ? ` · ${l["claude.args"]}` : "";
+    const agent = AGENTS[l["resume.agent"]]?.name ?? l["resume.agent"];
+    const sid = l["resume.session"] ? l["resume.session"].slice(0, 8) : "last session";
+    const flags = l["resume.args"] ? ` · ${l["resume.args"]}` : "";
     const busy = this.busy[address];
 
     return h_flex()
@@ -170,7 +173,8 @@ export class Panel {
           .child(h_flex().gap(6).items_center()
             .child(div().flex_none().size(7).rounded(4).bg(color))
             .child(div().truncate().font_semibold().child(l.where ?? address)))
-          .child(div().truncate().text_size(11.5).text_color(t.dim).child(`${address} · ${sid}${flags}`))
+          .child(div().truncate().text_size(11.5).text_color(t.muted).child(`${agent} · ${address}`))
+          .child(div().truncate().text_size(11.5).text_color(t.dim).child(`${sid}${flags}`))
           .child(div().text_size(11.5).text_color(color).child(STATE_TEXT[state])),
       )
       .child(
