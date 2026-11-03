@@ -15,9 +15,24 @@ const KEY_QUERY = "kanban.query"; // the search text
 const KEY_SCOPE = "kanban.scope"; // "all" | "space"
 const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: columns share the board
 const KEY_ORDER = "kanban.order"; // ids of the columns, left to right; absent: the order of COLUMNS
+const KEY_DENSITY = "kanban.density"; // "auto" | "compact" | "normal"; absent: auto
+const KEY_CARDS = "kanban.cards"; // "auto" | "summary" | "full"; absent: auto (summary while the board is compact)
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
+const MIN_COLUMN_COMPACT = 120; // the same, in compact density
+const GAP = 12, GAP_COMPACT = 8; // between the columns
+
+// Density. The button in the bar goes auto -> compact -> normal -> auto.
+// Auto makes each part compact by its own width (on_size_change, the same px as .w()):
+// the bar below BAR_WIDE, the board below COLUMN_WIDE for each visible column.
+const DENSITIES = ["auto", "compact", "normal"];
+// Card view. The button in the bar goes auto -> summary -> full -> auto.
+const CARD_VIEWS = ["auto", "summary", "full"];
+const BAR_WIDE = 1650;
+const COLUMN_WIDE = 220;
+// In compact density these 2 columns share one place, one under the other.
+const STACKED = ["done", "idle"];
 
 // The shell under the board: one core terminal with this name, outside every tab, shown by a
 // layout block { "terminal": "<address>" } with the id SHELL_ID. The bar adds the block the first time.
@@ -60,6 +75,12 @@ const STR = {
     narrower: "Narrower columns", wider: "Wider columns",
     moveLeft: "Move this column left", moveRight: "Move this column right",
     shellOn: "Hide the shell under the board", shellOff: "Show a shell under the board",
+    density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
+    densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
+    densityTip: "Density: {mode}. Click to switch to {next}.",
+    cards_auto: "Auto", cards_summary: "Summary", cards_full: "Full",
+    cardsAuto: "Auto (summary in compact density)",
+    cardsTip: "Cards: {mode}. Click to switch to {next}.",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -81,6 +102,12 @@ const STR = {
     narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
     moveLeft: "Mover esta coluna para a esquerda", moveRight: "Mover esta coluna para a direita",
     shellOn: "Ocultar o shell abaixo do quadro", shellOff: "Mostrar um shell abaixo do quadro",
+    density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
+    densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
+    densityTip: "Densidade: {mode}. Clique para mudar para {next}.",
+    cards_auto: "Auto", cards_summary: "Resumido", cards_full: "Completo",
+    cardsAuto: "Auto (resumido na densidade compacta)",
+    cardsTip: "Cartões: {mode}. Clique para mudar para {next}.",
   },
 };
 
@@ -205,6 +232,40 @@ export default class Kanban extends View {
     const now = WIDTHS.indexOf(this.maxWidth());
     const next = Math.min(WIDTHS.length - 1, Math.max(0, (now < 0 ? WIDTHS.length - 1 : now) + dir));
     setShared(KEY_WIDTH, WIDTHS[next]);
+  }
+
+  density() {
+    const d = shared(KEY_DENSITY);
+    return DENSITIES.includes(d) ? d : "auto";
+  }
+
+  stepDensity() {
+    const i = DENSITIES.indexOf(this.density());
+    setShared(KEY_DENSITY, DENSITIES[(i + 1) % DENSITIES.length]);
+  }
+
+  cardView() {
+    const v = shared(KEY_CARDS);
+    return CARD_VIEWS.includes(v) ? v : "auto";
+  }
+
+  stepCardView() {
+    const i = CARD_VIEWS.indexOf(this.cardView());
+    setShared(KEY_CARDS, CARD_VIEWS[(i + 1) % CARD_VIEWS.length]);
+  }
+
+  /** True when the cards show summarized. Auto follows the density of the board. */
+  summary(boardCompact) {
+    const v = this.cardView();
+    return v === "auto" ? boardCompact : v === "summary";
+  }
+
+  /** True when this part shows compact. `width`: what on_size_change gave (undefined before the
+   *  first layout; the same px as .w() and .gap()). `wide`: the width below which Auto is compact. */
+  compact(width, wide) {
+    const d = this.density();
+    if (d !== "auto") return d === "compact";
+    return typeof width === "number" && width < wide;
   }
 
   /** Agents after the scope and the search text. */
@@ -401,13 +462,13 @@ export default class Kanban extends View {
 
   // ---- the board -------------------------------------------------------------
 
-  glyph(a, t) {
+  glyph(a, t, compact = false) {
     const prog = a.program ?? {};
     const tile = prog.tile || tint(t.foreground, "14");
     const inner = prog.icon
-      ? (prog.tint ? svg(prog.icon).size(15).text_color(prog.color || t.foreground) : image(prog.icon).size(17))
-      : svg(icon("bot")).size(15).text_color(t.muted);
-    return div().size(28).rounded(9).flex_none().flex().items_center().justify_center().bg(tile).child(inner);
+      ? (prog.tint ? svg(prog.icon).size(compact ? 13 : 15).text_color(prog.color || t.foreground) : image(prog.icon).size(compact ? 15 : 17))
+      : svg(icon("bot")).size(compact ? 13 : 15).text_color(t.muted);
+    return div().size(compact ? 24 : 28).rounded(compact ? 8 : 9).flex_none().flex().items_center().justify_center().bg(tile).child(inner);
   }
 
   /** The status mark at the right of a card: it moves for working and for needs you. */
@@ -419,7 +480,48 @@ export default class Kanban extends View {
     return svg(icon("moon")).size(14).flex_none().text_color(t.dim);
   }
 
-  card(a, t) {
+  /** A card of 2 lines: the program icon, the space and the status mark, then the title and the age.
+   *  The icon tells the program, so the space names the card. While the pointer is on the card,
+   *  the pin and open buttons take the place of the age. */
+  summaryCard(a, t) {
+    const color = t[a.status] ?? t.idle;
+    const pane = panes().find((p) => p.pane === a.pane);
+    const tab = spaces().find((p) => p.id === a.space)?.tabs.find((x) => x.id === a.tab);
+    const since = a.status === "working" ? tab?.working_since ?? tab?.changed_at : tab?.changed_at;
+    const selected = a.focused || focused()?.agent === a.address;
+    const hot = a.status === "blocked";
+    const name = a.program?.name || a.app || "Agent";
+    const title = (a.title || "").trim();
+    const head = a.space_name || name;
+    const line = title && title !== name ? title : [name, pane?.branch].filter(Boolean).join(" · ");
+    const over = this.hoverCard === a.address;
+    const small = (id, symbol, action, tooltip, active = false) => iconButton(t, `${id}-${a.address}`, symbol, action,
+      { active, tooltip, size: 20, glyph: 11, color: active ? t.accent : t.dim });
+
+    return v_flex().id(`card-${a.address}`).w_full().flex_none().px(9).py(7).gap(4).rounded(9).cursor_pointer()
+      .bg(selected ? t.raised : t.background)
+      .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : t.border)
+      .when(selected || hot, (e) => e.shadow_md())
+      .hover((s) => s.bg(t.raised))
+      .on_hover((hovered, cx) => {
+        const next = hovered ? a.address : this.hoverCard === a.address ? null : this.hoverCard;
+        if (next !== this.hoverCard) { this.hoverCard = next; cx.notify(); }
+      })
+      .on_click(() => this.select(a))
+      .child(h_flex().gap(7).items_center()
+        .child(this.glyph(a, t, true).size(20).rounded(6))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().text_color(t.foreground).child(head))
+        .when(a.pinned && !over, (e) => e.child(svg(icon("pin")).size(11).flex_none().text_color(t.accent)))
+        .child(this.mark(a, t)))
+      .child(h_flex().h(20).gap(4).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
+        .when(!over, (e) => e.child(div().flex_none().text_size(10).text_color(t.dim).child(this.age(since))))
+        .when(over, (e) => e
+          .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
+          .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
+  }
+
+  card(a, t, compact = false) {
     const color = t[a.status] ?? t.idle;
     const pane = panes().find((p) => p.pane === a.pane);
     const tab = spaces().find((p) => p.id === a.space)?.tabs.find((x) => x.id === a.tab);
@@ -432,7 +534,7 @@ export default class Kanban extends View {
     const folder = base(pane?.cwd);
     const tabLabel = /^\d+$/.test(String(a.tab_name)) ? "" : a.tab_name;
 
-    return v_flex().id(`card-${a.address}`).w_full().flex_none().p(12).gap(9).rounded(12).cursor_pointer()
+    return v_flex().id(`card-${a.address}`).w_full().flex_none().p(compact ? 9 : 12).gap(compact ? 7 : 9).rounded(compact ? 10 : 12).cursor_pointer()
       .bg(selected ? t.raised : t.background)
       .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : t.border)
       .when(selected || hot, (e) => e.shadow_md())
@@ -440,8 +542,8 @@ export default class Kanban extends View {
       .on_click(() => this.select(a))
       .when(a.status === "working", (e) => e.child(
         div().h(2).w_full().rounded(1).bg(color).loop("opacity", { from: 0.2, to: 1, period: 1400 })))
-      .child(h_flex().gap(9).items_center()
-        .child(this.glyph(a, t))
+      .child(h_flex().gap(compact ? 7 : 9).items_center()
+        .child(this.glyph(a, t, compact))
         .child(v_flex().flex_1().min_w(0)
           .child(div().truncate().text_size(13).font_semibold().text_color(t.foreground).child(name))
           .child(div().truncate().text_size(11).text_color(t.dim).child(a.space_name)))
@@ -461,37 +563,53 @@ export default class Kanban extends View {
   }
 
   /** An arrow in a column header that moves the column one place left (-1) or right (+1). Dim at the edge. */
-  moveButton(t, c, dir) {
+  moveButton(t, c, dir, compact = false) {
     const can = this.neighbor(c.id, dir) !== null;
     return iconButton(t, `move-${dir < 0 ? "left" : "right"}-${c.id}`, dir < 0 ? "chevron-left" : "chevron-right",
       () => this.moveColumn(c.id, dir),
-      { tooltip: can ? this.s(dir < 0 ? "moveLeft" : "moveRight") : "", size: 24, glyph: 14, color: can ? t.muted : tint(t.dim, "55") });
+      { tooltip: can ? this.s(dir < 0 ? "moveLeft" : "moveRight") : "", size: compact ? 20 : 24, glyph: compact ? 12 : 14, color: can ? t.muted : tint(t.dim, "55") });
   }
 
-  column(c, list, t, searching) {
+  /** The width rules of one place in the row of columns. `fixed`: the board scrolls sideways, so the
+   *  place has the minimum width and does not grow. */
+  sized(el, compact, fixed) {
+    const min = compact ? MIN_COLUMN_COMPACT : MIN_COLUMN, cap = this.maxWidth();
+    return fixed ? el.flex_none().w(min) : el.flex_1().min_w(min).when(cap !== null, (e) => e.max_w(cap));
+  }
+
+  /** One status column. `compact`: smaller header and cards. `fixed`: see sized().
+   *  `stacked`: the column shares its place with another column, one under the other. */
+  column(c, list, t, searching, { compact = false, fixed = false, stacked = false, summary = false } = {}) {
     const color = t[c.id] ?? t.idle;
     const urgent = c.id === "blocked" && list.length > 0;
-    const tile = div().size(26).rounded(8).flex_none().flex().items_center().justify_center().bg(tint(color, "26"))
-      .child(svg(icon(c.symbol)).size(14).text_color(color));
-    const cap = this.maxWidth();
-    return v_flex().id(`col-${c.id}`).flex_1().h_full().min_w(MIN_COLUMN).min_h(0).rounded(16).overflow_hidden()
-      .when(cap !== null, (e) => e.max_w(cap))
+    const tile = div().size(compact ? 22 : 26).rounded(compact ? 7 : 8).flex_none().flex().items_center().justify_center().bg(tint(color, "26"))
+      .child(svg(icon(c.symbol)).size(compact ? 12 : 14).text_color(color));
+    const btn = compact ? 20 : 24;
+    // Compact: the arrows and the eye show only while the pointer is on the header, so the name has room.
+    const tools = !compact || this.hoverCol === c.id;
+    const box = v_flex().id(`col-${c.id}`).min_h(0).rounded(compact ? 12 : 16).overflow_hidden();
+    return (stacked ? box.w_full().flex_1() : this.sized(box.h_full(), compact, fixed))
       .border_1().border_color(urgent ? tint(color, "66") : tint(color, "26")).bg(tint(color, "0d"))
-      .child(h_flex().h(48).flex_none().px(12).gap(9).items_center()
+      .child(h_flex().id(`head-${c.id}`).h(compact ? 40 : 48).flex_none().px(compact ? 8 : 12).gap(compact ? 4 : 9).items_center()
+        .when(compact, (e) => e.on_hover((hovered, cx) => {
+          const next = hovered ? c.id : this.hoverCol === c.id ? null : this.hoverCol;
+          if (next !== this.hoverCol) { this.hoverCol = next; cx.notify(); }
+        }))
         .child(urgent ? tile.loop("opacity", { from: 0.55, to: 1, period: 1200 }) : tile)
-        .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(this.s(c.id)))
-        .child(div().h(20).px(8).rounded(10).flex().items_center().text_size(11).font_semibold()
+        .child(div().flex_1().min_w(0).truncate().text_size(compact ? 12 : 13).font_semibold().text_color(t.foreground).child(this.s(c.id)))
+        .child(div().h(20).px(compact ? 6 : 8).flex_none().rounded(10).flex().items_center().text_size(11).font_semibold()
           .bg(tint(color, "26")).text_color(color).child(String(list.length)))
-        .child(this.moveButton(t, c, -1))
-        .child(this.moveButton(t, c, 1))
-        .child(iconButton(t, `hide-${c.id}`, "eye-off", () => this.toggleColumn(c.id), { tooltip: this.s("hide"), size: 24, glyph: 14, color: t.dim })))
-      .child(v_flex().id(`scroll-${c.id}`).flex_1().min_h(0).overflow_y_scrollbar().px(10).pb(10).gap(10)
-        .children(list.map((a) => this.card(a, t)))
+        .when(tools, (e) => e
+          .child(this.moveButton(t, c, -1, compact))
+          .child(this.moveButton(t, c, 1, compact))
+          .child(iconButton(t, `hide-${c.id}`, "eye-off", () => this.toggleColumn(c.id), { tooltip: this.s("hide"), size: btn, glyph: compact ? 12 : 14, color: t.dim }))))
+      .child(v_flex().id(`scroll-${c.id}`).flex_1().min_h(0).overflow_y_scrollbar().px(compact ? 7 : 10).pb(compact ? 7 : 10).gap(summary ? 6 : compact ? 7 : 10)
+        .children(list.map((a) => (summary ? this.summaryCard(a, t) : this.card(a, t, compact))))
         .when(list.length === 0, (e) => e.child(
-          v_flex().h(96).flex_none().items_center().justify_center().gap(8).rounded(12)
+          v_flex().h(compact ? 64 : 96).flex_none().items_center().justify_center().gap(compact ? 4 : 8).rounded(12)
             .border_1().border_dashed().border_color(tint(color, "44"))
             .child(svg(icon(c.symbol)).size(18).text_color(tint(color, "88")))
-            .child(div().text_size(12).text_color(t.dim).child(this.s(searching ? "emptyColSearch" : "emptyCol"))))));
+            .child(div().px(8).text_center().text_size(12).text_color(t.dim).child(this.s(searching ? "emptyColSearch" : "emptyCol"))))));
   }
 
   emptyState(t, title, hint, action) {
@@ -521,8 +639,27 @@ export default class Kanban extends View {
       return this.emptyState(t, this.s("allHidden"), this.s("allHiddenHint"),
         button(t, "kb-show-all", this.s("showAll"), () => setShared(KEY_HIDDEN, []), { primary: true, symbol: "eye" }));
     }
-    return h_flex().id("kb-columns").size_full().min_h(0).gap(12).overflow_x_scrollbar()
-      .children(cols.map((c) => this.column(c, byStatus(c.id), t, searching)));
+    const compact = this.compact(this.boardW, cols.length * COLUMN_WIDE + (cols.length - 1) * GAP);
+    // Places in the row: one column each. In compact density Done and Idle share one place, one
+    // under the other, at the place of the first of the two in the order.
+    const places = [];
+    for (const c of cols) {
+      const pair = compact && STACKED.includes(c.id) ? places.find((p) => p.length === 1 && STACKED.includes(p[0].id)) : null;
+      if (pair) pair.push(c); else places.push([c]);
+    }
+    // A row that scrolls sideways lays its children out at their content width, so the columns
+    // would not share the board. Scroll only when the places do not fit at their minimum width,
+    // and then give each place exactly that width.
+    const n = places.length;
+    const min = compact ? MIN_COLUMN_COMPACT : MIN_COLUMN, gap = compact ? GAP_COMPACT : GAP;
+    const fixed = typeof this.boardW === "number" && this.boardW < n * min + (n - 1) * gap;
+    const opts = { compact, fixed, summary: this.summary(compact) };
+    return h_flex().id("kb-columns").size_full().min_h(0).gap(gap)
+      .when(fixed, (e) => e.overflow_x_scrollbar())
+      .children(places.map((p) => p.length === 1
+        ? this.column(p[0], byStatus(p[0].id), t, searching, opts)
+        : this.sized(v_flex().id(`place-${p[0].id}`).h_full().min_h(0).gap(gap), compact, fixed)
+          .children(p.map((c) => this.column(c, byStatus(c.id), t, searching, { ...opts, stacked: true })))));
   }
 
   // ---- the top bar -------------------------------------------------------------
@@ -549,8 +686,8 @@ export default class Kanban extends View {
 
   /** The buttons of the side panel and of dock/panels.json, in one group: Files and Changes, then the
    *  entries of the file in the order listed (side panels and tabs), then its commands. Empty when the
-   *  layout has no `panel`. */
-  panelButtons(t) {
+   *  layout has no `panel`. `compact`: icons only, the names go to the tooltips. */
+  panelButtons(t, compact = false) {
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     if (!panel || !body) return [];
     // The entries that may use the panel stack: not the id of any other node of the layout.
@@ -563,13 +700,13 @@ export default class Kanban extends View {
     const tip = (name) => this.s("panelTip", { name });
     const buttons = [
       ...PANELS.filter((p) => present.has(p.id)).map((p) =>
-        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label))),
+        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), compact)),
       ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e))
-        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label))),
+        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", compact)
+        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), compact)),
       // A command that switches to the layout shown now would do nothing: leave it out.
       ...this.entries.filter((e) => e.opens === "command" && !(e.run === "layout.switch" && e.args?.name === shared("layout")))
-        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e))),
+        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", compact)),
     ];
     return buttons.length ? [buttonGroup(t, buttons)] : [];
   }
@@ -588,6 +725,25 @@ export default class Kanban extends View {
         { tooltip: this.s("wider"), size: 24, glyph: 13, color: atMax ? t.dim : t.muted }));
   }
 
+  /** The density button: lit while the board and bar are compact. The tooltip names the mode and the next one. */
+  densityButton(t, compactNow) {
+    const d = this.density();
+    const next = DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length];
+    const name = (x) => this.s(`density_${x}`);
+    const mode = d === "auto" ? this.s(compactNow ? "densityNow" : "densityNowNormal", { mode: name(d) }) : name(d);
+    return iconButton(t, "kb-density", "shrink", () => this.stepDensity(),
+      { active: compactNow, tooltip: this.s("densityTip", { mode, next: name(next) }) });
+  }
+
+  /** The card view button: lit while the cards are set to summary. */
+  cardsButton(t) {
+    const v = this.cardView();
+    const next = CARD_VIEWS[(CARD_VIEWS.indexOf(v) + 1) % CARD_VIEWS.length];
+    const name = (x) => this.s(`cards_${x}`);
+    return iconButton(t, "kb-cards", "list", () => this.stepCardView(),
+      { active: v === "summary", tooltip: this.s("cardsTip", { mode: v === "auto" ? this.s("cardsAuto") : name(v), next: name(next) }) });
+  }
+
   bar(t) {
     const hidden = this.hidden();
     const all = agents();
@@ -600,45 +756,62 @@ export default class Kanban extends View {
     const win = w?.platform === "windows";
     const onBoard = view !== "tabs-view";
     const back = this.back();
+    const compact = this.compact(this.barW, BAR_WIDE);
+    const count = need ? `${this.s("agents", all.length)} · ${this.s("needYou", { n: need })}` : this.s("agents", all.length);
 
-    return h_flex().size_full().min_w(0).px(14).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
-      .child(div().size(28).rounded(9).flex_none().flex().items_center().justify_center().bg(tint(t.accent, "26"))
-        .child(svg(icon("board")).size(15).text_color(t.accent)))
-      .child(v_flex().flex_none()
+    // The controls of the board view. In compact density they share one row that scrolls sideways
+    // with the panel buttons, so the buttons at the right end of the bar always show.
+    const chips = this.columns().map((c) => {
+      const on = !hidden.has(c.id), name = this.s(c.id);
+      return columnChip(t, `kb-chip-${c.id}`, {
+        label: name, color: t[c.id] ?? t.idle, on, compact,
+        count: this.visible().filter((a) => a.status === c.id).length,
+        tooltip: this.s(on ? "hideCol" : "showCol", { name }),
+      }, () => this.toggleColumn(c.id));
+    });
+    const tools = [
+      iconButton(t, "kb-scope", "layers", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
+        { active: this.scope() === "space", tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }),
+      this.widthControl(t),
+      this.densityButton(t, compact),
+      this.cardsButton(t),
+      iconButton(t, "kb-shell", this.shellBusy ? "spinner" : "panel-bottom", (cx) => this.toggleShell(cx),
+        { active: this.shellShown(), tooltip: this.s(this.shellShown() ? "shellOn" : "shellOff") }),
+      iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
+        { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") }),
+    ];
+    const scroller = (children) => h_flex().id("kb-strip").flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar().children(children);
+
+    return h_flex().id("kb-bar").size_full().min_w(0).px(compact ? 10 : 14).gap(compact ? 6 : 10).items_center()
+      .bg(t.chrome).border_b(1).border_color(t.border)
+      .on_size_change((size, cx) => {
+        const width = Math.round(size.width);
+        if (width !== this.barW) { this.barW = width; cx.notify(); }
+      })
+      .child(div().id("kb-logo").size(28).rounded(9).flex_none().flex().items_center().justify_center().bg(tint(t.accent, "26"))
+        .when(compact, (e) => e.tooltip(`${this.s("title")} · ${count}`))
+        .child(svg(icon("board")).size(15).text_color(need && compact ? t.blocked : t.accent)))
+      .when(!compact, (e) => e.child(v_flex().flex_none()
         .child(div().text_size(14).font_semibold().text_color(t.foreground).child(this.s("title")))
-        .child(div().text_size(11).text_color(need ? t.blocked : t.dim)
-          .child(need ? `${this.s("agents", all.length)} · ${this.s("needYou", { n: need })}` : this.s("agents", all.length))))
+        .child(div().text_size(11).text_color(need ? t.blocked : t.dim).child(count))))
       .child(segmented(t, [
-        { id: "kb-view-board", label: this.s("board"), symbol: "board", active: onBoard, tooltip: this.s("boardTip"),
+        { id: "kb-view-board", label: compact ? "" : this.s("board"), symbol: "board", active: onBoard, tooltip: this.s("boardTip"),
           onClick: () => run("layout.select", { stack: "view", child: "board-view" }) },
-        { id: "kb-view-tabs", label: this.s("terminals"), symbol: "terminal", active: !onBoard, tooltip: this.s("terminalsTip"),
+        { id: "kb-view-tabs", label: compact ? "" : this.s("terminals"), symbol: "terminal", active: !onBoard, tooltip: this.s("terminalsTip"),
           onClick: () => run("layout.select", { stack: "view", child: "tabs-view" }) },
       ]))
       .when(onBoard, (e) => e
         .child(searchBox(t, "kb-search", this.query, {
+          width: compact ? 150 : 220,
           onClear: () => { this.query.set_value(""); setShared(KEY_QUERY, ""); },
         }))
-        .child(h_flex().flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar()
-          .children(this.columns().map((c) => {
-            const on = !hidden.has(c.id), name = this.s(c.id);
-            return columnChip(t, `kb-chip-${c.id}`, {
-              label: name, color: t[c.id] ?? t.idle, on,
-              count: this.visible().filter((a) => a.status === c.id).length,
-              tooltip: this.s(on ? "hideCol" : "showCol", { name }),
-            }, () => this.toggleColumn(c.id));
-          })))
-        .child(iconButton(t, "kb-scope", "layers", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
-          { active: this.scope() === "space", tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }))
-        .child(this.widthControl(t))
-        .child(iconButton(t, "kb-shell", this.shellBusy ? "spinner" : "panel-bottom", (cx) => this.toggleShell(cx),
-          { active: this.shellShown(), tooltip: this.s(this.shellShown() ? "shellOn" : "shellOff") }))
-        .child(iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
-          { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") })))
+        .when(compact, (e) => e.child(scroller([...chips, ...tools, ...this.panelButtons(t, true)])))
+        .when(!compact, (e) => e.child(scroller(chips)).children(tools)))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
-      .children(this.panelButtons(t))
+      .when(!onBoard || !compact, (e) => e.children(this.panelButtons(t, compact)))
       .when(Boolean(back), (e) => e.child(button(t, "kb-back", back, () => this.goBack(back),
-        { symbol: "swap", tooltip: this.s("backTip", { name: back }) })))
-      .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus" }))
+        { symbol: "swap", tooltip: this.s("backTip", { name: back }), iconOnly: compact })))
+      .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus", iconOnly: compact }))
       .when(w?.buttons, (e) => e
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
         .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
@@ -648,6 +821,11 @@ export default class Kanban extends View {
   render(_cx) {
     const t = theme();
     if (this.part === "bar") return this.bar(t);
-    return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13).child(this.board(t));
+    return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
+      .on_size_change((size, cx) => {
+        const w = Math.round(size.width);
+        if (w !== this.boardW) { this.boardW = w; cx.notify(); }
+      })
+      .child(this.board(t));
   }
 }

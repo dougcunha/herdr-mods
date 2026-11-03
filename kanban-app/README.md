@@ -21,9 +21,9 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it shows |
 | ---- | ------------- |
-| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
+| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a **density** button, a **card view** button, a button for the shell, a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
 | Columns | Needs you, Working, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
-| Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. |
+| Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. A summary view shows 2 lines only. |
 | Shell under the board | Optional. A shell of its own (`kanban-shell`), in no tab. A button in the top bar shows or hides it. Drag its top edge to resize. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
 
@@ -31,7 +31,13 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 - **Hide a column:** click its chip in the top bar, or the eye button in the column header. A hidden chip is dim with a struck name. The choice is saved. If you hide all of them, a button shows them again.
 - **Column order:** click the `<` or `>` arrow in a column header. The column changes place with the next visible column at that side. Hidden columns keep their place. At the edge of the board the arrow is dim. The chips in the top bar follow the same order. The order is saved in `shared("kanban.order")`.
-- **Column width:** the − and + buttons set the widest a column may be: 150, 180, 220, 260, 320, 400 px or **Auto** (the columns share the whole board). A column is never narrower than 150 px; below that the board scrolls sideways. On a super wide monitor, pick 220 or 260 px to get narrow cards. The choice is saved in `shared("kanban.width")`.
+- **Column width:** the − and + buttons set the widest a column may be: 150, 180, 220, 260, 320, 400 px or **Auto** (the columns share the whole board). The columns get narrower with the board, down to 150 px (120 px in compact density). Below that the board scrolls sideways and each column keeps that width. On a super wide monitor, pick 220 or 260 px to get narrow cards. The choice is saved in `shared("kanban.width")`.
+- **Density (small monitors):** the button with 4 inward arrows, right of the width control, goes **Auto → Compact → Normal → Auto**. It is lit while the kanban is compact, and its tooltip shows the mode. The choice is saved in `shared("kanban.density")`. **Auto** (the default) makes the top bar compact when it is narrower than 1650 px, and the board compact when it has less than 220 px for each visible column. In compact density:
+  - **Done** and **Idle** share one place on the board, one under the other, so the board has 3 places instead of 4. The pair takes the place of the first of the two in the column order.
+  - The headers, cards and gaps are smaller. The arrows and the eye of a column header show only while the pointer is on the header, so the name has room.
+  - The top bar shows icons with tooltips instead of names: the switch, the column chips (a dot and the count), the panel buttons, the back button and **New agent**. The title and the count go to the tooltip of the board icon. The search box is 150 px.
+  - The chips, the tools and the panel buttons are in one row that scrolls sideways when the bar is too narrow. The back button, **New agent** and the window buttons always show.
+- **Card view:** the button with a list icon, right of the density button, goes **Auto → Summary → Full → Auto**. It is lit while the view is Summary. The choice is saved in `shared("kanban.cards")`. **Auto** (the default) shows summary cards while the board is compact. A summary card has 2 lines: the program icon, the space name, a pin mark when pinned and the status mark; then the terminal title (or the program and the branch) and the age. While the pointer is on the card, the pin and "open in its tab" buttons take the place of the age. A click selects the agent, as on a full card.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.
@@ -59,7 +65,7 @@ Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 
 ## What it does on your machine
 
-- It reads the live data of Herdr (agents, spaces, panes). It stores 5 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width` and `kanban.order`.
+- It reads the live data of Herdr (agents, spaces, panes). It stores 7 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width`, `kanban.order`, `kanban.density` and `kanban.cards`.
 - It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home, and watches the `dock/` folder.
 - It edits `layouts/kanban.json` with the `layout.set` command, to add or remove the side-panel blocks of `panels.json`, and to add the shell block.
 - When you show the shell, it runs `hc get kanban-shell`, and `hc run` (or `hc rm` and `hc run`) when that terminal is absent or finished.
