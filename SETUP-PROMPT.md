@@ -77,6 +77,18 @@ Before you write it, check that the `icon` file of each entry exists. If a third
 1. In the `bar` block, add `"lang": "pt"` and `"back": "main-dock"` to `props`. (Use `"lang": "en"`, or leave it out, if I want English.)
 2. In the `board` block, add the same `"lang"` to `props`.
 
+### Agent hooks of `agent-resume`
+
+Follow step 3 of the "Install" section of `agent-resume-app/README.md`. Use the exact text there. For each agent, first check that its program is on the PATH (`claude`, `agy`, `opencode`, `codex`). Skip the agents that are not installed.
+
+1. Claude Code: add the `SessionStart` and `SessionEnd` hooks to `~/.claude/settings.json`. On Windows use the `.ps1` command, on macOS and Linux the `.sh` command. Keep the hooks that are there already.
+2. Antigravity: add the named hook `herdr-agent-resume` to `~/.gemini/config/hooks.json`. Write the path of the script WITHOUT quotes. agy keeps quotes as text and the hook fails.
+3. OpenCode: create `~/.config/opencode/herdr-agent-resume/tui.js` (a copy of `hooks/opencode-tui.js`). Add `"./herdr-agent-resume"` to `plugins` in `~/.config/opencode/cli.json` and `"./herdr-agent-resume/tui.js"` to `plugin` in `~/.config/opencode/tui.jsonc`. Then run `opencode plugin list` and check that it shows `herdr-agent-resume`.
+4. Codex: do nothing. Do NOT add a hook to `~/.codex/hooks.json`.
+5. Do not edit Herdr's own integration files (`herdr-agent-state.*`, `herdr-tui-session.js`, `herdr-opencode/`).
+
+The hook paths point to `~/.config/herdr-app/mods/agent-resume/hooks/`. Write the full path of my home folder, not `~`, in the Windows commands.
+
 ### `~/.config/herdr-app/keys.json`
 
 In the `global` section, add:
@@ -117,5 +129,5 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to t
 
 ## Final report
 
-Give me a table with 4 columns: item, source, status (installed, skipped or failed) and note. At the end, list what I must do by hand: the `gh` login, the font, anything that failed.
+Give me a table with 4 columns: item, source, status (installed, skipped or failed) and note. Add one row for each agent of `agent-resume` (Claude Code, Codex, Antigravity, OpenCode): connected, not installed, or failed. At the end, list what I must do by hand: the `gh` login, the font, anything that failed.
 ````
