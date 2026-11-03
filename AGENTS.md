@@ -1,5 +1,9 @@
 # Agent instructions
 
+## Language
+
+- Write all repository text in English: code, UI strings (pane labels, buttons, toasts, command descriptions), comments and READMEs, even when the conversation is in another language.
+
 ## Herdr app mods
 
 The folders that end in `-app` (for example `ci-dash-app`, `dock-app`,
