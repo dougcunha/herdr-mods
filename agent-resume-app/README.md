@@ -126,7 +126,7 @@ Then replace the `status` block of the layout with a row:
 ```json
 { "id": "status-row", "type": "row", "size": { "px": 28 }, "resizable": false,
   "children": [
-    { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 150 } },
+    { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 170 } },
     { "id": "status", "type": "block", "content": { "mod": "workspace-status" } } ] }
 ```
 

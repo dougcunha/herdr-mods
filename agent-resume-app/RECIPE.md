@@ -9,7 +9,7 @@ lost terminal, and shows a toast.
 
 ## What you see
 
-- In the status bar, at the left, a block of 150 px, 28 px high: background
+- In the status bar, at the left, a block of 170 px, 28 px high: background
   `chrome`, top border 1 px `border`, text 11.8 px `muted` (`foreground` on
   hover), items at the left with 14 px left padding (the same as
   `workspace-status`), no right padding and a 6 px gap.
@@ -106,7 +106,7 @@ lost terminal, and shows a toast.
     `hooks/herdr-agent-resume.sh` (macOS, Linux): `<agent> <start|end>` for
     `claude` and `agy`.
   - `hooks/opencode-tui.js`: the OpenCode TUI plugin.
-- Layout: a `row` of 28 px that holds an `agent-resume` block of 150 px
+- Layout: a `row` of 28 px that holds an `agent-resume` block of 170 px
   (first, at the left) and the `status` block (`workspace-status`).
 - `herdr` functions: `terminals`, `agents`, `hc`, `home`, `notify`, `theme`,
   `props`, `openOverlay`, `closeOverlay`, `nextCommand`, `shared`,
@@ -174,6 +174,8 @@ short:
 
 ## Watch out
 
+- The indicator block is 170 px. At 150 px, the text
+  `Resume on · 2 sessions` is cut (`2 sessio…`) with zoom 1.1.
 - herdr-core keeps the labels and the address of a lost terminal, but gives
   it a new shell. No field says "recovered": the pid change is the signal.
   `reason` stays null on the new shell.
