@@ -1,7 +1,8 @@
 # Kanban
 
 A Herdr app layout where every agent is a card in a column by status:
-**Idle**, **Needs you**, **Working**, **Done**. You can hide any column.
+**Needs you**, **Working**, **Done**, **Idle**. You can hide any column and
+change the order of the columns.
 
 ![Kanban](layouts/kanban.svg)
 
@@ -21,13 +22,14 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 | Part | What it shows |
 | ---- | ------------- |
 | Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
-| Columns | Idle, Needs you, Working, Done, in that order. Each has a color, a count and an eye button that hides it. |
+| Columns | Needs you, Working, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
 | Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
 
 ## How it behaves
 
 - **Hide a column:** click its chip in the top bar, or the eye button in the column header. A hidden chip is dim with a struck name. The choice is saved. If you hide all of them, a button shows them again.
+- **Column order:** click the `<` or `>` arrow in a column header. The column changes place with the next visible column at that side. Hidden columns keep their place. At the edge of the board the arrow is dim. The chips in the top bar follow the same order. The order is saved in `shared("kanban.order")`.
 - **Column width:** the − and + buttons set the widest a column may be: 150, 180, 220, 260, 320, 400 px or **Auto** (the columns share the whole board). A column is never narrower than 150 px; below that the board scrolls sideways. On a super wide monitor, pick 220 or 260 px to get narrow cards. The choice is saved in `shared("kanban.width")`.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
@@ -55,7 +57,7 @@ Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 
 ## What it does on your machine
 
-- It reads the live data of Herdr (agents, spaces, panes). It stores 4 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope` and `kanban.width`.
+- It reads the live data of Herdr (agents, spaces, panes). It stores 5 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width` and `kanban.order`.
 - It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home, and watches the `dock/` folder.
 - It edits `layouts/kanban.json` with the `layout.set` command, to add or remove the side-panel blocks of `panels.json`.
 - It runs Herdr commands only: `agent.focus`, `terminal.pin`, `tab.select`, `space.select`, `pane.focus`, `pane.zoom`, `layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, `layout.set`, `layout.switch`, `tab.new`, `window.*`, and the `run` of a command entry of `panels.json`.

@@ -14,6 +14,7 @@ const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
 const KEY_QUERY = "kanban.query"; // the search text
 const KEY_SCOPE = "kanban.scope"; // "all" | "space"
 const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: columns share the board
+const KEY_ORDER = "kanban.order"; // ids of the columns, left to right; absent: the order of COLUMNS
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
@@ -24,12 +25,13 @@ const PANELS = [
   { id: "changes", label: "Changes", icon: "mods/changes/changes.svg" },
 ];
 
-// The order the person asked for: idle, needs you, working, done.
+// The default order: needs you, working, done, idle. The arrows in a column header change it,
+// and shared(KEY_ORDER) keeps the new order.
 const COLUMNS = [
-  { id: "idle", symbol: "moon" },
   { id: "blocked", symbol: "bell" },
   { id: "working", symbol: "zap" },
   { id: "done", symbol: "check" },
+  { id: "idle", symbol: "moon" },
 ];
 
 const STR = {
@@ -51,6 +53,7 @@ const STR = {
     newTab: "New tab", backTip: "Switch to the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     narrower: "Narrower columns", wider: "Wider columns",
+    moveLeft: "Move this column left", moveRight: "Move this column right",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -70,6 +73,7 @@ const STR = {
     newTab: "Nova aba", backTip: "Trocar para o layout {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
+    moveLeft: "Mover esta coluna para a esquerda", moveRight: "Mover esta coluna para a direita",
   },
 };
 
@@ -155,6 +159,30 @@ export default class Kanban extends View {
     const set = this.hidden();
     if (set.has(id)) set.delete(id); else set.add(id);
     setShared(KEY_HIDDEN, [...set]);
+  }
+
+  /** All the columns, left to right. A saved order keeps only known ids; a column it does not list goes at the end. */
+  columns() {
+    const saved = shared(KEY_ORDER);
+    const ids = Array.isArray(saved) ? saved.filter((id, i) => COLUMNS.some((c) => c.id === id) && saved.indexOf(id) === i) : [];
+    return [...ids.map((id) => COLUMNS.find((c) => c.id === id)), ...COLUMNS.filter((c) => !ids.includes(c.id))];
+  }
+
+  /** The visible column next to `id` in direction `dir` (-1 left, +1 right), or null at the edge. */
+  neighbor(id, dir) {
+    const hidden = this.hidden();
+    const shown = this.columns().filter((c) => !hidden.has(c.id));
+    return shown[shown.findIndex((c) => c.id === id) + dir]?.id ?? null;
+  }
+
+  /** Swaps column `id` with the visible column next to it. Hidden columns keep their place. */
+  moveColumn(id, dir) {
+    const other = this.neighbor(id, dir);
+    if (!other) return;
+    const order = this.columns().map((c) => c.id);
+    const a = order.indexOf(id), b = order.indexOf(other);
+    [order[a], order[b]] = [order[b], order[a]];
+    setShared(KEY_ORDER, order);
   }
 
   scope() { return shared(KEY_SCOPE) === "space" ? "space" : "all"; }
@@ -366,6 +394,14 @@ export default class Kanban extends View {
           { tooltip: this.s("open"), size: 22, glyph: 12, color: t.dim })));
   }
 
+  /** An arrow in a column header that moves the column one place left (-1) or right (+1). Dim at the edge. */
+  moveButton(t, c, dir) {
+    const can = this.neighbor(c.id, dir) !== null;
+    return iconButton(t, `move-${dir < 0 ? "left" : "right"}-${c.id}`, dir < 0 ? "chevron-left" : "chevron-right",
+      () => this.moveColumn(c.id, dir),
+      { tooltip: can ? this.s(dir < 0 ? "moveLeft" : "moveRight") : "", size: 24, glyph: 14, color: can ? t.muted : tint(t.dim, "55") });
+  }
+
   column(c, list, t, searching) {
     const color = t[c.id] ?? t.idle;
     const urgent = c.id === "blocked" && list.length > 0;
@@ -380,6 +416,8 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(this.s(c.id)))
         .child(div().h(20).px(8).rounded(10).flex().items_center().text_size(11).font_semibold()
           .bg(tint(color, "26")).text_color(color).child(String(list.length)))
+        .child(this.moveButton(t, c, -1))
+        .child(this.moveButton(t, c, 1))
         .child(iconButton(t, `hide-${c.id}`, "eye-off", () => this.toggleColumn(c.id), { tooltip: this.s("hide"), size: 24, glyph: 14, color: t.dim })))
       .child(v_flex().id(`scroll-${c.id}`).flex_1().min_h(0).overflow_y_scrollbar().px(10).pb(10).gap(10)
         .children(list.map((a) => this.card(a, t)))
@@ -410,7 +448,7 @@ export default class Kanban extends View {
     const shown = this.visible();
     const byStatus = (id) => shown.filter((a) => a.status === id)
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.seq - a.seq);
-    const cols = COLUMNS.filter((c) => !hidden.has(c.id));
+    const cols = this.columns().filter((c) => !hidden.has(c.id));
     // agent.next and agent.prev walk the cards in the order they show.
     setAgentOrder(cols.flatMap((c) => byStatus(c.id)).map((a) => a.address));
     if (!cols.length) {
@@ -515,7 +553,7 @@ export default class Kanban extends View {
           onClear: () => { this.query.set_value(""); setShared(KEY_QUERY, ""); },
         }))
         .child(h_flex().flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar()
-          .children(COLUMNS.map((c) => {
+          .children(this.columns().map((c) => {
             const on = !hidden.has(c.id), name = this.s(c.id);
             return columnChip(t, `kb-chip-${c.id}`, {
               label: name, color: t[c.id] ?? t.idle, on,
