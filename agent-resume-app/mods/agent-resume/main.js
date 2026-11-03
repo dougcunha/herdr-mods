@@ -111,7 +111,7 @@ export default class AgentResume extends View {
     return h_flex()
       .id("agent-resume")
       .size_full()
-      .px(14)
+      .pl(14)
       .gap(6)
       .items_center()
       .justify_start()
@@ -122,10 +122,17 @@ export default class AgentResume extends View {
       .text_color(t.muted)
       .cursor_pointer()
       .hover((s) => s.text_color(t.foreground))
-      .tooltip(on ? "Agent Resume monitors your Claude sessions. Click to open the panel." : "Agent Resume is off. Click to open the panel.")
+      .tooltip(this.tooltip(on))
       .on_click(() => this.openPanel())
       .child(div().flex_none().size(7).rounded(4).bg(on ? t.ansi2 : t.dim))
-      .child(div().truncate().child(text))
-      .when(on && this.lastCount > 0, (el) => el.child(div().flex_none().text_color(t.dim).child(`↻ ${this.lastCount}`)));
+      .child(div().truncate().child(text));
+  }
+
+  tooltip(on) {
+    const last = this.lastCount > 0
+      ? ` Last resume: ${this.lastCount} ${this.lastCount === 1 ? "session" : "sessions"}.`
+      : "";
+    return (on ? "Agent Resume monitors your Claude sessions." : "Agent Resume is off.")
+      + last + " Click to open the panel.";
   }
 }

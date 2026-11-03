@@ -8,13 +8,14 @@ replaced a lost Claude Code terminal, and shows a toast.
 
 ## What you see
 
-- In the status bar, at the left, a block of 190 px, 28 px high: background
+- In the status bar, at the left, a block of 150 px, 28 px high: background
   `chrome`, top border 1 px `border`, text 11.8 px `muted` (`foreground` on
-  hover), items at the left with 14 px side padding (the same as
-  `workspace-status`) and a 6 px gap.
+  hover), items at the left with 14 px left padding (the same as
+  `workspace-status`), no right padding and a 6 px gap. The width fits the
+  text, so the gap to the next item is near the 16 px gap of `workspace-status`.
 - The block shows a dot of 7 px (`ansi2` when auto resume is on, else `dim`)
-  and `Resume on · <n> sessions` or `Resume off`. After a resume it adds
-  `↻ <n>` in `dim`. It has a tooltip.
+  and `Resume on · <n> sessions` or `Resume off`. Its tooltip says if the mod
+  is on and how many sessions the last resume started.
 - The panel (a popup of 420 × 460 px, background `popover`, text 12.5 px):
   - Header: a dot of 8 px, "Agent Resume" in semibold 13.5 px, a `✕` button.
     Border below.
@@ -65,7 +66,7 @@ replaced a lost Claude Code terminal, and shows a toast.
 - One mod, 2 roles: the panel is the same mod opened with
   `openOverlay({mod: "agent-resume", kind: "popup", at: "pointer", props: {panel: true}})`.
   The copy reads `props().panel` in `init` and starts no scanner.
-- Layout: a `row` of 28 px that holds an `agent-resume` block of 190 px
+- Layout: a `row` of 28 px that holds an `agent-resume` block of 150 px
   (first, at the left) and the `status` block (`workspace-status`).
 - `herdr` functions: `terminals`, `hc`, `notify`, `theme`, `props`,
   `openOverlay`, `closeOverlay`, `nextCommand`, `shared`, `setShared`.

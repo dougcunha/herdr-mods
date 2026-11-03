@@ -15,7 +15,7 @@ Code session continues where it stopped.
 - **The indicator**, at the left of the status bar: a green dot and
   `Resume on · 2 sessions` (the count of terminals with a recorded Claude
   session). When you turn auto resume off, the dot is gray and the text is
-  `Resume off`. After a resume, it adds `↻ <n>`.
+  `Resume off`. The tooltip shows the count of the last resume.
 - **The panel**: click the indicator, or run the mod command
   `agent-resume.panel` (bind it in `keys.json`, for example
   `"global": { "ctrl-alt-r": "agent-resume.panel" }`, or run
@@ -92,7 +92,7 @@ Or do it by hand:
    ```json
    { "id": "status-row", "type": "row", "size": { "px": 28 }, "resizable": false,
      "children": [
-       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 190 } },
+       { "id": "agent-resume", "type": "block", "content": { "mod": "agent-resume" }, "size": { "px": 150 } },
        { "id": "status", "type": "block", "content": { "mod": "workspace-status" } } ] }
    ```
 
