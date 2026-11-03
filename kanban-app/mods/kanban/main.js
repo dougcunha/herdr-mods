@@ -6,7 +6,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder,
-  appHome, readTextFile, watchFolder, notify } from "herdr";
+  appHome, readTextFile, watchFolder, notify, hc } from "herdr";
 import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, stop } from "./ui.js";
 
@@ -18,6 +18,11 @@ const KEY_ORDER = "kanban.order"; // ids of the columns, left to right; absent: 
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
+
+// The shell under the board: one core terminal with this name, outside every tab, shown by a
+// layout block { "terminal": "<address>" } with the id SHELL_ID. The bar adds the block the first time.
+const SHELL_NAME = "kanban-shell";
+const SHELL_ID = "shell";
 
 // The side panel of the layout (node "panel", stack "panel-body"): Herdr's own Files and Changes mods.
 const PANELS = [
@@ -54,6 +59,7 @@ const STR = {
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     narrower: "Narrower columns", wider: "Wider columns",
     moveLeft: "Move this column left", moveRight: "Move this column right",
+    shellOn: "Hide the shell under the board", shellOff: "Show a shell under the board",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -74,6 +80,7 @@ const STR = {
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
     moveLeft: "Mover esta coluna para a esquerda", moveRight: "Mover esta coluna para a direita",
+    shellOn: "Ocultar o shell abaixo do quadro", shellOff: "Mostrar um shell abaixo do quadro",
   },
 };
 
@@ -215,6 +222,7 @@ export default class Kanban extends View {
   /** The stack child that shows now ("board-view" or "tabs-view"). */
   view() { return find(layout(), "view")?.active ?? "board-view"; }
   detailHidden() { return Boolean(find(layout(), "detail")?.hidden); }
+  shellShown() { const node = find(layout(), SHELL_ID); return Boolean(node && !node.hidden); }
 
   age(ms) {
     if (!ms) return "";
@@ -329,6 +337,64 @@ export default class Kanban extends View {
   goBack(name) {
     setShared("layout.previous", shared("layout")); // so the other layout can come back here
     run("layout.switch", { name });
+  }
+
+  // ---- the shell under the board ----------------------------------------------
+
+  /** The address of the live kanban-shell terminal. Starts it when it is absent or finished:
+   *  the default shell of this computer (or props.shell, an argv list), in the folder of the active space. */
+  async ensureShell() {
+    const json = (r) => { try { return JSON.parse(r?.stdout ?? ""); } catch { return null; } };
+    const info = json(await hc(["get", SHELL_NAME, "--json"]));
+    if (info?.state === "live" && info.address) return info.address;
+    if (info?.address) await hc(["rm", SHELL_NAME]); // a finished terminal keeps its name until removed
+    const space = spaces().find((p) => p.active);
+    const args = ["run", "--bg", "--json", "--keep", "--no-parent", "--name", SHELL_NAME, "--label", "kanban.shell=1"];
+    if (space?.folder && !space.machine) args.push("--cwd", space.folder);
+    const argv = Array.isArray(this.props.shell) ? this.props.shell.map(String) : [];
+    if (argv.length) args.push("--", ...argv);
+    const r = await hc(args);
+    const out = json(r);
+    if (!out?.address) throw new Error(out?.error?.message || r?.stderr || "hc run gave no address");
+    return out.address;
+  }
+
+  /** Puts the shell block under the board, or points the block at a new address, with layout.set. */
+  placeShell(address) {
+    const tree = JSON.parse(JSON.stringify(layout()));
+    const node = find(tree, SHELL_ID);
+    if (node) {
+      node.content = { terminal: address };
+      delete node.hidden;
+    } else {
+      const view = find(tree, "board-view");
+      const i = view?.children?.findIndex((c) => c.id === "board") ?? -1;
+      if (i < 0) throw new Error('the layout has no "board" block in "board-view"');
+      view.children[i] = { id: "board-main", type: "column", gap: 12, min: 160, children: [view.children[i], {
+        id: SHELL_ID, type: "block", content: { terminal: address }, size: { px: 300 }, min: 120, max: 4000,
+        background: "background", border: { width: 1, color: "border" }, radius: 14,
+      }] };
+    }
+    run("layout.set", { layout: tree });
+  }
+
+  /** Hides the shell, or shows it: a live kanban-shell first, a new one when it ended. */
+  toggleShell(cx) {
+    if (this.shellBusy) return;
+    if (this.shellShown()) { run("layout.hide", { id: SHELL_ID }); return; }
+    this.shellBusy = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const address = await this.ensureShell();
+        if (find(layout(), SHELL_ID)?.content?.terminal === address) run("layout.show", { id: SHELL_ID });
+        else this.placeShell(address);
+      } catch (e) {
+        notify({ title: "Kanban: shell", body: String(e?.message ?? e), level: "error", timeout: 6000 });
+      }
+      this.shellBusy = false;
+      cx.notify();
+    });
   }
 
   newAgent() { openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 }); }
@@ -564,6 +630,8 @@ export default class Kanban extends View {
         .child(iconButton(t, "kb-scope", "layers", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
           { active: this.scope() === "space", tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }))
         .child(this.widthControl(t))
+        .child(iconButton(t, "kb-shell", this.shellBusy ? "spinner" : "panel-bottom", (cx) => this.toggleShell(cx),
+          { active: this.shellShown(), tooltip: this.s(this.shellShown() ? "shellOn" : "shellOff") }))
         .child(iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
           { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") })))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
