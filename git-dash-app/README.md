@@ -12,7 +12,7 @@ The panel changes a repository only when you click a fix and confirm it. A fix t
 
 With an agent (Claude Code or any agent that can read files), paste this prompt:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/git-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/git-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
 
 Or do it yourself. The Herdr app must be running and `git` must be in your `PATH`.
 

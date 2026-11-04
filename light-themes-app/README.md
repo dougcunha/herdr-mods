@@ -18,7 +18,7 @@ Each file sets only the terminal colors (`background`, `foreground`, `selection`
 
 With an agent (Claude Code or any agent that can read files), paste this prompt:
 
-`Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-plugins/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
+`Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-mods/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
 
 Or copy the files yourself. Do not overwrite a theme that you already have.
 

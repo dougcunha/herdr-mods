@@ -13,7 +13,7 @@ card and the terminal of that agent opens in the panel at the right.
 
 Copy and paste this prompt to your LLM agent:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/kanban-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-mods/tree/main/kanban-app`
 
 Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 

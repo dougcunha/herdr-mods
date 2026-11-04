@@ -22,7 +22,7 @@ files of its own.
 
 With an agent (Claude Code or any agent that can read files), paste this prompt:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/ci-dash-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/ci-dash-app`
 
 Or copy the mod folder into the Herdr home yourself, then check it:
 

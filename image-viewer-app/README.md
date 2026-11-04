@@ -11,7 +11,7 @@ Open it with `pane.split` or `tab.new` (see below), or from a Files panel that c
 
 With an agent (Claude Code or any agent that can read files), paste this prompt:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/image-viewer-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/image-viewer-app`
 
 Or copy the folder yourself. The Herdr app must be running.
 

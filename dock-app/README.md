@@ -14,7 +14,7 @@ show up while the app runs.
 
 Copy and paste this prompt to your LLM agent:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-plugins/tree/main/dock-app`
+`Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-mods/tree/main/dock-app`
 
 To add a button later, for example the [Git Graph](https://github.com/rabeeh-ta/herdr-git-graph) mod:
 

@@ -106,7 +106,7 @@ folder that no other terminal has.
 
 Copy and paste this prompt to your agent:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-plugins/tree/main/agent-resume-app and follow its README to install the hook of each agent that I have`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/agent-resume-app and follow its README to install the hook of each agent that I have`
 
 Or do it by hand. In the commands, `<HOME>` is your home folder (for example
 `C:\Users\me` or `/home/me`).

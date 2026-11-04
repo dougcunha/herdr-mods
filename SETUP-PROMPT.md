@@ -27,7 +27,7 @@ You will install and configure my Herdr app mods on a new machine. The Herdr app
 1. Check that these programs exist: `git`, `gh` (the GitHub CLI) and `node`.
 2. Run `gh auth status`. If I am not logged in, ask me to run `! gh auth login`. Do not continue with the CI mod without it.
 3. Run `herdr-app status` and note the Herdr version. If it is newer than 0.1.12, tell me. The `main-dock` layout is a copy of version 0.1.12 and can be out of date.
-4. Clone `https://github.com/dougcunha/herdr-plugins` into a temporary folder OUTSIDE `~/.config/herdr-app`.
+4. Clone `https://github.com/dougcunha/herdr-mods` into a temporary folder OUTSIDE `~/.config/herdr-app`.
 
 ## Install, in this order
 
@@ -40,8 +40,6 @@ For each item, read the `README.md` and the `RECIPE.md` of the folder before you
 5. `kanban-app`: the `kanban` layout and the `kanban` mod.
 6. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
 7. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, do not overwrite it: skip it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
-
-Do not install the `ci-dash` folder (the one without `-app`). It is a Herdr TUI plugin and does not run in the app.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
