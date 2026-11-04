@@ -47,7 +47,7 @@ Optional, to open Markdown files from the Files panel:
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/kissmikijr/herdr-markdown-reader`
 
-To set up **everything** on a fresh Herdr app (every mod and layout of this repository, a few third-party mods and the dock, keys and settings), paste the prompt in [`SETUP-PROMPT.md`](SETUP-PROMPT.md).
+To set up **everything** on a fresh Herdr app (every mod and layout of this repository, a few third-party mods and the dock, keys and settings), paste the prompt in [`SETUP-PROMPT.md`](SETUP-PROMPT.md). The same prompt **updates** a machine that ran it before: it installs the new mods, updates the files that you did not change, asks about the ones that you did, and keeps your own settings.
 
 `AGENTS.md` is the file that the Herdr app writes in its home folder. It tells
 the agent how to add a mod or a layout. The agent reads the folder, tells you
@@ -59,7 +59,7 @@ overwrites a file that exists.
 | Folder | What it is |
 | ------ | ---------- |
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
-| [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds two mods: `tabs-dock` and `files-md` (the Files panel that opens Markdown and images in their own mods). |
+| [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds three mods: `tabs-dock`, `files-md` (the Files panel: rendered Markdown, syntax colors, images in the Image Viewer, and a right-click menu with Open with default app, Show in Explorer and Copy path) and `files-md-menu` (that menu). |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, waiting for subagents, done. You can hide any column and turn the waiting column off. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
 | [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod, with hooks for Claude Code and Antigravity and a plugin for OpenCode (Codex needs none). After a reboot, it types the resume command of each agent (for example `claude --resume <id>`) in the shell that replaced its lost terminal. A status bar indicator opens a panel with the settings and the monitored sessions. |
