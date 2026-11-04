@@ -64,7 +64,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it is |
 | ---- | ---------- |
-| `layouts/kanban.json` | The window: spaces sidebar, top bar, board plus terminal panel, tab view and status bar. |
+| `layouts/kanban.json` | The window: spaces sidebar (hidden at start), top bar, board plus terminal panel, tab view and status bar. |
 | `layouts/kanban.svg` | The picture for the settings screen. |
 | `mods/kanban/` | One mod with two parts, chosen by `props.part`: `bar` and `board`. They share state through `shared()`. `waiting.js` finds the agents that wait for subagents. |
 

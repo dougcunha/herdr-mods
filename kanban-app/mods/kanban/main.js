@@ -886,7 +886,9 @@ export default class Kanban extends View {
     ];
     const scroller = (children) => h_flex().id("kb-strip").flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar().children(children);
 
-    return h_flex().id("kb-bar").size_full().min_w(0).px(compact ? 10 : 14).gap(compact ? 6 : 10).items_center()
+    // With the sidebar hidden, the macOS window buttons sit over the start of the bar: leave them room.
+    const lights = w?.platform === "macos" && find(layout(), "sidebar")?.hidden ? 76 : 0;
+    return h_flex().id("kb-bar").size_full().min_w(0).px(compact ? 10 : 14).when(lights > 0, (e) => e.pl(lights)).gap(compact ? 6 : 10).items_center()
       .bg(t.chrome).border_b(1).border_color(t.border)
       .on_size_change((size, cx) => {
         const width = Math.round(size.width);
