@@ -46,7 +46,7 @@ herdr-app do tab.new --name Repos --mod git-dash --props '{"root":"D:/Projetos"}
 
 | Control | What it does |
 | ------- | ------------ |
-| Folder button | Opens the folder picker. The folder is saved and used on the next start. |
+| Folder button | Opens the folder picker. The folder is saved and used on the next start. Each panel with its own `root` prop saves its own folder. |
 | Refresh button | Reads all repositories again. It spins while it works. The panel also refreshes by itself every 5 minutes. |
 | Download button | Fetch on refresh. When it is on, `git fetch --all --prune` runs in each repository, so the *behind* count is current. It is off by default. |
 | Chips | **Pending**, **Clean**, **Errors** and **All**. |
@@ -69,7 +69,7 @@ Colors: red for conflicts, an operation in progress and unpushed commits; yellow
 
 | Prop | Meaning |
 | ---- | ------- |
-| `root` | The first base folder. A folder that you choose with the picker wins over it. |
+| `root` | The first base folder. A folder that you choose with the picker wins over it. Two panels with different `root` props keep separate choices. |
 | `depth` | How many folder levels to search. Default `4`. |
 | `fetch` | `true` starts with fetch on. |
 | `lang` | `"en"` (default) or `"pt"`. |
