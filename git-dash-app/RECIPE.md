@@ -30,7 +30,7 @@ Severity (dot color and sort order, highest first): 5 conflicts or an operation 
 
 ## How it behaves
 
-- Start: the base folder is the saved choice (`shared("git-dash.root")`), else the `root` prop. With none, the panel shows the empty state. Fetch starts from the `fetch` prop, else `shared("git-dash.fetch")`.
+- Start: the base folder is the saved choice, else the `root` prop. The saved choice is `shared("git-dash.root:<root>")` when the copy has a `root` prop, else `shared("git-dash.root")`, so two panels with different roots keep separate choices. With none, the panel shows the empty state. Fetch starts from the `fetch` prop, else `shared("git-dash.fetch")`.
 - The mod finds the repositories first, then analyzes 12 at a time. Cards appear while the run goes on. On a refresh the old cards stay until their new data arrives; repositories that vanished are removed at the end.
 - **Folder** opens `pickFolder`. A choice clears the list, saves the folder with `setShared` and starts a run. A run of the old folder that ends later is ignored (a generation counter).
 - **Refresh** does nothing while a run is active. A 30 s timer re-renders the *Updated* age, and starts a silent run when the data is 5 minutes old.
@@ -59,7 +59,7 @@ Files in `mods/git-dash/`: `mod.json` (`{ "place": "none" }`, written first), `m
 - `exec` has a 30 s limit and gives the program no input. `props()` can answer for another copy: read the props once in `init(given, cx)`.
 - Pass props to `tab.new` from PowerShell through a variable: `$p = '{"root":"D:/Projetos"}'`, then `--props $p`. Forward slashes avoid JSON escapes.
 - A hot reload of the mod closes the tabs that show it. A `main.js` save restarts the scan.
-- The `root` prop is only a first guess. The folder from the picker is saved in `shared.json` and wins.
+- The `root` prop is only a first guess. The folder from the picker is saved in `shared.json`, under a key that includes the `root` prop, and wins.
 
 ## Done when
 

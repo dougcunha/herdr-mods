@@ -7,6 +7,10 @@ import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, ru
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint } from "./ui.js";
 
 const KEY_ROOT = "git-dash.root";
+// The saved folder is per panel: a copy with a `root` prop keeps its choice under
+// "git-dash.root:<root>", so two panels with different roots do not share it.
+// A copy without `root` keeps the old key.
+const rootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
 const KEY_FETCH = "git-dash.fetch";
 const WORKERS = 12; // repositories analyzed at once
 const AUTO_MS = 5 * 60 * 1000; // a silent refresh when the data is this old
@@ -94,7 +98,8 @@ export default class GitDash extends View {
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
     this.depth = Number.isInteger(this.props.depth) && this.props.depth >= 0 ? this.props.depth : 4;
     // The folder the person chose (saved) wins over the `root` prop, which is only the first guess.
-    const saved = shared(KEY_ROOT);
+    this.rootKey = rootKey(this.props);
+    const saved = shared(this.rootKey);
     this.root = (typeof saved === "string" && saved) || (typeof this.props.root === "string" && this.props.root) || null;
     this.fetch = typeof this.props.fetch === "boolean" ? this.props.fetch : shared(KEY_FETCH) === true;
 
@@ -173,7 +178,7 @@ export default class GitDash extends View {
       this.gen += 1; this.loading = false; this.repos.clear(); this.open.clear();
       this.ask = null; this.running.clear(); this.result.clear();
       this.root = dir; this.updated = 0; this.scanError = null;
-      setShared(KEY_ROOT, dir);
+      setShared(this.rootKey, dir);
       this.refresh(cx);
       cx.notify();
     });
