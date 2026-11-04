@@ -1,8 +1,9 @@
 # Kanban
 
 A Herdr app layout where every agent is a card in a column by status:
-**Needs you**, **Working**, **Done**, **Idle**. You can hide any column and
-change the order of the columns.
+**Needs you**, **Working**, **Waiting**, **Done**, **Idle**. You can hide any column and
+change the order of the columns. **Waiting** holds the Claude Code agents that look
+finished but still wait for background subagents (see below); you can turn it off.
 
 ![Kanban](layouts/kanban.svg)
 
@@ -21,8 +22,8 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it shows |
 | ---- | ------------- |
-| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a **density** button, a **card view** button, a button for the shell, a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
-| Columns | Needs you, Working, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
+| Top bar | Title and agent count (the count of "need you" turns amber). A switch **Board / Terminals**, a search box, one **chip per column**, a "this space only" button, a **column width** control (− / +), a **density** button, a **card view** button, an **hourglass** button for the Waiting column, a button for the shell, a button for the terminal panel, the **Files** and **Changes** buttons, a button back to the previous layout and **New agent**. |
+| Columns | Needs you, Working, Waiting, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
 | Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. A summary view shows 2 lines only. |
 | Shell under the board | Optional. A shell of its own (`kanban-shell`), in no tab. A button in the top bar shows or hides it. Drag its top edge to resize. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
@@ -33,11 +34,18 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 - **Column order:** click the `<` or `>` arrow in a column header. The column changes place with the next visible column at that side. Hidden columns keep their place. At the edge of the board the arrow is dim. The chips in the top bar follow the same order. The order is saved in `shared("kanban.order")`.
 - **Column width:** the − and + buttons set the widest a column may be: 150, 180, 220, 260, 320, 400 px or **Auto** (the columns share the whole board). The columns get narrower with the board, down to 150 px (120 px in compact density). Below that the board scrolls sideways and each column keeps that width. On a super wide monitor, pick 220 or 260 px to get narrow cards. The choice is saved in `shared("kanban.width")`.
 - **Density (small monitors):** the button with 4 inward arrows, right of the width control, goes **Auto → Compact → Normal → Auto**. It is lit while the kanban is compact, and its tooltip shows the mode. The choice is saved in `shared("kanban.density")`. **Auto** (the default) makes the top bar compact when it is narrower than 1650 px, and the board compact when it has less than 220 px for each visible column. In compact density:
-  - **Done** and **Idle** share one place on the board, one under the other, so the board has 3 places instead of 4. The pair takes the place of the first of the two in the column order.
+  - **Waiting** goes under **Working** and **Idle** under **Done**: each pair shares one place on the board, one column under the other, at the place of the first of the two in the column order. So the board has 3 places instead of 5. With the Waiting column off, only Done and Idle share a place (3 places instead of 4).
   - The headers, cards and gaps are smaller. The arrows and the eye of a column header show only while the pointer is on the header, so the name has room.
   - The top bar shows icons with tooltips instead of names: the switch, the column chips (a dot and the count), the panel buttons, the back button and **New agent**. The title and the count go to the tooltip of the board icon. The search box is 150 px.
   - The chips, the tools and the panel buttons are in one row that scrolls sideways when the bar is too narrow. The back button, **New agent** and the window buttons always show.
 - **Card view:** the button with a list icon, right of the density button, goes **Auto → Summary → Full → Auto**. It is lit while the view is Summary. The choice is saved in `shared("kanban.cards")`. **Auto** (the default) shows summary cards while the board is compact. A summary card has 2 lines: the program icon, the space name, a pin mark when pinned and the status mark; then the terminal title (or the program and the branch). It has no age, so the title has more room. While the pointer is on the card, the pin and "open in its tab" buttons show at the end of the title line. A click selects the agent, as on a full card.
+- **Waiting column (agents that wait for subagents):** the Herdr app shows a Claude Code agent as **Done** (or **Idle**) when it ended its turn after it launched background subagents, even if they still run. The Kanban reads the transcript of that Claude session and, when subagents are still running, shows the card in **Waiting** with a pulsing hourglass and a line such as "2 subagents" (with the description when there is only one). When the last subagent reports, the agent wakes up, works, and the card goes to **Done** by itself.
+  - **Turn it off:** click the hourglass button in the top bar (lit while on). The choice is saved in `shared("kanban.waiting")`. Off, the column and its chip go away, the mod reads no transcript, and every agent shows as its Herdr status says, as before. To start with it off, add `"waiting": false` to the `props` of both `kanban` blocks in the layout (the button wins after the first click).
+  - **When it is unsure, the card stays where Herdr puts it.** The mod needs to know which Claude session runs in the terminal: it uses the process id of the terminal (exact when the terminal runs Claude directly; a terminal that starts Claude from a shell has the shell's id), then the `resume.session` label of the [agent-resume](../agent-resume-app) mod, then the folder when only one session started there after the terminal. Only Claude Code agents on this computer are checked.
+  - **A card stuck in Waiting:** Claude Code does not always send the final notice of a subagent. Seen once: a subagent that replied "done" while a Monitor it had armed was still alive stayed "waiting" for good. Two ways out. A card whose subagents have not reported for **1 hour** goes back to Done or Idle by itself (change it with `"waitingMinutes": 30` in the `props` of both `kanban` blocks). And a waiting card has a **check button** ("Not waiting"; on a summary card it shows while the pointer is on the card) that sends it back at once, until the agent takes another turn.
+  - **Cost:** it reads a transcript only for a Claude agent that shows as Done or Idle, once per turn of that agent (and every 30 seconds for an agent known to wait). A typical transcript (1 to 5 MiB) takes some milliseconds; the biggest ones (30 MiB or more) a fraction of a second, off the screen thread.
+  - **Auto density:** with the column on, the board has 5 columns, so Auto goes compact (and to summary cards) below about 1150 px instead of about 920 px. Turn the column off, or set the density, to keep the old limit.
+  - **Config folders:** the mod looks in every `~/.claude*` folder that has `sessions` or `projects` (some people keep `~/.claude` and `~/.claude-work` apart). If yours has another name, add `"claudeDirs": ["C:/Users/me/claude-home"]` to the `props` of both `kanban` blocks.
 - **Working** cards have a pulsing line on top and a spinner. **Needs you** has a pulsing bell and an amber border. **Done** has a check. **Idle** has a moon.
 - **Click a card:** `agent.focus` selects it and opens the terminal panel. A **Done** agent becomes **Idle** after you look at it, so its card moves.
 - **Pin** keeps a card at the top of its column. **Open in its tab** goes to the tab of the agent and switches to the **Terminals** view.
@@ -58,18 +66,19 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 | ---- | ---------- |
 | `layouts/kanban.json` | The window: spaces sidebar, top bar, board plus terminal panel, tab view and status bar. |
 | `layouts/kanban.svg` | The picture for the settings screen. |
-| `mods/kanban/` | One mod with two parts, chosen by `props.part`: `bar` and `board`. They share state through `shared()`. |
+| `mods/kanban/` | One mod with two parts, chosen by `props.part`: `bar` and `board`. They share state through `shared()`. `waiting.js` finds the agents that wait for subagents. |
 
 Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 `kanban` blocks in the layout for Portuguese.
 
 ## What it does on your machine
 
-- It reads the live data of Herdr (agents, spaces, panes). It stores 7 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width`, `kanban.order`, `kanban.density` and `kanban.cards`.
+- It reads the live data of Herdr (agents, spaces, panes). It stores 9 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width`, `kanban.order`, `kanban.density`, `kanban.cards`, `kanban.waiting` and `kanban.waiting.dismissed`.
 - It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home, and watches the `dock/` folder.
 - It edits `layouts/kanban.json` with the `layout.set` command, to add or remove the side-panel blocks of `panels.json`, and to add the shell block.
+- With the Waiting column on, it reads (never writes) files in your Claude Code folders under your home folder: `sessions/*.json` and the transcript `projects/*/<session>.jsonl` of the Claude agents that show as Done or Idle. It runs `hc get <terminal> --json` for them. It reads a transcript again only when the agent changes turn, and every 30 seconds for an agent known to wait. Nothing leaves your computer.
 - When you show the shell, it runs `hc get kanban-shell`, and `hc run` (or `hc rm` and `hc run`) when that terminal is absent or finished.
-- It runs Herdr commands only: `agent.focus`, `terminal.pin`, `tab.select`, `space.select`, `pane.focus`, `pane.zoom`, `layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, `layout.set`, `layout.switch`, `tab.new`, `window.*`, and the `run` of a command entry of `panels.json`.
+- Besides the reads above, it runs Herdr commands only: `agent.focus`, `terminal.pin`, `tab.select`, `space.select`, `pane.focus`, `pane.zoom`, `layout.select`, `layout.show`, `layout.hide`, `layout.toggle`, `layout.set`, `layout.switch`, `tab.new`, `window.*`, and the `run` of a command entry of `panels.json`.
 - It runs no program other than `hc`, and uses no network.
 
 ## Limits
@@ -77,5 +86,6 @@ Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 - It uses the shipped mods `workspace-chrome`, `spaces`, `workspace-status`, `pane` and `new-menu`.
   They come with Herdr and are not copied here.
 - The age on a card is the age of its **tab** (`changed_at` or `working_since`). A tab with 2 agents shows the same age on both.
+- The Waiting column depends on how Claude Code writes its transcript (tested with Claude Code 2.1.318): a tool result "Async agent launched … agentId" and `<task-notification>` records. If a new version changes that, the column stays empty and the agents show as Done or Idle, as before. Background shell commands are not counted, only subagents. Other agents (Codex, …) are not checked.
 - Built and tested on Windows with Herdr 0.1.12. Untested: macOS, Linux, remote machines.
 - `RECIPE.md` has the full brief to build it from scratch.

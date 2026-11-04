@@ -6,11 +6,14 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder,
-  appHome, readTextFile, watchFolder, notify, hc } from "herdr";
+  appHome, home, terminals, readTextFile, watchFolder, notify, hc } from "herdr";
 import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, stop } from "./ui.js";
+import { WaitingTracker } from "./waiting.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
+const KEY_WAITING = "kanban.waiting"; // "on" | "off"; absent: props.waiting (on unless it is false)
+const KEY_DISMISSED = "kanban.waiting.dismissed"; // { "<terminal>": turn }: cards the person sent back to Done/Idle, for that turn
 const KEY_QUERY = "kanban.query"; // the search text
 const KEY_SCOPE = "kanban.scope"; // "all" | "space"
 const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: columns share the board
@@ -31,8 +34,13 @@ const DENSITIES = ["auto", "compact", "normal"];
 const CARD_VIEWS = ["auto", "summary", "full"];
 const BAR_WIDE = 1650;
 const COLUMN_WIDE = 220;
-// In compact density these 2 columns share one place, one under the other.
-const STACKED = ["done", "idle"];
+// In compact density the columns of a group share one place, one under the other, at the place of
+// the first of them in the column order. Waiting goes under Working, Idle under Done.
+const GROUPS = [["working", "waiting"], ["done", "idle"]];
+// "Waiting" is not a status the Herdr app reports: the mod derives it for a Claude Code agent that shows
+// as Done or Idle while background subagents still run (see waiting.js). It has no theme color of its own.
+const WAITING = "waiting";
+const statusColor = (t, status) => (status === WAITING ? t.ansi5 || t.accent : t[status] ?? t.idle);
 
 // The shell under the board: one core terminal with this name, outside every tab, shown by a
 // layout block { "terminal": "<address>" } with the id SHELL_ID. The bar adds the block the first time.
@@ -45,11 +53,12 @@ const PANELS = [
   { id: "changes", label: "Changes", icon: "mods/changes/changes.svg" },
 ];
 
-// The default order: needs you, working, done, idle. The arrows in a column header change it,
+// The default order: needs you, working, waiting, done, idle. The arrows in a column header change it,
 // and shared(KEY_ORDER) keeps the new order.
 const COLUMNS = [
   { id: "blocked", symbol: "bell" },
   { id: "working", symbol: "zap" },
+  { id: WAITING, symbol: "hourglass" },
   { id: "done", symbol: "check" },
   { id: "idle", symbol: "moon" },
 ];
@@ -57,7 +66,11 @@ const COLUMNS = [
 const STR = {
   en: {
     title: "Agents", search: "Search agents…",
-    idle: "Idle", blocked: "Needs you", working: "Working", done: "Done",
+    idle: "Idle", blocked: "Needs you", working: "Working", done: "Done", waiting: "Waiting",
+    subagents: (n) => (n === 1 ? "1 subagent" : `${n} subagents`),
+    waitingOn: "Waiting column on: agents that wait for subagents get their own column. Click to turn it off.",
+    waitingOff: "Waiting column off: those agents show as Done or Idle. Click to turn it on.",
+    notWaiting: "Not waiting: show it as Done or Idle",
     agents: (n) => (n === 1 ? "1 agent" : `${n} agents`), needYou: "{n} need you",
     scopeAll: "All spaces", scopeSpace: "This space",
     scopeAllTip: "Showing every space. Click to show only the current space.",
@@ -84,7 +97,11 @@ const STR = {
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
-    idle: "Ociosos", blocked: "Precisam de você", working: "Trabalhando", done: "Concluídos",
+    idle: "Ociosos", blocked: "Precisam de você", working: "Trabalhando", done: "Concluídos", waiting: "Aguardando",
+    subagents: (n) => (n === 1 ? "1 subagente" : `${n} subagentes`),
+    waitingOn: "Coluna Aguardando ligada: agentes que esperam subagentes ganham uma coluna própria. Clique para desligar.",
+    waitingOff: "Coluna Aguardando desligada: esses agentes aparecem como Concluídos ou Ociosos. Clique para ligar.",
+    notWaiting: "Não está esperando: mostrar como Concluído ou Ocioso",
     agents: (n) => (n === 1 ? "1 agente" : `${n} agentes`), needYou: "{n} precisam de você",
     scopeAll: "Todos os espaços", scopeSpace: "Este espaço",
     scopeAllTip: "Mostrando todos os espaços. Clique para mostrar só o espaço atual.",
@@ -153,6 +170,11 @@ export default class Kanban extends View {
     this.props = (given && Object.keys(given).length ? given : props()) || {};
     this.part = this.props.part === "bar" ? "bar" : "board";
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
+    // Which Claude Code agents wait for subagents. Both parts run one: they count the cards too.
+    const minutes = Number(this.props.waitingMinutes);
+    this.tracker = new WaitingTracker({ hc, home, dirs: this.props.claudeDirs, ttlMs: minutes > 0 ? minutes * 60000 : undefined });
+    this.waitSig = null;
+    this.waitBusy = false;
     if (this.part === "bar") {
       this.query = InputState.new({ placeholder: this.s("search"), value: String(shared(KEY_QUERY) ?? "") });
       this.query.on("change", () => setShared(KEY_QUERY, this.query.value()));
@@ -175,6 +197,11 @@ export default class Kanban extends View {
     } else {
       cx.timer.every(30000, (cx) => cx.notify()); // keeps "3 min ago" fresh
     }
+    // The subagents run on their own: look again now and then at the agents known to wait, so a
+    // limit of time or a lost session cannot keep a card here for good.
+    cx.timer.every(30000, (cx) => {
+      if (this.waitingOn() && this.tracker.waits.size) this.syncWaiting(cx, true);
+    });
   }
 
   s(key, vars) {
@@ -195,11 +222,73 @@ export default class Kanban extends View {
     setShared(KEY_HIDDEN, [...set]);
   }
 
-  /** All the columns, left to right. A saved order keeps only known ids; a column it does not list goes at the end. */
+  /** All the columns, left to right. Waiting is one of them only while the feature is on. A saved order
+   *  keeps only known ids; a column it does not list goes right after the column that comes before it
+   *  in COLUMNS (so Waiting lands under Working for a person who saved an order before it existed). */
   columns() {
+    const known = COLUMNS.filter((c) => c.id !== WAITING || this.waitingOn());
     const saved = shared(KEY_ORDER);
-    const ids = Array.isArray(saved) ? saved.filter((id, i) => COLUMNS.some((c) => c.id === id) && saved.indexOf(id) === i) : [];
-    return [...ids.map((id) => COLUMNS.find((c) => c.id === id)), ...COLUMNS.filter((c) => !ids.includes(c.id))];
+    const order = Array.isArray(saved) ? saved.filter((id, i) => known.some((c) => c.id === id) && saved.indexOf(id) === i) : [];
+    known.forEach((c, i) => {
+      if (order.includes(c.id)) return;
+      const before = known.slice(0, i).reverse().find((p) => order.includes(p.id));
+      order.splice(before ? order.indexOf(before.id) + 1 : 0, 0, c.id);
+    });
+    return order.map((id) => known.find((c) => c.id === id));
+  }
+
+  // ---- agents that wait for subagents --------------------------------------------
+
+  /** The Waiting column: on unless the person turned it off (the button in the bar, saved in
+   *  shared) or the layout says `"waiting": false` in the props of the block. Off, every agent shows as
+   *  its Herdr status says and the mod reads no transcript. */
+  waitingOn() {
+    const v = shared(KEY_WAITING);
+    return v === "on" || v === "off" ? v === "on" : this.props.waiting !== false;
+  }
+
+  toggleWaiting() { setShared(KEY_WAITING, this.waitingOn() ? "off" : "on"); }
+
+  /** The agents with the status the board shows: a Claude Code agent that is Done or Idle while its
+   *  subagents run gets "waiting" and `wait` ({ count, items }). The answer counts only for the turn
+   *  it was read in: when the agent works again it is stale and the card goes back at once. */
+  withWaiting(list) {
+    if (!this.waitingOn() || !this.tracker.waits.size) return list;
+    const turns = new Map(terminals().map((x) => [x.address, x.turn]));
+    const dismissed = shared(KEY_DISMISSED) ?? {};
+    return list.map((a) => {
+      const w = a.status === "done" || a.status === "idle" ? this.tracker.waits.get(a.address) : null;
+      return w && w.turn === turns.get(a.address) && dismissed[a.address] !== w.turn ? { ...a, status: WAITING, wait: w } : a;
+    });
+  }
+
+  /** The person says this agent does not wait (Claude Code can leave a finished subagent marked as
+   *  waiting): the card goes back to Done or Idle until the agent takes another turn. */
+  dismissWaiting(a) {
+    setShared(KEY_DISMISSED, { ...(shared(KEY_DISMISSED) ?? {}), [a.address]: a.wait.turn });
+  }
+
+  /** Looks at the Claude Code agents that show as Done or Idle, when one of them changed turn. It runs
+   *  off the render and asks for another one when the answer changes. `again`: read the transcripts
+   *  of the agents known to wait once more, even if their turn is the same (the timer does). */
+  syncWaiting(cx, again = false) {
+    if (!this.waitingOn()) { this.waitSig = null; return; }
+    const turns = new Map(terminals().map((x) => [x.address, x.turn]));
+    const candidates = agents().filter((a) => a.app === "claude-code" && (a.status === "done" || a.status === "idle"))
+      .map((a) => ({ address: a.address, turn: turns.get(a.address), cwd: panes().find((p) => p.pane === a.pane)?.cwd ?? null }));
+    const sig = candidates.map((c) => `${c.address}:${c.turn}`).join("|");
+    if (sig === this.waitSig && !again) return;
+    if (this.waitBusy) { this.waitSig = null; return; } // look again on the next render
+    this.waitSig = sig;
+    this.waitBusy = true;
+    const recheck = again ? new Set(this.tracker.waits.keys()) : new Set();
+    cx.spawn(async (cx) => {
+      let changed = false;
+      try { changed = await this.tracker.refresh(candidates, Date.now(), recheck); } catch {}
+      this.waitBusy = false;
+      if (changed) cx.notify();
+      if (this.waitSig === null) this.syncWaiting(cx); // an agent changed turn while this one read
+    });
   }
 
   /** The visible column next to `id` in direction `dir` (-1 left, +1 right), or null at the edge. */
@@ -272,7 +361,7 @@ export default class Kanban extends View {
   visible() {
     const q = String(shared(KEY_QUERY) ?? "").trim().toLowerCase();
     const space = spaces().find((p) => p.active)?.id;
-    const scoped = this.scope() === "space" ? agents().filter((a) => a.space === space) : agents();
+    const scoped = this.withWaiting(this.scope() === "space" ? agents().filter((a) => a.space === space) : agents());
     if (!q) return scoped;
     return scoped.filter((a) => {
       const pane = panes().find((p) => p.pane === a.pane);
@@ -473,8 +562,9 @@ export default class Kanban extends View {
 
   /** The status mark at the right of a card: it moves for working and for needs you. */
   mark(a, t) {
-    const color = t[a.status] ?? t.idle;
+    const color = statusColor(t, a.status);
     if (a.status === "working") return svg(icon("spinner")).size(15).flex_none().text_color(color).spin(900);
+    if (a.status === WAITING) return svg(icon("hourglass")).size(15).flex_none().text_color(color).loop("opacity", { from: 0.4, to: 1, period: 1800 });
     if (a.status === "blocked") return svg(icon("bell")).size(15).flex_none().text_color(color).loop("opacity", { from: 0.3, to: 1, period: 1100 });
     if (a.status === "done") return svg(icon("check")).size(15).flex_none().text_color(color);
     return svg(icon("moon")).size(14).flex_none().text_color(t.dim);
@@ -484,14 +574,16 @@ export default class Kanban extends View {
    *  age so the title has room. The icon tells the program, so the space names the card. While the
    *  pointer is on the card, the pin and open buttons show at the end of the title line. */
   summaryCard(a, t) {
-    const color = t[a.status] ?? t.idle;
+    const color = statusColor(t, a.status);
     const pane = panes().find((p) => p.pane === a.pane);
     const selected = a.focused || focused()?.agent === a.address;
     const hot = a.status === "blocked";
     const name = a.program?.name || a.app || "Agent";
     const title = (a.title || "").trim();
     const head = a.space_name || name;
-    const line = title && title !== name ? title : [name, pane?.branch].filter(Boolean).join(" · ");
+    // A waiting agent says what it waits for, in place of its title.
+    const line = a.wait ? this.waitText(a)
+      : title && title !== name ? title : [name, pane?.branch].filter(Boolean).join(" · ");
     const over = this.hoverCard === a.address;
     const small = (id, symbol, action, tooltip, active = false) => iconButton(t, `${id}-${a.address}`, symbol, action,
       { active, tooltip, size: 20, glyph: 11, color: active ? t.accent : t.dim });
@@ -514,12 +606,20 @@ export default class Kanban extends View {
       .child(h_flex().h(20).gap(4).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
         .when(over, (e) => e
+          .when(Boolean(a.wait), (e) => e.child(small("notwait", "check", () => this.dismissWaiting(a), this.s("notWaiting"))))
           .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
   }
 
+  /** "2 subagents", or "2 subagents · Run the tests" when the first one has a description. */
+  waitText(a) {
+    const count = this.s("subagents", a.wait.count);
+    const first = a.wait.items[0]?.description;
+    return first && a.wait.count === 1 ? `${count} · ${first}` : count;
+  }
+
   card(a, t, compact = false) {
-    const color = t[a.status] ?? t.idle;
+    const color = statusColor(t, a.status);
     const pane = panes().find((p) => p.pane === a.pane);
     const tab = spaces().find((p) => p.id === a.space)?.tabs.find((x) => x.id === a.tab);
     const since = a.status === "working" ? tab?.working_since ?? tab?.changed_at : tab?.changed_at;
@@ -548,11 +648,14 @@ export default class Kanban extends View {
       .when(Boolean(title) && title !== name, (e) => e.child(
         div().max_h(34).overflow_hidden().text_size(12).text_color(t.muted).child(title)))
       .child(h_flex().flex_wrap().gap(5).items_center()
+        .when(Boolean(a.wait), (e) => e.child(pill(t, { label: this.waitText(a), symbol: "hourglass", color })))
         .when(Boolean(branch), (e) => e.child(pill(t, { label: branch, symbol: "branch", code: true })))
         .when(Boolean(folder) && folder !== branch, (e) => e.child(pill(t, { label: folder, symbol: "folder" })))
         .when(Boolean(tabLabel), (e) => e.child(pill(t, { label: tabLabel, symbol: "terminal" }))))
       .child(h_flex().h(22).gap(2).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.age(since)))
+        .when(Boolean(a.wait), (e) => e.child(iconButton(t, `notwait-${a.address}`, "check", () => this.dismissWaiting(a),
+          { tooltip: this.s("notWaiting"), size: 22, glyph: 12, color: t.dim })))
         .child(iconButton(t, `pin-${a.address}`, "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }),
           { active: a.pinned, tooltip: this.s(a.pinned ? "unpin" : "pin"), size: 22, glyph: 12, color: a.pinned ? t.accent : t.dim }))
         .child(iconButton(t, `open-${a.address}`, "open", () => this.openInTab(a),
@@ -577,7 +680,7 @@ export default class Kanban extends View {
   /** One status column. `compact`: smaller header and cards. `fixed`: see sized().
    *  `stacked`: the column shares its place with another column, one under the other. */
   column(c, list, t, searching, { compact = false, fixed = false, stacked = false, summary = false } = {}) {
-    const color = t[c.id] ?? t.idle;
+    const color = statusColor(t, c.id);
     const urgent = c.id === "blocked" && list.length > 0;
     const tile = div().size(compact ? 22 : 26).rounded(compact ? 7 : 8).flex_none().flex().items_center().justify_center().bg(tint(color, "26"))
       .child(svg(icon(c.symbol)).size(compact ? 12 : 14).text_color(color));
@@ -637,11 +740,13 @@ export default class Kanban extends View {
         button(t, "kb-show-all", this.s("showAll"), () => setShared(KEY_HIDDEN, []), { primary: true, symbol: "eye" }));
     }
     const compact = this.compact(this.boardW, cols.length * COLUMN_WIDE + (cols.length - 1) * GAP);
-    // Places in the row: one column each. In compact density Done and Idle share one place, one
-    // under the other, at the place of the first of the two in the order.
+    // Places in the row: one column each. In compact density the columns of a group (Working with
+    // Waiting, Done with Idle) share one place, one under the other, at the place of the first of
+    // them in the order.
     const places = [];
     for (const c of cols) {
-      const pair = compact && STACKED.includes(c.id) ? places.find((p) => p.length === 1 && STACKED.includes(p[0].id)) : null;
+      const group = compact ? GROUPS.find((g) => g.includes(c.id)) : null;
+      const pair = group ? places.find((p) => group.includes(p[0].id)) : null;
       if (pair) pair.push(c); else places.push([c]);
     }
     // A row that scrolls sideways lays its children out at their content width, so the columns
@@ -761,7 +866,7 @@ export default class Kanban extends View {
     const chips = this.columns().map((c) => {
       const on = !hidden.has(c.id), name = this.s(c.id);
       return columnChip(t, `kb-chip-${c.id}`, {
-        label: name, color: t[c.id] ?? t.idle, on, compact,
+        label: name, color: statusColor(t, c.id), on, compact,
         count: this.visible().filter((a) => a.status === c.id).length,
         tooltip: this.s(on ? "hideCol" : "showCol", { name }),
       }, () => this.toggleColumn(c.id));
@@ -772,6 +877,8 @@ export default class Kanban extends View {
       this.widthControl(t),
       this.densityButton(t, compact),
       this.cardsButton(t),
+      iconButton(t, "kb-waiting", "hourglass", () => this.toggleWaiting(),
+        { active: this.waitingOn(), tooltip: this.s(this.waitingOn() ? "waitingOn" : "waitingOff") }),
       iconButton(t, "kb-shell", this.shellBusy ? "spinner" : "panel-bottom", (cx) => this.toggleShell(cx),
         { active: this.shellShown(), tooltip: this.s(this.shellShown() ? "shellOn" : "shellOff") }),
       iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
@@ -815,8 +922,9 @@ export default class Kanban extends View {
         .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close"))));
   }
 
-  render(_cx) {
+  render(cx) {
     const t = theme();
+    this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
       .on_size_change((size, cx) => {
