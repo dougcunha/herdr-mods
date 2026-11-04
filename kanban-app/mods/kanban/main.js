@@ -8,7 +8,7 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder,
   appHome, home, terminals, readTextFile, watchFolder, notify, hc } from "herdr";
 import * as fs from "fs/promises";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, stop } from "./ui.js";
+import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, divider, stop } from "./ui.js";
 import { WaitingTracker } from "./waiting.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
@@ -32,7 +32,8 @@ const GAP = 12, GAP_COMPACT = 8; // between the columns
 const DENSITIES = ["auto", "compact", "normal"];
 // Card view. The button in the bar goes auto -> summary -> full -> auto.
 const CARD_VIEWS = ["auto", "summary", "full"];
-const BAR_WIDE = 1650;
+const BAR_WIDE = 1800;
+const LABELS_WIDE = 2250; // from this bar width the panel buttons show their names, not only icons
 const COLUMN_WIDE = 220;
 // In compact density the columns of a group share one place, one under the other, at the place of
 // the first of them in the column order. Waiting goes under Working, Idle under Done.
@@ -76,7 +77,7 @@ const STR = {
     scopeAllTip: "Showing every space. Click to show only the current space.",
     scopeSpaceTip: "Showing only the current space. Click to show every space.",
     board: "Board", terminals: "Terminals", boardTip: "Show the board", terminalsTip: "Show the terminals of the current space",
-    detailOn: "Hide the terminal panel", detailOff: "Show the terminal panel",
+    detailOn: "Hide the terminal panel", detailOff: "Show the terminal panel", agentLabel: "Agent", shellLabel: "Shell",
     newAgent: "New agent", hide: "Hide this column", showCol: "Show {name}", hideCol: "Hide {name}",
     emptyCol: "No agents here", emptyColSearch: "No match",
     allHidden: "All columns are hidden", allHiddenHint: "Show a column to see its agents.", showAll: "Show all columns",
@@ -107,7 +108,7 @@ const STR = {
     scopeAllTip: "Mostrando todos os espaços. Clique para mostrar só o espaço atual.",
     scopeSpaceTip: "Mostrando só o espaço atual. Clique para mostrar todos os espaços.",
     board: "Quadro", terminals: "Terminais", boardTip: "Mostrar o quadro", terminalsTip: "Mostrar os terminais do espaço atual",
-    detailOn: "Ocultar o painel do terminal", detailOff: "Mostrar o painel do terminal",
+    detailOn: "Ocultar o painel do terminal", detailOff: "Mostrar o painel do terminal", agentLabel: "Agente", shellLabel: "Shell",
     newAgent: "Novo agente", hide: "Ocultar esta coluna", showCol: "Mostrar {name}", hideCol: "Ocultar {name}",
     emptyCol: "Nenhum agente aqui", emptyColSearch: "Nada encontrado",
     allHidden: "Todas as colunas estão ocultas", allHiddenHint: "Mostre uma coluna para ver os agentes dela.", showAll: "Mostrar todas as colunas",
@@ -786,12 +787,13 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
-  /** The buttons of the side panel and of dock/panels.json, in one group: Files and Changes, then the
-   *  entries of the file in the order listed (side panels and tabs), then its commands. Empty when the
-   *  layout has no `panel`. `compact`: icons only, the names go to the tooltips. */
-  panelButtons(t, compact = false) {
+  /** The buttons of the side panel and of dock/panels.json: `panels` are Files and Changes, then the entries
+   *  of the file in the order listed (side panels and tabs); `commands` are its command entries. Both are
+   *  empty when the layout has no `panel`. `iconOnly`: the names go to the tooltips.
+   *  Call it once per render: it also adds the blocks of the file to the layout. */
+  panelItems(t, iconOnly = false) {
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
-    if (!panel || !body) return [];
+    if (!panel || !body) return { panels: [], commands: [] };
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body.children ?? []) taken.delete(c.id);
@@ -800,31 +802,48 @@ export default class Kanban extends View {
     const present = new Set((body.children ?? []).map((c) => c.id));
     const lit = (id) => !panel.hidden && body.active === id;
     const tip = (name) => this.s("panelTip", { name });
-    const buttons = [
-      ...PANELS.filter((p) => present.has(p.id)).map((p) =>
-        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), compact)),
-      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", compact)
-        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), compact)),
+    return {
+      panels: [
+        ...PANELS.filter((p) => present.has(p.id)).map((p) =>
+          panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), iconOnly)),
+        ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
+          ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)
+          : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), iconOnly)),
+      ],
       // A command that switches to the layout shown now would do nothing: leave it out.
-      ...this.entries.filter((e) => e.opens === "command" && !(e.run === "layout.switch" && e.args?.name === shared("layout")))
-        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", compact)),
-    ];
-    return buttons.length ? [buttonGroup(t, buttons)] : [];
+      commands: this.entries.filter((e) => e.opens === "command" && !(e.run === "layout.switch" && e.args?.name === shared("layout")))
+        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
+    };
   }
 
-  /** [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
+  /** The two blocks of the board view: the terminal of the selected agent (right) and the shell (under the board). */
+  regionButtons(t, iconOnly) {
+    const detail = this.detailHidden();
+    return [
+      panelButton(t, "kb-detail", icon("panel"), this.s("agentLabel"), !detail, () => run("layout.toggle", { id: "detail" }),
+        this.s(detail ? "detailOff" : "detailOn"), iconOnly),
+      panelButton(t, "kb-shell", icon(this.shellBusy ? "spinner" : "panel-bottom"), this.s("shellLabel"), this.shellShown(),
+        (cx) => this.toggleShell(cx), this.s(this.shellShown() ? "shellOn" : "shellOff"), iconOnly, Boolean(this.shellBusy)),
+    ];
+  }
+
+  /** [width icon] [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
   widthControl(t) {
     const cap = this.maxWidth();
     const atMin = cap === WIDTHS[0], atMax = cap === null;
-    return h_flex().h(32).flex_none().px(3).gap(1).items_center().rounded(10)
-      .bg(tint(t.foreground, "0f")).border_1().border_color(t.border)
+    return h_flex().flex_none().gap(1).items_center()
       .tooltip(this.s("widthTip", { w: cap === null ? this.s("auto") : `${cap} px` }))
+      .child(div().w(22).flex_none().flex().items_center().justify_center().child(svg(icon("width")).size(14).text_color(t.dim)))
       .child(iconButton(t, "kb-narrower", "minus", () => this.stepWidth(-1),
         { tooltip: this.s("narrower"), size: 24, glyph: 13, color: atMin ? t.dim : t.muted }))
       .child(div().w(34).flex_none().text_center().text_size(11).text_color(t.muted).child(cap === null ? this.s("auto") : String(cap)))
       .child(iconButton(t, "kb-wider", "plus", () => this.stepWidth(1),
         { tooltip: this.s("wider"), size: 24, glyph: 13, color: atMax ? t.dim : t.muted }));
+  }
+
+  /** How the board looks, in one group: column width, density and card view. */
+  displayGroup(t, compactNow) {
+    return buttonGroup(t, [this.widthControl(t), divider(t, true), this.densityButton(t, compactNow), this.cardsButton(t)]);
   }
 
   /** The density button: lit while the board and bar are compact. The tooltip names the mode and the next one. */
@@ -833,8 +852,8 @@ export default class Kanban extends View {
     const next = DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length];
     const name = (x) => this.s(`density_${x}`);
     const mode = d === "auto" ? this.s(compactNow ? "densityNow" : "densityNowNormal", { mode: name(d) }) : name(d);
-    return iconButton(t, "kb-density", "shrink", () => this.stepDensity(),
-      { active: compactNow, tooltip: this.s("densityTip", { mode, next: name(next) }) });
+    return iconButton(t, "kb-density", "density", () => this.stepDensity(),
+      { active: compactNow, size: 26, tooltip: this.s("densityTip", { mode, next: name(next) }) });
   }
 
   /** The card view button: lit while the cards are set to summary. */
@@ -842,8 +861,8 @@ export default class Kanban extends View {
     const v = this.cardView();
     const next = CARD_VIEWS[(CARD_VIEWS.indexOf(v) + 1) % CARD_VIEWS.length];
     const name = (x) => this.s(`cards_${x}`);
-    return iconButton(t, "kb-cards", "list", () => this.stepCardView(),
-      { active: v === "summary", tooltip: this.s("cardsTip", { mode: v === "auto" ? this.s("cardsAuto") : name(v), next: name(next) }) });
+    return iconButton(t, "kb-cards", "cards", () => this.stepCardView(),
+      { active: v === "summary", size: 26, tooltip: this.s("cardsTip", { mode: v === "auto" ? this.s("cardsAuto") : name(v), next: name(next) }) });
   }
 
   bar(t) {
@@ -861,8 +880,17 @@ export default class Kanban extends View {
     const compact = this.compact(this.barW, BAR_WIDE);
     const count = need ? `${this.s("agents", all.length)} · ${this.s("needYou", { n: need })}` : this.s("agents", all.length);
 
-    // The controls of the board view. In compact density they share one row that scrolls sideways
-    // with the panel buttons, so the buttons at the right end of the bar always show.
+    // The bar reads left to right in six sections, each one a purpose:
+    //   what to see (Board / Terminals) | what to show (search, scope, columns) | how it looks (width, density, cards)
+    //   | which panels are open (agent, shell, Files, Changes, dock entries) | where to go (layout, new agent) | window.
+    // In compact density the middle sections share one row that scrolls sideways, so the buttons at
+    // the right end of the bar always show.
+    const iconOnly = compact || !(this.barW >= LABELS_WIDE);
+    const { panels, commands } = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
+    const regions = onBoard ? this.regionButtons(t, iconOnly) : [];
+    const panelGroup = regions.length + panels.length
+      ? [buttonGroup(t, [...regions, ...(regions.length && panels.length ? [divider(t, true)] : []), ...panels])] : [];
+    const commandGroup = commands.length ? [buttonGroup(t, commands)] : [];
     const chips = this.columns().map((c) => {
       const on = !hidden.has(c.id), name = this.s(c.id);
       return columnChip(t, `kb-chip-${c.id}`, {
@@ -871,19 +899,18 @@ export default class Kanban extends View {
         tooltip: this.s(on ? "hideCol" : "showCol", { name }),
       }, () => this.toggleColumn(c.id));
     });
-    const tools = [
-      iconButton(t, "kb-scope", "layers", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
-        { active: this.scope() === "space", tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }),
-      this.widthControl(t),
-      this.densityButton(t, compact),
-      this.cardsButton(t),
+    const columnTools = [
+      ...chips,
       iconButton(t, "kb-waiting", "hourglass", () => this.toggleWaiting(),
         { active: this.waitingOn(), tooltip: this.s(this.waitingOn() ? "waitingOn" : "waitingOff") }),
-      iconButton(t, "kb-shell", this.shellBusy ? "spinner" : "panel-bottom", (cx) => this.toggleShell(cx),
-        { active: this.shellShown(), tooltip: this.s(this.shellShown() ? "shellOn" : "shellOff") }),
-      iconButton(t, "kb-detail", "panel", () => run("layout.toggle", { id: "detail" }),
-        { active: !this.detailHidden(), tooltip: this.s(this.detailHidden() ? "detailOff" : "detailOn") }),
     ];
+    const search = h_flex().flex_none().gap(4).items_center()
+      .child(searchBox(t, "kb-search", this.query, {
+        width: compact ? 150 : 220,
+        onClear: () => { this.query.set_value(""); setShared(KEY_QUERY, ""); },
+      }))
+      .child(iconButton(t, "kb-scope", "filter", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
+        { active: this.scope() === "space", size: 32, tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }));
     const scroller = (children) => h_flex().id("kb-strip").flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar().children(children);
 
     // With the sidebar hidden, the macOS window buttons sit over the start of the bar: leave them room.
@@ -906,17 +933,15 @@ export default class Kanban extends View {
         { id: "kb-view-tabs", label: compact ? "" : this.s("terminals"), symbol: "terminal", active: !onBoard, tooltip: this.s("terminalsTip"),
           onClick: () => run("layout.select", { stack: "view", child: "tabs-view" }) },
       ]))
+      .child(divider(t))
       .when(onBoard, (e) => e
-        .child(searchBox(t, "kb-search", this.query, {
-          width: compact ? 150 : 220,
-          onClear: () => { this.query.set_value(""); setShared(KEY_QUERY, ""); },
-        }))
-        .when(compact, (e) => e.child(scroller([...chips, ...tools, ...this.panelButtons(t, true)])))
-        .when(!compact, (e) => e.child(scroller(chips)).children(tools)))
-      .when(!onBoard, (e) => e.child(this.tabStrip(t)))
-      .when(!onBoard || !compact, (e) => e.children(this.panelButtons(t, compact)))
+        .child(search)
+        .when(compact, (e) => e.child(scroller([...columnTools, this.displayGroup(t, compact), ...panelGroup, ...commandGroup])))
+        .when(!compact, (e) => e.child(scroller(columnTools)).child(this.displayGroup(t, compact)).children(panelGroup).children(commandGroup)))
+      .when(!onBoard, (e) => e.child(this.tabStrip(t)).children(panelGroup).children(commandGroup))
+      .child(divider(t))
       .when(Boolean(back), (e) => e.child(button(t, "kb-back", back, () => this.goBack(back),
-        { symbol: "swap", tooltip: this.s("backTip", { name: back }), iconOnly: compact })))
+        { symbol: "layouts", tooltip: this.s("backTip", { name: back }), iconOnly: true })))
       .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus", iconOnly: compact }))
       .when(w?.buttons, (e) => e
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))

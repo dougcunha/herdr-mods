@@ -82,23 +82,29 @@ export function pill(t, { label, symbol, code = false, color }) {
 
 /** A button for a side panel, a tab or a command: an icon (a path in the Herdr home: `.svg` is tinted,
  *  anything else is a picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it). */
-export function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false) {
+export function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false, spin = false) {
   const tip = tooltip || (iconOnly ? label : "");
+  const glyph = String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none();
   return h_flex().id(id).h(26).px(iconOnly ? 6 : 9).gap(6).flex_none().items_center().rounded(7).text_size(12).cursor_pointer()
     .when(Boolean(tip), (e) => e.tooltip(tip))
     .when(on, (e) => e.bg(tint(t.accent, "26")).text_color(t.accent))
     .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
     .on_mouse_down("left", stop)
     .on_click((_e, cx) => onClick(cx))
-    .child(String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none())
+    .child(spin ? glyph.spin(900) : glyph)
     .when(!iconOnly, (e) => e.child(label));
 }
 
-/** A rounded group that holds several panel buttons. */
+/** A rounded group that holds several buttons. */
 export function buttonGroup(t, children) {
   return h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
     .bg(tint(t.foreground, "0f")).border_1().border_color(t.border)
     .children(children);
+}
+
+/** A thin vertical line. Between the sections of the bar, or inside a group (`inner`: shorter). */
+export function divider(t, inner = false) {
+  return div().w(1).h(inner ? 14 : 20).mx(inner ? 2 : 0).flex_none().bg(tint(t.foreground, "26"));
 }
 
 /** A text button. `iconOnly` (with a `symbol`): no label (the tooltip has it). */
