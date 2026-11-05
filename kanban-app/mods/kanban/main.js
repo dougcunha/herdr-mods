@@ -163,6 +163,10 @@ const find = (node, id) => {
   }
   return null;
 };
+// The node that shows and hides the side panel: the column "panel" around the stack "panel-body". When a block
+// leaves the layout (the shell under the board, when its terminal ends), Herdr removes each column that keeps only
+// one child, and "panel" is one of them. Then the stack itself is the panel.
+const sidePanel = (root) => find(root, "panel") ?? find(root, "panel-body");
 const base = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
 
 export default class Kanban extends View {
@@ -464,10 +468,10 @@ export default class Kanban extends View {
 
   /** Opens the side panel on `id`, or closes it when it already shows that one. */
   togglePanel(id) {
-    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+    const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
     if (!panel || !body) return;
-    if (!panel.hidden && body.active === id) run("layout.hide", { id: "panel" });
-    else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+    if (!panel.hidden && body.active === id) run("layout.hide", { id: panel.id });
+    else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: panel.id }); }
   }
 
   openInTab(a) {
@@ -789,10 +793,10 @@ export default class Kanban extends View {
 
   /** The buttons of the side panel and of dock/panels.json: `panels` are Files and Changes, then the entries
    *  of the file in the order listed (side panels and tabs); `commands` are its command entries. Both are
-   *  empty when the layout has no `panel`. `iconOnly`: the names go to the tooltips.
+   *  empty when the layout has no `panel-body`. `iconOnly`: the names go to the tooltips.
    *  Call it once per render: it also adds the blocks of the file to the layout. */
   panelItems(t, iconOnly = false) {
-    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+    const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
     if (!panel || !body) return { panels: [], commands: [] };
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
