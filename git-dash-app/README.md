@@ -2,7 +2,7 @@
 
 A Herdr app mod that shows the pending work of every Git repository under one base folder. It is a port of a `git-pendencias.py` report into a panel.
 
-The panel lists only the repositories that need attention, the most urgent first. Each card shows the branch and colored counts: unpushed commits, staged, modified and new files, stash entries, conflicts and a merge or rebase in progress. A click on a card shows its changed files and its fixes. **Refresh** reads all repositories again.
+The panel lists only the repositories that need attention, the most urgent first. Each card shows the branch and colored counts: unpushed commits, staged, modified and new files, stash entries, conflicts, a merge or rebase in progress, and merged branches that were not deleted. A click on a card shows its changed files and its fixes. **Refresh** reads all repositories again.
 
 The panel changes a repository only when you click a fix and confirm it. A fix that is not safe has no button: the card tells you what to resolve and opens the repository in a terminal for you.
 
@@ -58,12 +58,39 @@ herdr-app do tab.new --name Repos --mod git-dash --props '{"root":"D:/Projetos"}
 | **Publish to origin** | `git push -u origin <branch>`, when the branch has commits and no upstream. |
 | **Terminal** | Opens a terminal tab in the repository, in the current space, and runs `git status`. |
 | **New space** | Opens the repository in a new space and runs `git status`. |
+| **Delete** (merged branch) | Deletes one merged branch: on its remote too when the remote copy exists, then the local branch. |
+| **Delete all N** | Deletes all merged branches of the repository that can be deleted now. |
+
+### Merged branches
+
+A local branch is *merged* when its last commit is in the default branch: `origin/HEAD`, else `origin/main`, `origin/master`, `main` or `master`. The card shows `N merged` in blue. The open card lists each merged branch, with `local` or `local + origin`, and a red **Delete** button.
+
+The panel does not show these branches:
+
+- `main`, `master`, `develop`, `development`, `dev`, `trunk`, `staging`, `production` and `release`.
+- A branch that is checked out in another worktree.
+- A branch whose remote copy has commits that the default branch does not have.
+- A branch with no commits of its own: no upstream, and its reflog shows only its creation.
+
+**Delete** shows these commands and waits for **Run**:
+
+```text
+git merge-base --is-ancestor refs/heads/feat refs/remotes/origin/main
+git push origin --delete feat --force-with-lease=refs/heads/feat:<sha>
+git branch -D feat
+```
+
+The first command stops the delete when the branch is not merged any more. `--force-with-lease` stops the push when the remote branch moved after the last fetch. The remote copy goes first: when the push fails, the local branch stays, and **Run in terminal** runs the push again. For the branch that is checked out, `git switch main` runs before `git branch -D`. The panel offers this only when the branch has no staged or modified files.
+
+Squash merges and rebase merges change the commits, so the panel does not see these branches as merged. Turn on fetch so that `origin/main` is current.
+
+### Fixes
 
 Push, Pull and Publish show the exact command and wait for **Run**. After a fix, the card shows the result and reads the repository again. When a fix fails, **Run in terminal** runs the same command in a terminal, where Git can ask for a password.
 
 These problems have no fix button. The card lists them under *Resolve by hand*: conflicts, a merge or rebase in progress, a detached HEAD, a branch that is ahead and behind, a removed upstream, no remote, more than 1 remote and no `origin`, a stash, and unpushed commits on other branches. Commit, Push and Pull are not offered while a conflict, an operation or a detached HEAD is present.
 
-Colors: red for conflicts, an operation in progress and unpushed commits; yellow for staged or modified files; cyan for new files; magenta for a stash only; green for a clean repository.
+Colors: red for conflicts, an operation in progress and unpushed commits; yellow for staged or modified files; cyan for new files; magenta for a stash or merged branches only; green for a clean repository.
 
 ## Props
 
@@ -82,4 +109,5 @@ Colors: red for conflicts, an operation in progress and unpushed commits; yellow
 - After **Terminal** or **New space**, the card reads the repository again after 20 seconds, 90 seconds and 5 minutes.
 - The search skips `node_modules`, `.venv`, `venv`, `__pycache__`, `bin`, `obj`, `dist`, `build`, `target`, `packages`, `.idea`, `.vs`, `.vscode`, `.gradle`, `.next` and `.cache`. It stops at 400 repositories.
 - A fetch that needs a password fails after 30 seconds, because the app gives a program no input.
+- The panel checks at most 20 merged branches per repository.
 - Local folders only. Tested on Windows with Herdr 0.1.12. The `sh` search is untested.

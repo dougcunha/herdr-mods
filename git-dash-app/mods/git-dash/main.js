@@ -50,6 +50,11 @@ const STR = {
     m_detached: "detached HEAD", m_diverged: "the branch is ahead and behind its upstream",
     m_upstreamGone: "the upstream branch was removed", m_manyRemotes: "more than 1 remote and no origin",
     m_noRemote: "no remote", m_stash: "stash", m_otherBranches: "unpushed commits on other branches",
+    merged: "{n} merged", mergedTitle: "Merged into {base}, not deleted:", current: "current",
+    whereLocal: "local", whereBoth: "local + {remote}",
+    fix_delete: "Delete", fix_deleteAll: "Delete all {n}",
+    deleteTip: "Delete the local branch {branch}.", deleteTipBoth: "Delete the branch {branch} here and on {remote}.",
+    blocked_busy: "finish the operation first", blocked_dirty: "commit or stash the changes first",
   },
   pt: {
     title: "Git Dash", choose: "Escolher pasta", refresh: "Atualizar",
@@ -84,6 +89,11 @@ const STR = {
     m_detached: "HEAD destacado", m_diverged: "a branch está à frente e atrás do upstream",
     m_upstreamGone: "o upstream foi removido", m_manyRemotes: "mais de 1 remoto e nenhum origin",
     m_noRemote: "sem remoto", m_stash: "stash", m_otherBranches: "commits não enviados em outras branches",
+    merged: "{n} mergeada(s)", mergedTitle: "Mergeadas em {base} e não apagadas:", current: "atual",
+    whereLocal: "local", whereBoth: "local + {remote}",
+    fix_delete: "Apagar", fix_deleteAll: "Apagar todas ({n})",
+    deleteTip: "Apaga a branch local {branch}.", deleteTipBoth: "Apaga a branch {branch} aqui e em {remote}.",
+    blocked_busy: "termine a operação antes", blocked_dirty: "faça commit ou stash das mudanças antes",
   },
 };
 
@@ -261,6 +271,11 @@ export default class GitDash extends View {
     return m < 60 ? this.s("ago", { n: m }) : this.s("agoH", { n: Math.floor(m / 60) });
   }
 
+  /** The label of a fix: its button text, and the text while it runs. */
+  fixLabel(f) {
+    return f.id === "delete" ? `${this.s("fix_delete")} ${f.branch}` : this.s(`fix_${f.id}`, { remote: f.remote, n: f.n });
+  }
+
   noteText(n) {
     return this.s(n.id, { n: n.n, text: n.text });
   }
@@ -306,6 +321,7 @@ export default class GitDash extends View {
     if (r.untracked) items.push(pill(t, { label: this.s("untracked", { n: r.untracked }), color: t.ansi6 }));
     if (r.stash) items.push(pill(t, { label: this.s("stash", { n: r.stash }), color: t.ansi5 }));
     if (r.behind) items.push(pill(t, { label: this.s("behind", { n: r.behind }), color: t.ansi4 }));
+    if (r.merged.length) items.push(pill(t, { label: this.s("merged", { n: r.merged.length }), symbol: "branch", color: t.ansi4 }));
     return items;
   }
 
@@ -337,7 +353,8 @@ export default class GitDash extends View {
         div().text_size(11).text_color(t.muted).child(this.s(steps.length > 1 ? "confirmRunN" : "confirmRun")),
         ...steps.map(code),
         h_flex().gap(6)
-          .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.s(`fix_${ask.fix.id}`, { remote: ask.fix.remote }), cx), { tone: "primary" }))
+          .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.fixLabel(ask.fix), cx),
+            { tone: ask.fix.id.startsWith("delete") ? "danger" : "primary" }))
           .child(cancel));
     } else if (ask?.kind === "commit") {
       const modes = [r.staged && "staged", r.modified && "tracked", r.untracked && "all"].filter(Boolean);
@@ -355,13 +372,15 @@ export default class GitDash extends View {
           .child(smallButton(t, key("gd-commit"), this.s("fix_commit"), (cx) => this.commit(cx), { tone: "primary", disabled: !message }))
           .child(cancel));
     } else {
-      main = h_flex().flex_wrap().gap(6)
-        .children(fx.auto.map((f) => smallButton(t, key(`gd-fix-${f.id}`), this.s(`fix_${f.id}`, { remote: f.remote }),
-          (cx) => this.startFix(r, f, cx), { tone: "primary" })))
-        .child(smallButton(t, key("gd-tab"), this.s("openTab"), (cx) => this.openTerminal(r, "tab", cx),
-          { symbol: "terminal", tooltip: this.s("openTabTip") }))
-        .child(smallButton(t, key("gd-space"), this.s("openSpace"), (cx) => this.openTerminal(r, "space", cx),
-          { tooltip: this.s("openSpaceTip") }));
+      main = v_flex().gap(8)
+        .child(h_flex().flex_wrap().gap(6)
+          .children(fx.auto.map((f) => smallButton(t, key(`gd-fix-${f.id}`), this.fixLabel(f),
+            (cx) => this.startFix(r, f, cx), { tone: "primary" })))
+          .child(smallButton(t, key("gd-tab"), this.s("openTab"), (cx) => this.openTerminal(r, "tab", cx),
+            { symbol: "terminal", tooltip: this.s("openTabTip") }))
+          .child(smallButton(t, key("gd-space"), this.s("openSpace"), (cx) => this.openTerminal(r, "space", cx),
+            { tooltip: this.s("openSpaceTip") })))
+        .when(fx.merged.length > 0, (e) => e.child(this.mergedList(r, fx, t, key)));
     }
 
     const tail = res ? res.out.split("\n").filter(Boolean).slice(-4) : [];
@@ -376,6 +395,33 @@ export default class GitDash extends View {
         .when(!res.ok && Boolean(res.failed), (x) => x.child(h_flex().pt(4).child(
           smallButton(t, key("gd-retry"), this.s("retryTab"), (cx) => this.openTerminal(r, "tab", cx, ["git", ...res.failed]),
             { symbol: "terminal", tone: "danger" }))))));
+  }
+
+  /** The merged branches of an open card, each with its delete button, and "Delete all". */
+  mergedList(r, fx, t, key) {
+    const ready = fx.merged.filter((m) => m.fix);
+    // The current branch goes last: its delete switches to the base branch.
+    const all = ready.length > 1 ? {
+      id: "deleteAll", n: ready.length,
+      steps: [...ready].sort((a, b) => Number(a.branch.current) - Number(b.branch.current)).flatMap((m) => m.fix.steps),
+    } : null;
+    const row = ({ branch: b, fix, blocked }) => h_flex().h(24).gap(8).items_center().text_size(11)
+      .child(svg(icon("branch")).size(11).flex_none().text_color(t.ansi4))
+      .child(div().flex_shrink_1().min_w(0).truncate().font_family(mono()).text_color(t.foreground).child(b.name))
+      .when(b.current, (e) => e.child(pill(t, { label: this.s("current"), color: t.accent })))
+      .child(div().flex_1())
+      .child(div().flex_none().text_color(t.dim).child(b.remote ? this.s("whereBoth", { remote: b.remote.name }) : this.s("whereLocal")))
+      .child(fix
+        ? smallButton(t, key(`gd-del-${b.name}`), this.s("fix_delete"), (cx) => this.startFix(r, fix, cx), {
+          tone: "danger",
+          tooltip: b.remote ? this.s("deleteTipBoth", { branch: b.name, remote: b.remote.name }) : this.s("deleteTip", { branch: b.name }),
+        })
+        : div().flex_none().text_color(t.ansi3).child(this.s(`blocked_${blocked}`)));
+    return v_flex().gap(2).pt(6).border_t(1).border_color(t.border)
+      .child(h_flex().h(24).gap(6).items_center()
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.s("mergedTitle", { base: r.base.name })))
+        .when(Boolean(all), (e) => e.child(smallButton(t, key("gd-del-all"), this.fixLabel(all), (cx) => this.startFix(r, all, cx), { tone: "danger" }))))
+      .children(fx.merged.map(row));
   }
 
   repoCard(r, t) {

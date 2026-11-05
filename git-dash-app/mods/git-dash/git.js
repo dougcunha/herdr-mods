@@ -23,6 +23,12 @@ const OPERATIONS = {
 
 export const MAX_REPOS = 400;
 
+// Long-lived branches. The panel never offers to delete them, here or on a remote.
+const PROTECTED = new Set([
+  "main", "master", "develop", "development", "dev", "trunk", "staging", "production", "release",
+]);
+const MAX_MERGED = 20; // merged-branch candidates checked per repository
+
 const isWin = () => /^[A-Za-z]:[\\/]/.test(home());
 const slash = (p) => p.replace(/\\/g, "/");
 
@@ -122,6 +128,111 @@ function after(line, n) {
 const git = (cwd, args) =>
   exec("git", ["--no-optional-locks", "-c", "core.quotepath=false", ...args], { cwd });
 
+const HEADS = "refs/heads/";
+const short = (ref) => ref.replace(/^refs\/(heads|remotes)\//, "");
+
+/**
+ * The branch that work merges into: the default branch of `origin`, else
+ * origin/main, origin/master, main or master. Null when none exists.
+ * `local` is the name of the local branch for `git switch`.
+ */
+async function findBase(repo) {
+  const refs = [];
+  const h = await git(repo, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
+  if (h.code === 0 && h.stdout.trim()) refs.push(h.stdout.trim());
+  refs.push("refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master");
+  for (const ref of refs) {
+    const v = await git(repo, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+    if (v.code !== 0) continue;
+    const name = short(ref);
+    return { ref, name, sha: v.stdout.trim(), local: ref.startsWith(HEADS) ? name : name.split("/").slice(1).join("/") };
+  }
+  return null;
+}
+
+/**
+ * Local branches that are fully merged into `base` and were not deleted.
+ * Each is `{ name, sha, current, remote }`; `remote` is `{ name, branch, sha }`
+ * when the branch also exists on a remote and that copy is merged too.
+ *
+ * A branch is left out when it is protected, is the base, is checked out in
+ * another worktree, or its remote copy has commits that the base does not have.
+ * A branch with no commits of its own is an ancestor of the base too. So a
+ * branch counts only when it has an upstream, or its reflog shows more than
+ * its creation.
+ */
+async function findMerged(repo, base) {
+  const fmt = "%(refname)%09%(objectname)%09%(HEAD)%09%(worktreepath)%09%(upstream)%09%(upstream:track)%09%(upstream:remotename)%09%(upstream:remoteref)";
+  const [all, mg] = await Promise.all([
+    git(repo, ["for-each-ref", `--format=${fmt}`, "refs/heads", "refs/remotes"]),
+    git(repo, ["for-each-ref", `--merged=${base.ref}`, "--format=%(refname)", "refs/heads", "refs/remotes"]),
+  ]);
+  if (all.code !== 0 || mg.code !== 0) return [];
+  const refs = new Map();
+  for (const line of all.stdout.split("\n")) {
+    const [ref, sha, head, worktree, upstream, track, remote, remoteRef] = line.replace(/\r$/, "").split("\t");
+    if (ref) refs.set(ref, { sha, head: head === "*", worktree, upstream, track, remote, remoteRef });
+  }
+  const merged = new Set(mg.stdout.split(/\r?\n/).filter(Boolean));
+  const baseRemote = base.ref.startsWith("refs/remotes/") ? base.name.split("/")[0] : "origin";
+
+  const found = [];
+  let reflogs = 0; // reflog reads, at most 2 per possible result
+  for (const ref of merged) {
+    if (found.length >= MAX_MERGED) break;
+    if (!ref.startsWith(HEADS)) continue;
+    const name = ref.slice(HEADS.length);
+    const b = refs.get(ref);
+    if (!b || PROTECTED.has(name) || name === base.local || ref === base.ref) continue;
+    if (b.worktree && !b.head) continue; // checked out in another worktree
+
+    // The copy of the branch on a remote: its upstream, else a branch with the same name.
+    let remote = null, hasUpstream = false;
+    if (b.upstream.startsWith("refs/remotes/") && b.remoteRef.startsWith(HEADS)) {
+      const branch = b.remoteRef.slice(HEADS.length);
+      if (b.upstream === base.ref || PROTECTED.has(branch)) {
+        // Started from the base (git switch -c x origin/main): no evidence, and never touch the base.
+      } else {
+        hasUpstream = true;
+        if (b.track !== "[gone]" && refs.has(b.upstream)) remote = { name: b.remote, branch, ref: b.upstream };
+      }
+    } else if (!b.upstream && refs.has(`refs/remotes/${baseRemote}/${name}`)) {
+      remote = { name: baseRemote, branch: name, ref: `refs/remotes/${baseRemote}/${name}` };
+      hasUpstream = true;
+    }
+    if (remote) {
+      if (!merged.has(remote.ref)) continue; // the remote copy has more work: not finished
+      remote.sha = refs.get(remote.ref).sha;
+    }
+
+    if (!hasUpstream) {
+      if (++reflogs > 2 * MAX_MERGED) continue;
+      const rl = await git(repo, ["reflog", "show", "--format=%gs", ref]);
+      const entries = rl.code === 0 ? rl.stdout.split(/\r?\n/).filter(Boolean) : [];
+      if (entries.length && entries.every((e) => e.startsWith("branch: Created from"))) continue;
+    }
+    found.push({ name, sha: b.sha, current: b.head, remote: remote && { name: remote.name, branch: remote.branch, sha: remote.sha } });
+  }
+  return found.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The Git steps that delete merged branch `b` of repository `r`: the remote
+ * copy first, so a failed push leaves the local branch. Each delete is guarded:
+ * `merge-base --is-ancestor` stops the steps when the branch is not merged
+ * any more, and `--force-with-lease` refuses when the remote branch moved.
+ * The current branch is left with `git switch <base>` before it is deleted.
+ */
+export function deleteSteps(r, b) {
+  const steps = [["merge-base", "--is-ancestor", `${HEADS}${b.name}`, r.base.ref]];
+  if (b.remote) {
+    steps.push(["push", b.remote.name, "--delete", b.remote.branch, `--force-with-lease=${HEADS}${b.remote.branch}:${b.remote.sha}`]);
+  }
+  if (b.current) steps.push(["switch", r.base.local]);
+  steps.push(["branch", "-D", b.name]);
+  return steps;
+}
+
 /**
  * Reads one repository. Never rejects: a failure goes in `error`.
  * Counts follow git-pendencias.py: `unpushed` are commits in no remote.
@@ -134,6 +245,7 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
     branch: "", upstream: "", ahead: 0, behind: 0, hasAb: false, remotes: [],
     unpushed: 0, byBranch: {}, stash: 0, staged: 0, modified: 0, untracked: 0, conflicts: 0,
     operations: [...operations], notes: [], files: [], error: null,
+    base: null, merged: [],
   };
   try {
     if (fetch) {
@@ -221,6 +333,11 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
     if (r.ahead > (r.byBranch[r.branch] || 0)) r.notes.push({ id: "aheadOfUpstream", n: r.ahead });
     const others = Object.entries(r.byBranch).filter(([k]) => k !== r.branch && k !== "HEAD").sort((a, b) => b[1] - a[1]);
     if (others.length) r.notes.push({ id: "otherBranches", text: others.map(([k, v]) => `${k} (${v})`).join(", ") });
+
+    if (!initial) {
+      r.base = await findBase(repo);
+      if (r.base) r.merged = await findMerged(repo, r.base);
+    }
   } catch (e) {
     r.error = String(e?.message || e);
   }
@@ -231,7 +348,7 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
 export function pending(r) {
   return Boolean(
     r.unpushed || r.stash || r.staged || r.modified || r.untracked || r.conflicts || r.operations.length
-    || r.notes.some((n) => n.id === "noRemote" || n.id === "aheadOfUpstream"),
+    || r.merged.length || r.notes.some((n) => n.id === "noRemote" || n.id === "aheadOfUpstream"),
   );
 }
 
@@ -245,7 +362,15 @@ export function pending(r) {
  */
 export function fixes(r) {
   const auto = [], manual = [];
-  if (r.error) return { auto, manual: ["error"] };
+  if (r.error) return { auto, manual: ["error"], merged: [] };
+  // Merged branches: one delete fix per branch. `fix` is null and `blocked`
+  // says why when the delete must wait.
+  const busy = r.conflicts || r.operations.length;
+  const merged = r.merged.map((b) => {
+    const blocked = busy ? "busy" : b.current && (r.staged || r.modified) ? "dirty" : "";
+    const fix = blocked ? null : { id: "delete", branch: b.name, steps: deleteSteps(r, b) };
+    return { branch: b, fix, blocked };
+  });
   if (r.conflicts) manual.push("conflicts");
   if (r.operations.length) manual.push("operation");
   const onBranch = Boolean(r.branch) && !r.branch.startsWith("(");
@@ -267,7 +392,7 @@ export function fixes(r) {
   if (r.notes.some((n) => n.id === "noRemote")) manual.push("noRemote");
   if (r.stash) manual.push("stash");
   if (r.notes.some((n) => n.id === "otherBranches")) manual.push("otherBranches");
-  return { auto, manual };
+  return { auto, manual, merged };
 }
 
 /** The Git steps of a commit. `mode`: "staged", "tracked" (git add -u) or "all" (git add -A). */
@@ -301,6 +426,6 @@ export function severity(r) {
   if (r.unpushed) return 4;
   if (r.staged || r.modified) return 3;
   if (r.untracked) return 2;
-  if (r.stash) return 1;
+  if (r.stash || r.merged.length) return 1;
   return 0;
 }

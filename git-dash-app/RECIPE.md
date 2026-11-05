@@ -1,6 +1,6 @@
 # Git Dash
 
-A Herdr app mod. It is a side panel (or a tab) that shows the pending work of every Git repository under one base folder: unpushed commits, staged, modified and new files, stash, conflicts and operations in progress. It lists the repositories that need attention first.
+A Herdr app mod. It is a side panel (or a tab) that shows the pending work of every Git repository under one base folder: unpushed commits, staged, modified and new files, stash, conflicts, operations in progress and merged branches that were not deleted. It lists the repositories that need attention first.
 
 No preview image ships with this recipe: a real screenshot would show private repository names.
 
@@ -14,19 +14,20 @@ A card with a 1 px border, 10 px radius and the theme `background`, filling its 
 4. **Chips**, wrapping: **Pending** (yellow dot), **Clean** (green dot), **Errors** (red dot, only when there are errors) and **All**. Each chip has a count badge. **Pending** is on at start.
 5. **List**, scrolling, with a 1 px top border. Each repository is a card with a 1 px bottom border:
    - Row 1: an 8 px dot colored by severity, the path of the repository relative to the base folder (13 px semibold, truncated), and a `▸` or `▾` when it has changed files.
-   - Row 2, indented 16 px, wrapping 20 px pills: the branch (`branch.svg`, monospace), then `merge in progress` (and `rebase`, `cherry-pick`, `revert`, `bisect`) and `N conflicts` and `N unpushed` in red, `N staged` in green, `N modified` in yellow, `N new` in cyan, `N stash` in magenta, `↓N behind` in blue.
+   - Row 2, indented 16 px, wrapping 20 px pills: the branch (`branch.svg`, monospace), then `merge in progress` (and `rebase`, `cherry-pick`, `revert`, `bisect`) and `N conflicts` and `N unpushed` in red, `N staged` in green, `N modified` in yellow, `N new` in cyan, `N stash` in magenta, `↓N behind` in blue, `N merged` (`branch.svg`) in blue.
    - Row 3, 11 px `dim`, only when needed: notes joined by ` · `: `No remote`, `Branch has no upstream`, `Upstream branch was removed`, `Detached HEAD with N unpushed commit(s)`, `↑N ahead of upstream`, `Other branches: x (2), y (1)`, `Fetch failed`.
    - Expanded: up to 12 rows of `state  path` (state in monospace: `UU` red, `??` cyan, a staged code green, an unstaged code yellow) and `… N more file(s)`.
    - Expanded, below the files, the **fix area** (indented 16 px, clicks stop there so the card stays open):
      - `Resolve by hand: …` in yellow (11 px), when `fixes(r).manual` is not empty.
      - A row of 24 px buttons (`smallButton`): the safe fixes in accent (**Commit**, **Push**, **Pull**, **Publish to origin**), then **Terminal** (`terminal.svg`) and **New space**.
-     - After a click on Push, Pull or Publish: a `raised` box with `Run this command?`, the command in monospace and **Run** / **Cancel**.
+     - When the repository has merged branches: a 1 px top border, the line `Merged into origin/main, not deleted:` (11 px `dim`) with a red **Delete all N** button on the right (only for 2 or more), then one 24 px row per branch: `branch.svg` in blue, the name in monospace, an accent `current` pill for the checked-out branch, `local` or `local + origin` in `dim`, and a red **Delete** button. When the delete must wait, the row shows the reason in yellow instead of the button: `finish the operation first` or `commit or stash the changes first`.
+     - After a click on Push, Pull, Publish or a delete: a `raised` box with `Run this command?`, the commands in monospace and **Run** / **Cancel**. **Run** is red for a delete.
      - After a click on Commit: a `raised` box with a message input, 1 to 3 mode buttons (**Staged only**, **Tracked files**, **All, with new files**; the last one red with a warning line), the commands in monospace and **Commit** / **Cancel**.
      - While a fix runs: a spinner and `Push · Running…`.
      - The result: a green `Done.` or a red `Failed.` box with the last 4 output lines, and **Run in terminal** on a failure.
 6. **Empty states**: no folder: a tile with the icon, the title *Choose a folder with your repositories*, a hint and a primary **Choose folder** button. A folder with no repository, or an error (the folder does not exist): the message and the same button.
 
-Severity (dot color and sort order, highest first): 5 conflicts or an operation (red), 4 unpushed commits (red), 3 staged or modified (yellow), 2 new files only (cyan), 1 stash only (magenta), 0 clean (green). An error repository has a red dot, shows its error line and no pills. Ties sort by path.
+Severity (dot color and sort order, highest first): 5 conflicts or an operation (red), 4 unpushed commits (red), 3 staged or modified (yellow), 2 new files only (cyan), 1 stash or merged branches only (magenta), 0 clean (green). An error repository has a red dot, shows its error line and no pills. Ties sort by path.
 
 ## How it behaves
 
@@ -36,6 +37,7 @@ Severity (dot color and sort order, highest first): 5 conflicts or an operation 
 - **Refresh** does nothing while a run is active. A 30 s timer re-renders the *Updated* age, and starts a silent run when the data is 5 minutes old.
 - A card with changed files, a fix, a pending item, an error or a fix result toggles on click. A clean card does nothing.
 - **Fixes** (`fixes(r)` in `git.js`) split into `auto` and `manual`. Conflicts, an operation or a detached HEAD block all `auto` fixes. Otherwise: dirty files give `commit`; with an upstream, ahead only gives `push`, behind only gives `pull` (`--ff-only`), ahead and behind is `diverged` (manual); an upstream that is gone is manual; no upstream with commits on the branch gives `publish` to `origin` (or the only remote). No remote, stash and other branches with commits are manual.
+- **Merged branches** (`fixes(r).merged`, one entry per branch with `fix` or `blocked`): a conflict or an operation blocks every delete (`busy`); staged or modified files block the delete of the checked-out branch (`dirty`). **Delete all N** runs the steps of every branch that is not blocked, one branch after the other, the checked-out branch last.
 - Only one card at a time asks (`this.ask`). The commit mode starts at *staged* when something is staged, else *tracked*, else *all*. An empty message does not commit.
 - A fix runs with `runSteps` (`exec("git", ...)`, one step after the other, stop at the first failure), then `refreshOne` reads the repository again: `findRepos(path, 0)` for its operations, then `analyze`.
 - **Terminal** runs `tab.new {name, folder, argv: ["git","status"]}`; **New space** runs `space.new` with the same arguments. **Run in terminal** uses `argv: ["git", ...failedStep]`. The shell stays open after the command. Then `refreshOne` runs after 20 s, 90 s and 5 min.
@@ -47,7 +49,9 @@ Files in `mods/git-dash/`: `mod.json` (`{ "place": "none" }`, written first), `m
 
 - **Search** (`findRepos`): runs `pwsh -NoProfile -NonInteractive -Command <script>` on Windows, `sh -c <script>` with `find` elsewhere. It walks `depth` levels (default 4), skips the folders in the `SKIP` list and reparse points, does not enter a repository's `.git`, stops at 400 repositories, and prints `path<TAB>marker,marker` per repository. The markers are the files `MERGE_HEAD`, `rebase-merge`, `rebase-apply`, `CHERRY_PICK_HEAD`, `REVERT_HEAD` and `BISECT_LOG` inside the Git folder (a `.git` file with `gitdir:` is followed). A missing folder gives exit code 2 and a message on stderr.
 - **Analysis** (`analyze`): `git --no-optional-locks -c core.quotepath=false status --porcelain=v2 --branch --show-stash --ignore-submodules=dirty --untracked-files=normal` gives branch, upstream, ahead and behind, stash count and files. Type `1` or `2` lines count as staged when `X` is not `.` and as modified when `Y` is not `.`; `u` is a conflict; `?` is new. `git remote` runs only when there is no upstream. `git log --branches HEAD --not --remotes --source --format=%S` gives the unpushed commits by branch (skipped without a remote or in a repository with no commit). `git fetch --all --prune --quiet` runs first when fetch is on.
-- A repository is *pending* when it has unpushed commits, stash, staged, modified, new files, conflicts, an operation, no remote, or is ahead of its upstream by more than its unpushed count.
+- **Merged branches** (`findBase` and `findMerged`, skipped in a repository with no commit): the base is the target of `refs/remotes/origin/HEAD`, else the first of `refs/remotes/origin/main`, `refs/remotes/origin/master`, `refs/heads/main` and `refs/heads/master` that `rev-parse --verify` accepts. `for-each-ref refs/heads refs/remotes` with `%(refname) %(objectname) %(HEAD) %(worktreepath) %(upstream) %(upstream:track) %(upstream:remotename) %(upstream:remoteref)` gives every branch, and `for-each-ref --merged=<base>` gives the merged ones. A merged local branch counts unless: its name is in `PROTECTED` (`main master develop development dev trunk staging production release`) or is the base; it is checked out in another worktree; its remote copy (its upstream, else `<remote>/<same name>`) exists and is not merged. An upstream that is the base or a protected branch is not a remote copy (a branch made with `git switch -c x origin/main`), and the panel never deletes it. A branch with no upstream counts only when `git reflog show --format=%gs` has an entry that is not `branch: Created from…` (an empty reflog counts). At most 20 branches and 40 reflog reads per repository.
+- **Delete steps** (`deleteSteps`): `merge-base --is-ancestor refs/heads/<b> <base>`; with a remote copy, `push <remote> --delete <b> --force-with-lease=refs/heads/<b>:<sha of the remote copy>`; for the checked-out branch, `switch <local base>`; then `branch -D <b>`. The ancestor check and the lease replace the check of `branch -d`, which compares with the upstream or `HEAD`, not with the base.
+- A repository is *pending* when it has unpushed commits, stash, staged, modified, new files, conflicts, an operation, merged branches, no remote, or is ahead of its upstream by more than its unpushed count.
 - `herdr` functions: `exec`, `home`, `theme`, `props`, `shared`, `setShared`, `pickFolder`, `run`. `gpui-base`: `InputState` (its `submit` event commits), `Input`. Native animation only: `svg(...).spin(900)`.
 
 ## Watch out
@@ -59,6 +63,8 @@ Files in `mods/git-dash/`: `mod.json` (`{ "place": "none" }`, written first), `m
 - `exec` has a 30 s limit and gives the program no input. `props()` can answer for another copy: read the props once in `init(given, cx)`.
 - Pass props to `tab.new` from PowerShell through a variable: `$p = '{"root":"D:/Projetos"}'`, then `--props $p`. Forward slashes avoid JSON escapes.
 - A hot reload of the mod closes the tabs that show it. A `main.js` save restarts the scan.
+- `--force-with-lease` also guards a `push --delete`: with a stale expected value the push fails with `(stale info)`. Put it after the branch name, so the truncated command line in the confirmation still shows the remote and the branch.
+- `flex_shrink` needs a number: `flex_shrink()` with no argument breaks the render. Use `flex_shrink_1()`.
 - The `root` prop is only a first guess. The folder from the picker is saved in `shared.json`, under a key that includes the `root` prop, and wins.
 
 ## Done when
@@ -71,4 +77,5 @@ Files in `mods/git-dash/`: `mod.json` (`{ "place": "none" }`, written first), `m
 - In a test folder: **Push** on a repository that is ahead, **Pull** on one that is behind and **Commit** (*Tracked files*) on a dirty one each show `Done.`, and the card reads the repository again. A repository with a conflict shows only *Resolve by hand*, **Terminal** and **New space**.
 - **Terminal** opens a tab in the repository folder with the `git status` output, and the shell stays open.
 - With the Dock entry in `panels.json`, the **Repos** button shows next to **Changes** and **CI**, and it shows and hides the panel.
+- In a test repository with a bare remote: a fast-forward merged branch with its remote branch shows `local + origin`; a merged branch whose upstream is gone and a merged branch with no upstream show `local`. A new branch with no commits, a branch made from `origin/main`, `develop`, an unmerged branch and a merged branch whose remote copy has 1 more commit do not show. **Delete all** removes the branches here and on the remote, and the card reads the repository again.
 - `herdr-app status` shows `"errors": []`.
