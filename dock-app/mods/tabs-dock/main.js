@@ -23,9 +23,20 @@ const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
 const RIGHT_GAP = 6; // between the panel group, the layout switch and the window buttons
 
+// The density of the buttons, shared with the Kanban bar (the same key and the same button):
+// "normal" shows the names, "compact" only the icons, "auto" (or absent) the names from LABELS_WIDE px.
+const KEY_DENSITY = "kanban.density";
+const DENSITIES = ["auto", "compact", "normal"];
+
 const STR = {
-  en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout" },
-  pt: { newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}" },
+  en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
+    density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
+    densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
+    densityTip: "Density: {mode}. Click to switch to {next}." },
+  pt: { newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
+    density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
+    densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
+    densityTip: "Densidade: {mode}. Clique para mudar para {next}." },
 };
 
 // A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
@@ -176,7 +187,12 @@ export default class Tabs extends View {
   }
 
   toggle(id) {
-    const command = this.entries.find(e => e.id === id && e.opens === "command");
+    // "tabs-dock.density" steps the density, as the density button does.
+    if (id === "density") {
+      const d = DENSITIES.includes(shared(KEY_DENSITY)) ? shared(KEY_DENSITY) : "auto";
+      return setShared(KEY_DENSITY, DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]);
+    }
+    const command =this.entries.find(e => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
     if (!panel || !body?.children?.some(c => c.id === id)) {
@@ -289,7 +305,20 @@ export default class Tabs extends View {
     const waiting = injecting || (this.since && Date.now() - this.since < 3000 && panelEntries.some(e => !present.has(e.id)));
     if (!waiting) this.syncPanel(space, panel, body, panelButtons.map(b => b.id));
 
-    const iconOnly = !(this.barW >= LABELS_WIDE);
+    const density = DENSITIES.includes(shared(KEY_DENSITY)) ? shared(KEY_DENSITY) : "auto";
+    const iconOnly = density === "normal" ? false : density === "compact" ? true : !(this.barW >= LABELS_WIDE);
+    // The density button, the same as in the Kanban bar: lit while the buttons are compact. It is left of
+    // the right end, so the right end keeps the same place as in the Kanban bar.
+    const nextDensity = DENSITIES[(DENSITIES.indexOf(density) + 1) % DENSITIES.length];
+    const densityName = (x) => this.s(`density_${x}`);
+    const densityMode = density === "auto" ? this.s(iconOnly ? "densityNow" : "densityNowNormal", { mode: densityName(density) }) : densityName(density);
+    const densityButton = div().id("density").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
+      .tooltip(this.s("densityTip", { mode: densityMode, next: densityName(nextDensity) }))
+      .when(iconOnly, el => el.bg(tint(t.accent, "26")))
+      .hover(s => s.bg(iconOnly ? tint(t.accent, "40") : t.hover))
+      .on_mouse_down("left", stop)
+      .on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_DENSITY, nextDensity); })
+      .child(svg("mods/tabs-dock/density.svg").size(15).text_color(iconOnly ? t.accent : t.muted));
     const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id);
     const tip = (name) => this.s("panelTip", { name });
     // Buttons keep the order of the file; panel and tab entries mix as listed. Other commands come last.
@@ -326,6 +355,7 @@ export default class Tabs extends View {
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
+      .child(buttonGroup(t, [densityButton]))
       .child(right);
   }
 }

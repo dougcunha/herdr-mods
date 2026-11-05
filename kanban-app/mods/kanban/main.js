@@ -29,6 +29,7 @@ const GAP = 12, GAP_COMPACT = 8; // between the columns
 // Density. The button in the bar goes auto -> compact -> normal -> auto.
 // Auto makes each part compact by its own width (on_size_change, the same px as .w()):
 // the bar below BAR_WIDE, the board below COLUMN_WIDE for each visible column.
+// The density is shared with the Dock bar (tabs-dock): it has the same button and reads the same key.
 const DENSITIES = ["auto", "compact", "normal"];
 // Card view. The button in the bar goes auto -> summary -> full -> auto.
 const CARD_VIEWS = ["auto", "summary", "full"];
@@ -936,7 +937,10 @@ export default class Kanban extends View {
     // The right end is the same as in the Dock bar (tabs-dock), in the same place and size, so a layout
     // switch does not move it: the panel group (Files, Changes, dock entries), the layout switch, the window
     // buttons. In compact density the columns and the look group share one row that scrolls sideways.
-    const iconOnly = compact || !(this.barW >= LABELS_WIDE);
+    // The panel buttons and the layout switch: names in Normal density, icons in Compact; in Auto, names
+    // from LABELS_WIDE px. tabs-dock reads the same density with the same rule, so the right ends match.
+    const d = this.density();
+    const iconOnly = d === "normal" ? false : d === "compact" ? true : !(this.barW >= LABELS_WIDE);
     const panels = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
     const regions = onBoard ? this.regionButtons(t, iconOnly) : [];
     const regionGroup = regions.length ? [buttonGroup(t, regions)] : [];
@@ -969,7 +973,9 @@ export default class Kanban extends View {
       }))
       .child(iconButton(t, "kb-scope", "filter", () => setShared(KEY_SCOPE, this.scope() === "space" ? "all" : "space"),
         { active: this.scope() === "space", size: 32, tooltip: this.s(this.scope() === "space" ? "scopeSpaceTip" : "scopeAllTip") }));
-    const scroller = (children) => h_flex().id("kb-strip").flex_1().min_w(0).gap(6).items_center().overflow_x_scrollbar().children(children);
+    // The controls of the board view share one row that scrolls sideways when the bar is too narrow (Normal
+    // density on a small monitor). New agent and the right end stay outside it, so they always show.
+    const scroller = (children) => h_flex().id("kb-strip").flex_1().min_w(0).gap(compact ? 6 : 10).items_center().overflow_x_scrollbar().children(children);
 
     // With the sidebar hidden, the macOS window buttons sit over the start of the bar: leave them room.
     const lights = w?.platform === "macos" && find(layout(), "sidebar")?.hidden ? 76 : 0;
@@ -992,13 +998,9 @@ export default class Kanban extends View {
           onClick: () => run("layout.select", { stack: "view", child: "tabs-view" }) },
       ]))
       .child(divider(t))
-      .when(onBoard, (e) => e
-        .child(search)
-        .when(compact, (e) => e.child(scroller([...columnTools, this.displayGroup(t, compact)])))
-        .when(!compact, (e) => e.child(scroller(columnTools)).child(this.displayGroup(t, compact))))
+      .when(onBoard, (e) => e.child(scroller([search, ...columnTools, this.displayGroup(t, compact), ...regionGroup])))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
       .child(divider(t))
-      .children(regionGroup)
       .child(newAgent)
       .child(right);
   }

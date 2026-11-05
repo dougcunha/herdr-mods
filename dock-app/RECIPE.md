@@ -9,6 +9,7 @@ A Herdr layout (`main-dock`) whose tab bar draws its side-panel buttons from a f
 The window of Herdr's `main` layout, with the same sidebar, tabs as pills and pane cards. Only the tab bar differs: 44px high (the same as the Kanban bar), 10px right padding, 6px gap. After the row of tab pills (it scrolls sideways):
 
 - `+` (26px, tooltip "New tab"): the new-tab menu (`new-menu` popup, 250 x 512).
+- The density button, alone in a rounded group (26px, 8px radius, `mods/tabs-dock/density.svg` 15px): it goes `auto` → `compact` → `normal` → `auto` in `shared("kanban.density")`, the same key and steps as the density button of the Kanban bar. It is lit (`accent` on `accent` at 15%) while the buttons show only icons. Its tooltip names the mode and the next one ("Density: Auto (compact now). Click to switch to Compact.").
 
 Then the right end. It is the same as the right end of the Kanban bar (`mods/kanban`), in the same place and size, so a layout switch does not move it. 6px between its parts:
 
@@ -16,7 +17,7 @@ Then the right end. It is the same as the right end of the Kanban bar (`mods/kan
 - **Layout switch**, one rounded group: a button for the shown layout (icon `mods/tabs-dock/layout-main.svg`, label from the layout name: `main-dock` → "Main dock") and one for each `layout.switch` entry of `panels.json`. The shown layout is lit. Only names in `layouts()` count, each once. Hidden with fewer than 2 layouts.
 - On Windows and Linux the minimize, maximize and close buttons (28px, 7px radius, 2px apart).
 
-Below 2250px of bar width (`on_size_change`) the buttons of both groups show only their icons, and the names go to the tooltips ("Show or hide {name}", "Switch to the {name} layout"). The Kanban bar uses the same width. `props.lang` `"pt"` gives Portuguese tooltips; the default is English.
+The density sets the buttons of both groups: `normal` shows the names, `compact` shows only the icons, and `auto` (or no value) shows the names from 2250px of bar width (`on_size_change`). Without names, the names go to the tooltips ("Show or hide {name}", "Switch to the {name} layout"). The Kanban bar uses the same rule, so the right ends stay the same. `props.lang` `"pt"` gives Portuguese tooltips; the default is English.
 
 The side panel is 368px wide (min 280, max 900), hidden at first, on the right of the work area, with a stack `panel-body`. The stack holds `files`, `changes` and one block for each panel entry.
 
@@ -29,7 +30,7 @@ The side panel is 368px wide (min 280, max 900), hidden at first, on the right o
 - **Adding blocks.** A panel entry whose block is missing is added to the layout with one `layout.set` of the whole tree, read from `layout()` and written back with the new child. The same call removes the blocks that this bar added before and the file no longer lists. The bar remembers the ones it added in `localStorage` key `injected`.
 - **One try.** The bar tries once for each pair of layout name and file version. A layout that refuses the edit (a shipped layout, such as Herdr's own `main`) is not tried again until the file changes.
 - An entry whose `id` is the id of another node of the layout (`main`, `status`, `agents`, ...) is ignored.
-- Keys: a command `tabs-dock.<id>` toggles that panel as its button does (`nextCommand`). Bind it in `keys.json`, for example `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`. Ask before taking a key that the person already uses.
+- Keys: a command `tabs-dock.<id>` toggles that panel as its button does (`nextCommand`). Bind it in `keys.json`, for example `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`. The command `tabs-dock.density` steps the density, as the density button does. Ask before taking a key that the person already uses.
 - Agent statuses show on the tab pills as in Herdr's tab bar: a spinner (`working`), a dot in `blocked` or `done` color. `idle` shows nothing.
 
 ### `panels.json`

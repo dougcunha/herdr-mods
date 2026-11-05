@@ -77,6 +77,8 @@ Each item has an icon. For a folder on another machine, only the three Copy item
 
 A `layout.switch` entry goes to the **layout switch**, a group at the right end of the bar with a button for the shown layout and one for each `layout.switch` entry; the shown layout is lit. A click saves the shown layout in `shared("layout.previous")` first. The [Kanban](../kanban-app) layout reads it and draws the same group in the same place, so the button does not move when you switch.
 
+The **density** button (two chevrons, left of the panel buttons) goes **Auto → Compact → Normal**. **Normal** shows the names of the panel buttons and the layout switch, **Compact** shows only their icons, and **Auto** shows their names when the bar is 2250 px wide or more. The Kanban bar has the same button and uses the same value (`shared("kanban.density")`), so a change in one bar shows in the other.
+
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.
 - Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`.
