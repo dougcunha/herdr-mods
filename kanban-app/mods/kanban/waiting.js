@@ -12,6 +12,14 @@
 //      work": an interim report. The agent is not finished.
 //   3. A <task-notification> for <id> without that phrase: the agent finished (or failed).
 // So a subagent is pending when it was launched and its last notification is interim or absent.
+// A background shell command (the Bash tool with `run_in_background`) leaves 2 marks:
+//   1. A tool_result "Command running in background with ID: <id>".
+//   2. A <task-notification> for <id> when the command ends (completed, failed or killed).
+// So a command is pending when it was started and no notification for it follows.
+// A job that Claude stops with the TaskStop tool (KillShell or KillBash in older versions) gets no
+// notification: the stop call ends it.
+// The registry also tells it: a session that ended its turn while a background command runs has
+// `"status": "shell"` in <config>/sessions/<pid>.json.
 //
 // This file imports only `fs/promises`, so a plain Node script can test it.
 import * as fs from "fs/promises";
@@ -30,31 +38,42 @@ const INTERIM = /waiting on its own background work/;
 // notification (its quotes are escaped inside the string) does not match.
 const NOTIFY_RECORD = /^\{"type":"queue-operation".*?"content":"<task-notification>|"message":\{"role":"user","content":"<task-notification>|"attachment":\{"type":"queued_command","prompt":"<task-notification>/;
 const AGENT_TOOLS = ['"name":"Agent"', '"name":"Task"'];
+const SHELL_STARTED = /Command running in background with ID:\s*([A-Za-z0-9_-]+)/;
+const STOP_TOOLS = new Set(["TaskStop", "KillShell", "KillBash"]);
+const STOP_MARKS = [...STOP_TOOLS].map((n) => `"name":"${n}"`);
 
 const parse = (line) => { try { return JSON.parse(line); } catch { return null; } };
 const text = (content) => (typeof content === "string" ? content
   : Array.isArray(content) ? content.map((b) => (typeof b === "string" ? b : b?.text ?? "")).join("\n") : "");
 
-/** The background subagents of a transcript that have not finished.
- *  Returns [{ id, description, since }] (`since`: ms since the epoch, or 0). */
+/** The background subagents and shell commands of a transcript that have not finished.
+ *  Returns [{ id, kind, description, since }] (`kind`: "agent" or "shell"; `since`: ms since the epoch, or 0). */
 export function scanTranscript(transcript) {
-  const calls = new Map(); // tool_use id -> description
-  const agents = new Map(); // agentId -> { toolUseId, since, pending }
+  const calls = new Map(); // tool_use id -> { kind, description }
+  const agents = new Map(); // agentId or shell id -> { kind, toolUseId, since, last, pending }
   for (const line of String(transcript).split("\n")) {
     if (line.startsWith('{"type":"api-request')) continue; // request dumps: big and of no use here
-    if (line.includes('"type":"tool_use"') && AGENT_TOOLS.some((n) => line.includes(n))) {
+    if (line.includes('"type":"tool_use"') && (AGENT_TOOLS.some((n) => line.includes(n)) || line.includes('"name":"Bash"') || STOP_MARKS.some((n) => line.includes(n)))) {
       for (const block of parse(line)?.message?.content ?? []) {
-        if (block?.type === "tool_use" && (block.name === "Agent" || block.name === "Task")) {
-          calls.set(block.id, String(block.input?.description ?? "").trim());
+        if (block?.type !== "tool_use") continue;
+        const description = String(block.input?.description ?? "").trim();
+        if (block.name === "Agent" || block.name === "Task") calls.set(block.id, { kind: "agent", description });
+        else if (block.name === "Bash" && block.input?.run_in_background === true) calls.set(block.id, { kind: "shell", description });
+        else if (STOP_TOOLS.has(block.name)) {
+          const job = agents.get(String(block.input?.task_id ?? block.input?.shell_id ?? ""));
+          if (job) job.pending = false;
         }
       }
-    } else if (line.includes("Async agent launched") && line.includes('"tool_result"')) {
+    } else if (line.includes('"tool_result"') && (line.includes("Async agent launched") || line.includes("Command running in background"))) {
       const record = parse(line);
       const since = Date.parse(record?.timestamp ?? "") || 0;
       for (const block of record?.message?.content ?? []) {
-        // Only the result of the Agent (or Task) tool counts: the output of a shell command can print the same words.
-        const id = block?.type === "tool_result" && calls.has(block.tool_use_id) ? /agentId:\s*([A-Za-z0-9_-]+)/.exec(text(block.content))?.[1] : null;
-        if (id) agents.set(id, { toolUseId: block.tool_use_id, since, last: since, pending: true });
+        // Only the result of the tool that started the job counts: the output of a shell command can print the same words.
+        const call = block?.type === "tool_result" ? calls.get(block.tool_use_id) : null;
+        if (!call) continue;
+        const pattern = call.kind === "agent" ? /agentId:\s*([A-Za-z0-9_-]+)/ : SHELL_STARTED;
+        const id = pattern.exec(text(block.content))?.[1];
+        if (id) agents.set(id, { kind: call.kind, toolUseId: block.tool_use_id, since, last: since, pending: true });
       }
     } else if (line.includes("<task-notification>") && NOTIFY_RECORD.test(line)) {
       // The same notification shows several times (queue, delivery) and a record can hold more than one;
@@ -64,13 +83,14 @@ export function scanTranscript(transcript) {
         const id = /<task-id>([^<\s]+)<\/task-id>/.exec(block)?.[1];
         const agent = id ? agents.get(id) : null;
         if (!agent) continue;
-        agent.pending = INTERIM.test(block);
+        // A shell command has no interim report: any notification for it means that it ended.
+        agent.pending = agent.kind === "agent" && INTERIM.test(block);
         agent.last = Math.max(agent.last, at);
       }
     }
   }
   return [...agents].filter(([, a]) => a.pending)
-    .map(([id, a]) => ({ id, description: calls.get(a.toolUseId) ?? "", since: a.last || a.since }));
+    .map(([id, a]) => ({ id, kind: a.kind, description: calls.get(a.toolUseId)?.description ?? "", since: a.last || a.since }));
 }
 
 const norm = (p) => String(p ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
@@ -93,6 +113,19 @@ export function pickSession(info, registry) {
   const made = Number(info.created_ms) || 0;
   const here = registry.filter((r) => folders.has(norm(r.cwd)) && (!made || (r.startedAt ?? 0) >= made - 2000));
   return here.length === 1 ? { sessionId: here[0].sessionId, root: here[0].root, cwd: here[0].cwd } : null;
+}
+
+/** Applies the status that Claude Code writes in its registry of live sessions to the `items` of
+ *  `scanTranscript`. With `"status": "shell"` a background command runs: when the transcript shows none
+ *  (the transcript marks can change in a new Claude Code version), the result gets 1 shell item that counts
+ *  from `statusUpdatedAt`. The time limit applies to it too: a server that Claude leaves on also keeps
+ *  the status "shell". Another status changes nothing: the registry can still say "busy" just after the
+ *  turn ends, so it does not prove that no command runs. */
+export function withShellStatus(items, registry, sessionId) {
+  const record = sessionId ? registry.find((r) => r.sessionId === sessionId) : null;
+  if (record?.status !== "shell" || items.some((p) => p.kind === "shell")) return items;
+  const since = Number.isFinite(record.statusUpdatedAt) ? record.statusUpdatedAt : 0;
+  return [...items, { id: "shell", kind: "shell", description: "", since }];
 }
 
 /** How Claude Code names the folder of a project: every character that is not a letter or digit becomes "-". */
@@ -183,19 +216,22 @@ export class WaitingTracker {
    *  start or end a subagent, apart from the time limit, which is applied to the saved answer. */
   async pending(candidate, roots, registry, now, recheck) {
     const kept = this.scans.get(candidate.address);
-    if (kept && Number.isInteger(kept.turn) && kept.turn === candidate.turn && !recheck) return this.alive(kept.items, now);
+    if (kept && Number.isInteger(kept.turn) && kept.turn === candidate.turn && !recheck) {
+      return this.alive(withShellStatus(kept.items, registry, kept.sessionId), now);
+    }
     const info = await this.terminalInfo(candidate.address);
     if (!info) return [];
     const session = pickSession({ ...info, cwd: candidate.cwd ?? info.cwd }, registry);
     if (!session) return [];
     const path = await this.transcriptPath(session, roots);
-    if (!path) return [];
-    let body;
-    try { body = await fs.readFile(path, "utf8"); } catch { return []; }
-    if (body.length > MAX_TRANSCRIPT) return [];
-    const items = scanTranscript(body);
-    this.scans.set(candidate.address, { turn: candidate.turn, items });
-    return this.alive(items, now);
+    let items = [];
+    if (path) {
+      let body = "";
+      try { body = await fs.readFile(path, "utf8"); } catch {}
+      if (body.length <= MAX_TRANSCRIPT) items = scanTranscript(body);
+    }
+    this.scans.set(candidate.address, { turn: candidate.turn, sessionId: session.sessionId, items });
+    return this.alive(withShellStatus(items, registry, session.sessionId), now);
   }
 
   alive(items, now) {

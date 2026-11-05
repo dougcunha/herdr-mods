@@ -39,7 +39,7 @@ const COLUMN_WIDE = 220;
 // the first of them in the column order. Waiting goes under Working, Idle under Done.
 const GROUPS = [["working", "waiting"], ["done", "idle"]];
 // "Waiting" is not a status the Herdr app reports: the mod derives it for a Claude Code agent that shows
-// as Done or Idle while background subagents still run (see waiting.js). It has no theme color of its own.
+// as Done or Idle while background subagents or shell commands still run (see waiting.js). It has no theme color of its own.
 const WAITING = "waiting";
 const statusColor = (t, status) => (status === WAITING ? t.ansi5 || t.accent : t[status] ?? t.idle);
 
@@ -69,7 +69,8 @@ const STR = {
     title: "Agents", search: "Search agents…",
     idle: "Idle", blocked: "Needs you", working: "Working", done: "Done", waiting: "Waiting",
     subagents: (n) => (n === 1 ? "1 subagent" : `${n} subagents`),
-    waitingOn: "Waiting column on: agents that wait for subagents get their own column. Click to turn it off.",
+    commands: (n) => (n === 1 ? "1 command" : `${n} commands`),
+    waitingOn: "Waiting column on: agents that wait for subagents or background commands get their own column. Click to turn it off.",
     waitingOff: "Waiting column off: those agents show as Done or Idle. Click to turn it on.",
     notWaiting: "Not waiting: show it as Done or Idle",
     agents: (n) => (n === 1 ? "1 agent" : `${n} agents`), needYou: "{n} need you",
@@ -102,7 +103,8 @@ const STR = {
     title: "Agentes", search: "Buscar agentes…",
     idle: "Ociosos", blocked: "Precisam de você", working: "Trabalhando", done: "Concluídos", waiting: "Aguardando",
     subagents: (n) => (n === 1 ? "1 subagente" : `${n} subagentes`),
-    waitingOn: "Coluna Aguardando ligada: agentes que esperam subagentes ganham uma coluna própria. Clique para desligar.",
+    commands: (n) => (n === 1 ? "1 comando" : `${n} comandos`),
+    waitingOn: "Coluna Aguardando ligada: agentes que esperam subagentes ou comandos em segundo plano ganham uma coluna própria. Clique para desligar.",
     waitingOff: "Coluna Aguardando desligada: esses agentes aparecem como Concluídos ou Ociosos. Clique para ligar.",
     notWaiting: "Não está esperando: mostrar como Concluído ou Ocioso",
     agents: (n) => (n === 1 ? "1 agente" : `${n} agentes`), needYou: "{n} precisam de você",
@@ -620,11 +622,16 @@ export default class Kanban extends View {
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
   }
 
-  /** "2 subagents", or "2 subagents · Run the tests" when the first one has a description. */
+  /** "2 subagents", "1 subagent · 1 command", or "1 command · Run the tests" when there is only one job
+   *  and it has a description. */
   waitText(a) {
-    const count = this.s("subagents", a.wait.count);
+    const shells = a.wait.items.filter((p) => p.kind === "shell").length;
+    const parts = [];
+    if (a.wait.count - shells > 0) parts.push(this.s("subagents", a.wait.count - shells));
+    if (shells > 0) parts.push(this.s("commands", shells));
     const first = a.wait.items[0]?.description;
-    return first && a.wait.count === 1 ? `${count} · ${first}` : count;
+    if (first && a.wait.count === 1) parts.push(first);
+    return parts.join(" · ");
   }
 
   card(a, t, compact = false) {
