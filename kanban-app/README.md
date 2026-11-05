@@ -25,7 +25,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 | ---- | ------------- |
 | Top bar | Title and agent count (the count of "need you" turns amber), then six sections: **View** (switch Board / Terminals); **Filter** (search box and a funnel button for "this space only"); **Columns** (one chip per column and the hourglass button for the Waiting column); **Look** (column width − / +, density and card view, in one group); **Panels** (one group: Agent terminal, Shell, Files, Changes and your dock buttons); **Go** (a button back to the previous layout and **New agent**). |
 | Columns | Needs you, Working, Waiting, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
-| Cards | Program icon and name, space, the terminal title, the Git branch, the folder, the age, a pin and an "open in its tab" button. A summary view shows 2 lines only. |
+| Cards | The program icon, the space name in large bold text with the program name under it, the terminal title, the Git branch, the folder (not when it is the space name), the tab (not when it is the program name), the age, a pin and an "open in its tab" button. A summary view shows 2 lines only. |
 | Shell under the board | Optional. A shell of its own (`kanban-shell`), in no tab. A button in the top bar shows or hides it. Drag its top edge to resize. |
 | Terminal panel | The terminal of the selected agent (`{ "agent": "focused" }`). Drag its edge to resize. |
 

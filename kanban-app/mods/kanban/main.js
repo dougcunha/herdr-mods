@@ -611,7 +611,7 @@ export default class Kanban extends View {
       .on_click(() => this.select(a))
       .child(h_flex().gap(7).items_center()
         .child(this.glyph(a, t, true).size(20).rounded(6))
-        .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().text_color(t.foreground).child(head))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).font_bold().text_color(t.foreground).child(head))
         .when(a.pinned && !over, (e) => e.child(svg(icon("pin")).size(11).flex_none().text_color(t.accent)))
         .child(this.mark(a, t)))
       .child(h_flex().h(20).gap(4).items_center()
@@ -657,17 +657,19 @@ export default class Kanban extends View {
         div().h(2).w_full().rounded(1).bg(color).loop("opacity", { from: 0.2, to: 1, period: 1400 })))
       .child(h_flex().gap(compact ? 7 : 9).items_center()
         .child(this.glyph(a, t, compact))
+        // The space names the card: most agents run the same program, and the icon tells it anyway.
         .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().text_size(13).font_semibold().text_color(t.foreground).child(name))
-          .child(div().truncate().text_size(11).text_color(t.dim).child(a.space_name)))
+          .child(div().truncate().text_size(compact ? 14 : 15).font_bold().text_color(t.foreground).child(a.space_name || name))
+          .when(Boolean(a.space_name), (e) => e.child(div().truncate().text_size(11).text_color(t.dim).child(name))))
         .child(this.mark(a, t)))
       .when(Boolean(title) && title !== name, (e) => e.child(
         div().max_h(34).overflow_hidden().text_size(12).text_color(t.muted).child(title)))
       .child(h_flex().flex_wrap().gap(5).items_center()
         .when(Boolean(a.wait), (e) => e.child(pill(t, { label: this.waitText(a), symbol: "hourglass", color })))
         .when(Boolean(branch), (e) => e.child(pill(t, { label: branch, symbol: "branch", code: true })))
-        .when(Boolean(folder) && folder !== branch, (e) => e.child(pill(t, { label: folder, symbol: "folder" })))
-        .when(Boolean(tabLabel), (e) => e.child(pill(t, { label: tabLabel, symbol: "terminal" }))))
+        // No pill that repeats the head of the card (the space, the program) or the branch.
+        .when(Boolean(folder) && folder !== branch && folder !== a.space_name, (e) => e.child(pill(t, { label: folder, symbol: "folder" })))
+        .when(Boolean(tabLabel) && tabLabel !== name, (e) => e.child(pill(t, { label: tabLabel, symbol: "terminal" }))))
       .child(h_flex().h(22).gap(2).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.age(since)))
         .when(Boolean(a.wait), (e) => e.child(iconButton(t, `notwait-${a.address}`, "check", () => this.dismissWaiting(a),
