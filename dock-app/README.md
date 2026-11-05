@@ -79,6 +79,8 @@ A `layout.switch` entry goes to the **layout switch**, a group at the right end 
 
 The **density** button (two chevrons, left of the panel buttons) goes **Auto → Compact → Normal**. **Normal** shows the names of the panel buttons and the layout switch, **Compact** shows only their icons, and **Auto** shows their names when the bar is 2250 px wide or more. The Kanban bar has the same button and uses the same value (`shared("kanban.density")`), so a change in one bar shows in the other.
 
+The **panel-open** button (a window with a box in it, the first button of the panel group) sets where the panel buttons open their panel: **Auto → Side panel → Dialog**. **Dialog** opens the panel in the middle of the window, 82% wide and 85% high. **Auto** (the default) opens a dialog when the window is narrower than 1600 px (the px of the app: with a Windows scale of 125%, a 1920 px monitor has 1536 px), else the side panel. This applies to Files, Changes, the panel entries and the tab entries (in **Side panel** mode a tab entry opens in its tab, as before). The dialog has a title row with a button that moves the panel to the side panel (to its tab, for a tab entry) and a close button; Esc and a click beside it close it too. The button of the panel is lit while its dialog is open, and a 2nd click closes it. The Kanban bar has the same button and uses the same value (`shared("kanban.panelOpen")`). A dialog stays open when you switch layout.
+
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.
 - Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`.

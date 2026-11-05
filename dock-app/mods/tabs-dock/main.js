@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
+import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
 // The dock: the tab bar draws one button per entry of dock/panels.json, and adds
@@ -18,6 +18,11 @@ import * as fs from "fs/promises";
 // size, so a layout switch does not move it: the panel group, the layout switch (this layout, then
 // the layout.switch entries, the shown one lit) and the window buttons. Below LABELS_WIDE px the
 // buttons show only their icons, and the names go to the tooltips.
+//
+// A panel button (side panel or tab entry) opens its panel in the side panel (a tab entry: in its tab) or in a
+// dialog. The first button of the panel group sets where: Auto, Side panel or Dialog. Auto opens a dialog when
+// the window is narrower than PANEL_NARROW px. The setting and the open dialog are shared with the Kanban bar.
+// This mod has a second part, props.part "panel-title": the title row of a panel dialog.
 
 const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
@@ -28,15 +33,33 @@ const RIGHT_GAP = 6; // between the panel group, the layout switch and the windo
 const KEY_DENSITY = "kanban.density";
 const DENSITIES = ["auto", "compact", "normal"];
 
+// Where the panel buttons open their panel, shared with the Kanban bar (the same keys and values as in mods/kanban).
+const KEY_PANEL_OPEN = "kanban.panelOpen"; // "auto" | "side" | "dialog"; absent: auto
+const KEY_PANEL_DIALOG = "kanban.panelDialog"; // { id, panel }: the panel dialog that is open now; null: none
+const PANEL_OPENS = ["auto", "side", "dialog"];
+const PANEL_NARROW = 1600; // px of window: below it, Auto opens a dialog
+const DIALOG_TITLE = 36; // px: the title row of a panel dialog
+// The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
+// name a dialog that is gone: the bar trusts it only when its id is here. The same registry as in mods/kanban.
+const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
+
 const STR = {
   en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
     density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
     densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
-    densityTip: "Density: {mode}. Click to switch to {next}." },
+    densityTip: "Density: {mode}. Click to switch to {next}.",
+    opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
+    opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
+    opensTip: "Panels open in: {mode}. Click to switch to {next}.",
+    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close" },
   pt: { newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
     densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
-    densityTip: "Densidade: {mode}. Clique para mudar para {next}." },
+    densityTip: "Densidade: {mode}. Clique para mudar para {next}.",
+    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
+    opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
+    opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
+    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar" },
 };
 
 // A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
@@ -63,6 +86,20 @@ function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOn
 // A rounded group that holds several buttons. The same as buttonGroup in mods/kanban/ui.js.
 const buttonGroup = (t, children) => h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
   .bg(tint(t.foreground, "0f")).border_1().border_color(t.border).children(children);
+
+// A thin vertical line inside a group. The same as divider(t, true) in mods/kanban/ui.js.
+const innerDivider = (t) => div().w(1).h(14).mx(2).flex_none().bg(tint(t.foreground, "26"));
+
+// A square button that holds an icon of this mod. The same as iconButton in mods/kanban/ui.js.
+function iconButton(t, id, name, onClick, { active = false, tooltip = "", size = 26, glyph = 14 } = {}) {
+  return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded(8)
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .when(active, (e) => e.bg(tint(t.accent, "26")))
+    .cursor_pointer().hover((s) => s.bg(active ? tint(t.accent, "40") : t.hover))
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+    .child(svg(`mods/tabs-dock/${name}.svg`).size(glyph).text_color(active ? t.accent : t.muted));
+}
 
 const BUILTIN = [
   { id: "files", label: "Files", icon: "mods/files/file.svg" },
@@ -102,7 +139,13 @@ export default class Tabs extends View {
   init(given, cx) {
     // Read props once: props() in a later callback can answer for another copy.
     const p = (given && Object.keys(given).length ? given : props()) || {};
+    this.props = p;
     this.lang = STR[p.lang] ? p.lang : "en";
+    this.part = p.part === "panel-title" ? "panel-title" : "bar";
+    if (this.part === "panel-title") {
+      this.overlay = p.overlay ?? props()?.overlay;
+      return;
+    }
     this.barW = undefined; // the width of the bar, from on_size_change
     this.pressed = null;
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
@@ -192,16 +235,104 @@ export default class Tabs extends View {
       const d = DENSITIES.includes(shared(KEY_DENSITY)) ? shared(KEY_DENSITY) : "auto";
       return setShared(KEY_DENSITY, DENSITIES[(DENSITIES.indexOf(d) + 1) % DENSITIES.length]);
     }
+    // "tabs-dock.panel-open" steps where the panels open, as the first button of the panel group does.
+    if (id === "panel-open") return this.stepPanelOpen();
     const command =this.entries.find(e => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
-    if (!panel || !body?.children?.some(c => c.id === id)) {
-      const entry = this.entries.find(e => e.id === id && e.opens === "tab");
-      if (entry) showTab(entry.mod, entry.name);
-      return;
+    const node = panel ? (body?.children ?? []).find(c => c.id === id) : null;
+    const tab = node ? null : this.entries.find(e => e.id === id && e.opens === "tab");
+    if (!node && !tab) return;
+    // A click on any panel button closes the open dialog first; a click on the button of that dialog only closes it.
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id) {
+      closeOverlay(open.id);
+      setShared(KEY_PANEL_DIALOG, null);
+      if (open.panel === id && liveDialogs().has(open.id)) return;
     }
+    if (this.dialogNow()) return this.openDialog(id, tab ? { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } : node.content, tab);
+    if (tab) return showTab(tab.mod, tab.name);
     if (!panel.hidden && body.active === id) run("layout.hide", { id: "panel" });
     else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+  }
+
+  panelOpen() {
+    const v = shared(KEY_PANEL_OPEN);
+    return PANEL_OPENS.includes(v) ? v : "auto";
+  }
+
+  stepPanelOpen() {
+    setShared(KEY_PANEL_OPEN, PANEL_OPENS[(PANEL_OPENS.indexOf(this.panelOpen()) + 1) % PANEL_OPENS.length]);
+  }
+
+  // True when a panel button opens a dialog now: always in Dialog; in Auto, when the window is narrower than
+  // PANEL_NARROW px. The window is this bar and the sidebar beside it (the Kanban bar is the whole window wide).
+  dialogNow() {
+    const v = this.panelOpen();
+    if (v !== "auto") return v === "dialog";
+    if (typeof this.barW !== "number") return false;
+    const sidebar = find(layout(), "sidebar");
+    return this.barW + (sidebar && !sidebar.hidden ? sidebar.size?.px ?? 0 : 0) < PANEL_NARROW;
+  }
+
+  // Opens the panel `id` in a dialog: a title row (this mod, part "panel-title") over `content`, the same mod and
+  // props as in the side panel (or in the tab, for a `tab` entry). The same as openDialog in mods/kanban.
+  openDialog(id, content, tab = null) {
+    if (!content?.mod) return;
+    const entry = [...BUILTIN, ...this.entries].find(e => e.id === id);
+    const title = { part: "panel-title", panel: id, label: entry?.label ?? id, icon: entry?.icon ?? "", lang: this.lang,
+      ...(tab ? { tab: { mod: tab.mod, name: tab.name } } : {}) };
+    const overlay = openOverlay({
+      kind: "dialog", width: 0.82, height: 0.85,
+      layout: { type: "column", children: [
+        { id: "panel-dialog-title", type: "block", size: { px: DIALOG_TITLE }, content: { mod: "tabs-dock", props: title } },
+        { id: `panel-dialog-${id}`, type: "block", content },
+      ] },
+    });
+    liveDialogs().add(overlay);
+    setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id });
+  }
+
+  // The panel that shows in a dialog now, or null.
+  dialogPanel() {
+    const open = shared(KEY_PANEL_DIALOG);
+    return open?.id && liveDialogs().has(open.id) ? open.panel : null;
+  }
+
+  // The title row of a panel dialog: the icon and name of the panel, a button that moves it to the side panel
+  // (to its tab, for a tab entry) and a close button. The same as panelTitle in mods/kanban.
+  panelTitle(t) {
+    const p = this.props;
+    const path = String(p.icon || "");
+    const glyph = !path ? div().size(14) : path.endsWith(".svg") ? svg(path).size(14).text_color(t.accent) : image(path).size(14);
+    const move = p.tab
+      ? iconButton(t, "dlg-tab", "open", () => this.dialogToSide(), { tooltip: this.s("toTab") })
+      : iconButton(t, "dlg-side", "panel", () => this.dialogToSide(), { tooltip: this.s("toSide") });
+    return h_flex().id("dlg-title").size_full().pl(14).pr(8).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(glyph.flex_none())
+      .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(String(p.label ?? "")))
+      .child(move)
+      .child(iconButton(t, "dlg-close", "close", () => this.closeDialog(), { tooltip: this.s("closeDialog"), glyph: 13 }));
+  }
+
+  closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
+
+  dialogToSide() {
+    this.closeDialog();
+    const tab = this.props.tab;
+    if (tab?.mod) return showTab(tab.mod, tab.name);
+    const root = layout(), panel = find(root, "panel") ?? find(root, "panel-body");
+    run("layout.select", { stack: "panel-body", child: this.props.panel });
+    if (panel) run("layout.show", { id: panel.id });
+  }
+
+  // Herdr calls this when the block goes. For the title row of a dialog: the dialog closed (the close button,
+  // Esc or a click beside it), so the bars stop showing its button as lit.
+  async close() {
+    if (this.part !== "panel-title") return;
+    liveDialogs().delete(this.overlay);
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id && open.id === this.overlay) setShared(KEY_PANEL_DIALOG, null);
   }
 
   // Adds the blocks the file asks for to the panel stack, and takes away the ones
@@ -257,6 +388,7 @@ export default class Tabs extends View {
 
   render() {
     const t = theme();
+    if (this.part === "panel-title") return this.panelTitle(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
@@ -319,15 +451,23 @@ export default class Tabs extends View {
       .on_mouse_down("left", stop)
       .on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_DENSITY, nextDensity); })
       .child(svg("mods/tabs-dock/density.svg").size(15).text_color(iconOnly ? t.accent : t.muted));
-    const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id);
+    const inDialog = this.dialogPanel();
+    const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
+    // Where the panels open: lit while they open a dialog. The same button as in the Kanban bar.
+    const opens = this.panelOpen(), dialogNow = this.dialogNow();
+    const nextOpens = PANEL_OPENS[(PANEL_OPENS.indexOf(opens) + 1) % PANEL_OPENS.length];
+    const opensName = (x) => this.s(`opens_${x}`);
+    const opensMode = opens === "auto" ? this.s(dialogNow ? "opensNowDialog" : "opensNowSide", { mode: opensName(opens) }) : opensName(opens);
+    const opensButton = iconButton(t, "panel-open", "dialog", () => this.stepPanelOpen(),
+      { active: dialogNow, tooltip: this.s("opensTip", { mode: opensMode, next: opensName(nextOpens) }) });
     // Buttons keep the order of the file; panel and tab entries mix as listed. Other commands come last.
     // The layout.switch commands are in the layout switch.
     const dynamic = wanted.filter(e => e.opens === "tab" || present.has(e.id));
     const panelItems = [
       ...builtins.map(b => panelButton(t, `panel-${b.id}`, b.icon, b.label, lit(b.id), () => this.toggle(b.id), tip(b.label), iconOnly)),
       ...dynamic.map(e => e.opens === "tab"
-        ? panelButton(t, `tab-open-${e.id}`, e.icon, e.label, false, () => showTab(e.mod, e.name), "", iconOnly)
+        ? panelButton(t, `tab-open-${e.id}`, e.icon, e.label, inDialog === e.id, () => this.toggle(e.id), "", iconOnly)
         : panelButton(t, `panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.toggle(e.id), tip(e.label), iconOnly)),
       ...commands.filter(e => e.run !== "layout.switch")
         .map(e => panelButton(t, `cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
@@ -340,7 +480,7 @@ export default class Tabs extends View {
       .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(glyph);
     const win = w?.platform === "windows";
     const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
-      .when(panelItems.length > 0, el => el.child(buttonGroup(t, panelItems)))
+      .when(panelItems.length > 0, el => el.child(buttonGroup(t, [opensButton, innerDivider(t), ...panelItems])))
       .children(layoutSwitch)
       .when(w?.buttons, el => el.child(h_flex().flex_none().gap(2).items_center()
         .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))

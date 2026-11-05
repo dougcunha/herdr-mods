@@ -2,11 +2,12 @@
 // One mod, two parts chosen by props.part:
 //   "bar"   the top bar: search, column toggles, view switch, window buttons.
 //   "board" the columns with the cards.
-// The two parts share their state through shared(): hidden columns, search text, scope.
+//   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
+// The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, setAgentOrder,
-  appHome, home, terminals, readTextFile, watchFolder, notify, hc } from "herdr";
+import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
+  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc } from "herdr";
 import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, divider, stop } from "./ui.js";
 import { WaitingTracker } from "./waiting.js";
@@ -20,6 +21,17 @@ const KEY_WIDTH = "kanban.width"; // widest a column may be, in px; absent: colu
 const KEY_ORDER = "kanban.order"; // ids of the columns, left to right; absent: the order of COLUMNS
 const KEY_DENSITY = "kanban.density"; // "auto" | "compact" | "normal"; absent: auto
 const KEY_CARDS = "kanban.cards"; // "auto" | "summary" | "full"; absent: auto (summary while the board is compact)
+const KEY_PANEL_OPEN = "kanban.panelOpen"; // "auto" | "side" | "dialog"; absent: auto. Shared with the Dock bar (tabs-dock)
+const KEY_PANEL_DIALOG = "kanban.panelDialog"; // { id, panel }: the panel dialog that is open now; null: none
+// Where the panel buttons open their panel. The button in the bar goes auto -> side -> dialog -> auto.
+// Auto opens a dialog when the bar is narrower than PANEL_NARROW px (a small monitor), else the side panel.
+const PANEL_OPENS = ["auto", "side", "dialog"];
+const PANEL_NARROW = 1600;
+const DIALOG_TITLE = 36; // px: the title row of a panel dialog
+// The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
+// name a dialog that is gone: the bar trusts it only when its id is here. On globalThis, not in the module:
+// a layout switch starts a new copy of the bar with a new module, and the dialog stays open.
+const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
@@ -102,6 +114,10 @@ const STR = {
     cards_auto: "Auto", cards_summary: "Summary", cards_full: "Full",
     cardsAuto: "Auto (summary in compact density)",
     cardsTip: "Cards: {mode}. Click to switch to {next}.",
+    opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
+    opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
+    opensTip: "Panels open in: {mode}. Click to switch to {next}.",
+    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -136,6 +152,10 @@ const STR = {
     cards_auto: "Auto", cards_summary: "Resumido", cards_full: "Completo",
     cardsAuto: "Auto (resumido na densidade compacta)",
     cardsTip: "Cartões: {mode}. Clique para mudar para {next}.",
+    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
+    opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
+    opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
+    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
   },
 };
 
@@ -185,8 +205,12 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = this.props.part === "bar" ? "bar" : "board";
+    this.part = ["bar", "panel-title"].includes(this.props.part) ? this.props.part : "board";
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
+    if (this.part === "panel-title") {
+      this.overlay = this.props.overlay ?? props()?.overlay;
+      return;
+    }
     // Which Claude Code agents wait for subagents. Both parts run one: they count the cards too.
     const minutes = Number(this.props.waitingMinutes);
     this.tracker = new WaitingTracker({ hc, home, dirs: this.props.claudeDirs, ttlMs: minutes > 0 ? minutes * 60000 : undefined });
@@ -209,6 +233,16 @@ export default class Kanban extends View {
         for (;;) {
           try { await watchFolder(dir); } catch { return; }
           await this.loadEntries(cx);
+        }
+      });
+      // "kanban.panel-open" steps where the panels open, as the button does. "kanban.panel-<id>" opens or
+      // closes the panel <id> (files, changes, or an id of dock/panels.json), as its button does.
+      cx.spawn(async (cx) => {
+        for (;;) {
+          const cmd = String(await nextCommand());
+          if (cmd === "panel-open") this.stepPanelOpen();
+          else if (cmd.startsWith("panel-")) this.togglePanel(cmd.slice(6));
+          cx.notify();
         }
       });
     } else {
@@ -478,12 +512,105 @@ export default class Kanban extends View {
     run(entry.run, entry.args ?? {});
   }
 
-  /** Opens the side panel on `id`, or closes it when it already shows that one. */
+  /** Opens the panel `id` in the side panel or in a dialog (see panelOpen), or closes it when it already shows
+   *  there. A click on another panel button closes the open dialog first. A tab entry of dock/panels.json
+   *  (Insights) opens in a dialog too, else in its tab. */
   togglePanel(id) {
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
-    if (!panel || !body) return;
+    const tab = this.entries.find((e) => e.id === id && e.opens === "tab");
+    const node = (body?.children ?? []).find((c) => c.id === id);
+    if (!tab && (!panel || !node)) return;
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id) {
+      closeOverlay(open.id);
+      setShared(KEY_PANEL_DIALOG, null);
+      if (open.panel === id && liveDialogs().has(open.id)) return;
+    }
+    if (this.dialogNow()) return this.openDialog(id, tab ? { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } : node.content, tab);
+    if (tab) return this.runEntry(tab);
     if (!panel.hidden && body.active === id) run("layout.hide", { id: panel.id });
     else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: panel.id }); }
+  }
+
+  panelOpen() {
+    const v = shared(KEY_PANEL_OPEN);
+    return PANEL_OPENS.includes(v) ? v : "auto";
+  }
+
+  stepPanelOpen() {
+    const i = PANEL_OPENS.indexOf(this.panelOpen());
+    setShared(KEY_PANEL_OPEN, PANEL_OPENS[(i + 1) % PANEL_OPENS.length]);
+  }
+
+  /** True when a panel button opens a dialog now: always in Dialog, below PANEL_NARROW px of bar in Auto. */
+  dialogNow() {
+    const v = this.panelOpen();
+    return v === "dialog" || (v === "auto" && typeof this.barW === "number" && this.barW < PANEL_NARROW);
+  }
+
+  /** Opens the panel `id` in a dialog: a title row (this mod, part "panel-title") over `content`, the same mod
+   *  and props as in the side panel (or in the tab, for a `tab` entry). The dialog holds a layout, so the panel
+   *  gets a real block, as in the side panel. Its own copy starts fresh. */
+  openDialog(id, content, tab = null) {
+    if (!content?.mod) return;
+    const entry = [...PANELS, ...this.entries].find((e) => e.id === id);
+    const title = { part: "panel-title", panel: id, label: entry?.label ?? id, icon: entry?.icon ?? "", lang: this.lang,
+      ...(tab ? { tab: { mod: tab.mod, name: tab.name } } : {}) };
+    const overlay = openOverlay({
+      kind: "dialog", width: 0.82, height: 0.85,
+      layout: { type: "column", children: [
+        { id: "panel-dialog-title", type: "block", size: { px: DIALOG_TITLE }, content: { mod: "kanban", props: title } },
+        { id: `panel-dialog-${id}`, type: "block", content },
+      ] },
+    });
+    liveDialogs().add(overlay);
+    setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id });
+  }
+
+  /** The panel that shows in a dialog now, or null. */
+  dialogPanel() {
+    const open = shared(KEY_PANEL_DIALOG);
+    return open?.id && liveDialogs().has(open.id) ? open.panel : null;
+  }
+
+  /** The title row of a panel dialog: the icon and name of the panel, a button that moves it to the side
+   *  panel (to its tab, for a tab entry) and a close button. Esc and a click beside the dialog close it too. */
+  panelTitle(t) {
+    const p = this.props;
+    const path = String(p.icon || "");
+    const glyph = !path ? div().size(14) : path.endsWith(".svg") ? svg(path).size(14).text_color(t.accent) : image(path).size(14);
+    const move = p.tab
+      ? iconButton(t, "kb-dlg-tab", "open", () => this.dialogToSide(), { tooltip: this.s("toTab"), size: 26, glyph: 14 })
+      : iconButton(t, "kb-dlg-side", "panel", () => this.dialogToSide(), { tooltip: this.s("toSide"), size: 26, glyph: 14 });
+    return h_flex().id("kb-dlg-title").size_full().pl(14).pr(8).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(glyph.flex_none())
+      .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(String(p.label ?? "")))
+      .child(move)
+      .child(iconButton(t, "kb-dlg-close", "close", () => this.closeDialog(), { tooltip: this.s("closeDialog"), size: 26, glyph: 13 }));
+  }
+
+  closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
+
+  dialogToSide() {
+    this.closeDialog();
+    const tab = this.props.tab;
+    if (tab?.mod) {
+      showTab(tab.mod, tab.name);
+      if (find(layout(), "view")) run("layout.select", { stack: "view", child: "tabs-view" }); // the Terminals view of the Kanban layout
+      return;
+    }
+    const panel = sidePanel(layout());
+    run("layout.select", { stack: "panel-body", child: this.props.panel });
+    if (panel) run("layout.show", { id: panel.id });
+  }
+
+  /** Herdr calls this when the block goes. For the title row of a dialog: the dialog closed (the close
+   *  button, Esc or a click beside it), so the bar stops showing its button as lit. */
+  async close() {
+    if (this.part !== "panel-title") return;
+    liveDialogs().delete(this.overlay);
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id && open.id === this.overlay) setShared(KEY_PANEL_DIALOG, null);
   }
 
   openInTab(a) {
@@ -846,13 +973,15 @@ export default class Kanban extends View {
     const usable = this.entries.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
     if (this.loaded) this.inject(root, body, usable.filter((e) => e.opens === "panel"));
     const present = new Set((body.children ?? []).map((c) => c.id));
-    const lit = (id) => !panel.hidden && body.active === id;
+    const inDialog = this.dialogPanel();
+    const lit = (id) => (!panel.hidden && body.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
     return [
+      this.panelOpenButton(t), divider(t, true),
       ...PANELS.filter((p) => present.has(p.id)).map((p) =>
         panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), iconOnly)),
       ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)
+        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, inDialog === e.id, () => this.togglePanel(e.id), "", iconOnly)
         : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), iconOnly)),
       ...this.entries.filter((e) => e.opens === "command" && e.run !== "layout.switch")
         .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
@@ -907,6 +1036,16 @@ export default class Kanban extends View {
     const mode = d === "auto" ? this.s(compactNow ? "densityNow" : "densityNowNormal", { mode: name(d) }) : name(d);
     return iconButton(t, "kb-density", "density", () => this.stepDensity(),
       { active: compactNow, size: 26, tooltip: this.s("densityTip", { mode, next: name(next) }) });
+  }
+
+  /** Where the panel buttons open their panel: lit while they open a dialog. The tooltip names the mode and the next one. */
+  panelOpenButton(t) {
+    const v = this.panelOpen(), now = this.dialogNow();
+    const next = PANEL_OPENS[(PANEL_OPENS.indexOf(v) + 1) % PANEL_OPENS.length];
+    const name = (x) => this.s(`opens_${x}`);
+    const mode = v === "auto" ? this.s(now ? "opensNowDialog" : "opensNowSide", { mode: name(v) }) : name(v);
+    return iconButton(t, "kb-panel-open", "dialog", () => this.stepPanelOpen(),
+      { active: now, size: 26, glyph: 14, tooltip: this.s("opensTip", { mode, next: name(next) }) });
   }
 
   /** The card view button: lit while the cards are set to summary. */
@@ -1007,6 +1146,7 @@ export default class Kanban extends View {
 
   render(cx) {
     const t = theme();
+    if (this.part === "panel-title") return this.panelTitle(t);
     this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
