@@ -38,5 +38,8 @@ here.
 - On Windows, Herdr runs an `argv` as `pwsh -NoExit -Command "& 'prog' 'arg'"`. To set an environment variable, start a nested `pwsh -NoProfile -Command "$env:X='…'; & 'prog'"`.
 - `fs.readdir` reads only inside the home folder. `readTextFile` reads any path. Search other drives with `exec`.
 - `herdr-app check` does not draw deferred rows or later async states. Test in the app and look with `herdr-app shot`.
+- `localStorage` is one store for each copy of a mod (side panel, dialog, each layout). For a value that every copy must show, use `shared()` and `setShared()`: Herdr keeps the value and re-renders every copy.
+- Do not make a column as wide as the longest line with one shared sideways scroll: with long lines the other column goes off screen. Measure the width with `on_size_change` (divide it by `settings().zoom`) and wrap the lines. Test with long lines, not only short ones.
+- `agent-desktop` runs headless and cannot click. To test a mod from the shell, give it commands with `nextCommand()` and run `herdr-app do <mod>.<command>`. `kanban.panel-<id>` opens a panel.
 
 <!-- End claude-reflect section -->
