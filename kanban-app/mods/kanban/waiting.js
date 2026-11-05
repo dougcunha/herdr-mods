@@ -118,14 +118,17 @@ export function pickSession(info, registry) {
 /** Applies the status that Claude Code writes in its registry of live sessions to the `items` of
  *  `scanTranscript`. With `"status": "shell"` a background command runs: when the transcript shows none
  *  (the transcript marks can change in a new Claude Code version), the result gets 1 shell item that counts
- *  from `statusUpdatedAt`. The time limit applies to it too: a server that Claude leaves on also keeps
- *  the status "shell". Another status changes nothing: the registry can still say "busy" just after the
- *  turn ends, so it does not prove that no command runs. */
+ *  from `statusUpdatedAt`. The shell items get `live: true`, and the time limit does not apply to them: the
+ *  registry is live state, and a mutation test or a long build can run for hours. A server that Claude leaves
+ *  on also keeps the status "shell", so its card stays in Waiting until the person clicks "Not waiting".
+ *  Another status changes nothing: the registry can still say "busy" just after the turn ends, so it does
+ *  not prove that no command runs. */
 export function withShellStatus(items, registry, sessionId) {
   const record = sessionId ? registry.find((r) => r.sessionId === sessionId) : null;
-  if (record?.status !== "shell" || items.some((p) => p.kind === "shell")) return items;
+  if (record?.status !== "shell") return items;
+  if (items.some((p) => p.kind === "shell")) return items.map((p) => (p.kind === "shell" ? { ...p, live: true } : p));
   const since = Number.isFinite(record.statusUpdatedAt) ? record.statusUpdatedAt : 0;
-  return [...items, { id: "shell", kind: "shell", description: "", since }];
+  return [...items, { id: "shell", kind: "shell", description: "", since, live: true }];
 }
 
 /** How Claude Code names the folder of a project: every character that is not a letter or digit becomes "-". */
@@ -235,7 +238,7 @@ export class WaitingTracker {
   }
 
   alive(items, now) {
-    return items.filter((p) => !p.since || now - p.since < this.ttlMs);
+    return items.filter((p) => p.live || !p.since || now - p.since < this.ttlMs);
   }
 
   /** Looks at `candidates` ([{ address, turn, cwd }]: Claude agents that show as done or idle) and
