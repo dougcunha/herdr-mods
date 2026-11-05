@@ -59,7 +59,8 @@ herdr-app do tab.new --name Repos --mod git-dash --props '{"root":"D:/Projetos"}
 | **Terminal** | Opens a terminal tab in the repository, in the current space, and runs `git status`. |
 | **New space** | Opens the repository in a new space and runs `git status`. |
 | **Delete** (merged branch) | Deletes one merged branch: on its remote too when the remote copy exists, then the local branch. |
-| **Delete all N** | Deletes all merged branches of the repository that can be deleted now. |
+| **Remove worktree** (merged branch of a linked worktree) | Removes the worktree folder, then deletes the branch: on its remote too when the remote copy exists, then the local branch. |
+| **Delete all N** | Deletes all merged branches of the repository that can be deleted now, and removes their worktrees. |
 
 ### Merged branches
 
@@ -68,7 +69,7 @@ A local branch is *merged* when its last commit is in the default branch: `origi
 The panel does not show these branches:
 
 - `main`, `master`, `develop`, `development`, `dev`, `trunk`, `staging`, `production` and `release`.
-- A branch that is checked out in another worktree.
+- In the card of a linked worktree: the branch that is checked out in the main worktree.
 - A branch whose remote copy has commits that the default branch does not have.
 - A branch with no commits of its own: no upstream, and its reflog shows only its creation.
 
@@ -81,6 +82,27 @@ git branch -D feat
 ```
 
 The first command stops the delete when the branch is not merged any more. `--force-with-lease` stops the push when the remote branch moved after the last fetch. The remote copy goes first: when the push fails, the local branch stays, and **Run in terminal** runs the push again. For the branch that is checked out, `git switch main` runs before `git branch -D`. The panel offers this only when the branch has no staged or modified files.
+
+### Merged worktrees
+
+A linked worktree (made with `git worktree add`) has a `.git` file, and the panel shows it as its own card with a `worktree` pill. When the branch of a linked worktree is merged, its row has a `worktree` pill and a red **Remove worktree** button. The row shows in the card of the worktree and in the card of the main worktree. The main worktree is never removed.
+
+**Remove worktree** shows these commands and waits for **Run**. They run in the main worktree:
+
+```text
+git merge-base --is-ancestor refs/heads/feat refs/remotes/origin/main
+git worktree remove D:/work/repo-feat
+git push origin --delete feat --force-with-lease=refs/heads/feat:<sha>
+git branch -D feat
+```
+
+`git worktree remove` refuses a worktree with staged, modified or new files: then the branch stays here and on the remote. When Git knows the worktree but its folder is gone, `git worktree prune` runs instead. It cleans every worktree of the repository whose folder is gone. After the remove, the card of the worktree goes away and a notification tells the result.
+
+The panel does not offer the remove, and shows the reason, when:
+
+- The worktree has staged, modified or new files: `commit or stash the changes first`.
+- The worktree is locked (`git worktree lock`): `the worktree is locked`.
+- A terminal of Herdr works inside the worktree folder: `close the terminals in this folder first`. Windows cannot remove a folder that a program uses.
 
 Squash merges and rebase merges change the commits, so the panel does not see these branches as merged. Turn on fetch so that `origin/main` is current.
 

@@ -2,8 +2,8 @@
 // one base folder. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder, run } from "herdr";
-import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, show, MAX_REPOS } from "./git.js";
+import { theme, props, shared, setShared, pickFolder, run, panes, notify } from "herdr";
+import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint } from "./ui.js";
 
 const KEY_ROOT = "git-dash.root";
@@ -55,6 +55,11 @@ const STR = {
     fix_delete: "Delete", fix_deleteAll: "Delete all {n}",
     deleteTip: "Delete the local branch {branch}.", deleteTipBoth: "Delete the branch {branch} here and on {remote}.",
     blocked_busy: "finish the operation first", blocked_dirty: "commit or stash the changes first",
+    worktree: "worktree", fix_removeWorktree: "Remove worktree",
+    removeTip: "Remove the worktree {path} and delete the local branch {branch}.",
+    removeTipBoth: "Remove the worktree {path} and delete the branch {branch} here and on {remote}.",
+    blocked_locked: "the worktree is locked", blocked_inUse: "close the terminals in this folder first",
+    removed: "Worktree removed", removedFailed: "Worktree removed, but a later step failed",
   },
   pt: {
     title: "Git Dash", choose: "Escolher pasta", refresh: "Atualizar",
@@ -94,6 +99,11 @@ const STR = {
     fix_delete: "Apagar", fix_deleteAll: "Apagar todas ({n})",
     deleteTip: "Apaga a branch local {branch}.", deleteTipBoth: "Apaga a branch {branch} aqui e em {remote}.",
     blocked_busy: "termine a operação antes", blocked_dirty: "faça commit ou stash das mudanças antes",
+    worktree: "worktree", fix_removeWorktree: "Remover worktree",
+    removeTip: "Remove o worktree {path} e apaga a branch local {branch}.",
+    removeTipBoth: "Remove o worktree {path} e apaga a branch {branch} aqui e em {remote}.",
+    blocked_locked: "o worktree está travado", blocked_inUse: "feche os terminais nesta pasta antes",
+    removed: "Worktree removido", removedFailed: "Worktree removido, mas um passo seguinte falhou",
   },
 };
 
@@ -231,13 +241,28 @@ export default class GitDash extends View {
     cx.notify();
   }
 
-  execute(path, steps, label, cx) {
+  /** Runs `steps` for the card `path`. `fix.cwd`: where they run (else `path`);
+   *  `fix.removes`: worktree folders that the steps remove, whose cards go away. */
+  execute(path, steps, label, cx, fix = {}) {
     this.ask = null;
     this.running.set(path, label);
     this.result.delete(path);
     cx.spawn(async (cx) => {
-      const res = await runSteps(path, steps);
+      const res = await runSteps(fix.cwd || path, steps);
       this.running.delete(path);
+      const gone = new Set(removedBy(steps, res.done, fix.removes ?? []).map(samePath));
+      for (const k of [...this.repos.keys()]) {
+        if (gone.has(samePath(k)) && k !== path) { this.repos.delete(k); this.open.delete(k); this.result.delete(k); }
+      }
+      if (gone.has(samePath(path))) {
+        // This card was the removed worktree: say it with a notification, and read the main worktree again.
+        this.repos.delete(path); this.open.delete(path);
+        notify({ title: this.s(res.ok ? "removed" : "removedFailed"), body: res.ok ? path : res.out, level: res.ok ? "success" : "warning" });
+        const main = fix.cwd && [...this.repos.keys()].find((k) => samePath(k) === samePath(fix.cwd));
+        if (main) this.refreshOne(main, cx);
+        cx.notify();
+        return;
+      }
       this.result.set(path, res);
       cx.notify();
       this.refreshOne(path, cx);
@@ -262,6 +287,12 @@ export default class GitDash extends View {
     for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
   }
 
+  /** True when a terminal of Herdr works inside `dir` (Windows cannot remove that folder). */
+  inUse(dir) {
+    const d = samePath(dir);
+    return (panes() ?? []).some((p) => p.cwd && (samePath(p.cwd) === d || samePath(p.cwd).startsWith(`${d}/`)));
+  }
+
   // ---- formatting --------------------------------------------------------
 
   age() {
@@ -273,7 +304,8 @@ export default class GitDash extends View {
 
   /** The label of a fix: its button text, and the text while it runs. */
   fixLabel(f) {
-    return f.id === "delete" ? `${this.s("fix_delete")} ${f.branch}` : this.s(`fix_${f.id}`, { remote: f.remote, n: f.n });
+    if (f.id === "delete") return f.worktree ? `${this.s("fix_removeWorktree")} ${f.branch}` : `${this.s("fix_delete")} ${f.branch}`;
+    return this.s(`fix_${f.id}`, { remote: f.remote, n: f.n });
   }
 
   noteText(n) {
@@ -313,6 +345,7 @@ export default class GitDash extends View {
   pills(r, t) {
     const items = [];
     if (r.branch) items.push(pill(t, { label: r.branch, symbol: "branch", code: true }));
+    if (r.worktree) items.push(pill(t, { label: this.s("worktree") }));
     for (const op of r.operations) items.push(pill(t, { label: this.s("operation", { op }), color: t.ansi1 }));
     if (r.conflicts) items.push(pill(t, { label: this.s("conflicts", { n: r.conflicts }), color: t.ansi1 }));
     if (r.unpushed) items.push(pill(t, { label: this.s("unpushed", { n: r.unpushed }), color: t.ansi1 }));
@@ -353,7 +386,7 @@ export default class GitDash extends View {
         div().text_size(11).text_color(t.muted).child(this.s(steps.length > 1 ? "confirmRunN" : "confirmRun")),
         ...steps.map(code),
         h_flex().gap(6)
-          .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.fixLabel(ask.fix), cx),
+          .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.fixLabel(ask.fix), cx, ask.fix),
             { tone: ask.fix.id.startsWith("delete") ? "danger" : "primary" }))
           .child(cancel));
     } else if (ask?.kind === "commit") {
@@ -402,21 +435,28 @@ export default class GitDash extends View {
     const ready = fx.merged.filter((m) => m.fix);
     // The current branch goes last: its delete switches to the base branch.
     const all = ready.length > 1 ? {
-      id: "deleteAll", n: ready.length,
+      id: "deleteAll", n: ready.length, cwd: ready[0].fix.cwd, removes: ready.flatMap((m) => m.fix.removes),
       steps: [...ready].sort((a, b) => Number(a.branch.current) - Number(b.branch.current)).flatMap((m) => m.fix.steps),
     } : null;
-    const row = ({ branch: b, fix, blocked }) => h_flex().h(24).gap(8).items_center().text_size(11)
-      .child(svg(icon("branch")).size(11).flex_none().text_color(t.ansi4))
-      .child(div().flex_shrink_1().min_w(0).truncate().font_family(mono()).text_color(t.foreground).child(b.name))
-      .when(b.current, (e) => e.child(pill(t, { label: this.s("current"), color: t.accent })))
-      .child(div().flex_1())
-      .child(div().flex_none().text_color(t.dim).child(b.remote ? this.s("whereBoth", { remote: b.remote.name }) : this.s("whereLocal")))
-      .child(fix
-        ? smallButton(t, key(`gd-del-${b.name}`), this.s("fix_delete"), (cx) => this.startFix(r, fix, cx), {
-          tone: "danger",
-          tooltip: b.remote ? this.s("deleteTipBoth", { branch: b.name, remote: b.remote.name }) : this.s("deleteTip", { branch: b.name }),
-        })
-        : div().flex_none().text_color(t.ansi3).child(this.s(`blocked_${blocked}`)));
+    const tip = (b) => b.worktree
+      ? this.s(b.remote ? "removeTipBoth" : "removeTip", { path: b.worktree.path, branch: b.name, remote: b.remote?.name })
+      : b.remote ? this.s("deleteTipBoth", { branch: b.name, remote: b.remote.name }) : this.s("deleteTip", { branch: b.name });
+    // 2 lines, so a narrow panel shows the whole name and the whole reason:
+    // the branch and its pills, then where it is and the button (or why it must wait).
+    const row = ({ branch: b, fix, blocked }) => v_flex().py(2).text_size(11)
+      .child(h_flex().h(22).gap(8).items_center()
+        .child(svg(icon("branch")).size(11).flex_none().text_color(t.ansi4))
+        .child(div().flex_shrink_1().min_w(0).truncate().font_family(mono()).text_color(t.foreground).child(b.name))
+        .when(b.current, (e) => e.child(pill(t, { label: this.s("current"), color: t.accent })))
+        .when(Boolean(b.worktree), (e) => e.child(pill(t, { label: this.s("worktree") }))))
+      .child(h_flex().h(24).pl(19).gap(8).items_center()
+        .child(div().flex_none().text_color(t.dim).child(b.remote ? this.s("whereBoth", { remote: b.remote.name }) : this.s("whereLocal")))
+        .child(div().flex_1())
+        .child(fix
+          ? smallButton(t, key(`gd-del-${b.name}`), this.s(b.worktree ? "fix_removeWorktree" : "fix_delete"), (cx) => this.startFix(r, fix, cx), {
+            tone: "danger", tooltip: tip(b),
+          })
+          : div().flex_shrink_1().min_w(0).truncate().text_color(t.ansi3).child(this.s(`blocked_${blocked}`))));
     return v_flex().gap(2).pt(6).border_t(1).border_color(t.border)
       .child(h_flex().h(24).gap(6).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.s("mergedTitle", { base: r.base.name })))
@@ -426,7 +466,7 @@ export default class GitDash extends View {
 
   repoCard(r, t) {
     const open = this.open.has(r.path);
-    const fx = fixes(r);
+    const fx = fixes(r, (dir) => this.inUse(dir));
     const expandable = Boolean(r.error) || r.files.length > 0 || fx.auto.length > 0 || pending(r) || this.result.has(r.path);
     const notes = r.notes.map((n) => this.noteText(n));
     return v_flex().id(`repo-${r.path}`).w_full().flex_none().px(14).py(9).gap(6).border_b(1).border_color(t.border)

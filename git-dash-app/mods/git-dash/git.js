@@ -31,6 +31,8 @@ const MAX_MERGED = 20; // merged-branch candidates checked per repository
 
 const isWin = () => /^[A-Za-z]:[\\/]/.test(home());
 const slash = (p) => p.replace(/\\/g, "/");
+/** A path in one form, to compare paths: forward slashes, no trailing slash, lower case. */
+export const samePath = (p) => slash(String(p || "")).replace(/\/+$/, "").toLowerCase();
 
 const PS_SCAN = (root, depth) => `
 $ErrorActionPreference = 'Stop'
@@ -151,17 +153,48 @@ async function findBase(repo) {
 }
 
 /**
+ * The worktrees of a repository, the main worktree first:
+ * `[{ path, branch, locked, prunable }]` (`branch` is a full ref, or "" when
+ * detached). `prunable`: Git knows the worktree, but its folder is gone.
+ */
+async function listWorktrees(repo) {
+  const w = await git(repo, ["worktree", "list", "--porcelain"]);
+  if (w.code !== 0) return [];
+  const out = [];
+  let cur = null;
+  for (const line of w.stdout.split(/\r?\n/)) {
+    if (line.startsWith("worktree ")) {
+      cur = { path: line.slice("worktree ".length), branch: "", locked: false, prunable: false };
+      out.push(cur);
+    } else if (!cur) {
+      continue;
+    } else if (line.startsWith("branch ")) {
+      cur.branch = line.slice("branch ".length);
+    } else if (line === "locked" || line.startsWith("locked ")) {
+      cur.locked = true;
+    } else if (line === "prunable" || line.startsWith("prunable ")) {
+      cur.prunable = true;
+    }
+  }
+  return out;
+}
+
+/**
  * Local branches that are fully merged into `base` and were not deleted.
- * Each is `{ name, sha, current, remote }`; `remote` is `{ name, branch, sha }`
+ * Each is `{ name, sha, current, remote, worktree }`; `remote` is `{ name, branch, sha }`
  * when the branch also exists on a remote and that copy is merged too.
+ * `worktree` is `{ path, locked, prunable, dirty }` when the branch is checked
+ * out in a linked worktree (not the main one): its delete removes that worktree.
+ * `dirty`: the worktree has staged, modified or new files.
  *
  * A branch is left out when it is protected, is the base, is checked out in
- * another worktree, or its remote copy has commits that the base does not have.
+ * the main worktree of a linked worktree, or its remote copy has commits that the base does not have.
  * A branch with no commits of its own is an ancestor of the base too. So a
  * branch counts only when it has an upstream, or its reflog shows more than
  * its creation.
  */
-async function findMerged(repo, base) {
+async function findMerged(repo, base, worktrees) {
+  const linked = new Map(worktrees.slice(1).map((w) => [samePath(w.path), w]));
   const fmt = "%(refname)%09%(objectname)%09%(HEAD)%09%(worktreepath)%09%(upstream)%09%(upstream:track)%09%(upstream:remotename)%09%(upstream:remoteref)";
   const [all, mg] = await Promise.all([
     git(repo, ["for-each-ref", `--format=${fmt}`, "refs/heads", "refs/remotes"]),
@@ -184,7 +217,10 @@ async function findMerged(repo, base) {
     const name = ref.slice(HEADS.length);
     const b = refs.get(ref);
     if (!b || PROTECTED.has(name) || name === base.local || ref === base.ref) continue;
-    if (b.worktree && !b.head) continue; // checked out in another worktree
+    // Checked out in a linked worktree (this one or another): its delete removes the worktree.
+    // Checked out in the main worktree, seen from a linked one: the main worktree stays.
+    const wt = b.worktree ? linked.get(samePath(b.worktree)) : null;
+    if (b.worktree && !b.head && !wt) continue;
 
     // The copy of the branch on a remote: its upstream, else a branch with the same name.
     let remote = null, hasUpstream = false;
@@ -211,7 +247,16 @@ async function findMerged(repo, base) {
       const entries = rl.code === 0 ? rl.stdout.split(/\r?\n/).filter(Boolean) : [];
       if (entries.length && entries.every((e) => e.startsWith("branch: Created from"))) continue;
     }
-    found.push({ name, sha: b.sha, current: b.head, remote: remote && { name: remote.name, branch: remote.branch, sha: remote.sha } });
+    let worktree = null;
+    if (wt) {
+      let dirty = false;
+      if (!wt.prunable) {
+        const st = await git(repo, ["-C", wt.path, "status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=dirty"]);
+        dirty = st.code !== 0 || st.stdout.trim().length > 0;
+      }
+      worktree = { path: wt.path, locked: wt.locked, prunable: wt.prunable, dirty };
+    }
+    found.push({ name, sha: b.sha, current: b.head, worktree, remote: remote && { name: remote.name, branch: remote.branch, sha: remote.sha } });
   }
   return found.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -222,13 +267,19 @@ async function findMerged(repo, base) {
  * `merge-base --is-ancestor` stops the steps when the branch is not merged
  * any more, and `--force-with-lease` refuses when the remote branch moved.
  * The current branch is left with `git switch <base>` before it is deleted.
+ * A branch of a linked worktree removes that worktree first (`git worktree
+ * remove`, which refuses when the worktree has changes or is locked; `git
+ * worktree prune` when its folder is gone): a failed remove leaves the branch
+ * here and on the remote. These steps must run in the main worktree
+ * (`fixes` sets `cwd`), because the removed folder can be the card's own.
  */
 export function deleteSteps(r, b) {
   const steps = [["merge-base", "--is-ancestor", `${HEADS}${b.name}`, r.base.ref]];
+  if (b.worktree) steps.push(b.worktree.prunable ? ["worktree", "prune"] : ["worktree", "remove", b.worktree.path]);
   if (b.remote) {
     steps.push(["push", b.remote.name, "--delete", b.remote.branch, `--force-with-lease=${HEADS}${b.remote.branch}:${b.remote.sha}`]);
   }
-  if (b.current) steps.push(["switch", r.base.local]);
+  if (b.current && !b.worktree) steps.push(["switch", r.base.local]);
   steps.push(["branch", "-D", b.name]);
   return steps;
 }
@@ -246,6 +297,7 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
     unpushed: 0, byBranch: {}, stash: 0, staged: 0, modified: 0, untracked: 0, conflicts: 0,
     operations: [...operations], notes: [], files: [], error: null,
     base: null, merged: [],
+    worktree: null, // { main }: this folder is a linked worktree; `main` is the path of the main worktree
   };
   try {
     if (fetch) {
@@ -334,9 +386,11 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
     const others = Object.entries(r.byBranch).filter(([k]) => k !== r.branch && k !== "HEAD").sort((a, b) => b[1] - a[1]);
     if (others.length) r.notes.push({ id: "otherBranches", text: others.map(([k, v]) => `${k} (${v})`).join(", ") });
 
+    const worktrees = await listWorktrees(repo);
+    if (worktrees.length && samePath(worktrees[0].path) !== samePath(repo)) r.worktree = { main: worktrees[0].path };
     if (!initial) {
       r.base = await findBase(repo);
-      if (r.base) r.merged = await findMerged(repo, r.base);
+      if (r.base) r.merged = await findMerged(repo, r.base, worktrees);
     }
   } catch (e) {
     r.error = String(e?.message || e);
@@ -359,16 +413,25 @@ export function pending(r) {
  * `manual`: problems that need a person; the panel only opens a terminal.
  * A fix is safe when Git refuses on its own instead of losing work:
  * `push` only when the branch is not behind, `pull` only as `--ff-only`.
+ * `inUse(path)`: true when a terminal works inside that folder (a worktree
+ * that a terminal uses cannot be removed on Windows).
  */
-export function fixes(r) {
+export function fixes(r, inUse = () => false) {
   const auto = [], manual = [];
   if (r.error) return { auto, manual: ["error"], merged: [] };
   // Merged branches: one delete fix per branch. `fix` is null and `blocked`
-  // says why when the delete must wait.
+  // says why when the delete must wait. `cwd`: where the steps run (the main
+  // worktree, when this card is a linked worktree). `removes`: the worktree folders that go away.
   const busy = r.conflicts || r.operations.length;
   const merged = r.merged.map((b) => {
-    const blocked = busy ? "busy" : b.current && (r.staged || r.modified) ? "dirty" : "";
-    const fix = blocked ? null : { id: "delete", branch: b.name, steps: deleteSteps(r, b) };
+    const w = b.worktree;
+    const blocked = busy ? "busy"
+      : w ? (w.locked ? "locked" : w.dirty ? "dirty" : !w.prunable && inUse(w.path) ? "inUse" : "")
+      : b.current && (r.staged || r.modified) ? "dirty" : "";
+    const fix = blocked ? null : {
+      id: "delete", branch: b.name, worktree: w ? w.path : null,
+      cwd: r.worktree ? r.worktree.main : null, removes: w && !w.prunable ? [w.path] : [], steps: deleteSteps(r, b),
+    };
     return { branch: b, fix, blocked };
   });
   if (r.conflicts) manual.push("conflicts");
@@ -382,7 +445,8 @@ export function fixes(r) {
       else if (r.ahead) auto.push({ id: "push", steps: [["push"]] });
       else if (r.behind) auto.push({ id: "pull", steps: [["pull", "--ff-only"]] });
     } else if (r.upstream) {
-      manual.push("upstreamGone");
+      // A merged branch whose upstream is gone needs no hand work: its delete (or worktree remove) is the fix.
+      if (!r.merged.some((b) => b.current)) manual.push("upstreamGone");
     } else if (r.byBranch[r.branch]) {
       const remote = r.remotes.includes("origin") ? "origin" : r.remotes.length === 1 ? r.remotes[0] : "";
       if (remote) auto.push({ id: "publish", remote, steps: [["push", "-u", remote, r.branch]] });
@@ -407,17 +471,24 @@ export const show = (step) => ["git", ...step.map((a) => (/[\s"]/.test(a) ? JSON
 /**
  * Runs `steps` in `repo`, one after the other, and stops at the first failure.
  * Never rejects. `failed` is the step that failed, so it can run again in a terminal.
+ * `done`: how many steps ended well.
  * `exec` gives Git no input and stops it after 30 s: a password prompt fails here.
  */
 export async function runSteps(repo, steps) {
   let out = "";
-  for (const step of steps) {
+  for (const [i, step] of steps.entries()) {
     const res = await exec("git", ["-c", "core.quotepath=false", ...step], { cwd: repo })
       .catch((e) => ({ code: -1, stdout: "", stderr: String(e?.message || e) }));
     out = `${res.stdout}\n${res.stderr}`.trim();
-    if (res.code !== 0) return { ok: false, out: out || `${show(step)}: exit ${res.code}`, failed: step };
+    if (res.code !== 0) return { ok: false, out: out || `${show(step)}: exit ${res.code}`, failed: step, done: i };
   }
-  return { ok: true, out };
+  return { ok: true, out, done: steps.length };
+}
+
+/** The worktree folders in `removes` whose `worktree remove` step is among the first `done` steps. */
+export function removedBy(steps, done, removes) {
+  const ran = steps.slice(0, done).filter((s) => s[0] === "worktree" && s[1] === "remove");
+  return removes.filter((p) => ran.some((s) => samePath(s[2]) === samePath(p)));
 }
 
 /** Higher is more urgent. */
