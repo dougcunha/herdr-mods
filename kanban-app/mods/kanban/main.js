@@ -86,6 +86,8 @@ const STR = {
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
     newTab: "New tab", backTip: "Switch to the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
+    toAuto: "Set Auto: the columns share the whole board",
+    widthAutoTip: "Click the value to go back to Auto.",
     narrower: "Narrower columns", wider: "Wider columns",
     moveLeft: "Move this column left", moveRight: "Move this column right",
     shellOn: "Hide the shell under the board", shellOff: "Show a shell under the board",
@@ -117,6 +119,8 @@ const STR = {
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
     newTab: "Nova aba", backTip: "Trocar para o layout {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
+    toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
+    widthAutoTip: "Clique no valor para voltar para Auto.",
     narrower: "Colunas mais estreitas", wider: "Colunas mais largas",
     moveLeft: "Mover esta coluna para a esquerda", moveRight: "Mover esta coluna para a direita",
     shellOn: "Ocultar o shell abaixo do quadro", shellOff: "Mostrar um shell abaixo do quadro",
@@ -831,16 +835,26 @@ export default class Kanban extends View {
     ];
   }
 
+  /** The value in the width control. With a width set, it is a button that sets Auto again. */
+  widthValue(t, cap) {
+    const cell = div().w(34).h(24).flex_none().flex().items_center().justify_center().rounded(7).text_size(11).text_color(t.muted);
+    if (cap === null) return cell.child(this.s("auto"));
+    return cell.id("kb-width-auto").tooltip(this.s("toAuto")).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_WIDTH, null); })
+      .child(String(cap));
+  }
+
   /** [width icon] [−] 260 [+]: how wide a column may be. Auto lets the columns share the whole board. */
   widthControl(t) {
     const cap = this.maxWidth();
     const atMin = cap === WIDTHS[0], atMax = cap === null;
     return h_flex().flex_none().gap(1).items_center()
-      .tooltip(this.s("widthTip", { w: cap === null ? this.s("auto") : `${cap} px` }))
+      .tooltip(cap === null ? this.s("widthTip", { w: this.s("auto") }) : `${this.s("widthTip", { w: `${cap} px` })} ${this.s("widthAutoTip")}`)
       .child(div().w(22).flex_none().flex().items_center().justify_center().child(svg(icon("width")).size(14).text_color(t.dim)))
       .child(iconButton(t, "kb-narrower", "minus", () => this.stepWidth(-1),
         { tooltip: this.s("narrower"), size: 24, glyph: 13, color: atMin ? t.dim : t.muted }))
-      .child(div().w(34).flex_none().text_center().text_size(11).text_color(t.muted).child(cap === null ? this.s("auto") : String(cap)))
+      .child(this.widthValue(t, cap))
       .child(iconButton(t, "kb-wider", "plus", () => this.stepWidth(1),
         { tooltip: this.s("wider"), size: 24, glyph: 13, color: atMax ? t.dim : t.muted }));
   }
