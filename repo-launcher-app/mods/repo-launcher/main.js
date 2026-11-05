@@ -17,7 +17,7 @@ import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKe
 import { agentArgv, open, spacesFor } from "./launch.js";
 import {
   settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened, lastOpened,
-  boundKeys, prettyKeys, chordOf, actionOf, bindShortcut,
+  boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut,
 } from "./store.js";
 import {
   icon, GOLD, tint, spaceColor, repoColor, letterTile, programTile, pill, kbd, hint, toggle,
@@ -75,10 +75,14 @@ export default class RepoLauncher extends View {
 
     this.agents = memory.agents ?? [];
     this.accounts = memory.accounts ?? [];
+    this.argInputs = {};
+    this.ensureArgInputs();
     cx.spawn(async (cx) => {
       try {
         this.agents = (await knownAgents()).filter((a) => a.installed);
         memory.agents = this.agents;
+        // The agents can arrive after the settings view opened.
+        this.ensureArgInputs();
       } catch {}
       cx.notify();
     });
@@ -283,16 +287,29 @@ export default class RepoLauncher extends View {
     this.view = "settings";
     this.capturing = false;
     this.keyError = "";
-    // Text fields need a live host call, so they are made here, in a handler.
-    this.argInputs ??= {};
+    this.ensureArgInputs();
+    this.focusRoot(cx);
+    cx.notify();
+  }
+
+  /**
+   * Makes the argument field of each agent that has none yet. A text field
+   * needs a live host call, so this runs only in `init`, in a handler or in
+   * a task, never in `render`.
+   */
+  ensureArgInputs() {
     for (const agent of this.agents) {
       if (this.argInputs[agent.key]) continue;
       const input = InputState.new({ placeholder: "Extra arguments, e.g. --verbose", value: settings().args[agent.key] ?? "" });
       input.on("change", () => updateSettings((s) => ({ args: { ...s.args, [agent.key]: input.value() } })));
+      // A click in a field stops a shortcut capture that is in progress.
+      input.on("focus", (_e, cx) => {
+        if (!this.capturing) return;
+        this.capturing = false;
+        cx.notify();
+      });
       this.argInputs[agent.key] = input;
     }
-    this.focusRoot(cx);
-    cx.notify();
   }
 
   /** Opens `action` in the chosen repository and closes the popup. */
@@ -363,6 +380,18 @@ export default class RepoLauncher extends View {
       this.pendingChord = null;
       this.keyError = "";
       notify({ title: "Shortcut saved", body: `${prettyKeys(chord)} opens the Repo Launcher`, level: "success", timeout: 3000 });
+      // Herdr reads keys.json again after the write. Wait until `keys()`
+      // has the new chord (at most 2 s), then redraw the other mods.
+      let tries = 0;
+      const announce = (cx) => {
+        if (boundKeys().includes(chord) || ++tries >= 20) {
+          announceShortcut();
+          cx.notify();
+          return;
+        }
+        cx.timer.after(100, announce);
+      };
+      announce(cx);
     } catch (err) {
       const msg = String(err?.message ?? err);
       if (msg.startsWith("taken:")) {
@@ -827,7 +856,7 @@ export default class RepoLauncher extends View {
         .child(div().w(110).flex_none().truncate().text_size(12.5).child(agent.name))
         .child(h_flex().flex_1().h(32).px(10).items_center().rounded(8).bg(t.raised).border_1().border_color(t.border)
           .child(div().flex_none().mr(6).text_size(12).text_color(t.dim).font_family(appSettings().font_family ?? "JetBrains Mono").child((agent.run ?? [agent.key]).join(" ")))
-          .child(this.argInputs?.[agent.key]
+          .child(this.argInputs[agent.key]
             ? Input.new(this.argInputs[agent.key]).flex_1().h_full().text_size(12).font_family(appSettings().font_family ?? "JetBrains Mono")
             : div()))))
       .when(this.agents.length === 0, (e) => e.child(div().text_size(12).text_color(t.dim).child("Looking for installed agents…")));

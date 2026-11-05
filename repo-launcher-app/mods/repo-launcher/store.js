@@ -10,6 +10,7 @@ export const OPEN_ACTION = `mod.open:${MOD}`;
 
 const SETTINGS = `${MOD}.settings`;
 const CACHE = `${MOD}.cache`;
+const SHORTCUT_STAMP = `${MOD}.shortcut-changed`;
 
 const DEFAULTS = {
   roots: [],
@@ -112,6 +113,15 @@ export function chordOf(event) {
   if (m.platform) mods.push("cmd");
   if (mods.length === 0 && !/^f\d+$/.test(key)) return null; // a plain key would type text
   return [...mods, key.toLowerCase()].join("-");
+}
+
+/**
+ * Tells the other mods that the shortcut changed. A change of keys.json does
+ * not redraw the mods, but a change of shared state redraws all of them, so
+ * the status bar item reads `keys()` again and shows the new keys.
+ */
+export function announceShortcut() {
+  setShared(SHORTCUT_STAMP, Date.now());
 }
 
 /** The action that `chord` runs now in the global section, if any. */
