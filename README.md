@@ -39,6 +39,10 @@ For the Herdr app, the Agent Resume mod (starts your Claude Code, Codex, Antigra
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/agent-resume-app and follow its README to install the hook of each agent that I have`
 
+For the Herdr app, the Repo Launcher mod (`Ctrl+P`: find a repository by a fuzzy name and open a terminal or an agent, with any of its accounts, in its open space or in a new one):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app and merge its keys.json`
+
 For the Herdr app, five light themes (One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light):
 
 `Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-mods/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
@@ -62,6 +66,7 @@ overwrites a file that exists.
 | [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds three mods: `tabs-dock`, `files-md` (the Files panel: rendered Markdown, syntax colors, images in the Image Viewer, and a right-click menu with Open with default app, Show in Explorer and Copy path) and `files-md-menu` (that menu). |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, waiting for subagents, done. You can hide any column and turn the waiting column off. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
+| [`repo-launcher-app`](repo-launcher-app/README.md) | The Repo Launcher mod. `Ctrl+P` opens a popup with a fuzzy search of the Git repositories under your root folders, favorites, recent ones and an indicator of their open space. It opens a terminal or an agent (one choice per account of Claude Code and Codex) in the open space of the repository or in a new space. The list is cached; Refresh reads the folders again. A second mod, `repo-launcher-status`, puts `Ctrl+P  repos` in the status bar. |
 | [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod, with hooks for Claude Code and Antigravity and a plugin for OpenCode (Codex needs none). After a reboot, it types the resume command of each agent (for example `claude --resume <id>`) in the shell that replaced its lost terminal. A status bar indicator opens a panel with the settings and the monitored sessions. |
 | [`git-dash-app`](git-dash-app/README.md) | The Git Dash mod. It scans a base folder and lists the Git repositories with pending work (unpushed commits, stash, changes, conflicts). Each card offers the safe fixes (commit, push, pull, publish) after a confirmation, and opens the repository in a terminal or a new space for the other problems. It has a refresh button and a **Repos** button for the Dock. |
 | [`light-themes-app`](light-themes-app/README.md) | Five light themes for `~/.config/herdr-app/themes/`: One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light. The app ships only one light theme (`paper`). |

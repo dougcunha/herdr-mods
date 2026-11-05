@@ -1,0 +1,5 @@
+{
+  "global": {
+    "ctrl-p": "mod.open:repo-launcher"
+  }
+}

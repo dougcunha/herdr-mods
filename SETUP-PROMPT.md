@@ -52,8 +52,9 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 4. `image-viewer-app`: the `image-viewer` mod.
 5. `kanban-app`: the `kanban` layout and the `kanban` mod.
 6. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
-7. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
-8. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+7. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
+8. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
+9. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -99,7 +100,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there. Entries of mods that are new in this repository (item 8) go in only if I chose to install the mod.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there. Entries of mods that are new in this repository (item 9) go in only if I chose to install the mod.
 
 ### `~/.config/herdr-app/layouts/kanban.json`
 
@@ -128,10 +129,11 @@ In the `global` section, add the keys that are missing:
 "ctrl-shift-m": "mod.open:markdown-reader",
 "ctrl-shift-r": "mod.open:markdown-reader-pane",
 "cmd-shift-m": "mod.open:markdown-reader",
-"cmd-shift-r": "mod.open:markdown-reader-pane"
+"cmd-shift-r": "mod.open:markdown-reader-pane",
+"ctrl-p": "mod.open:repo-launcher"
 ```
 
-If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Add the two `markdown-reader` keys only when that mod is installed. Also merge the `keys.json` of each third-party mod the same way.
+If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Add the two `markdown-reader` keys only when that mod is installed, and `ctrl-p` only when `repo-launcher` is installed. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
 
 ### `~/.config/herdr-app/settings.json`
 
