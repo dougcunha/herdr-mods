@@ -31,6 +31,10 @@ For the Herdr app, the Image Viewer mod (shows an image file, with fit and zoom)
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/image-viewer-app`
 
+For the Herdr app, the Changes Split mod (Herdr's Changes panel with a **Unified / Split** switch for a side-by-side diff; the Kanban and Dock layouts use it):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/changes-app`
+
 For the Herdr app, the Git Dash mod (pending work of every repository under a base folder, with a **Repos** button in the Dock):
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/git-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
@@ -64,6 +68,7 @@ overwrites a file that exists.
 | ------ | ---------- |
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
 | [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds three mods: `tabs-dock`, `files-md` (the Files panel: rendered Markdown, syntax colors, images in the Image Viewer, and a right-click menu with Open with default app, Show in Explorer and Copy path) and `files-md-menu` (that menu). |
+| [`changes-app`](changes-app/README.md) | The Changes Split mod (`changes-split`): Herdr's Changes panel with a **Unified / Split** switch. Split shows the old file on the left and the new file on the right, each with its own line numbers. The `kanban` and `main-dock` layouts use it for their Changes panel. |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, waiting for subagents, done. You can hide any column and turn the waiting column off. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
 | [`repo-launcher-app`](repo-launcher-app/README.md) | The Repo Launcher mod. `Ctrl+P` opens a popup with a fuzzy search of the Git repositories under your root folders, favorites, recent ones and an indicator of their open space. It opens a terminal or an agent (one choice per account of Claude Code and Codex) in the open space of the repository or in a new space. The list is cached; Refresh reads the folders again. A second mod, `repo-launcher-status`, puts `Ctrl+P  repos` in the status bar. |

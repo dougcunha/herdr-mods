@@ -24,7 +24,7 @@ To add a button later, for example the [Git Graph](https://github.com/rabeeh-ta/
 
 | Part | What it is |
 | ---- | ---------- |
-| `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes. |
+| `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes (the [Changes Split](../changes-app) mod, with a Unified / Split switch). |
 | `mods/tabs-dock/` | Herdr's tab bar plus the dock: it reads `dock/panels.json`, draws the buttons and adds the panels to the layout. |
 | `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12) with a right-click menu, rendered Markdown and syntax highlighting. See [The Files panel](#the-files-panel). |
 | `mods/files-md-menu/` | The popup of that right-click menu. `files-md` needs it. |
@@ -95,6 +95,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 ## Limits
 
 - `files-md` needs the `files-md-menu` mod (the right-click menu) and the `image-viewer` mod ([this repository](../image-viewer-app), for images). Without the viewer, a click on an image does nothing useful. The `markdown-reader` mod (third party) is optional: only the menu item "Open in Markdown Reader" uses it. To go back to Herdr's own Files panel, point the `files` block of `layouts/main-dock.json` to the mod `files`.
+- The Changes panel is the `changes-split` mod ([this repository](../changes-app)). Install it before the layout, or the panel stays empty. To go back to Herdr's own Changes panel, point the `changes` block of `layouts/main-dock.json` to the mod `changes`.
 - The right-click menu, the Explorer and default app items and the clipboard items were not clicked in a real session: the checks were `herdr-app check`, a screenshot of the menu popup, and the Markdown and highlighting views in the app. Test them on your machine. Tested only on Windows; the macOS and Linux commands are written, not run.
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,

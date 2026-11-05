@@ -46,15 +46,16 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 
 For each item, read the `README.md` and the `RECIPE.md` of its folder before you copy anything. A mod copies as a whole folder (`<app>/mods/<name>/` to `~/.config/herdr-app/mods/<name>/`), a layout as a file (`<app>/layouts/<name>.json` and its `.svg`, if any, to `~/.config/herdr-app/layouts/`).
 
-1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
+1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `changes-split` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
 2. `ci-dash-app`: the `ci-dash` mod.
 3. `git-dash-app`: the `git-dash` mod.
 4. `image-viewer-app`: the `image-viewer` mod.
-5. `kanban-app`: the `kanban` layout and the `kanban` mod.
-6. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
-7. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
-8. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
-9. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+5. `changes-app`: the `changes-split` mod, Herdr's Changes panel with a Unified / Split switch. The `main-dock` and `kanban` layouts use it, so install it BEFORE you install or update those layouts. It runs `git` only, the same as Herdr's Changes panel.
+6. `kanban-app`: the `kanban` layout and the `kanban` mod. Its Changes panel is the `changes-split` mod (item 5).
+7. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
+8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
+9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
+10. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -78,7 +79,7 @@ Use this for every mod folder, theme and hook file that already exists.
 4. **Files that exist only on this machine, in a mod folder:** keep them. They may be mine. If the repository deleted such a file (`git log --diff-filter=D`), tell me and ask.
 5. Copy the files in the order of rule 5, then run `herdr-app check` on the folder.
 
-Layouts (`main-dock.json`, `kanban.json`) are never replaced as a whole: Herdr and the dock write panel blocks into them, and I edit them. For a layout, the baseline is the baseline of the mods of the same app folder (`tabs-dock` for `main-dock`, `kanban` for `kanban`). Run `git diff <baseline> HEAD -- <layout file>` in the clone. No difference: do nothing. A difference: apply only those changes to my file (read `layout()` or the file, then use `layout.set` or edit it), keep my other edits and the blocks that the dock added, and run the "Configure" steps again. If you cannot tell the baseline, show me the difference between my file and the repository's and ask.
+Layouts (`main-dock.json`, `kanban.json`) are never replaced as a whole: Herdr and the dock write panel blocks into them, and I edit them. For a layout, the baseline is the baseline of the mods of the same app folder (`tabs-dock` for `main-dock`, `kanban` for `kanban`). Run `git diff <baseline> HEAD -- <layout file>` in the clone. No difference: do nothing. A difference: apply only those changes to my file (read `layout()` or the file, then use `layout.set` or edit it), keep my other edits and the blocks that the dock added, and run the "Configure" steps again. If you cannot tell the baseline, show me the difference between my file and the repository's and ask. A layout that points a block to a mod (for example `"mod": "changes-split"`) needs that mod installed first.
 
 ## Configure
 
@@ -100,7 +101,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there. Entries of mods that are new in this repository (item 9) go in only if I chose to install the mod.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there. Entries of mods that are new in this repository (item 10) go in only if I chose to install the mod.
 
 ### `~/.config/herdr-app/layouts/kanban.json`
 
@@ -162,8 +163,9 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to t
 2. Every mod that you installed or updated passed `herdr-app check`.
 3. The layouts `main-dock` and `kanban` show up with `ctrl-shift-l`.
 4. The `main-dock` status bar shows `Resume on · <n> sessions` at the left.
-5. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app`, and each one is valid JSON.
-6. A second run of "Configure" would change nothing.
+5. The Changes panel of `main-dock` and `kanban` shows the `Unified` and `Split` buttons in its header.
+6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app`, and each one is valid JSON.
+7. A second run of "Configure" would change nothing.
 
 ## Record the run
 

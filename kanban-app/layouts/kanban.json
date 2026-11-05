@@ -113,7 +113,7 @@
                   "active": "files",
                   "children": [
                     { "id": "files", "type": "block", "content": { "mod": "files" } },
-                    { "id": "changes", "type": "block", "content": { "mod": "changes" } }
+                    { "id": "changes", "type": "block", "content": { "mod": "changes-split" } }
                   ]
                 }
               ],
