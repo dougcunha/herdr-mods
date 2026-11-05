@@ -6,12 +6,17 @@ A Herdr layout (`main-dock`) whose tab bar draws its side-panel buttons from a f
 
 ## What you see
 
-The window of Herdr's `main` layout, with the same sidebar, tabs as pills and pane cards. Only the tab bar differs. Its right end, left to right:
+The window of Herdr's `main` layout, with the same sidebar, tabs as pills and pane cards. Only the tab bar differs: 44px high (the same as the Kanban bar), 10px right padding, 6px gap. After the row of tab pills (it scrolls sideways):
 
-- `+` (26px): the new-tab menu (`new-menu` popup, 250 x 512).
-- **Files** and **Changes**: always first, when their blocks are in the layout and the welcome screen chose them (`shared("workspace.panels")`). Icons `mods/files/file.svg` and `mods/changes/changes.svg`.
-- One button for each valid entry of `panels.json`, in the file's order: 26px tall, 14px icon, 12px label, `muted` text on `chrome`; `selected` background while its panel is open; `hover` background under the pointer.
-- On Windows and Linux the minimize, maximize and close buttons (26px).
+- `+` (26px, tooltip "New tab"): the new-tab menu (`new-menu` popup, 250 x 512).
+
+Then the right end. It is the same as the right end of the Kanban bar (`mods/kanban`), in the same place and size, so a layout switch does not move it. 6px between its parts:
+
+- **Panels**, one rounded group (32px high, 10px radius, 1px `border`, background `foreground` at 6%): **Files** and **Changes** first, when their blocks are in the layout and the welcome screen chose them (`shared("workspace.panels")`; icons `mods/files/file.svg` and `mods/changes/changes.svg`); then one button for each valid `panel` or `tab` entry of `panels.json`, in the file's order; then the `command` entries that are not `layout.switch`. A button is 26px high, 7px radius, 14px icon, `muted`; lit (`accent` text on `accent` at 15%) while its panel is open.
+- **Layout switch**, one rounded group: a button for the shown layout (icon `mods/tabs-dock/layout-main.svg`, label from the layout name: `main-dock` → "Main dock") and one for each `layout.switch` entry of `panels.json`. The shown layout is lit. Only names in `layouts()` count, each once. Hidden with fewer than 2 layouts.
+- On Windows and Linux the minimize, maximize and close buttons (28px, 7px radius, 2px apart).
+
+Below 2250px of bar width (`on_size_change`) the buttons of both groups show only their icons, and the names go to the tooltips ("Show or hide {name}", "Switch to the {name} layout"). The Kanban bar uses the same width. `props.lang` `"pt"` gives Portuguese tooltips; the default is English.
 
 The side panel is 368px wide (min 280, max 900), hidden at first, on the right of the work area, with a stack `panel-body`. The stack holds `files`, `changes` and one block for each panel entry.
 
@@ -51,7 +56,7 @@ The side panel is 368px wide (min 280, max 900), hidden at first, on the right o
 
 ## Built from
 
-- `layouts/main-dock.json`: Herdr's `main` layout, the same in 0.1.11 and 0.1.12 (a row: `sidebar` with `brand`, `spaces`, `agents`, `sidebar-footer`; `work` column with `tabs` 42px, `work-body`, `status` 28px), with `tabs` set to the mod `tabs-dock`, and `panel-body` holding only `files` (mod `files-md`) and `changes` (mod `changes`). Ids `panel`, `panel-body`, `files` and `changes` must stay: the bar and other mods look them up.
+- `layouts/main-dock.json`: Herdr's `main` layout, the same in 0.1.11 and 0.1.12 (a row: `sidebar` with `brand`, `spaces`, `agents`, `sidebar-footer`; `work` column with `tabs` 44px (42px in `main`), `work-body`, `status` 28px), with `tabs` set to the mod `tabs-dock`, and `panel-body` holding only `files` (mod `files-md`) and `changes` (mod `changes`). Ids `panel`, `panel-body`, `files` and `changes` must stay: the bar and other mods look them up.
 - `mods/tabs-dock/`, `mod.json` `{ "place": "none", "title": "Dock tabs" }`. `main.js` is Herdr's `tabs` mod (tab pills, drag to reorder, rename, close, window buttons, per-space panel memory) with the dock added.
 - `herdr` functions: `layout()`, `shared()`, `spaces()`, `panes()`, `appHome()`, `readTextFile`, `watchFolder`, `nextCommand`, `notify`, `openOverlay`, `run`. Commands: `layout.set`, `layout.select`, `layout.show`, `layout.hide`, `tab.new`, `tab.select`, `tab.move`, `tab.rename`, `tab.close`, `tab.next`, `tab.prev`, `pane.focus`, `pane.zoom`, `window.*`. `fs/promises`: `mkdir`, `readdir`.
 - `mods/files-md/`, `mod.json` `{ "place": "none", "cloned_from": { "name": "files", "version": "0.1.12" } }`. `main.js` is Herdr's `files` mod with these changes. A click on a Markdown file shows it in the panel preview with `TextView.markdown(id, text)` (id includes the file path, `selectable(true)`, `scrollable(false)`, inside a scrolling `div`), and a header button, **Source** / **Rendered**, switches to a read-only `Editor`. Any other text file shows in a read-only `Editor` with syntax colors from the theme's `ansi` colors; the `LANG` table maps an extension to a language name the editor knows (`py`, `cs`, `rs`, `go`, `java`, `c`, `cpp`, `ruby`, `sql`, `php`, `lua`, `js`, `json`, `html`, `css`, `yaml`, `bash`; names such as `markdown`, `ts`, `toml` and `rb` are not known and must be mapped). A file with a null byte shows "Binary file"; text over 400,000 characters is cut. A click on an image runs `pane.split` with the mod `image-viewer` (props `file`, `fileOn`); an open pane of that mod is closed first, and with no terminal pane in the tab it opens as a dialog. A right-click on a row (`on_mouse_down("right")`) opens the popup `files-md-menu` at the pointer (230 px wide, 31 px a row, 5 px padding, 9 px a divider) with the items as props. Its icons are its own, one-color `svg()` files in `mods/files-md/`: `chevron-down`, `chevron-right`, `file`, `folder`, `folder-open`, `file-markdown`, `file-code`, `file-json`, `file-image`, `file-terminal`, `file-config`, `file-text`, `file-archive` and `file-table`. A `KINDS` table maps a file name to an icon and a color (a theme `ansi` name, or a hex color for folders `#e0a526` and JSON `#e07b39`, because the theme's yellow is nearly black on a light theme); the row's `svg` is 14 px.

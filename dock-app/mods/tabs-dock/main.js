@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, setShared, layout, settings, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
 // The dock: the tab bar draws one button per entry of dock/panels.json, and adds
@@ -13,6 +13,45 @@ import * as fs from "fs/promises";
 //   opens "command": a button that runs a Herdr command: { run: "layout.switch", args: { name: "kanban" } }.
 //     A layout.switch first saves the shown layout in shared("layout.previous"), so the
 //     target layout can offer a button back (the Kanban layout does).
+//
+// The right end of the bar is the same as in the Kanban bar (mods/kanban), in the same place and
+// size, so a layout switch does not move it: the panel group, the layout switch (this layout, then
+// the layout.switch entries, the shown one lit) and the window buttons. Below LABELS_WIDE px the
+// buttons show only their icons, and the names go to the tooltips.
+
+const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
+const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
+const RIGHT_GAP = 6; // between the panel group, the layout switch and the window buttons
+
+const STR = {
+  en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout" },
+  pt: { newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}" },
+};
+
+// A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
+const tint = (color, alpha = "24") => (/^#[0-9a-f]{6}$/i.test(color || "") ? color + alpha : color);
+// The name of a layout file as a button label: "main-dock" -> "Main dock".
+const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+// A button for a side panel, a tab, a command or a layout: an icon (`.svg` is tinted, anything else is a
+// picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it). The same as panelButton in
+// mods/kanban/ui.js: the two bars must draw these buttons alike.
+function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false) {
+  const tip = tooltip || (iconOnly ? label : "");
+  const glyph = String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none();
+  return h_flex().id(id).h(26).px(iconOnly ? 6 : 9).gap(6).flex_none().items_center().rounded(7).text_size(12).cursor_pointer()
+    .when(Boolean(tip), (e) => e.tooltip(tip))
+    .when(on, (e) => e.bg(tint(t.accent, "26")).text_color(t.accent))
+    .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_click((_e, cx) => onClick(cx))
+    .child(glyph)
+    .when(!iconOnly, (e) => e.child(label));
+}
+
+// A rounded group that holds several buttons. The same as buttonGroup in mods/kanban/ui.js.
+const buttonGroup = (t, children) => h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
+  .bg(tint(t.foreground, "0f")).border_1().border_color(t.border).children(children);
 
 const BUILTIN = [
   { id: "files", label: "Files", icon: "mods/files/file.svg" },
@@ -49,7 +88,11 @@ function showTab(mod, name) {
 }
 
 export default class Tabs extends View {
-  init(_props, cx) {
+  init(given, cx) {
+    // Read props once: props() in a later callback can answer for another copy.
+    const p = (given && Object.keys(given).length ? given : props()) || {};
+    this.lang = STR[p.lang] ? p.lang : "en";
+    this.barW = undefined; // the width of the bar, from on_size_change
     this.pressed = null;
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
     this.entries = [];
@@ -107,10 +150,29 @@ export default class Tabs extends View {
     cx.notify();
   }
 
+  s(key, vars = {}) {
+    return (STR[this.lang][key] ?? key).replace(/\{(\w+)\}/g, (_m, k) => String(vars[k] ?? ""));
+  }
+
   // A command button. Switching layout records where the person came from.
   runEntry(entry) {
-    if (entry.run === "layout.switch") setShared("layout.previous", shared("layout"));
+    if (entry.run === "layout.switch") {
+      if (entry.args?.name === shared("layout")) return;
+      setShared("layout.previous", shared("layout"));
+    }
     run(entry.run, entry.args ?? {});
+  }
+
+  // The layouts of the switch: the shown layout, then the layout.switch entries in the file's order.
+  // The Kanban bar draws the same list (there, the first item is the layout to go back to).
+  layoutItems() {
+    const names = layouts(), here = shared("layout"), items = [];
+    const add = (name, label, symbol, entry) => {
+      if (typeof name === "string" && names.includes(name) && !items.some(i => i.name === name)) items.push({ name, label, symbol, entry });
+    };
+    add(here, layoutLabel(here), "mods/tabs-dock/layout-main.svg", { id: "layout-here", run: "layout.switch", args: { name: here } });
+    for (const e of this.entries) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon, e);
+    return items;
   }
 
   toggle(id) {
@@ -227,36 +289,43 @@ export default class Tabs extends View {
     const waiting = injecting || (this.since && Date.now() - this.since < 3000 && panelEntries.some(e => !present.has(e.id)));
     if (!waiting) this.syncPanel(space, panel, body, panelButtons.map(b => b.id));
 
-    const panelButton = (b) => {
-      const on = panel && !panel.hidden && body?.active === b.id;
-      return h_flex().id(`panel-${b.id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
-        .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
-        .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => this.toggle(b.id))
-        .child(b.icon.endsWith(".svg") ? svg(b.icon).size(14) : image(b.icon).size(14)).child(b.label);
-    };
-    const tabButton = (e) => h_flex().id(`tab-open-${e.id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
-      .text_size(12).bg(t.chrome).text_color(t.muted)
-      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click(() => showTab(e.mod, e.name))
-      .child(e.icon.endsWith(".svg") ? svg(e.icon).size(14) : image(e.icon).size(14)).child(e.label);
-    const commandButton = (e) => h_flex().id(`cmd-${e.id}`).h(26).px(8).gap(5).flex_none().items_center().rounded(6)
-      .text_size(12).bg(t.chrome).text_color(t.muted)
-      .hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop)
-      .on_click(() => this.runEntry(e))
-      .child(e.icon.endsWith(".svg") ? svg(e.icon).size(14) : image(e.icon).size(14)).child(e.label);
-    // Buttons keep the order of the file; panel and tab entries mix as listed. Commands come last.
+    const iconOnly = !(this.barW >= LABELS_WIDE);
+    const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id);
+    const tip = (name) => this.s("panelTip", { name });
+    // Buttons keep the order of the file; panel and tab entries mix as listed. Other commands come last.
+    // The layout.switch commands are in the layout switch.
     const dynamic = wanted.filter(e => e.opens === "tab" || present.has(e.id));
-    return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    const panelItems = [
+      ...builtins.map(b => panelButton(t, `panel-${b.id}`, b.icon, b.label, lit(b.id), () => this.toggle(b.id), tip(b.label), iconOnly)),
+      ...dynamic.map(e => e.opens === "tab"
+        ? panelButton(t, `tab-open-${e.id}`, e.icon, e.label, false, () => showTab(e.mod, e.name), "", iconOnly)
+        : panelButton(t, `panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.toggle(e.id), tip(e.label), iconOnly)),
+      ...commands.filter(e => e.run !== "layout.switch")
+        .map(e => panelButton(t, `cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
+    ];
+    const here = shared("layout"), targets = this.layoutItems();
+    const layoutSwitch = targets.length < 2 ? [] : [buttonGroup(t, targets.map(it =>
+      panelButton(t, `layout-${it.name}`, it.symbol, it.label, it.name === here, () => this.runEntry(it.entry),
+        this.s(it.name === here ? "layoutHere" : "switchTip", { name: it.label }), iconOnly)))];
+    const wbtn = (id, glyph, action) => div().id(id).size(28).flex_none().flex().items_center().justify_center().rounded(7)
+      .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(glyph);
+    const win = w?.platform === "windows";
+    const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
+      .when(panelItems.length > 0, el => el.child(buttonGroup(t, panelItems)))
+      .children(layoutSwitch)
+      .when(w?.buttons, el => el.child(h_flex().flex_none().gap(2).items_center()
+        .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
+        .child(wbtn("maximize", win ? svg(`mods/tabs-dock/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
+        .child(wbtn("close-window", win ? svg("mods/tabs-dock/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
+    return h_flex().size_full().min_w(0).pl(lightsPadding).pr(BAR_RIGHT).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .on_size_change((size, cx) => {
+        const width = Math.round(size.width);
+        if (width !== this.barW) { this.barW = width; cx.notify(); }
+      })
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
-      .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })))
-      .children(builtins.map(panelButton))
-      .children(dynamic.map(e => (e.opens === "tab" ? tabButton(e) : panelButton(e))))
-      .children(commands.map(commandButton))
-      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
-        .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs-dock/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/tabs-dock/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
+      .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
+      .child(right);
   }
 }

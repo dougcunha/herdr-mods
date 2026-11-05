@@ -75,7 +75,7 @@ Each item has an icon. For a folder on another machine, only the three Copy item
 | `name` | For `"tab"`: the tab name. |
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
 
-A `layout.switch` button saves the shown layout in `shared("layout.previous")` first. The [Kanban](../kanban-app) layout reads it, so its button goes back to the layout you came from.
+A `layout.switch` entry goes to the **layout switch**, a group at the right end of the bar with a button for the shown layout and one for each `layout.switch` entry; the shown layout is lit. A click saves the shown layout in `shared("layout.previous")` first. The [Kanban](../kanban-app) layout reads it and draws the same group in the same place, so the button does not move when you switch.
 
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.

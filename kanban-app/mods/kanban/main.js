@@ -35,6 +35,9 @@ const CARD_VIEWS = ["auto", "summary", "full"];
 const BAR_WIDE = 1800;
 const LABELS_WIDE = 2250; // from this bar width the panel buttons show their names, not only icons
 const COLUMN_WIDE = 220;
+// The right end of the bar: the same values as in tabs-dock, so it does not move when the layout changes.
+const BAR_RIGHT = 10; // padding after the window buttons
+const RIGHT_GAP = 6; // between the panel group, the layout switch and the window buttons
 // In compact density the columns of a group share one place, one under the other, at the place of
 // the first of them in the column order. Waiting goes under Working, Idle under Done.
 const GROUPS = [["working", "waiting"], ["done", "idle"]];
@@ -85,7 +88,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    newTab: "New tab", backTip: "Switch to the {name} layout", panelTip: "Show or hide {name}",
+    newTab: "New tab", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
     widthAutoTip: "Click the value to go back to Auto.",
@@ -119,7 +122,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    newTab: "Nova aba", backTip: "Trocar para o layout {name}", panelTip: "Mostrar ou ocultar {name}",
+    newTab: "Nova aba", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
     widthAutoTip: "Clique no valor para voltar para Auto.",
@@ -173,7 +176,9 @@ const find = (node, id) => {
 // leaves the layout (the shell under the board, when its terminal ends), Herdr removes each column that keeps only
 // one child, and "panel" is one of them. Then the stack itself is the panel.
 const sidePanel = (root) => find(root, "panel") ?? find(root, "panel-body");
-const base = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+// The name of a layout file as a button label: "main-dock" -> "Main dock".
+const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+const base = (p) =>String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
 
 export default class Kanban extends View {
   init(given, cx) {
@@ -487,17 +492,40 @@ export default class Kanban extends View {
     run("layout.select", { stack: "view", child: "tabs-view" });
   }
 
-  /** The layout the back button goes to: the one the person came from (saved by the dock
-   *  button or by this button), else props.back, else "main", else the first other layout. */
+  /** The layout the switch offers to go back to: the one the person came from (saved by the dock
+   *  bar or by this bar), else props.back, else "main", else the first other layout. */
   back() {
     const names = layouts(), here = shared("layout");
     return [shared("layout.previous"), this.props.back, "main", ...names]
       .find((n) => typeof n === "string" && n !== here && names.includes(n)) ?? null;
   }
 
-  goBack(name) {
+  switchLayout(name) {
+    if (name === shared("layout")) return;
     setShared("layout.previous", shared("layout")); // so the other layout can come back here
     run("layout.switch", { name });
+  }
+
+  /** The layouts of the switch at the right end of the bar, in the order the Dock bar draws them:
+   *  the layout to go back to, then the layout.switch commands of dock/panels.json, then the shown
+   *  layout if no entry names it. Each item: { name, label, symbol }. */
+  layoutItems() {
+    const names = layouts(), here = shared("layout"), back = this.back(), items = [];
+    const add = (name, label, symbol) => {
+      if (typeof name === "string" && names.includes(name) && !items.some((i) => i.name === name)) items.push({ name, label, symbol });
+    };
+    if (back) add(back, layoutLabel(back), icon("layout-main"));
+    for (const e of this.entries) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon);
+    add(here, layoutLabel(here), icon("board"));
+    return items;
+  }
+
+  /** The layout switch: one button per layout, the shown one lit. Empty with fewer than 2 layouts. */
+  layoutSwitch(t, iconOnly) {
+    const items = this.layoutItems(), here = shared("layout");
+    if (items.length < 2) return [];
+    return [buttonGroup(t, items.map((it) => panelButton(t, `kb-layout-${it.name}`, it.symbol, it.label, it.name === here,
+      () => this.switchLayout(it.name), this.s(it.name === here ? "layoutHere" : "backTip", { name: it.label }), iconOnly)))];
   }
 
   // ---- the shell under the board ----------------------------------------------
@@ -804,13 +832,13 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
-  /** The buttons of the side panel and of dock/panels.json: `panels` are Files and Changes, then the entries
-   *  of the file in the order listed (side panels and tabs); `commands` are its command entries. Both are
-   *  empty when the layout has no `panel-body`. `iconOnly`: the names go to the tooltips.
-   *  Call it once per render: it also adds the blocks of the file to the layout. */
+  /** The buttons of the side panel and of dock/panels.json: Files and Changes, then the entries of the file
+   *  in the order listed (side panels and tabs), then its commands. The layout.switch commands are not here:
+   *  they are in the layout switch. Empty when the layout has no `panel-body`. `iconOnly`: the names go to
+   *  the tooltips. Call it once per render: it also adds the blocks of the file to the layout. */
   panelItems(t, iconOnly = false) {
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
-    if (!panel || !body) return { panels: [], commands: [] };
+    if (!panel || !body) return [];
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body.children ?? []) taken.delete(c.id);
@@ -819,18 +847,15 @@ export default class Kanban extends View {
     const present = new Set((body.children ?? []).map((c) => c.id));
     const lit = (id) => !panel.hidden && body.active === id;
     const tip = (name) => this.s("panelTip", { name });
-    return {
-      panels: [
-        ...PANELS.filter((p) => present.has(p.id)).map((p) =>
-          panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), iconOnly)),
-        ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-          ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)
-          : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), iconOnly)),
-      ],
-      // A command that switches to the layout shown now would do nothing: leave it out.
-      commands: this.entries.filter((e) => e.opens === "command" && !(e.run === "layout.switch" && e.args?.name === shared("layout")))
+    return [
+      ...PANELS.filter((p) => present.has(p.id)).map((p) =>
+        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), iconOnly)),
+      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
+        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)
+        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), iconOnly)),
+      ...this.entries.filter((e) => e.opens === "command" && e.run !== "layout.switch")
         .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
-    };
+    ];
   }
 
   /** The two blocks of the board view: the terminal of the selected agent (right) and the shell (under the board). */
@@ -903,21 +928,27 @@ export default class Kanban extends View {
       .on_click(action).child(glyph);
     const win = w?.platform === "windows";
     const onBoard = view !== "tabs-view";
-    const back = this.back();
     const compact = this.compact(this.barW, BAR_WIDE);
     const count = need ? `${this.s("agents", all.length)} · ${this.s("needYou", { n: need })}` : this.s("agents", all.length);
 
-    // The bar reads left to right in six sections, each one a purpose:
-    //   what to see (Board / Terminals) | what to show (search, scope, columns) | how it looks (width, density, cards)
-    //   | which panels are open (agent, shell, Files, Changes, dock entries) | where to go (layout, new agent) | window.
-    // In compact density the middle sections share one row that scrolls sideways, so the buttons at
-    // the right end of the bar always show.
+    // The bar reads left to right: what to see (Board / Terminals) | what to show (search, scope, columns)
+    // | how it looks (width, density, cards) | the agent and shell blocks | New agent | the right end.
+    // The right end is the same as in the Dock bar (tabs-dock), in the same place and size, so a layout
+    // switch does not move it: the panel group (Files, Changes, dock entries), the layout switch, the window
+    // buttons. In compact density the columns and the look group share one row that scrolls sideways.
     const iconOnly = compact || !(this.barW >= LABELS_WIDE);
-    const { panels, commands } = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
+    const panels = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
     const regions = onBoard ? this.regionButtons(t, iconOnly) : [];
-    const panelGroup = regions.length + panels.length
-      ? [buttonGroup(t, [...regions, ...(regions.length && panels.length ? [divider(t, true)] : []), ...panels])] : [];
-    const commandGroup = commands.length ? [buttonGroup(t, commands)] : [];
+    const regionGroup = regions.length ? [buttonGroup(t, regions)] : [];
+    const panelGroup = panels.length ? [buttonGroup(t, panels)] : [];
+    const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
+      .children(panelGroup)
+      .children(this.layoutSwitch(t, iconOnly))
+      .when(w?.buttons, (e) => e.child(h_flex().flex_none().gap(2).items_center()
+        .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
+        .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
+        .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close")))));
+    const newAgent = button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "bot", iconOnly: compact });
     const chips = this.columns().map((c) => {
       const on = !hidden.has(c.id), name = this.s(c.id);
       return columnChip(t, `kb-chip-${c.id}`, {
@@ -942,7 +973,7 @@ export default class Kanban extends View {
 
     // With the sidebar hidden, the macOS window buttons sit over the start of the bar: leave them room.
     const lights = w?.platform === "macos" && find(layout(), "sidebar")?.hidden ? 76 : 0;
-    return h_flex().id("kb-bar").size_full().min_w(0).px(compact ? 10 : 14).when(lights > 0, (e) => e.pl(lights)).gap(compact ? 6 : 10).items_center()
+    return h_flex().id("kb-bar").size_full().min_w(0).pl(lights > 0 ? lights : compact ? 10 : 14).pr(BAR_RIGHT).gap(compact ? 6 : 10).items_center()
       .bg(t.chrome).border_b(1).border_color(t.border)
       .on_size_change((size, cx) => {
         const width = Math.round(size.width);
@@ -963,17 +994,13 @@ export default class Kanban extends View {
       .child(divider(t))
       .when(onBoard, (e) => e
         .child(search)
-        .when(compact, (e) => e.child(scroller([...columnTools, this.displayGroup(t, compact), ...panelGroup, ...commandGroup])))
-        .when(!compact, (e) => e.child(scroller(columnTools)).child(this.displayGroup(t, compact)).children(panelGroup).children(commandGroup)))
-      .when(!onBoard, (e) => e.child(this.tabStrip(t)).children(panelGroup).children(commandGroup))
+        .when(compact, (e) => e.child(scroller([...columnTools, this.displayGroup(t, compact)])))
+        .when(!compact, (e) => e.child(scroller(columnTools)).child(this.displayGroup(t, compact))))
+      .when(!onBoard, (e) => e.child(this.tabStrip(t)))
       .child(divider(t))
-      .when(Boolean(back), (e) => e.child(button(t, "kb-back", back, () => this.goBack(back),
-        { symbol: "layouts", tooltip: this.s("backTip", { name: back }), iconOnly: true })))
-      .child(button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "plus", iconOnly: compact }))
-      .when(w?.buttons, (e) => e
-        .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
-        .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
-        .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close"))));
+      .children(regionGroup)
+      .child(newAgent)
+      .child(right);
   }
 
   render(cx) {

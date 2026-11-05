@@ -41,7 +41,7 @@
           "id": "bar",
           "type": "block",
           "content": { "mod": "kanban", "props": { "part": "bar" } },
-          "size": { "px": 52 },
+          "size": { "px": 44 },
           "window_drag": true
         },
         {

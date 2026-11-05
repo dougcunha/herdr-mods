@@ -78,7 +78,7 @@
             "mod": "tabs-dock"
           },
           "size": {
-            "px": 42
+            "px": 44
           },
           "window_drag": true
         },
