@@ -58,7 +58,7 @@ Each item has an icon. For a folder on another machine, only the three Copy item
 ```json
 {
   "panels": [
-    { "id": "graph", "label": "Graph", "icon": "mods/git-graph/icons/graph.svg", "mod": "git-graph" },
+    { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" }
   ]
 }
@@ -74,6 +74,11 @@ Each item has an icon. For a folder on another machine, only the three Copy item
 | `opens` | `"panel"` (default): a block in the side panel. `"tab"`: a tab per space with the mod as its only pane. `"command"`: a button that runs a Herdr command (no `mod`). |
 | `name` | For `"tab"`: the tab name. |
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
+| `group` | Optional. The entries with the same group share one button. `"git"` puts the entry under the **Git** button, with Changes. |
+
+**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Graph and Repos the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Graph, Repos) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
+
+The bar has its own icons for the panels, from [Lucide](https://lucide.dev) (ISC license): `mods/tabs-dock/files.svg`, `changes.svg`, `git.svg`, `graph.svg`, `repos.svg` and `ci.svg`. Use them in `panels.json` for a set of icons that match.
 
 A `layout.switch` entry goes to the **layout switch**, a group at the right end of the bar with a button for the shown layout and one for each `layout.switch` entry; the shown layout is lit. A click saves the shown layout in `shared("layout.previous")` first. The [Kanban](../kanban-app) layout reads it and draws the same group in the same place, so the button does not move when you switch.
 
@@ -83,7 +88,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.
-- Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`.
+- Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`. `tabs-dock.group-git` opens the menu of the Git button.
 
 ## What it does on your machine
 

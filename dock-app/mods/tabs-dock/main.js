@@ -1,5 +1,5 @@
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex } from "gpui-base";
+import { h_flex, v_flex } from "gpui-base";
 import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
@@ -7,12 +7,14 @@ import * as fs from "fs/promises";
 // the side panel of each entry to the layout by itself. A new button is one new
 // entry in that file: no clone of the tab bar, no edit of the layout.
 //
-// Entry: { id, label, icon, mod, props?, opens?: "panel" | "tab", name? }
+// Entry: { id, label, icon, mod, props?, opens?: "panel" | "tab", name?, group? }
 //   opens "panel" (default): a block of the side panel, `mod` with `props`.
 //   opens "tab": a tab per space with `mod` as its only pane (focus it, or make it).
 //   opens "command": a button that runs a Herdr command: { run: "layout.switch", args: { name: "kanban" } }.
 //     A layout.switch first saves the shown layout in shared("layout.previous"), so the
 //     target layout can offer a button back (the Kanban layout does).
+//   group: the entries with the same group share one button in the bar. A click on it opens a menu with the
+//     full name of each entry. Changes is in the "git" group: { "id": "graph", ..., "group": "git" } joins it.
 //
 // The right end of the bar is the same as in the Kanban bar (mods/kanban), in the same place and
 // size, so a layout switch does not move it: the panel group, the layout switch (this layout, then
@@ -22,7 +24,8 @@ import * as fs from "fs/promises";
 // A panel button (side panel or tab entry) opens its panel in the side panel (a tab entry: in its tab) or in a
 // dialog. The first button of the panel group sets where: Auto, Side panel or Dialog. Auto opens a dialog when
 // the window is narrower than PANEL_NARROW px. The setting and the open dialog are shared with the Kanban bar.
-// This mod has a second part, props.part "panel-title": the title row of a panel dialog.
+// This mod has more parts: props.part "panel-title" (the title row of a panel dialog) and props.part "group-menu"
+// (the menu of a group button, a popup).
 
 const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
@@ -42,6 +45,10 @@ const DIALOG_TITLE = 36; // px: the title row of a panel dialog
 // The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
 // name a dialog that is gone: the bar trusts it only when its id is here. The same registry as in mods/kanban.
 const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
+
+// The groups of panel buttons. A group that is not here uses its id as its name and the icon of its first entry.
+const GROUPS = { git: { label: "Git", icon: "mods/tabs-dock/git.svg" } };
+const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 
 const STR = {
   en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
@@ -68,9 +75,10 @@ const tint = (color, alpha = "24") => (/^#[0-9a-f]{6}$/i.test(color || "") ? col
 const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
 
 // A button for a side panel, a tab, a command or a layout: an icon (`.svg` is tinted, anything else is a
-// picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it). The same as panelButton in
-// mods/kanban/ui.js: the two bars must draw these buttons alike.
-function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false) {
+// picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it). `menu`: a small arrow after the
+// name, for a button that opens a menu. The same as panelButton in mods/kanban/ui.js: the two bars must draw these
+// buttons alike.
+function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false, menu = false) {
   const tip = tooltip || (iconOnly ? label : "");
   const glyph = String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none();
   return h_flex().id(id).h(26).px(iconOnly ? 6 : 9).gap(6).flex_none().items_center().rounded(7).text_size(12).cursor_pointer()
@@ -80,7 +88,24 @@ function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOn
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
     .on_click((_e, cx) => onClick(cx))
     .child(glyph)
-    .when(!iconOnly, (e) => e.child(label));
+    .when(!iconOnly, (e) => e.child(label))
+    .when(menu, (e) => e.gap(iconOnly ? 2 : 5).child(svg("mods/tabs-dock/chevron-down.svg").size(10).flex_none().text_color(on ? t.accent : t.dim)));
+}
+
+// An icon of a panel: `.svg` is tinted with `color`, anything else is a picture.
+const panelGlyph = (path, size, color) => String(path).endsWith(".svg") ? svg(path).size(size).flex_none().text_color(color) : image(path).size(size).flex_none();
+
+// The panel buttons in the order of the bar, with the entries of a group put together: an item stays as it is,
+// and the first entry of a group becomes { group, members: [entry, ...] } in its place.
+function foldGroups(items) {
+  const out = [], seen = new Map();
+  for (const it of items) {
+    if (!it.group) { out.push(it); continue; }
+    let g = seen.get(it.group);
+    if (!g) { g = { group: it.group, members: [] }; seen.set(it.group, g); out.push(g); }
+    g.members.push(it);
+  }
+  return out;
 }
 
 // A rounded group that holds several buttons. The same as buttonGroup in mods/kanban/ui.js.
@@ -102,8 +127,8 @@ function iconButton(t, id, name, onClick, { active = false, tooltip = "", size =
 }
 
 const BUILTIN = [
-  { id: "files", label: "Files", icon: "mods/files/file.svg" },
-  { id: "changes", label: "Changes", icon: "mods/changes/changes.svg" },
+  { id: "files", label: "Files", icon: "mods/tabs-dock/files.svg" },
+  { id: "changes", label: "Changes", icon: "mods/tabs-dock/changes.svg", group: "git" },
 ];
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
@@ -141,8 +166,8 @@ export default class Tabs extends View {
     const p = (given && Object.keys(given).length ? given : props()) || {};
     this.props = p;
     this.lang = STR[p.lang] ? p.lang : "en";
-    this.part = p.part === "panel-title" ? "panel-title" : "bar";
-    if (this.part === "panel-title") {
+    this.part = ["panel-title", "group-menu"].includes(p.part) ? p.part : "bar";
+    if (this.part !== "bar") {
       this.overlay = p.overlay ?? props()?.overlay;
       return;
     }
@@ -153,6 +178,7 @@ export default class Tabs extends View {
     this.injected = new Set(JSON.parse(localStorage.getItem("injected") ?? "[]"));
     this.version = 0;
     this.lastTry = null;
+    this.groups = new Map(); // group id -> its entries, from the last render: the menu of a group button lists them
     const dir = `${appHome()}/dock`;
     cx.spawn(async (cx) => {
       try { await fs.mkdir(dir, { recursive: true }); } catch {}
@@ -163,7 +189,8 @@ export default class Tabs extends View {
         await this.load(cx);
       }
     });
-    // Keys open a panel as its button does: "ctrl-alt-g": "tabs-dock.graph" in keys.json.
+    // Keys open a panel as its button does: "ctrl-alt-g": "tabs-dock.graph" in keys.json. "tabs-dock.group-git"
+    // opens the menu of the Git button.
     cx.spawn(async (cx) => { for (;;) { this.toggle(await nextCommand()); cx.notify(); } });
   }
 
@@ -186,10 +213,11 @@ export default class Tabs extends View {
             : typeof raw.icon !== "string" || !raw.icon ? `"${raw.id}" has no icon`
             : command && (typeof raw.run !== "string" || !raw.run) ? `"${raw.id}" has no run`
             : !command && (typeof raw.mod !== "string" || !mods.has(raw.mod)) ? `"${raw.id}": mod "${raw.mod}" is not in mods/`
+            : raw.group !== undefined && !ID.test(String(raw.group)) ? `"${raw.id}": bad group "${raw.group}" (use a-z, 0-9, -)`
             : null;
           if (why) { problem = problem ?? why; continue; }
           seen.add(raw.id);
-          entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props,
+          entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props, group: raw.group,
             run: command ? raw.run : undefined, args: command && raw.args && typeof raw.args === "object" ? raw.args : {},
             opens: command ? "command" : raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
         }
@@ -237,6 +265,8 @@ export default class Tabs extends View {
     }
     // "tabs-dock.panel-open" steps where the panels open, as the first button of the panel group does.
     if (id === "panel-open") return this.stepPanelOpen();
+    // "tabs-dock.group-<id>" opens the menu of a group button, as a click on it does.
+    if (String(id).startsWith("group-")) return this.openGroup(String(id).slice(6));
     const command =this.entries.find(e => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
@@ -317,6 +347,46 @@ export default class Tabs extends View {
 
   closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
 
+  // The name and the icon of a group button.
+  groupInfo(group) {
+    const known = GROUPS[group], first = this.groups.get(group)?.[0];
+    return { label: known?.label ?? layoutLabel(group), icon: known?.icon ?? first?.icon ?? "" };
+  }
+
+  // Opens the menu of a group button at the pointer: one row per entry of the group, with its full name. The rows
+  // come from the last render (lit = open now). A popup is as tall as its content, so the height is set here.
+  openGroup(group) {
+    const members = this.groups.get(group);
+    if (!members?.length) return;
+    const info = this.groupInfo(group);
+    openOverlay({
+      mod: "tabs-dock", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + members.length * MENU_ROW,
+      props: { part: "group-menu", lang: this.lang, title: info.label, items: members.map(m => ({ id: m.id, label: m.label, icon: m.icon, on: m.on })) },
+    });
+  }
+
+  // The menu of a group button: the name of the group, then one row per entry (icon, full name, a tick while it is
+  // open). A click closes the menu and sends the entry to the bar ("tabs-dock.<id>"), as a click on its button does.
+  groupMenu(t) {
+    const p = this.props, items = Array.isArray(p.items) ? p.items : [];
+    const row = (it) => h_flex().id(`gm-${it.id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6).cursor_pointer()
+      .text_size(13).text_color(it.on ? t.accent : t.foreground)
+      .when(it.on, (e) => e.bg(tint(t.accent, "1a")))
+      .hover((s) => s.bg(it.on ? tint(t.accent, "33") : t.hover))
+      .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+      .child(panelGlyph(it.icon, 15, it.on ? t.accent : t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .when(it.on, (e) => e.child(svg("mods/tabs-dock/tick.svg").size(13).flex_none().text_color(t.accent)));
+    return v_flex().id("gm-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(String(p.title ?? "")))
+      .children(items.map(row));
+  }
+
+  pick(id) {
+    run(`tabs-dock.${id}`);
+    if (this.overlay) closeOverlay(this.overlay);
+  }
+
   dialogToSide() {
     this.closeDialog();
     const tab = this.props.tab;
@@ -389,6 +459,7 @@ export default class Tabs extends View {
   render() {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
+    if (this.part === "group-menu") return this.groupMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
@@ -463,15 +534,23 @@ export default class Tabs extends View {
       { active: dialogNow, tooltip: this.s("opensTip", { mode: opensMode, next: opensName(nextOpens) }) });
     // Buttons keep the order of the file; panel and tab entries mix as listed. Other commands come last.
     // The layout.switch commands are in the layout switch.
+    // The entries of a group share one button, in the place of the first one; its menu lists them.
     const dynamic = wanted.filter(e => e.opens === "tab" || present.has(e.id));
-    const panelItems = [
-      ...builtins.map(b => panelButton(t, `panel-${b.id}`, b.icon, b.label, lit(b.id), () => this.toggle(b.id), tip(b.label), iconOnly)),
+    const items = [
+      ...builtins.map(b => ({ ...b, key: `panel-${b.id}`, on: lit(b.id), tip: tip(b.label) })),
       ...dynamic.map(e => e.opens === "tab"
-        ? panelButton(t, `tab-open-${e.id}`, e.icon, e.label, inDialog === e.id, () => this.toggle(e.id), "", iconOnly)
-        : panelButton(t, `panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.toggle(e.id), tip(e.label), iconOnly)),
-      ...commands.filter(e => e.run !== "layout.switch")
-        .map(e => panelButton(t, `cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
+        ? { ...e, key: `tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
+        : { ...e, key: `panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
+      ...commands.filter(e => e.run !== "layout.switch").map(e => ({ ...e, key: `cmd-${e.id}`, on: false, tip: "" })),
     ];
+    const folded = foldGroups(items);
+    this.groups = new Map(folded.filter(it => it.members).map(g => [g.group, g.members]));
+    const panelItems = folded.map(it => {
+      if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.toggle(it.id), it.tip, iconOnly);
+      const info = this.groupInfo(it.group);
+      return panelButton(t, `group-${it.group}`, info.icon, info.label, it.members.some(m => m.on), () => this.openGroup(it.group),
+        `${info.label}: ${it.members.map(m => m.label).join(", ")}`, iconOnly, true);
+    });
     const here = shared("layout"), targets = this.layoutItems();
     const layoutSwitch = targets.length < 2 ? [] : [buttonGroup(t, targets.map(it =>
       panelButton(t, `layout-${it.name}`, it.symbol, it.label, it.name === here, () => this.runEntry(it.entry),

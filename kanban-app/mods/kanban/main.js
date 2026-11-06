@@ -3,13 +3,14 @@
 //   "bar"   the top bar: search, column toggles, view switch, window buttons.
 //   "board" the columns with the cards.
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
+//   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
   setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc } from "herdr";
 import * as fs from "fs/promises";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, buttonGroup, divider, stop } from "./ui.js";
+import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop } from "./ui.js";
 import { WaitingTracker } from "./waiting.js";
 
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
@@ -66,9 +67,14 @@ const SHELL_ID = "shell";
 
 // The side panel of the layout (node "panel", stack "panel-body"): Herdr's own Files and Changes mods.
 const PANELS = [
-  { id: "files", label: "Files", icon: "mods/files/file.svg" },
-  { id: "changes", label: "Changes", icon: "mods/changes/changes.svg" },
+  { id: "files", label: "Files", icon: icon("files") },
+  { id: "changes", label: "Changes", icon: icon("changes"), group: "git" },
 ];
+// The groups of panel buttons: the panels with the same `group` share one button, and a click on it opens a menu
+// with the full name of each panel. A group that is not here uses its id as its name and the icon of its first panel.
+// The same as GROUPS in mods/tabs-dock.
+const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") } };
+const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 
 // The default order: needs you, working, waiting, done, idle. The arrows in a column header change it,
 // and shared(KEY_ORDER) keeps the new order.
@@ -160,10 +166,11 @@ const STR = {
 };
 
 // The buttons of dock/panels.json (the same file the Dock layout reads). Entry:
-//   { id, label, icon, mod, props?, opens?: "panel" | "tab" | "command", name?, run?, args? }
+//   { id, label, icon, mod, props?, opens?: "panel" | "tab" | "command", name?, run?, args?, group? }
 //   "panel" (default): a block of the side panel, added to this layout by this bar.
 //   "tab": a tab per space with `mod` as its only pane.
 //   "command": runs a Herdr command (`run`, `args`).
+//   group: the entries with the same group share one button (see PANEL_GROUPS). "git" puts it with Changes.
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ids = (node, out = new Set()) => {
   if (node?.id) out.add(node.id);
@@ -199,15 +206,27 @@ const find = (node, id) => {
 const sidePanel = (root) => find(root, "panel") ?? find(root, "panel-body");
 // The name of a layout file as a button label: "main-dock" -> "Main dock".
 const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
+// The panel buttons in the order of the bar, with the entries of a group put together: an item stays as it is,
+// and the first entry of a group becomes { group, members: [entry, ...] } in its place. The same as in mods/tabs-dock.
+function foldGroups(items) {
+  const out = [], seen = new Map();
+  for (const it of items) {
+    if (!it.group) { out.push(it); continue; }
+    let g = seen.get(it.group);
+    if (!g) { g = { group: it.group, members: [] }; seen.set(it.group, g); out.push(g); }
+    g.members.push(it);
+  }
+  return out;
+}
 const base = (p) =>String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
 
 export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title"].includes(this.props.part) ? this.props.part : "board";
+    this.part = ["bar", "panel-title", "group-menu"].includes(this.props.part) ? this.props.part : "board";
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
-    if (this.part === "panel-title") {
+    if (this.part === "panel-title" || this.part === "group-menu") {
       this.overlay = this.props.overlay ?? props()?.overlay;
       return;
     }
@@ -220,6 +239,7 @@ export default class Kanban extends View {
       this.query = InputState.new({ placeholder: this.s("search"), value: String(shared(KEY_QUERY) ?? "") });
       this.query.on("change", () => setShared(KEY_QUERY, this.query.value()));
       this.entries = []; // the buttons of dock/panels.json
+      this.groups = new Map(); // group id -> its panels, from the last render: the menu of a group button lists them
       this.loaded = false;
       this.version = 0;
       this.lastTry = null;
@@ -237,10 +257,12 @@ export default class Kanban extends View {
       });
       // "kanban.panel-open" steps where the panels open, as the button does. "kanban.panel-<id>" opens or
       // closes the panel <id> (files, changes, or an id of dock/panels.json), as its button does.
+      // "kanban.group-<id>" opens the menu of a group button (kanban.group-git).
       cx.spawn(async (cx) => {
         for (;;) {
           const cmd = String(await nextCommand());
           if (cmd === "panel-open") this.stepPanelOpen();
+          else if (cmd.startsWith("group-")) this.openGroup(cmd.slice(6));
           else if (cmd.startsWith("panel-")) this.togglePanel(cmd.slice(6));
           cx.notify();
         }
@@ -461,10 +483,11 @@ export default class Kanban extends View {
             : typeof raw.icon !== "string" || !raw.icon ? `"${raw.id}" has no icon`
             : command && (typeof raw.run !== "string" || !raw.run) ? `"${raw.id}" has no run`
             : !command && (typeof raw.mod !== "string" || !mods.has(raw.mod)) ? `"${raw.id}": mod "${raw.mod}" is not in mods/`
+            : raw.group !== undefined && !ID.test(String(raw.group)) ? `"${raw.id}": bad group "${raw.group}" (use a-z, 0-9, -)`
             : null;
           if (why) { problem = problem ?? why; continue; }
           seen.add(raw.id);
-          entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props,
+          entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props, group: raw.group,
             run: command ? raw.run : undefined, args: command && raw.args && typeof raw.args === "object" ? raw.args : {},
             opens: command ? "command" : raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
         }
@@ -516,6 +539,8 @@ export default class Kanban extends View {
    *  there. A click on another panel button closes the open dialog first. A tab entry of dock/panels.json
    *  (Insights) opens in a dialog too, else in its tab. */
   togglePanel(id) {
+    const command = this.entries.find((e) => e.id === id && e.opens === "command");
+    if (command) return this.runEntry(command); // a command of a group menu
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
     const tab = this.entries.find((e) => e.id === id && e.opens === "tab");
     const node = (body?.children ?? []).find((c) => c.id === id);
@@ -590,6 +615,46 @@ export default class Kanban extends View {
   }
 
   closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
+
+  /** The name and the icon of a group button. */
+  groupInfo(group) {
+    const known = PANEL_GROUPS[group], first = this.groups.get(group)?.[0];
+    return { label: known?.label ?? layoutLabel(group), icon: known?.icon ?? first?.icon ?? "" };
+  }
+
+  /** Opens the menu of a group button at the pointer: one row per panel of the group, with its full name. The rows
+   *  come from the last render (lit = open now). A popup is as tall as its content, so the height is set here. */
+  openGroup(group) {
+    const members = this.groups?.get(group);
+    if (!members?.length) return;
+    const info = this.groupInfo(group);
+    openOverlay({
+      mod: "kanban", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + members.length * MENU_ROW,
+      props: { part: "group-menu", lang: this.lang, title: info.label, items: members.map((m) => ({ id: m.id, label: m.label, icon: m.icon, on: m.on })) },
+    });
+  }
+
+  /** The menu of a group button: the name of the group, then one row per panel (icon, full name, a tick while it is
+   *  open). A click closes the menu and sends the panel to the bar ("kanban.panel-<id>"), as a click on its button does. */
+  groupMenu(t) {
+    const p = this.props, items = Array.isArray(p.items) ? p.items : [];
+    const row = (it) => h_flex().id(`kb-gm-${it.id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6).cursor_pointer()
+      .text_size(13).text_color(it.on ? t.accent : t.foreground)
+      .when(it.on, (e) => e.bg(tint(t.accent, "1a")))
+      .hover((s) => s.bg(it.on ? tint(t.accent, "33") : t.hover))
+      .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+      .child(panelGlyph(it.icon, 15, it.on ? t.accent : t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .when(it.on, (e) => e.child(svg(icon("tick")).size(13).flex_none().text_color(t.accent)));
+    return v_flex().id("kb-gm-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(String(p.title ?? "")))
+      .children(items.map(row));
+  }
+
+  pick(id) {
+    run(`kanban.panel-${id}`);
+    if (this.overlay) closeOverlay(this.overlay);
+  }
 
   dialogToSide() {
     this.closeDialog();
@@ -976,15 +1041,24 @@ export default class Kanban extends View {
     const inDialog = this.dialogPanel();
     const lit = (id) => (!panel.hidden && body.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
+    // The panels of a group share one button, in the place of the first one; its menu lists them.
+    const items = [
+      ...PANELS.filter((p) => present.has(p.id)).map((p) => ({ ...p, key: `kb-panel-${p.id}`, on: lit(p.id), tip: tip(p.label) })),
+      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
+        ? { ...e, key: `kb-tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
+        : { ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
+      ...this.entries.filter((e) => e.opens === "command" && e.run !== "layout.switch").map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
+    ];
+    const folded = foldGroups(items);
+    this.groups = new Map(folded.filter((it) => it.members).map((g) => [g.group, g.members]));
     return [
       this.panelOpenButton(t), divider(t, true),
-      ...PANELS.filter((p) => present.has(p.id)).map((p) =>
-        panelButton(t, `kb-panel-${p.id}`, p.icon, p.label, lit(p.id), () => this.togglePanel(p.id), tip(p.label), iconOnly)),
-      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-        ? panelButton(t, `kb-tab-open-${e.id}`, e.icon, e.label, inDialog === e.id, () => this.togglePanel(e.id), "", iconOnly)
-        : panelButton(t, `kb-panel-${e.id}`, e.icon, e.label, lit(e.id), () => this.togglePanel(e.id), tip(e.label), iconOnly)),
-      ...this.entries.filter((e) => e.opens === "command" && e.run !== "layout.switch")
-        .map((e) => panelButton(t, `kb-cmd-${e.id}`, e.icon, e.label, false, () => this.runEntry(e), "", iconOnly)),
+      ...folded.map((it) => {
+        if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.togglePanel(it.id), it.tip, iconOnly);
+        const info = this.groupInfo(it.group);
+        return panelButton(t, `kb-group-${it.group}`, info.icon, info.label, it.members.some((m) => m.on), () => this.openGroup(it.group),
+          `${info.label}: ${it.members.map((m) => m.label).join(", ")}`, iconOnly, false, true);
+      }),
     ];
   }
 
@@ -1147,6 +1221,7 @@ export default class Kanban extends View {
   render(cx) {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
+    if (this.part === "group-menu") return this.groupMenu(t);
     this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
