@@ -24,8 +24,8 @@ here.
 `SETUP-PROMPT.md` starts with `<!-- herdr-mods-setup-version: N -->`. The
 `mods-update` mod compares this number with the version of the last run on a
 machine and shows an **Update mods** button when the number is higher. When a
-change adds or changes a mod, a layout or a theme, increase `N` by 1 (also in
-the `Version N.` line under the title), in the same commit. Keep the
+change adds or changes a mod, a layout or a theme, increase `N` by 1 in the same
+commit. Keep the
 `<!-- prompt-start -->` and `<!-- prompt-end -->` markers around the prompt:
 the mod sends only the text between them to the agent.
 

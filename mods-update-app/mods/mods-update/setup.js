@@ -49,7 +49,7 @@ export function parseSetup(text) {
 
 /** Downloads SETUP-PROMPT.md and reads it. Rejects on a network error or a bad file. */
 export async function download() {
-  const res = await fetch(SOURCE, { headers: { "Cache-Control": "no-cache" } });
+  const res = await fetch(SOURCE);
   if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
   const setup = parseSetup(await res.text());
   if (setup.version == null) throw new Error("SETUP-PROMPT.md has no version line");

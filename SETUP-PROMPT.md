@@ -1,9 +1,10 @@
 <!-- herdr-mods-setup-version: 1 -->
 # Set up or update my Herdr mods
 
-Version 1. The `mods-update` mod reads this version. When the version in the
-repository is newer than the version of your last run, it shows a button in the
-status bar that starts an agent with this prompt.
+The first line of this file holds the version of the prompt. The `mods-update`
+mod reads it. When the version in the repository is newer than the version of
+your last run, it shows a button in the status bar that starts an agent with
+this prompt.
 
 One prompt for two cases. Paste the text below to your LLM agent (Claude Code,
 AmpCode, Cursor, etc.) with the Herdr app installed and running:
