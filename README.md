@@ -51,6 +51,10 @@ For the Herdr app, five light themes (One Light, GitHub Light, Solarized Light, 
 
 `Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-mods/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
 
+For the Herdr app, six soft dark themes with lighter backgrounds (Nord, Catppuccin Frappé, Everforest Dark, Gruvbox Dark Soft, Palenight and Zenburn):
+
+`Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-mods/tree/main/dark-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
+
 Optional, to open Markdown files from the Files panel:
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/kissmikijr/herdr-markdown-reader`
@@ -75,6 +79,7 @@ overwrites a file that exists.
 | [`agent-resume-app`](agent-resume-app/README.md) | The Agent Resume mod, with hooks for Claude Code and Antigravity and a plugin for OpenCode (Codex needs none). After a reboot, it types the resume command of each agent (for example `claude --resume <id>`) in the shell that replaced its lost terminal. A status bar indicator opens a panel with the settings and the monitored sessions. |
 | [`git-dash-app`](git-dash-app/README.md) | The Git Dash mod. It scans a base folder and lists the Git repositories with pending work (unpushed commits, stash, changes, conflicts). Each card offers the safe fixes (commit, push, pull, publish) after a confirmation, and opens the repository in a terminal or a new space for the other problems. It has a refresh button and a **Repos** button for the Dock. |
 | [`light-themes-app`](light-themes-app/README.md) | Five light themes for `~/.config/herdr-app/themes/`: One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light. The app ships only one light theme (`paper`). |
+| [`dark-themes-app`](dark-themes-app/README.md) | Six soft dark themes for `~/.config/herdr-app/themes/`: Nord, Catppuccin Frappé, Everforest Dark, Gruvbox Dark Soft, Palenight and Zenburn. Their backgrounds are lighter than the shipped dark themes. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)
 
