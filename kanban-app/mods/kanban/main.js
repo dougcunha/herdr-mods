@@ -107,7 +107,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    newTab: "New tab", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
+    newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
     widthAutoTip: "Click the value to go back to Auto.",
@@ -145,7 +145,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    newTab: "Nova aba", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
+    newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
     widthAutoTip: "Clique no valor para voltar para Auto.",
@@ -1146,7 +1146,7 @@ export default class Kanban extends View {
     const count = need ? `${this.s("agents", all.length)} · ${this.s("needYou", { n: need })}` : this.s("agents", all.length);
 
     // The bar reads left to right: what to see (Board / Terminals) | what to show (search, scope, columns)
-    // | how it looks (width, density, cards) | the agent and shell blocks | New agent | the right end.
+    // | how it looks (width, density, cards) | the agent and shell blocks | Settings | New agent | the right end.
     // The right end is the same as in the Dock bar (tabs-dock), in the same place and size, so a layout
     // switch does not move it: the panel group (Files, Changes, dock entries), the layout switch, the window
     // buttons. In compact density the columns and the look group share one row that scrolls sideways.
@@ -1165,6 +1165,8 @@ export default class Kanban extends View {
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
         .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
         .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close")))));
+    const settingsButton = iconButton(t, "kb-settings", "settings", () => run("app.settings"),
+      { size: 28, tooltip: this.s("settingsTip") });
     const newAgent = button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "bot", iconOnly: compact });
     const chips = this.columns().map((c) => {
       const on = !hidden.has(c.id), name = this.s(c.id);
@@ -1213,6 +1215,7 @@ export default class Kanban extends View {
       .child(divider(t))
       .when(onBoard, (e) => e.child(scroller([search, ...columnTools, this.displayGroup(t, compact), ...regionGroup])))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
+      .child(settingsButton)
       .child(divider(t))
       .child(newAgent)
       .child(right);
