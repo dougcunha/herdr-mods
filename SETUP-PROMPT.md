@@ -1,4 +1,9 @@
+<!-- herdr-mods-setup-version: 1 -->
 # Set up or update my Herdr mods
+
+Version 1. The `mods-update` mod reads this version. When the version in the
+repository is newer than the version of your last run, it shows a button in the
+status bar that starts an agent with this prompt.
 
 One prompt for two cases. Paste the text below to your LLM agent (Claude Code,
 AmpCode, Cursor, etc.) with the Herdr app installed and running:
@@ -16,6 +21,7 @@ On a new machine, fill in the 1 placeholder in square brackets: the base
 folder of your Git repositories. On an update, leave it as it is: the agent reads
 the folder from your `dock/panels.json`.
 
+<!-- prompt-start -->
 ````markdown
 You will install, or update, my Herdr app mods. The Herdr app is already installed and running. I may have run this prompt before on this machine. Work out for each item whether it is missing (install it), up to date (leave it), behind (update it) or changed by me (ask me).
 
@@ -39,7 +45,7 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 2. Run `gh auth status`. If I am not logged in, ask me to run `! gh auth login`. Do not continue with the CI mod without it.
 3. Run `herdr-app status` and note the Herdr version. If it is newer than 0.1.12, tell me. The `main-dock` layout is a copy of version 0.1.12 and can be out of date.
 4. Make a FULL clone (not `--depth 1`, you need the history) of `https://github.com/dougcunha/herdr-mods` into a temporary folder OUTSIDE `~/.config/herdr-app`. Note the commit you got (`git rev-parse HEAD`).
-5. Read `~/.config/herdr-app/data/herdr-mods-setup.json`. It is the record that the last run of this prompt left: `{ "repo", "commit", "date", "items": { "<name>": "<source folder in the repo>" } }`. If it exists, show me what is new: `git log --oneline <recorded commit>..HEAD`, grouped by app folder. If it does not exist, I may still have run the prompt before: you will find the baseline by comparing files.
+5. Read `~/.config/herdr-app/data/herdr-mods-setup.json`. It is the record that the last run of this prompt left: `{ "repo", "commit", "version", "date", "items": { "<name>": "<source folder in the repo>" } }`. If it exists, show me what is new: `git log --oneline <recorded commit>..HEAD`, grouped by app folder. If it does not exist, I may still have run the prompt before: you will find the baseline by comparing files.
 6. Make the list of the items below, and for each one decide: **install** (not on this machine), **up to date**, **update** or **conflict** (I changed it). If the plan replaces or changes any file that exists, show me the plan as a table and wait for my OK. A plan that only adds new things needs no OK.
 
 ## The items
@@ -56,7 +62,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
-11. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+11. `mods-update-app`: the `mods-update` mod. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md` from GitHub, reads `data/herdr-mods-setup.json` and, when I click its button, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts the agent that I choose.
+12. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -102,7 +109,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 1 exception: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. Entries of mods that are new in this repository (item 11) go in only if I chose to install the mod.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 1 exception: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. Entries of mods that are new in this repository (item 12) go in only if I chose to install the mod.
 
 ### `~/.config/herdr-app/layouts/kanban.json`
 
@@ -167,12 +174,14 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to t
 5. The Changes panel of `main-dock` and `kanban` shows the `Unified` and `Split` buttons in its header.
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
+8. The status bar of `main-dock` and `kanban` shows the `mods-update` item at the right end. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 
-When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `date`, and `items`, with the name of each item that is installed and the folder of the repository that it came from. Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
+When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, and `items`, with the name of each item that is installed and the folder of the repository that it came from. Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
 
 ## Final report
 
 Say first which case this was: a new machine, an update, or a mix. Give me a table with 4 columns: item, source, status (installed, updated, up to date, kept because I changed it, skipped or failed) and note. Add one row for each agent of `agent-resume` (Claude Code, Codex, Antigravity, OpenCode): connected, already connected, not installed, or failed. Add "What is new" (the commits since the last run, in one line each) when this was an update. At the end, list what I must do by hand: the `gh` login, the font, the conflicts that I have not decided, anything that failed, and where the backup folder is.
 ````
+<!-- prompt-end -->
