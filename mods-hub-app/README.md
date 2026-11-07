@@ -42,6 +42,17 @@ Each row has a dot: red when the folder has a `*.error` file, yellow when a kit 
 
 A setup run before version 5 wrote no hashes. Then the tab tells you to run the setup again.
 
+#### Updates of third-party mods
+
+Once a day, the mod asks GitHub's public API for the last commit that changed the folder of each installed third-party mod (`GET /repos/<owner>/<repo>/commits?path=<mod folder>&per_page=1`, no token). It compares that commit with the version that the setup recorded in `third.<mod>` of `data/herdr-mods-setup.json` (`tools/record-third-party.mjs` writes it). On the **Third-party** list:
+
+- A row with a newer commit on GitHub has a blue dot and an **update** pill. The dialog opens on this list when a third-party mod has an update and the kit has none.
+- A click on a row shows the installed commit and the newest one (date and title), the files that were not as on GitHub at the setup run (the kit's Esc patches, or your changes), and the files that changed after the run.
+- **Update with an agent** opens the **Update** tab for that mod. The agent that you choose does only the section "Update a third-party mod" of the setup prompt: back up, ask before it replaces your changes, copy, apply the kit's patches again, record the new version. **Compare on GitHub** and **Open on GitHub** open the browser.
+- A mod with no recorded version shows "Version not recorded" and **Update and record with an agent**. A setup run of version 9 or later records every installed third-party mod.
+
+The status item shows `↑N` in the accent color next to `mods vN` when N third-party mods have an update; its tooltip names them. The kit's **Update mods** button and toast stay for the kit only.
+
 ### Settings
 
 The settings of the kit mods in one place. At the left: **Kit** (the settings of the whole kit), then 1 row per installed kit mod with settings. At the right: the settings of the chosen row. A change is saved at once, and the mod shows it at once. The dialog opens on the last row that you chose.
@@ -70,7 +81,7 @@ The prompt finds out by itself what is installed. It installs the new mods, upda
 
 ### Footer
 
-- **Check now** downloads `SETUP-PROMPT.md` and the release notes again. On the **Mods** tab, it also reads the mods folder again.
+- **Check now** downloads `SETUP-PROMPT.md` and the release notes again, and asks GitHub for the third-party mods again. On the **Mods** tab, it also reads the mods folder again.
 - **Skip version N** hides the button until a newer version comes. The dialog still opens from the dim item.
 - `herdr-app do mods-hub.check` checks GitHub from a shell (the status item must be on screen).
 
@@ -103,11 +114,11 @@ The new mod reads the shared state of `mods-update` (the skipped version, the la
 
 ## What it runs
 
-- **Network:** 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md` at start, every 6 hours, on **Check now** and when you choose an agent. In the dialog: 1 GET of `whats-new/<N>.md` for each version that the **What's new** tab shows (at most 10), and 1 GET of `<app>/README.md` when you open a README.
+- **Network:** 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md` at start, every 6 hours, on **Check now** and when you choose an agent. In the dialog: 1 GET of `whats-new/<N>.md` for each version that the **What's new** tab shows (at most 10), and 1 GET of `<app>/README.md` when you open a README. Once a day and on **Check now**: 1 GET of `https://api.github.com/repos/<owner>/<repo>/commits?path=<mod folder>&per_page=1` for each installed third-party mod (4 at most; the limit without a token is 60 an hour).
 - **Files:** it reads `data/herdr-mods-setup.json`, `installed.json`, and the files of the folders in `mods/` (to list them, read their `kit.json` and compare the kit files with their hashes). It writes `data/herdr-mods-setup-prompt.md`, and `keys.json` when you change a shortcut on the **Settings** tab. All in `~/.config/herdr-app`.
 - **Settings:** the **Settings** tab writes the `shared()` keys that the `kit.json` files name (for example `kanban.density`, `agent-resume.config`, `git-dash.roots`, `herdr-mods.lang`). An object key keeps its other fields.
-- **Programs:** no `exec`. It starts the agent that you choose with the `space.new` command, with the `run` entry of that agent in Herdr's program table.
-- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked, the last row of the Settings tab, and the last version whose notes the dialog showed.
+- **Programs:** `explorer`, `open` or `xdg-open` only when you click **Compare on GitHub** or **Open on GitHub**. It starts the agent that you choose with the `space.new` command, with the `run` entry of that agent in Herdr's program table.
+- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked, the last row of the Settings tab, and the last version whose notes the dialog showed. Its field `third` holds the last commit of each third-party mod on GitHub, the errors and the time of that check.
 
 ## Notes
 

@@ -5,14 +5,15 @@
 // on GitHub with the version of the last run of the prompt on this machine
 // (data/herdr-mods-setup.json). When GitHub has a newer version, it shows an
 // "Update mods" button and posts 1 toast. The button (or `mod.open`) opens
-// this mod as a dialog with 3 tabs: Mods (the installed mods, where they come
-// from, errors and local changes), What's new (whats-new/<version>.md) and
-// Update (the person chooses an agent, and the mod starts it in a new space
-// with the prompt of SETUP-PROMPT.md).
+// this mod as a dialog with 4 tabs: Mods (the installed mods, where they come
+// from, errors, local changes and, for third-party mods, a newer version on
+// GitHub), Settings, What's new (whats-new/<version>.md) and Update (the person
+// chooses an agent, and the mod starts it in a new space with the prompt of
+// SETUP-PROMPT.md, or with its section for 1 third-party mod).
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView, InputState, Input } from "gpui-base";
-import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand, pickFolder } from "herdr";
+import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand, pickFolder, exec, window } from "herdr";
 import { toggle, segmented, stepper, textButton, kbd } from "./ui.js";
 import { boundKeys, actionOf, prettyKeys, chordOf, bindKey } from "./keys.js";
 import { readField, writeField, sameFolder, normFolder } from "./fields.js";
@@ -20,7 +21,17 @@ import {
   MOD, REPO, CHECK_EVERY, icon, download, downloadNotes, downloadReadme, noteVersions, installedVersion, readRecord,
   writePrompt, state, setState, updateAvailable,
 } from "./setup.js";
-import { scanMods, checkChanges } from "./mods.js";
+import { scanMods, checkChanges, checkThird, thirdStatus, compareUrl, installedThird } from "./mods.js";
+
+/** Opens a web page in the browser of this computer. */
+function openUrl(url) {
+  const platform = window()?.platform;
+  const [cmd, args] = platform === "windows" ? ["explorer", [url]] : platform === "macos" ? ["open", [url]] : ["xdg-open", [url]];
+  exec(cmd, args).catch(() => null);
+}
+
+/** A short form of a commit date: "2026-11-07". */
+const day = (iso) => String(iso ?? "").slice(0, 10);
 
 const TABS = [["mods", "Mods"], ["settings", "Settings"], ["news", "What's new"], ["update", "Update"]];
 /** The mod whose `settings` make the "Kit" section: the settings of the whole kit. */
@@ -64,13 +75,30 @@ export default class ModsUpdate extends View {
   readLocal(cx) {
     cx.spawn(async (cx) => {
       this.local = await installedVersion();
+      this.record = await readRecord();
+      this.thirdNames = await installedThird().catch(() => []);
       this.announce();
       cx.notify();
     });
   }
 
+  /** Asks GitHub for the last commit of the installed third-party mods (once a day, or `force`). */
+  checkThirdParty(cx, force) {
+    cx.spawn(async (cx) => {
+      const names = this.thirdNames ?? await installedThird().catch(() => []);
+      this.thirdNames = names;
+      if (await checkThird(names, force).catch(() => false)) cx.notify();
+    });
+  }
+
+  /** The installed third-party mods that GitHub has a newer version of. */
+  thirdUpdates() {
+    return (this.thirdNames ?? []).filter((n) => thirdStatus(n, this.record) === "update");
+  }
+
   /** Downloads SETUP-PROMPT.md when the last check is old (or `force`). */
   check(cx, force) {
+    this.checkThirdParty(cx, force);
     if (this.checking) return;
     if (!force && Date.now() - (state().checkedAt ?? 0) < CHECK_EVERY) return;
     // In the dialog, a forced check also downloads the release notes again.
@@ -196,11 +224,15 @@ export default class ModsUpdate extends View {
       }
       // The task is 1 short line: the prompt has many lines, quotes and `$`,
       // which a shell or a terminal can change. The agent reads the file.
-      const task = `Read the file ${path} and follow the instructions in it. It is the prompt of SETUP-PROMPT.md, version ${version}, from ${REPO}.`;
+      // A third-party mod: the agent does only the section of the prompt for 1 mod.
+      const third = this.thirdUpdate;
+      const task = third
+        ? `Read the file ${path}. It is the prompt of SETUP-PROMPT.md, version ${version}, from ${REPO}. Do only its section "Update a third-party mod", for the mod "${third}".`
+        : `Read the file ${path} and follow the instructions in it. It is the prompt of SETUP-PROMPT.md, version ${version}, from ${REPO}.`;
       const before = new Set(panes().map((p) => p.terminal).filter(Boolean));
       try {
         // It starts in ~/.config/herdr-app: the AGENTS.md of the Herdr app is there.
-        run("space.new", { name: "Mods update", folder: appHome(), argv: agent.run, task });
+        run("space.new", { name: third ? `Update ${third}` : "Mods update", folder: appHome(), argv: agent.run, task });
       } catch (e) {
         this.busy = null;
         this.launchError = errorText(e);
@@ -253,13 +285,24 @@ export default class ModsUpdate extends View {
         this.mods = [];
         this.modsError = errorText(e);
       }
+      this.thirdNames = this.mods.filter((m) => m.origin === "third").map((m) => m.name);
+      // Open on the third-party list when one of them has an update (and the kit has none).
+      if (this.filter === "kit" && !this.filterSet && this.thirdUpdates().length && !updateAvailable(this.local ?? 0)) this.filter = "third";
       cx.notify();
-      const files = this.record?.files ?? {};
-      for (const m of this.mods.filter((m) => m.origin === "kit")) {
-        this.changes.set(m.name, await checkChanges(m.name, files[m.name]).catch(() => null));
+      this.checkThirdParty(cx, false);
+      const files = this.record?.files ?? {}, third = this.record?.third ?? {};
+      for (const m of this.mods.filter((m) => m.origin === "kit" || m.origin === "third")) {
+        const recorded = m.origin === "kit" ? files[m.name] : third[m.name]?.files;
+        this.changes.set(m.name, await checkChanges(m.name, recorded).catch(() => null));
         cx.notify();
       }
     });
+  }
+
+  /** Opens the Update tab to update third-party mod `name` with an agent. */
+  askThirdUpdate(name, cx) {
+    this.thirdUpdate = name;
+    this.selectTab("update", cx);
   }
 
   /** Shows the README of an app folder, downloaded from GitHub. */
@@ -396,12 +439,16 @@ export default class ModsUpdate extends View {
         .child(svg(icon("update")).size(12))
         .child("Update mods"));
     }
-    const tip = s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to open Herdr Mods.`;
+    const third = this.thirdUpdates();
+    const thirdTip = third.length ? ` Third-party updates: ${third.join(", ")} (Mods tab).` : "";
+    const tip = (s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to open Herdr Mods.`) + thirdTip;
     return bar.child(button.text_color(t.dim)
       .hover((st) => st.bg(t.hover).text_color(t.foreground))
       .tooltip(tip)
       .child(svg(icon(this.checking ? "refresh" : "check")).size(12))
-      .child(local ? `mods v${local}` : "mods"));
+      .child(local ? `mods v${local}` : "mods")
+      // Third-party updates: a small count in the accent color; the kit's "Update mods" button stays for the kit.
+      .when(third.length > 0, (el) => el.child(div().text_color(t.accent).font_semibold().child(`↑${third.length}`))));
   }
 
   renderDialog(t) {
@@ -445,7 +492,7 @@ export default class ModsUpdate extends View {
         .border_b(2).border_color(on ? t.accent : t.popover)
         .text_color(on ? t.foreground : t.muted).when(on, (el) => el.font_semibold())
         .hover((st) => st.text_color(t.foreground))
-        .on_click((_e, cx) => this.selectTab(key, cx))
+        .on_click((_e, cx) => { this.thirdUpdate = null; this.selectTab(key, cx); })
         .child(label);
     };
     const tabs = h_flex().w_full().gap(4).border_b(1).border_color(t.border)
@@ -468,13 +515,23 @@ export default class ModsUpdate extends View {
       .child(tabs)
       .when(tab === "mods", (el) => el.child(this.readme ? this.renderReadme(t) : this.renderMods(t)))
       .when(tab === "settings", (el) => el.child(this.renderSettings(t)))
-      .when(tab === "update", (el) => el
+      .when(tab === "update" && !!this.thirdUpdate, (el) => el
+        .child(div().text_size(12).text_color(t.dim).child(
+          `The agent that you choose updates only the third-party mod ${this.thirdUpdate}, with the rules of SETUP-PROMPT.md: `
+          + "it backs up the folder, asks you before it replaces a file that you changed, applies the kit's patches again "
+          + "and records the new version."))
+        .child(h_flex().gap(8).items_center()
+          .child(div().text_size(12).font_semibold().text_color(t.muted).child(`Choose an agent to update ${this.thirdUpdate}:`))
+          .child(div().flex_1())
+          .child(textButton(t, "mu-third-cancel", "Update the kit instead", (cx) => { this.thirdUpdate = null; cx.notify(); }))))
+      .when(tab === "update" && !this.thirdUpdate, (el) => el
         .child(div().text_size(12).text_color(t.dim).child(
           "The agent that you choose gets the prompt of SETUP-PROMPT.md in a new space. "
           + "It installs the new mods and updates the ones that you did not change. "
           + "It asks you before it replaces a file that exists."))
         .child(div().text_size(12).font_semibold().text_color(t.muted)
-          .child(update ? "Choose an agent to update the mods:" : "Choose an agent to run the setup again:"))
+          .child(update ? "Choose an agent to update the mods:" : "Choose an agent to run the setup again:")))
+      .when(tab === "update", (el) => el
         .child(list)
         .when(!!this.launchError, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.launchError))))
       .when(tab === "news", (el) => el.child(this.renderNotes(t, local, s.remote)))
@@ -502,13 +559,18 @@ export default class ModsUpdate extends View {
       return h_flex().id(`mh-f-${key}`).h(24).px(9).gap(6).items_center().rounded(6).cursor_pointer().text_size(12)
         .bg(on ? t.raised : t.popover).border_1().border_color(on ? t.border : t.popover)
         .text_color(on ? t.foreground : t.muted).hover((st) => st.bg(t.hover))
-        .on_click((_e, cx) => { this.filter = key; this.openMod = null; cx.notify(); })
+        .on_click((_e, cx) => { this.filter = key; this.filterSet = true; this.openMod = null; cx.notify(); })
         .child(label)
         .child(div().text_size(10.5).text_color(t.dim).child(String(counts[key])));
     };
 
     const r = this.record;
-    const recordLine = !r ? "No setup run recorded. Run the setup (Update tab) to check the kit mods for local changes."
+    const thirdLine = () => {
+      const tp = state().third ?? {}, n = this.thirdUpdates().length;
+      const when = tp.checkedAt ? `GitHub checked ${new Date(tp.checkedAt).toLocaleString()}` : "GitHub not checked yet";
+      return `${n ? `${n} update${n === 1 ? "" : "s"} on GitHub. ` : ""}${when} (once a day; Check now asks again).`;
+    };
+    const recordLine = this.filter === "third" ? thirdLine() : !r ?"No setup run recorded. Run the setup (Update tab) to check the kit mods for local changes."
       : r.files ? `Setup version ${r.version ?? "?"}${r.commit ? ` · commit ${String(r.commit).slice(0, 7)}` : ""}. Local changes are compared with that commit.`
       : `Setup version ${r.version ?? "?"}. The record has no file hashes: run the setup again to check for local changes.`;
 
@@ -526,9 +588,11 @@ export default class ModsUpdate extends View {
     const open = this.openMod === m.name;
     const ch = this.changes.get(m.name);
     const nChanged = ch ? ch.changed.length + ch.missing.length : 0;
+    const third = m.origin === "third" ? thirdStatus(m.name, this.record) : null;
     const dot = m.errors.length ? t.blocked
+      : third === "update" ? t.accent
       : nChanged ? t.ansi3
-      : m.origin === "kit" && ch ? t.ansi2
+      : (m.origin === "kit" && ch) || third === "current" ? t.ansi2
       : t.dim;
     const pill = (label, color) => h_flex().h(18).px(6).flex_none().items_center().rounded(5).text_size(10.5)
       .bg(tint(color, "22")).text_color(color).child(label);
@@ -543,6 +607,7 @@ export default class ModsUpdate extends View {
       .child(div().flex_none().font_semibold().child(m.name))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(m.title && m.title !== m.name ? m.title : ""))
       .when(m.errors.length > 0, (el) => el.child(pill("error", t.blocked)))
+      .when(third === "update", (el) => el.child(pill("update", t.accent)))
       .when(nChanged > 0, (el) => el.child(pill(`${nChanged} changed`, t.ansi3)))
       .when(Boolean(m.app), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(m.app)))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(open ? "▾" : "▸"));
@@ -560,7 +625,7 @@ export default class ModsUpdate extends View {
           .when(ch.added.length > 0, (x) => x.child(line("Only here", ch.added.join(", "))));
       })
       .when(m.origin === "herdr", (el) => el.child(line("Origin", "Installed by Herdr. Herdr updates it.")))
-      .when(m.origin === "third", (el) => el.child(line("Origin", m.readme)))
+      .when(m.origin === "third", (el) => this.thirdDetails(el, t, m, ch, line))
       .when(m.origin === "manual", (el) => el.child(line("Origin", "Not from this kit, a known third party or Herdr.")))
       .children(m.errors.map((er) => line(er.file, er.text || "(empty)", t.blocked)))
       .when(m.origin === "kit" && Boolean(m.app), (el) => el.child(h_flex().pt(4)
@@ -572,6 +637,35 @@ export default class ModsUpdate extends View {
     return v_flex().w_full().flex_none().border_b(1).border_color(t.border)
       .child(head)
       .when(open, (el) => el.child(details));
+  }
+
+  /**
+   * The details of a third-party mod: its origin, the version that the setup
+   * recorded, the newest version on GitHub, the files that changed since the
+   * setup run, and the Update and Compare buttons.
+   */
+  thirdDetails(el, t, m, ch, line) {
+    const rec = this.record?.third?.[m.name], st = thirdStatus(m.name, this.record);
+    const third = state().third ?? {}, latest = third.latest?.[m.name], error = third.errors?.[m.name];
+    const commit = (c) => `${c.sha ?? c.commit ?? ""}`.slice(0, 7) + ` · ${day(c.date)} · ${c.title ?? ""}`;
+    const url = compareUrl(m.name, this.record);
+    const button = (id, label, fn, tone) => textButton(t, id, label, fn, { tone });
+    return el
+      .child(line("Origin", m.readme))
+      .child(line("Installed", rec?.commit ? commit(rec) : "Version not recorded. Run the setup (Update tab) to record it.", rec?.commit ? t.muted : t.dim))
+      .child(line("On GitHub", latest ? commit(latest) : error ? `Could not check: ${error}` : "Checking…",
+        st === "update" ? t.accent : error && !latest ? t.blocked : t.muted))
+      .when(st === "current", (x) => x.child(line("Status", "Up to date.", t.ansi2)))
+      .when(st === "update", (x) => x.child(line("Status", "A newer version is on GitHub.", t.accent)))
+      // Files that were not as in that commit when the setup ran: the kit's patches, or changes of yours.
+      .when(Boolean(rec?.differs?.length), (x) => x.child(line("Not upstream", `${rec.differs.join(", ")} (at the setup run)`, t.dim)))
+      .when(Boolean(ch?.changed.length), (x) => x.child(line("Changed", `${ch.changed.join(", ")} (after the setup run)`, t.ansi3)))
+      .when(Boolean(ch?.missing.length), (x) => x.child(line("Missing", ch.missing.join(", "), t.blocked)))
+      .child(h_flex().pt(4).gap(6)
+        .when(st === "update" || st === "unrecorded", (x) => x.child(button(`mh-third-up-${m.name}`,
+          st === "update" ? "Update with an agent" : "Update and record with an agent", (cx) => this.askThirdUpdate(m.name, cx), "primary")))
+        .when(Boolean(url) && st === "update", (x) => x.child(button(`mh-third-cmp-${m.name}`, "Compare on GitHub", () => openUrl(url))))
+        .child(button(`mh-third-page-${m.name}`, "Open on GitHub", () => openUrl(m.readme))));
   }
 
   /** The Settings tab: the sections at the left, the fields of the chosen section at the right. */

@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 8 -->
+<!-- herdr-mods-setup-version: 9 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -63,7 +63,7 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
-11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent. Its **Settings** tab writes the shared keys that the `kit.json` files of the mods name, and `keys.json` when I change a shortcut there. Do not set `shared("herdr-mods.lang")` (the kit language): it is my choice in that tab. The `"lang"` props that "Configure" writes stay as the first value.
+11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, asks GitHub's public API once a day for the last commit of each installed third-party mod (no token, nothing about me), reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent. Its **Settings** tab writes the shared keys that the `kit.json` files of the mods name, and `keys.json` when I change a shortcut there. Do not set `shared("herdr-mods.lang")` (the kit language): it is my choice in that tab. The `"lang"` props that "Configure" writes stay as the first value.
     **Move from `mods-update`.** Before version 5 this mod was `mods-update` (folder `mods-update-app`). If `~/.config/herdr-app/mods/mods-update/` exists: back it up (rule 11), install `mods-hub`, then in `layouts/main-dock.json`, `layouts/kanban.json` and every other layout of mine in `layouts/` that has it, change the block `{ "id": "mods-update", "content": { "mod": "mods-update" } }` to `{ "id": "mods-hub", "content": { "mod": "mods-hub" } }` (keep its `size` and its place), then delete the folder `mods/mods-update/`. If my `mods-update` folder has files that equal no version of the repository (rule 3; look in the history of the old path `mods-update-app/mods/mods-update/`), show me the difference and ask before you delete it. Do not copy `shared("mods-update")`: the new mod reads it by itself.
 12. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
@@ -116,7 +116,20 @@ Then run `herdr-app check` on `~/.config/herdr-app/mods/insights`. If the code o
 
 Then run `herdr-app check` on `~/.config/herdr-app/mods/git-graph`. If `id("git-graph")`, `track_focus(this.handle)` or the `escape` line with `this.selected || this.opened` is not there, leave the file as it was and tell me.
 
-On an update, install a third-party mod only if it is missing. Do not update one that is installed unless I ask: tell me that I can ask.
+On an update, install a third-party mod only if it is missing. Do not update one that is installed unless I ask: tell me that I can ask. The **Mods** tab of the `mods-hub` dialog shows when GitHub has a newer version of one.
+
+### Update a third-party mod
+
+Do this when I ask for it, also when the `mods-hub` dialog starts you with "Do only its section 'Update a third-party mod'" for one mod. Then do only this section (and the rules of this prompt), not the other items.
+
+1. Clone the mod's repository with its history, without the file contents: `git clone --filter=blob:none <repository>` (for `insights`, `https://github.com/GaganSD/coding-agent-toolkit`; the mod is in `herdr-insights/mods/insights`). The other mods are in `mods/<name>` of their repository (the list above).
+2. Back up `~/.config/herdr-app/mods/<name>/` (rule 11).
+3. Find the version that is installed and my changes: run `node tools/record-third-party.mjs --name <name> --clone <clone>` from the clone of this repository (herdr-mods). It prints the commit that the installed folder equals best, and `differs`: the files that are not as in that commit. A file in `differs` that has the comment `herdr-mods patch` is a patch of this kit, not mine: drop it, the patch goes back on in step 6. Any other file in `differs` is mine: show me its difference with that commit, and ask before you replace it (as in "Update an installed item", step 2).
+4. Read the commits of the mod folder since that version (`git log --oneline <commit>..HEAD -- <mod folder>`) and the new `README.md` and `RECIPE.md`. Tell me what changed and what the new version runs (programs, network). If the mod's own installer needs a step that this prompt does not do, tell me and ask.
+5. Copy the mod folder of the clone to `~/.config/herdr-app/mods/<name>/`. Keep the files that exist only here (rule 10, and `runtime.json` of `insights`). Ask before you delete a file that the repository deleted.
+6. Apply the Esc patch of the mod again, if it has one (`insights`, `git-graph`, above). Run `herdr-app check` on the folder.
+7. Record the new version: `node tools/record-third-party.mjs --name <name> --clone <clone> --write`. It writes `third.<name>` in `data/herdr-mods-setup.json` and keeps the rest of that file.
+8. Report: the old and the new commit, what changed, the files that you kept, and where the backup is.
 
 ## Update an installed item
 
@@ -224,6 +237,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 ## Record the run
 
 When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, `items`, with the name of each item that is installed and the folder of the repository that it came from (`mods-hub`, not `mods-update`), and `files`. For `files`, run `node tools/record-hashes.mjs` in the clone. It prints `{ "<mod>": { "<file>": "<hash>" } }` for every mod of the repository. Keep only the mods that are installed and that came from the repository (also a mod where I kept my own file: the `mods-hub` dialog then shows that file as changed). Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
+
+Then record the third-party mods, so that the `mods-hub` dialog can tell when GitHub has a newer version: for each one that is installed (`git-graph`, `markdown-reader`, `markdown-reader-pane`, `insights`), clone its repository with `git clone --filter=blob:none <repository>` (once for the 2 Markdown Reader mods), and run `node tools/record-third-party.mjs --name <name> --clone <clone> --write` in the clone of this repository. Run it after the Esc patches. It finds the commit that the installed folder equals best and writes `third.<name>` into the record, with the other fields kept. If it fails for a mod, tell me in the report and go on.
 
 ## Final report
 

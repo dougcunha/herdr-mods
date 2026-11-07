@@ -1,6 +1,6 @@
 {
   "app": "mods-hub-app",
-  "description": "Herdr Mods: the installed mods, the release notes and the update of this kit, in one dialog.",
+  "description": "Herdr Mods: the installed mods, the release notes and the update of this kit, in one dialog. It also tells you when a third-party mod has a newer version on GitHub.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/mods-hub-app",
   "settings": [
     {
