@@ -1,0 +1,5 @@
+{
+  "app": "git-dash-app",
+  "description": "The pending work of every Git repository under your base folders: unpushed commits, changed files, stash, conflicts and merged branches, with safe fixes.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-dash-app"
+}

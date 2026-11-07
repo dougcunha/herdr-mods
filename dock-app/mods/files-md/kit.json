@@ -1,0 +1,5 @@
+{
+  "app": "dock-app",
+  "description": "A Files panel that shows Markdown rendered and code with syntax colors, with an icon for each file type. Images open in image-viewer.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
+}

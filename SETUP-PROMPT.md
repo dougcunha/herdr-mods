@@ -1,8 +1,8 @@
-<!-- herdr-mods-setup-version: 4 -->
+<!-- herdr-mods-setup-version: 5 -->
 # Set up or update my Herdr mods
 
-The first line of this file holds the version of the prompt. The `mods-update`
-mod reads it. When the version in the repository is newer than the version of
+The first line of this file holds the version of the prompt. The `mods-hub`
+mod (called `mods-update` before version 5) reads it. When the version in the repository is newer than the version of
 your last run, it shows a button in the status bar that starts an agent with
 this prompt.
 
@@ -63,7 +63,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
-11. `mods-update-app`: the `mods-update` mod. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md` and the release notes in `whats-new/` from GitHub, reads `data/herdr-mods-setup.json` and, when I click its button, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts the agent that I choose.
+11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent.
+    **Move from `mods-update`.** Before version 5 this mod was `mods-update` (folder `mods-update-app`). If `~/.config/herdr-app/mods/mods-update/` exists: back it up (rule 11), install `mods-hub`, then in `layouts/main-dock.json` and `layouts/kanban.json` change the block `{ "id": "mods-update", "content": { "mod": "mods-update" } }` to `{ "id": "mods-hub", "content": { "mod": "mods-hub" } }` (keep its `size` and its place), then delete the folder `mods/mods-update/`. If my `mods-update` folder has files that equal no version of the repository (rule 3; look in the history of the old path `mods-update-app/mods/mods-update/`), show me the difference and ask before you delete it. Do not copy `shared("mods-update")`: the new mod reads it by itself.
 12. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
@@ -140,10 +141,12 @@ In the `global` section, add the keys that are missing:
 "ctrl-shift-r": "mod.open:markdown-reader-pane",
 "cmd-shift-m": "mod.open:markdown-reader",
 "cmd-shift-r": "mod.open:markdown-reader-pane",
-"ctrl-p": "mod.open:repo-launcher"
+"ctrl-p": "mod.open:repo-launcher",
+"ctrl-shift-h": "mod.open:mods-hub",
+"cmd-shift-h": "mod.open:mods-hub"
 ```
 
-If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Add the two `markdown-reader` keys only when that mod is installed, and `ctrl-p` only when `repo-launcher` is installed. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
+If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, and the two `mods-hub` keys only when `mods-hub` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
 
 ### `~/.config/herdr-app/settings.json`
 
@@ -175,11 +178,11 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to t
 5. The Changes panel of `main-dock` and `kanban` shows the `Unified` and `Split` buttons in its header.
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
-8. The status bar of `main-dock` and `kanban` shows the `mods-update` item at the right end. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+8. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 
-When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, and `items`, with the name of each item that is installed and the folder of the repository that it came from. Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
+When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, `items`, with the name of each item that is installed and the folder of the repository that it came from (`mods-hub`, not `mods-update`), and `files`. For `files`, run `node tools/record-hashes.mjs` in the clone. It prints `{ "<mod>": { "<file>": "<hash>" } }` for every mod of the repository. Keep only the mods that are installed and that came from the repository (also a mod where I kept my own file: the `mods-hub` dialog then shows that file as changed). Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
 
 ## Final report
 

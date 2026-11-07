@@ -1,0 +1,5 @@
+{
+  "app": "agent-resume-app",
+  "description": "Starts your coding agent sessions again after a reboot of the computer or a restart of herdr-core.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/agent-resume-app"
+}

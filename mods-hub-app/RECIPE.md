@@ -1,0 +1,85 @@
+# Herdr Mods (mods-hub)
+
+A status bar item and a dialog for the Herdr app. The item compares the version of `SETUP-PROMPT.md` on GitHub with the version of the last run of that prompt on this computer. When GitHub is newer, it shows an **Update mods** button. The dialog, **Herdr Mods**, has 3 tabs: **Mods** (the installed mods, where they come from, errors and local changes), **What's new** (the release notes) and **Update** (the person chooses an agent, and the mod starts that agent with the prompt). Before version 5 of the setup, the mod was `mods-update`.
+
+## What you see
+
+**Status item** (a block of 130 px in the status row, same bar look as `workspace-status`: `chrome` fill, 1 px top `border`, 11.8 px text, 14 px right padding, content at the right end):
+
+- **Update available:** a button, 20 px tall, 8 px side padding, radius 5, `accent` text on an `accent` fill with alpha `24`, semibold. It holds `update.svg` (12 px, a circle with an up arrow) and `Update mods`. On hover the fill is `accent` and the text `accent_foreground`. Tooltip: `Version <N> of the Herdr mods is available (your last setup run: <M or "none recorded">). Click to choose an agent.`
+- **No update:** `check.svg` (12 px) and `mods v<M>` in `dim` (only `mods` when no run is recorded). While a check runs, the icon is `refresh.svg`. Hover: `hover` fill, `foreground` text. Tooltip: the setup version, or `Could not check GitHub: <error>`.
+- A click on either opens the dialog (`mod.open {name: "mods-hub"}`). The tooltip of the dim item ends with `Click to open Herdr Mods.`
+
+**Toast**, once for each new version: title `Herdr mods update`, body `Version <N> is available. Click to update.`, level `info`, icon `update.svg`, 15 s, action `mod.open {name: "mods-hub"}`.
+
+**Dialog** (`kind: "dialog"`, 640 px wide, as tall as its content, `popover` fill, 18 px padding, 12 px gap, 13 px text):
+
+1. Title row: `hub.svg` (18 px, 3 squares and a plus; `accent` when an update is available, else `muted`) and `Herdr Mods` (15 px, semibold).
+2. Status line: `Version <N> is available. Your last setup run: <version M | none recorded>.` in `foreground`; `You skipped version <N>. …` or `You have the newest version (<N>).` in `muted`; `Checking GitHub…` or `Could not check GitHub: <error>` in `blocked`.
+3. Tab row, 1 px `border` at the bottom: `Mods`, `What's new` and `Update`. A tab is 28 px tall, 12 px side padding, 12.5 px text. The shown tab has `foreground` semibold text and a 2 px `accent` bottom border; the others have `muted` text and a `popover` bottom border. The first tab: `What's new` when an update is available and `newsSeen` is not that version (the dialog then saves `newsSeen`); else the last tab that the person clicked (`tab`); else `Mods`. A click on a tab saves it in `tab`.
+4. **Mods tab:**
+   1. A row of chips, 24 px, radius 6, 12 px text: `Kit`, `Third-party`, `Manual`, `Herdr`, each with its count (10.5 px, `dim`). The chosen chip has a `raised` fill and a 1 px `border`. `Kit` is chosen at start.
+   2. A line, 11.5 px, `dim`: `Setup version <N> · commit <7 chars>. Local changes are compared with that commit.`; without hashes in the record: `Setup version <N>. The record has no file hashes: run the setup again to check for local changes.`; without a record: `No setup run recorded. Run the setup (Update tab) to check the kit mods for local changes.`
+   3. A box, 330 px tall, radius 6, `background` fill, 1 px `border`, that scrolls (`overflow_y_scrollbar`). 1 row per mod of the chosen kind, with a 1 px bottom border. The head of a row is 34 px: an 8 px dot (`blocked` with an error file, `ansi3` with changed or missing files, `ansi2` for a kit mod with no change, else `dim`), the folder name (semibold), the `title` of `mod.json` in `dim` (when it differs from the name), an `error` pill (`blocked`), an `N changed` pill (`ansi3`; changed + missing files), the app folder (11 px, `dim`) and `▸` / `▾`. A click toggles the details of that row only.
+   4. Details, 26 px side padding: the `description` of `kit.json` (12 px, `muted`); for a kit mod, rows of a 70 px `dim` label and a value: `Files` `Checking…` / `No hashes in the setup record for this mod.` / `Same as the setup run.` (`ansi2`), `Changed` (`ansi3`), `Missing` (`blocked`), `Only here`; `Origin` for the other kinds (Herdr: `Installed by Herdr. Herdr updates it.`; third-party: its repository URL; manual: `Not from this kit, a known third party or Herdr.`); 1 row per `*.error` file (its name and its first 600 characters, `blocked`); and, for a kit mod with an app folder, a 24 px button `README of <app>`.
+   5. **README view**, in place of rows 1 to 3: a `← Back` button and `<app>/README.md · Backspace goes back` (`dim`), then a 330 px box like the notes box with 1 `TextView.markdown` (scrollable, selectable) of the README (`*Loading…*`, or `*Could not download the README: <error>*`). Backspace or ← (keys `backspace`, `left`) goes back; a tab click also closes it.
+5. **Update tab:**
+   1. Explanation, 12 px, `dim`: the agent gets the prompt in a new space, installs the new mods, updates the ones the person did not change, and asks before it replaces a file that exists.
+   2. Label, 12 px, semibold, `muted`: `Choose an agent to update the mods:` (or `… to run the setup again:`).
+   3. Agent list: 1 row per installed agent (at most 9), 40 px tall, radius 6, `hover` fill on hover, `selected` fill while it starts. A row has the program tile (26 px: the agent icon on its tile color), the agent name, and its number (`1` to `9`) or `Starting…` at the right in `dim`.
+   4. Error line, 12 px, `blocked`, when a start fails.
+6. **What's new tab:** 1 box, 280 px tall, 12 px padding, radius 6, `background` fill, 1 px `border`. It holds 1 `TextView.markdown` (scrollable, selectable) with a `## Version <N>` heading and the notes of each version, newest first. A version without notes shows `*Loading…*`, `*No notes for this version.*` (404) or `*Could not download the notes: <error>*`. Without a known GitHub version, the box shows `Checking GitHub…` (`dim`) or `Could not check GitHub, so the release notes are not known.` (`blocked`).
+7. Footer: `Check now` (or `Checking…`; on the Mods tab it also reads the mods again) at the left; `Skip version <N>` (only with an update) and `Close` at the right. Buttons are 28 px tall, 12 px side padding, radius 6, 1 px `border`.
+
+## How it behaves
+
+- **Version on GitHub.** `fetch("https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md")`. The version is the number in `<!-- herdr-mods-setup-version: N -->`. A file without that line is an error.
+- **Version here.** The `version` field of `<appHome>/data/herdr-mods-setup.json`, the record that the prompt writes at the end of a run. A missing file, bad JSON or a missing field gives 0. The status copy reads it every 60 s, so the button goes away after a run ends.
+- **When it checks.** At start, then a timer every 10 minutes downloads the file only when the last check is older than 6 hours. The dialog checks again when the last check is older than 5 minutes. **Check now** and `herdr-app do mods-hub.check` always check. A failed check keeps the last known version and stores the error.
+- **Update available** when `remote > local` and `remote` is not the skipped version.
+- **Shared state** (`setShared("mods-hub", …)`): `remote`, `checkedAt`, `error`, `skipped`, `notified`, `tab`, `newsSeen`. Every copy (the status item in each layout, the dialog) sees the same values. While `shared("mods-hub")` does not exist, `state()` returns `shared("mods-update")`, the state of the old mod; the first `setState` writes the new key.
+- **Mods list** (`scanMods(record)` in `mods.js`). `fs.readdir(<appHome>/mods, { withFileTypes: true })` (a plain list falls back to a `readdir` of each entry to find the folders); folders whose name starts with `.` are skipped. For each folder: `mod.json` (`title`), `kit.json` (`app`, `description`, `readme`) and the `*.error` files at its top. Origin, in this order: `kit` when `kit.json` exists or `record.items[name]` ends in `-app`; `herdr` when `installed.json` has the name; `third` for the names in `THIRD_PARTY`; else `manual`.
+- **Local changes** (`checkChanges(name, record.files[name])`), for each kit mod, one after the other, after the list draws. The files of the folder, recursive, without the files of `ignoredFile` (`gpui-kit.d.ts`, `jsconfig.json`, names that start with `.`, `*.error`) and of `binaryFile` (images, fonts, archives). A recorded file that is not there is *missing*; a recorded file whose `hashText(readTextFile(...))` differs is *changed*; a file that is not recorded is *only here*. No recorded hashes: nothing to compare (null).
+- **Hash** (`hash.js`): cyrb53 over the UTF-16 code units of the text after removing a leading BOM and changing CRLF to LF; 14 hex digits. `tools/record-hashes.mjs` imports the same file in Node and prints `{mod: {path: hash}}` for every `*-app/mods/<mod>/` of the repository. The setup prompt writes the part for the installed mods to `record.files`.
+- **README.** `fetch` of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/<app>/README.md`; 404 shows `*This folder has no README.md on GitHub.*`.
+- **Prompt.** The text between `<!-- prompt-start -->` and `<!-- prompt-end -->`. When the first line is a code fence (3 or more backticks or tildes), the mod removes it and the matching last line. A missing marker is an error: `SETUP-PROMPT.md has no prompt-start and prompt-end markers`.
+- **Start.** A click on an agent (or its number key) downloads the file again, writes the prompt to `<appHome>/data/herdr-mods-setup-prompt.md` (`writeTextFile` with the old content as `expected`), and runs `space.new {name: "Mods update", folder: appHome(), argv: agent.run, task}`. The task is 1 line: `Read the file <path> and follow the instructions in it. It is the prompt of SETUP-PROMPT.md, version <N>, from https://github.com/dougcunha/herdr-mods.` Then the mod focuses the new terminal (it compares `panes()` before and after, for at most 2 s) and closes the dialog.
+- **Agents.** `knownAgents()` filtered to `installed` with a `run` entry.
+- **Release notes.** `whats-new/<N>.md` in the repository: English markdown, a list of changes, no title (the mod adds `## Version <N>`). The tab shows the versions `local + 1` to `remote` (at most 10, newest first); when `local >= remote`, only `remote`. The dialog downloads each file once (`fetch` of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/whats-new/<N>.md`), after it reads the local version and after each check. A 404 is "no notes", not an error. **Check now** downloads the notes again. The notes stay in the memory of the dialog only.
+- **Number keys** start an agent only on the `Update` tab.
+
+## Built from
+
+- `mod.json`: `{ "place": "none", "title": "Herdr Mods", "overlay": { "kind": "dialog", "width": 640 } }`. Create it **before** `main.js`.
+- `kit.json`: `{ app, description, readme }`. Every mod of this repository has one.
+- `setup.js`: the constants (`MOD` = `mods-hub`, `notesUrl(n)`, `readmeUrl(app)`, `MAX_NOTES` = 10), `parseSetup(text)`, `download()`, `downloadNotes(n)` (text, or null on 404), `downloadReadme(app)`, `noteVersions(local, remote)`, `readRecord()`, `installedVersion()`, `writePrompt(prompt)`, `state()`, `setState(patch)` and `updateAvailable(local)`. It imports `appHome`, `readTextFile`, `writeTextFile`, `shared`, `setShared` from `herdr`.
+- `mods.js`: `THIRD_PARTY`, `modsDir()`, `scanMods(record)` and `checkChanges(name, recorded)`. It imports `appHome`, `readTextFile` from `herdr`, `fs/promises`, and `hash.js`.
+- `hash.js`: `hashText(text)`, `ignoredFile(path)`, `binaryFile(path)`. No imports: Node runs it too.
+- `main.js`: 1 `View` with 2 modes. `props().overlay` set: the dialog. Not set: the status item. It imports `View`, `div`, `svg`, `image` from `gpui-kit`, `h_flex`, `v_flex`, `TextView` from `gpui-base`, and `theme`, `props`, `run`, `notify`, `closeOverlay`, `knownAgents`, `panes`, `appHome`, `nextCommand` from `herdr`.
+- Icons: `hub.svg`, `update.svg`, `check.svg`, `refresh.svg` (24×24, stroke `currentColor`, width 2).
+- In the repository: `tools/record-hashes.mjs`.
+- In `SETUP-PROMPT.md`: the version line at the top, the 2 markers around the prompt, and the step "Record the run" that writes `version` and `files`.
+
+## Watch out
+
+- **Disclose this before installing.** The mod uses the network (GETs to `raw.githubusercontent.com`: `SETUP-PROMPT.md`, and in the dialog the `whats-new/<N>.md` files and the `<app>/README.md` that the person opens), reads and writes 1 file each in `~/.config/herdr-app/data/`, and starts an agent with a prompt that changes your Herdr files. It runs no `exec`.
+- **Long text in `task`.** Do not pass the prompt itself as the task. It has about 17 KB of text with many lines, quotes, `$` and backticks. The mod writes it to a file and the task is 1 line.
+- **Trust prompt.** Claude Code asks to trust `~/.config/herdr-app` the first time. The task waits and runs after the person accepts. Tested.
+- **`mod.open` toggles.** A second `mod.open` closes the dialog.
+- **Commands reach the status copy only.** `herdr-app do mods-hub.<command>` did not reach the dialog in a test. Keep test commands in the status copy.
+- **Closing the dialog from a shell.** `herdr-app do overlay.close --id mods-hub` did not close it in a test. A second `mod.open --name mods-hub` does.
+- **Disclose this too.** The Mods tab reads the files of every folder in `mods/` (only to list and hash them) and `installed.json`.
+- **GitHub cache.** `raw.githubusercontent.com` can serve a file up to about 5 minutes old after a push.
+- **Version discipline.** The button shows only when the repository owner increases the number in `SETUP-PROMPT.md`.
+- **Not tested:** macOS and Linux, agents other than Claude Code for the start.
+
+## Done when
+
+- `herdr-app check` passes for `mods/mods-hub`.
+- The Mods tab shows the counts of the 4 kinds. With a record that has `files`, the kit mods are green. After 1 character is added to an installed kit file, that row shows `1 changed` in yellow when the dialog opens again.
+- After the dialog showed What's new for version N, the next opening shows the last clicked tab, or Mods.
+- With the block in the status row and a GitHub version newer than the record, the status bar shows **Update mods** and 1 toast appears. A second check does not post a second toast.
+- A click opens the dialog with the installed agents. **Skip version N** changes the item to `mods v<M>`.
+- A click on an agent writes `data/herdr-mods-setup-prompt.md` (it starts with `You will install, or update, my Herdr app mods.` and has no code fence and no marker) and opens the `Mods update` space with the agent and the 1-line task.
+- After the agent writes `version: N` in `data/herdr-mods-setup.json`, the button goes away within 60 s.
+- `herdr-app status` lists no error.

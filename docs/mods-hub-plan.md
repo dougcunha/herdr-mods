@@ -1,6 +1,9 @@
 # Plan: the `mods-hub` panel and multiple folders in `git-dash`
 
-Status: agreed on 2026-11-07. Delivery 1 done (setup version 4).
+Status: agreed on 2026-11-07. Delivery 1 done (setup version 4). Delivery 2
+done (setup version 5): `kit.json` already holds `app`, `description` and
+`readme`; delivery 3 adds `settings`. The Settings tab and the gear menu are
+still open, and so is the hub key in delivery 3's list (done in delivery 2).
 
 ## Goal
 

@@ -22,18 +22,26 @@ here.
 ## Version of the setup prompt
 
 `SETUP-PROMPT.md` starts with `<!-- herdr-mods-setup-version: N -->`. The
-`mods-update` mod compares this number with the version of the last run on a
-machine and shows an **Update mods** button when the number is higher. When a
-change adds or changes a mod, a layout or a theme, increase `N` by 1 in the same
-commit. Keep the
+`mods-hub` mod (called `mods-update` before version 5) compares this number
+with the version of the last run on a machine and shows an **Update mods**
+button when the number is higher. When a change adds or changes a mod, a layout
+or a theme, increase `N` by 1 in the same commit. Keep the
 `<!-- prompt-start -->` and `<!-- prompt-end -->` markers around the prompt:
 the mod sends only the text between them to the agent.
 
 ## Release notes: `whats-new/<N>.md`
 
 Every time you increase `N` in `SETUP-PROMPT.md`, create `whats-new/<N>.md` in
-the same commit. The **What's new** tab of the `mods-update` dialog downloads
+the same commit. The **What's new** tab of the `mods-hub` dialog downloads
 this file from GitHub and shows it to the person.
+
+## `kit.json` in every mod
+
+Every mod folder of this repository has a `kit.json`:
+`{ "app": "<app folder>", "description": "<1 or 2 sentences>", "readme": "<GitHub URL of the app folder>" }`.
+The **Mods** tab of `mods-hub` shows the description and marks the mod as part
+of the kit. Add it to a new mod, and change the description when the mod
+changes what it does.
 
 - Write the notes in English only.
 - Write a markdown list. Do not add a title: the mod adds `## Version <N>`.

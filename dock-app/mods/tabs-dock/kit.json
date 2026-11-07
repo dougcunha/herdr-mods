@@ -1,0 +1,5 @@
+{
+  "app": "dock-app",
+  "description": "The tab bar of the main-dock layout, with buttons that show or hide the side panels (Changes, CI, Repos, Graph and more) from dock/panels.json.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
+}

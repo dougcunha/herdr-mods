@@ -1,0 +1,5 @@
+{
+  "app": "ci-dash-app",
+  "description": "A CI dashboard: the GitHub Actions runs of the repository that you work in, and a form that starts a workflow. Needs gh.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/ci-dash-app"
+}

@@ -1,0 +1,5 @@
+{
+  "app": "kanban-app",
+  "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/kanban-app"
+}

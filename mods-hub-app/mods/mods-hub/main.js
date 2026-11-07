@@ -1,21 +1,26 @@
-// Mods update: offers to update the Herdr mods of
+// Herdr Mods (mods-hub): the central dialog of the Herdr mods of
 // https://github.com/dougcunha/herdr-mods.
 //
 // In the status row of a layout, it compares the version of SETUP-PROMPT.md
 // on GitHub with the version of the last run of the prompt on this machine
 // (data/herdr-mods-setup.json). When GitHub has a newer version, it shows an
 // "Update mods" button and posts 1 toast. The button (or `mod.open`) opens
-// this mod as a dialog: the person chooses an agent, and the mod starts it
-// in a new space with the prompt of SETUP-PROMPT.md. The "What's new" tab of
-// the dialog shows the release notes in whats-new/<version>.md.
+// this mod as a dialog with 3 tabs: Mods (the installed mods, where they come
+// from, errors and local changes), What's new (whats-new/<version>.md) and
+// Update (the person chooses an agent, and the mod starts it in a new space
+// with the prompt of SETUP-PROMPT.md).
 
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, TextView } from "gpui-base";
 import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand } from "herdr";
 import {
-  MOD, REPO, CHECK_EVERY, icon, download, downloadNotes, noteVersions, installedVersion, writePrompt,
-  state, setState, updateAvailable,
+  MOD, REPO, CHECK_EVERY, icon, download, downloadNotes, downloadReadme, noteVersions, installedVersion, readRecord,
+  writePrompt, state, setState, updateAvailable,
 } from "./setup.js";
+import { scanMods, checkChanges } from "./mods.js";
+
+const TABS = [["mods", "Mods"], ["news", "What's new"], ["update", "Update"]];
+const ORIGINS = [["kit", "Kit"], ["third", "Third-party"], ["manual", "Manual"], ["herdr", "Herdr"]];
 
 /** A color with an alpha suffix (`"#rrggbb" + "aa"`). Other colors pass through. */
 const tint = (color, alpha = "24") => (/^#[0-9a-f]{6}$/i.test(color || "") ? color + alpha : color);
@@ -36,7 +41,7 @@ export default class ModsUpdate extends View {
     cx.timer.every(10 * 60 * 1000, (cx) => this.check(cx, false));
     this.readLocal(cx);
     this.check(cx, false);
-    // `herdr-app do mods-update.check` (or a key bound to it) checks GitHub now.
+    // `herdr-app do mods-hub.check` (or a key bound to it) checks GitHub now.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -124,13 +129,23 @@ export default class ModsUpdate extends View {
     this.agents = null; // installed agents; null until known
     this.busy = null; // the key of the agent that starts
     this.launchError = null;
-    this.tab = null; // "update" or "news"; null: "news" when an update is available, else "update"
+    this.tab = null; // "mods", "news" or "update"; set when the local version is known
     this.notes = new Map(); // version -> { loading } | { text } (null text: no file) | { error }
+    // Mods tab
+    this.mods = null; // scanMods() result; null until read
+    this.record = null; // the setup record
+    this.changes = new Map(); // mod name -> checkChanges() result (null: nothing to compare)
+    this.filter = "kit";
+    this.openMod = null; // the name of the expanded row
+    this.readme = null; // { app, name, loading } | { app, name, text } | { app, name, error }
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.timer.after(40, () => this.handle.focus());
+    this.loadMods(cx);
     cx.spawn(async (cx) => {
       this.local = await installedVersion();
+      this.tab = this.startTab();
+      if (this.tab === "news") setState({ newsSeen: state().remote });
       this.loadNotes(cx);
       cx.notify();
       try {
@@ -200,13 +215,74 @@ export default class ModsUpdate extends View {
     cx.notify();
   }
 
+  /**
+   * The first tab: What's new when an update is available and the dialog did
+   * not show its notes yet, else the last tab that the person clicked, else Mods.
+   */
+  startTab() {
+    const s = state();
+    if (this.local != null && updateAvailable(this.local) && s.newsSeen !== s.remote) return "news";
+    return TABS.some(([k]) => k === s.tab) ? s.tab : "mods";
+  }
+
   /** The tab that the dialog shows. */
   shownTab() {
-    if (this.tab) return this.tab;
-    return this.local != null && updateAvailable(this.local) ? "news" : "update";
+    return this.tab ?? "mods";
+  }
+
+  /** Reads the mods folder and the record, then checks the kit mods for local changes. */
+  loadMods(cx) {
+    this.mods = null;
+    this.changes.clear();
+    cx.notify();
+    cx.spawn(async (cx) => {
+      this.record = await readRecord();
+      try {
+        this.mods = await scanMods(this.record);
+      } catch (e) {
+        this.mods = [];
+        this.modsError = errorText(e);
+      }
+      cx.notify();
+      const files = this.record?.files ?? {};
+      for (const m of this.mods.filter((m) => m.origin === "kit")) {
+        this.changes.set(m.name, await checkChanges(m.name, files[m.name]).catch(() => null));
+        cx.notify();
+      }
+    });
+  }
+
+  /** Shows the README of an app folder, downloaded from GitHub. */
+  showReadme(mod, cx) {
+    const app = mod.app;
+    this.readme = { app, name: mod.name, loading: true };
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const text = await downloadReadme(app);
+        if (this.readme?.app === app) this.readme = { app, name: mod.name, text: text ?? "*This folder has no README.md on GitHub.*" };
+      } catch (e) {
+        if (this.readme?.app === app) this.readme = { app, name: mod.name, error: errorText(e) };
+      }
+      cx.notify();
+    });
+  }
+
+  selectTab(key, cx) {
+    this.tab = key;
+    this.readme = null;
+    setState({ tab: key });
+    if (key === "news") this.loadNotes(cx);
+    cx.notify();
   }
 
   onKey(e, cx) {
+    // Esc closes the dialog before the mod sees it: Backspace and ← go back from a README.
+    if (this.readme && (e.key === "backspace" || e.key === "left")) {
+      this.readme = null;
+      cx.notify();
+      return;
+    }
     if (this.shownTab() !== "update") return;
     const n = Number(e.key);
     if (Number.isInteger(n) && n >= 1 && n <= 9 && this.agents?.[n - 1]) this.launch(this.agents[n - 1], cx);
@@ -226,7 +302,7 @@ export default class ModsUpdate extends View {
     const update = this.local != null && updateAvailable(local);
     const button = h_flex().id("mu-open").h(20).px(6).gap(6).items_center().rounded(5).cursor_pointer()
       .on_click(() => run("mod.open", { name: MOD }));
-    const bar = h_flex().id("mods-update").size_full().pr(14).items_center().justify_end()
+    const bar = h_flex().id("mods-hub").size_full().pr(14).items_center().justify_end()
       .bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8);
     if (update) {
       return bar.child(button.px(8).bg(tint(t.accent)).text_color(t.accent).font_semibold()
@@ -235,7 +311,7 @@ export default class ModsUpdate extends View {
         .child(svg(icon("update")).size(12))
         .child("Update mods"));
     }
-    const tip = s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to check or run the setup again.`;
+    const tip = s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to open Herdr Mods.`;
     return bar.child(button.text_color(t.dim)
       .hover((st) => st.bg(t.hover).text_color(t.foreground))
       .tooltip(tip)
@@ -284,16 +360,11 @@ export default class ModsUpdate extends View {
         .border_b(2).border_color(on ? t.accent : t.popover)
         .text_color(on ? t.foreground : t.muted).when(on, (el) => el.font_semibold())
         .hover((st) => st.text_color(t.foreground))
-        .on_click((_e, cx) => {
-          this.tab = key;
-          if (key === "news") this.loadNotes(cx);
-          cx.notify();
-        })
+        .on_click((_e, cx) => this.selectTab(key, cx))
         .child(label);
     };
     const tabs = h_flex().w_full().gap(4).border_b(1).border_color(t.border)
-      .child(tabButton("update", "Update"))
-      .child(tabButton("news", "What's new"));
+      .children(TABS.map(([key, label]) => tabButton(key, label)));
 
     const footButton = (id, label, onClick) =>
       h_flex().id(id).h(28).px(12).items_center().rounded(6).cursor_pointer().text_size(12.5)
@@ -302,14 +373,15 @@ export default class ModsUpdate extends View {
         .on_click((_e, cx) => onClick(cx))
         .child(label);
 
-    return v_flex().id("mods-update-dialog").w_full().p(18).gap(12).bg(t.popover).text_color(t.foreground).text_size(13)
+    return v_flex().id("mods-hub-dialog").w_full().p(18).gap(12).bg(t.popover).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.onKey(e, cx))
       .child(h_flex().gap(8).items_center()
-        .child(svg(icon("update")).size(18).text_color(update ? t.accent : t.muted))
-        .child(div().text_size(15).font_semibold().child("Update the Herdr mods")))
+        .child(svg(icon("hub")).size(18).text_color(update ? t.accent : t.muted))
+        .child(div().text_size(15).font_semibold().child("Herdr Mods")))
       .child(div().text_color(statusColor).child(status))
       .child(tabs)
+      .when(tab === "mods", (el) => el.child(this.readme ? this.renderReadme(t) : this.renderMods(t)))
       .when(tab === "update", (el) => el
         .child(div().text_size(12).text_color(t.dim).child(
           "The agent that you choose gets the prompt of SETUP-PROMPT.md in a new space. "
@@ -321,10 +393,115 @@ export default class ModsUpdate extends View {
         .when(!!this.launchError, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.launchError))))
       .when(tab === "news", (el) => el.child(this.renderNotes(t, local, s.remote)))
       .child(h_flex().w_full().pt(4).gap(8).items_center()
-        .child(footButton("mu-check", this.checking ? "Checking…" : "Check now", (cx) => this.check(cx, true)))
+        .child(footButton("mu-check", this.checking ? "Checking…" : "Check now", (cx) => {
+          this.check(cx, true);
+          if (tab === "mods") this.loadMods(cx);
+        }))
         .child(div().flex_1())
         .when(update, (el) => el.child(footButton("mu-skip", `Skip version ${s.remote}`, (cx) => this.skip(cx))))
         .child(footButton("mu-close", "Close", () => this.close())));
+  }
+
+  /** The Mods tab: origin chips, a line about the record, and 1 row per mod (a click shows the details). */
+  renderMods(t) {
+    const box = v_flex().id("mh-mods").w_full().h(330).rounded(6).bg(t.background).border_1().border_color(t.border)
+      .overflow_y_scrollbar();
+    const message = (text, color = t.dim) => box.child(div().p(12).text_size(12).text_color(color).child(text));
+    if (this.mods == null) return message("Reading the mods folder…");
+    if (this.modsError && !this.mods.length) return message(`Could not read the mods folder: ${this.modsError}`, t.blocked);
+
+    const counts = Object.fromEntries(ORIGINS.map(([k]) => [k, this.mods.filter((m) => m.origin === k).length]));
+    const chip = ([key, label]) => {
+      const on = this.filter === key;
+      return h_flex().id(`mh-f-${key}`).h(24).px(9).gap(6).items_center().rounded(6).cursor_pointer().text_size(12)
+        .bg(on ? t.raised : t.popover).border_1().border_color(on ? t.border : t.popover)
+        .text_color(on ? t.foreground : t.muted).hover((st) => st.bg(t.hover))
+        .on_click((_e, cx) => { this.filter = key; this.openMod = null; cx.notify(); })
+        .child(label)
+        .child(div().text_size(10.5).text_color(t.dim).child(String(counts[key])));
+    };
+
+    const r = this.record;
+    const recordLine = !r ? "No setup run recorded. Run the setup (Update tab) to check the kit mods for local changes."
+      : r.files ? `Setup version ${r.version ?? "?"}${r.commit ? ` · commit ${String(r.commit).slice(0, 7)}` : ""}. Local changes are compared with that commit.`
+      : `Setup version ${r.version ?? "?"}. The record has no file hashes: run the setup again to check for local changes.`;
+
+    const shown = this.mods.filter((m) => m.origin === this.filter);
+    const rows = shown.length ? shown.map((m) => this.modRow(t, m))
+      : [div().p(12).text_size(12).text_color(t.dim).child("No mod of this kind is installed.")];
+    return v_flex().w_full().gap(8)
+      .child(h_flex().w_full().gap(4).flex_wrap().children(ORIGINS.map(chip)))
+      .child(div().text_size(11.5).text_color(t.dim).child(recordLine))
+      .child(box.children(rows));
+  }
+
+  /** 1 row of the Mods tab. */
+  modRow(t, m) {
+    const open = this.openMod === m.name;
+    const ch = this.changes.get(m.name);
+    const nChanged = ch ? ch.changed.length + ch.missing.length : 0;
+    const dot = m.errors.length ? t.blocked
+      : nChanged ? t.ansi3
+      : m.origin === "kit" && ch ? t.ansi2
+      : t.dim;
+    const pill = (label, color) => h_flex().h(18).px(6).flex_none().items_center().rounded(5).text_size(10.5)
+      .bg(tint(color, "22")).text_color(color).child(label);
+    const line = (label, value, color = t.muted) => h_flex().w_full().gap(6).text_size(11.5)
+      .child(div().w(70).flex_none().text_color(t.dim).child(label))
+      .child(div().flex_1().min_w(0).text_color(color).child(value));
+
+    const head = h_flex().id(`mh-row-${m.name}`).w_full().h(34).px(10).gap(8).items_center().cursor_pointer()
+      .hover((st) => st.bg(t.hover))
+      .on_click((_e, cx) => { this.openMod = open ? null : m.name; cx.notify(); })
+      .child(div().size(8).flex_none().rounded(4).bg(dot))
+      .child(div().flex_none().font_semibold().child(m.name))
+      .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(m.title && m.title !== m.name ? m.title : ""))
+      .when(m.errors.length > 0, (el) => el.child(pill("error", t.blocked)))
+      .when(nChanged > 0, (el) => el.child(pill(`${nChanged} changed`, t.ansi3)))
+      .when(Boolean(m.app), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(m.app)))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child(open ? "▾" : "▸"));
+
+    const details = v_flex().w_full().px(26).pb(10).gap(4)
+      .when(Boolean(m.description), (el) => el.child(div().pb(2).text_size(12).text_color(t.muted).child(m.description)))
+      .when(m.origin === "kit", (el) => {
+        if (ch === undefined) return el.child(line("Files", "Checking…", t.dim));
+        if (ch === null) return el.child(line("Files", "No hashes in the setup record for this mod.", t.dim));
+        const none = !ch.changed.length && !ch.missing.length && !ch.added.length;
+        return el
+          .when(none, (x) => x.child(line("Files", "Same as the setup run.", t.ansi2)))
+          .when(ch.changed.length > 0, (x) => x.child(line("Changed", ch.changed.join(", "), t.ansi3)))
+          .when(ch.missing.length > 0, (x) => x.child(line("Missing", ch.missing.join(", "), t.blocked)))
+          .when(ch.added.length > 0, (x) => x.child(line("Only here", ch.added.join(", "))));
+      })
+      .when(m.origin === "herdr", (el) => el.child(line("Origin", "Installed by Herdr. Herdr updates it.")))
+      .when(m.origin === "third", (el) => el.child(line("Origin", m.readme)))
+      .when(m.origin === "manual", (el) => el.child(line("Origin", "Not from this kit, a known third party or Herdr.")))
+      .children(m.errors.map((er) => line(er.file, er.text || "(empty)", t.blocked)))
+      .when(m.origin === "kit" && Boolean(m.app), (el) => el.child(h_flex().pt(4)
+        .child(h_flex().id(`mh-readme-${m.name}`).h(24).px(10).items_center().rounded(6).cursor_pointer().text_size(12)
+          .border_1().border_color(t.border).text_color(t.foreground).hover((st) => st.bg(t.hover))
+          .on_click((_e, cx) => this.showReadme(m, cx))
+          .child(`README of ${m.app}`))));
+
+    return v_flex().w_full().flex_none().border_b(1).border_color(t.border)
+      .child(head)
+      .when(open, (el) => el.child(details));
+  }
+
+  /** The README of an app folder, in place of the list, with a back button. */
+  renderReadme(t) {
+    const rd = this.readme;
+    const body = rd.loading ? "*Loading…*" : rd.error ? `*Could not download the README: ${rd.error}*` : rd.text;
+    const id = `mh-readme-${rd.app}-${String(body).length}`;
+    return v_flex().w_full().gap(8)
+      .child(h_flex().w_full().gap(8).items_center()
+        .child(h_flex().id("mh-back").h(24).px(10).items_center().rounded(6).cursor_pointer().text_size(12)
+          .border_1().border_color(t.border).hover((st) => st.bg(t.hover))
+          .on_click((_e, cx) => { this.readme = null; cx.notify(); })
+          .child("← Back"))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(`${rd.app}/README.md · Backspace goes back`)))
+      .child(div().w_full().h(330).p(12).rounded(6).bg(t.background).border_1().border_color(t.border).text_size(12.5)
+        .child(TextView.markdown(id, body).scrollable(true).selectable(true).size_full()));
   }
 
   /** The "What's new" tab: the notes of each version, newest first, in 1 scrollable box. */
