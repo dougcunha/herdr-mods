@@ -1,5 +1,5 @@
 {
   "app": "dock-app",
-  "description": "A Files panel that shows Markdown rendered and code with syntax colors, with an icon for each file type. Images open in image-viewer.",
+  "description": "A Files panel that previews Markdown rendered, code with syntax colors and images, with an icon for each file type and a fuzzy filter for all files. Right-click to make, rename, move or delete files.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
 }

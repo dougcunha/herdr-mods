@@ -277,6 +277,7 @@ export default class Kanban extends View {
     this.part = ["bar", "panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.props.part) ? this.props.part : "board";
     if (["panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
+      if (this.part === "panel-title") this.takeKeys(cx);
       return;
     }
     // Which Claude Code agents wait for subagents. Both parts run one: they count the cards too.
@@ -665,13 +666,27 @@ export default class Kanban extends View {
       ? iconButton(t, "kb-dlg-tab", "open", () => this.dialogToSide(), { tooltip: this.s("toTab"), size: 26, glyph: 14 })
       : iconButton(t, "kb-dlg-side", "panel", () => this.dialogToSide(), { tooltip: this.s("toSide"), size: 26, glyph: 14 });
     return h_flex().id("kb-dlg-title").size_full().pl(14).pr(8).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => { if (e.key === "escape") { cx.stop_propagation(); this.closeDialog(); } })
       .child(glyph.flex_none())
       .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(String(p.label ?? "")))
       .child(move)
       .child(iconButton(t, "kb-dlg-close", "close", () => this.closeDialog(), { tooltip: this.s("closeDialog"), size: 26, glyph: 13 }));
   }
 
-  closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
+  closeDialog() {
+    const id = this.overlay ?? shared(KEY_PANEL_DIALOG)?.id;
+    if (id) closeOverlay(id);
+  }
+
+  // The title row of a panel dialog takes the keyboard when the dialog opens. Else the terminal
+  // behind the dialog keeps it and gets Esc. The panel in the dialog can take the keyboard later
+  // (a filter field after 40 ms), so this runs at once and once more after 10 ms.
+  takeKeys(cx) {
+    this.handle = cx.focus_handle();
+    this.handle.focus();
+    cx.timer.after(10, () => this.handle.focus());
+  }
 
   /** The name and the icon of a group button. */
   groupInfo(group) {

@@ -6,7 +6,7 @@ import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr"
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
-import { icon, pill, section, searchBox, filterChip, busy } from "./ui.js";
+import { icon, pill, section, searchBox, filterChip, busy, dialogKeys } from "./ui.js";
 
 const POLL_MS = 5000;
 
@@ -74,6 +74,7 @@ export default class CiDash extends View {
     // Read props once, here, and keep them: props() inside a later callback can
     // answer for another copy. Fall back to props() when the argument is empty.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
+    this.keys = cx.focus_handle(); // the panel's keyboard in a dialog, for Esc (see dialogKeys)
     const first = this.props.tab;
     this.tab = ["runs", "dispatch", "artifacts"].includes(first) ? first : "runs";
     this.key = null; this.branch = null;
@@ -631,7 +632,7 @@ export default class CiDash extends View {
     else if (this.tab === "dispatch") body = this.dsp.view(t);
     else body = this.detail ? this.detailView(t) : this.runsView(t);
 
-    return v_flex().id("ci-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+    return dialogKeys(v_flex().id("ci-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)
       .child(this.header(t, cx))
       .child(body)
       .when(Boolean(this.note), (e) => e.child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked).truncate().child(this.note)));

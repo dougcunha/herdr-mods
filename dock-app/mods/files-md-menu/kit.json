@@ -1,5 +1,5 @@
 {
   "app": "dock-app",
-  "description": "The right-click menu of files-md: open the file in a terminal, in the file manager or in Markdown Reader.",
+  "description": "The right-click menu of files-md: open a file, make a new file or folder, cut, copy, paste, duplicate, rename or delete, and copy the path.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
 }

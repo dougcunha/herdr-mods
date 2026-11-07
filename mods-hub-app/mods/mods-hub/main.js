@@ -356,6 +356,12 @@ export default class ModsUpdate extends View {
       cx.notify();
       return;
     }
+    // A focused text field (a setting) keeps Esc from Herdr: close the dialog here.
+    if (e.key === "escape" && props()?.overlay) {
+      closeOverlay(props().overlay);
+      cx.stop_propagation();
+      return;
+    }
     // Esc closes the dialog before the mod sees it: Backspace and ← go back from a README.
     if (this.readme && (e.key === "backspace" || e.key === "left")) {
       this.readme = null;

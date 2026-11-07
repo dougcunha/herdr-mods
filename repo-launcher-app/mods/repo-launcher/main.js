@@ -435,6 +435,11 @@ export default class RepoLauncher extends View {
         cx.spawn(async (cx) => this.captureKey(e, cx));
         return;
       }
+      // A focused argument field keeps Esc from Herdr: close the popup here.
+      if (k === "escape") {
+        cx.stop_propagation();
+        return this.close();
+      }
       return;
     }
 

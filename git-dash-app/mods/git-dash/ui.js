@@ -1,9 +1,42 @@
 // Shared visual pieces of the Git Dash mod: pills, chips, the search box and buttons.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
-import { settings } from "herdr";
+import { settings, props, shared, closeOverlay } from "herdr";
 
 export const MOD = "git-dash"; // folder name under ~/.config/herdr-app/mods
+
+/**
+ * Closes the dialog that shows this mod: its own overlay, or the panel dialog of the dock
+ * (tabs-dock or kanban keep its id in the shared key "kanban.panelDialog"). Returns false when
+ * the mod is not in a dialog. A focused text field keeps Esc from Herdr, so the field calls this.
+ */
+export function closeDialog() {
+  const id = props()?.overlay ?? shared("kanban.panelDialog")?.id;
+  if (!id) return false;
+  closeOverlay(id);
+  return true;
+}
+
+const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
+
+/**
+ * Gives the root element of the mod the keyboard in a dialog, so Esc closes the dialog after a
+ * click anywhere in the panel (a click takes the keyboard from the title row of the dialog, and
+ * then no part of the dialog has it). Text fields stop their own mouse down, so they keep it.
+ */
+export function dialogKeys(el, handle) {
+  return el.track_focus(handle)
+    .on_mouse_down("left", () => { if (dialogId()) handle.focus(); })
+    .on_key_down((e, cx) => { if (e.key === "escape" && closeDialog()) cx.stop_propagation(); });
+}
+
+/** on_key_down for a text field: Esc runs `clear` when the field has text, else closes the dialog. */
+export const escapeKey = (state, clear) => (e, cx) => {
+  if (e.key !== "escape") return;
+  if (clear && state.value()) clear(cx);
+  else if (!closeDialog()) return;
+  cx.stop_propagation();
+};
 export const icon = (name) => `mods/${MOD}/${name}.svg`;
 
 /** A translucent version of a theme color, for tinted pills. Non-hex colors pass through. */
@@ -28,6 +61,7 @@ export function searchBox(t, id, state, { right = "", onClear } = {}) {
   return h_flex().id(id).h(34).flex_none().px(12).gap(8).items_center().rounded(10).bg(t.raised)
     .border_1().border_color(t.border).cursor_text()
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_key_down(escapeKey(state, onClear ?? ((cx) => { state.set_value(""); cx.notify(); })))
     .child(svg(icon("search")).size(14).flex_none().text_color(t.dim))
     .child(Input.new(state).h_full().flex_1().min_w(0).text_size(12).text_color(t.foreground))
     .when(Boolean(right), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(right)))

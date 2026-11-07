@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 7 -->
+<!-- herdr-mods-setup-version: 8 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -74,6 +74,47 @@ Third-party mods. Read the recipe of each one and tell me what it runs before yo
 3. `insights`: https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights (a folder inside a larger repository: copy only that folder).
 
 The `insights` mod uses Node. The file `mods/insights/runtime.json` holds the path of `node`. Find the path of `node` on this machine (`where node` or `which node`) and write it in that file. If the file exists and the path still works, leave it.
+
+**Esc patch for `insights`.** In a dialog of the dock, Esc must close the Insights dialog also after a click in it. The mod does not do this, so add these lines to `mods/insights/main.js`. Do it after you install the mod, and on every run when the file does not contain `herdr-mods patch` yet (also when you do not update the mod). Each added line has the comment `herdr-mods patch`, or sits in a block that starts with it.
+
+1. Add `shared, closeOverlay` to the names of the `import { … } from "herdr";` line (only the names that are not there). After that line, add:
+   ```js
+   // herdr-mods patch (Esc closes the dialog): the dialog that shows this mod, or null.
+   const herdrModsDialog = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
+   ```
+2. In `init(_props, cx)` of the exported `View`, after the line `if (this.toolbarMode) return;`, add:
+   ```js
+   this.herdrModsKeys = cx.focus_handle(); // herdr-mods patch: the keyboard of the dashboard in a dialog
+   ```
+3. In `render`, on the root element (`v_flex().id("insights-root")…`), before `.overflow_y_scrollbar()`, add:
+   ```js
+   // herdr-mods patch: in a dialog, a click on the dashboard gives it the keyboard (not in
+   // Settings, where text fields and the editor need it), and Esc closes the dialog.
+   .track_focus(this.herdrModsKeys)
+   .on_mouse_down("left", () => { if (!this.showSettings && herdrModsDialog()) this.herdrModsKeys.focus(); })
+   .on_key_down((event, keyCx) => {
+     const dialog = event.key === "escape" ? herdrModsDialog() : null;
+     if (dialog) { closeOverlay(dialog); keyCx.stop_propagation(); }
+   })
+   ```
+
+Then run `herdr-app check` on `~/.config/herdr-app/mods/insights`. If the code of the mod changed and one of these places is not there (no `toolbarMode`, no `insights-root`, no `showSettings`), do not guess: leave the file as it was and tell me.
+
+**Esc patch for `git-graph`.** The same rule for the Graph panel, in `mods/git-graph/graph.js`, with the same times (after you install or update the mod, and on every run when the file does not contain `herdr-mods patch`):
+
+1. Add `closeOverlay` to the names of the `import { … } from "herdr";` line, if it is not there. After that line, add the same `herdrModsDialog` lines as in step 1 of the `insights` patch.
+2. In `render(cx)` of the `Graph` class, on the root element (`v_flex().id("git-graph")…`), after `.track_focus(this.handle)`, add:
+   ```js
+   // herdr-mods patch: in a dialog, a click on the graph gives it the keyboard, so Esc works.
+   .on_mouse_down("left", () => { if (herdrModsDialog()) this.handle.focus(); })
+   ```
+3. In the `.on_key_down((e, cx) => {` of that root element, before its first line, add:
+   ```js
+   // herdr-mods patch: Esc with nothing to close closes the dialog of the dock.
+   if (e.key === "escape" && !(this.selected || this.opened) && herdrModsDialog()) { closeOverlay(herdrModsDialog()); cx.stop_propagation(); return; }
+   ```
+
+Then run `herdr-app check` on `~/.config/herdr-app/mods/git-graph`. If `id("git-graph")`, `track_focus(this.handle)` or the `escape` line with `this.selected || this.opened` is not there, leave the file as it was and tell me.
 
 On an update, install a third-party mod only if it is missing. Do not update one that is installed unless I ask: tell me that I can ask.
 

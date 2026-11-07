@@ -88,7 +88,8 @@ export default class ImageViewer extends View {
     try {
       if (window()?.platform === "windows") await exec("powershell", ["-NoProfile", "-Command",
         "Get-ChildItem -LiteralPath " + quote(dir) + " -File -ErrorAction SilentlyContinue | Where-Object LastWriteTime -lt (Get-Date).AddDays(-1) | Remove-Item -Force -ErrorAction SilentlyContinue"]);
-      else await exec("find", [dir, "-type", "f", "-mtime", "+1", "-delete"]);
+      // Through sh: a bare "find" can be Windows' find.exe, which waits for input (seen in herdr-app check).
+      else await exec("sh", ["-c", 'find "$1" -type f -mtime +1 -delete 2>/dev/null; exit 0', "sweep", dir]);
     } catch { /* nothing to sweep */ }
   }
 

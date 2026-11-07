@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, shared, setShared } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, shared, setShared, props, closeOverlay } from "herdr";
 
 function location() {
   const space = spaces().find((s) => s.active), f = focused();
@@ -61,6 +61,9 @@ function wrap(text, width) {
 const VIEW_KEY = "changes-split.view";
 const currentView = () => shared(VIEW_KEY) === "split" ? "split" : "unified";
 const CHAR = 7; // px of 1 character of the 11 px diff font, rounded up
+
+// The dialog that shows this panel: its own overlay, or the dock's panel dialog; null in the side panel.
+const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
 
 export default class Changes extends View {
   init(_props, cx) {
@@ -269,8 +272,18 @@ export default class Changes extends View {
     const enabled = Boolean(this.message.trim() && this.root && !this.busy && !this.loading);
     const view = currentView(), split = view === "split", layout = split ? this.splitLayout() : null, rows = split ? layout.items : this.rows;
     return v_flex().id("changes").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
+      // In a dialog, a click in the panel gives it the keyboard (the commit field stops its own
+      // mouse down): else no part of the dialog has it after the click, and Esc does nothing.
+      .on_mouse_down("left", () => { if (dialogId()) this.handle.focus(); })
       .on_key_down((e, cx) => {
-        if (e.key === "escape" && this.typing) { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
+        if (e.key !== "escape") return;
+        const dialog = dialogId();
+        if (!this.typing) { if (!dialog) return; closeOverlay(dialog); cx.stop_propagation(); return; }
+        // An empty message in a dialog: Esc closes the dialog (the field keeps Esc from Herdr).
+        // Else Esc leaves the field, and the next Esc closes the dialog.
+        if (!this.input.value().trim() && dialog) closeOverlay(dialog);
+        else { this.typing = false; this.handle.focus(); cx.notify(); }
+        cx.stop_propagation();
       })
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Changes"))

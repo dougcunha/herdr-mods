@@ -6,7 +6,7 @@ import { settings } from "herdr";
 import { GhError } from "./gh.js";
 import { parseWorkflowInputs } from "./workflow-inputs.js";
 import { mapLimit, relTime, stateOf } from "./format.js";
-import { icon, tint, pill, section, searchBox, busy, iconTile, segmented, stepper } from "./ui.js";
+import { icon, tint, pill, section, searchBox, busy, iconTile, segmented, stepper, escapeKey } from "./ui.js";
 
 const mono = () => settings().font_family ?? "JetBrains Mono";
 
@@ -258,6 +258,7 @@ export class Dispatch {
   box(id, state, t) {
     return div().id(id).h(30).flex_none().px(10).flex().items_center().rounded(8).bg(t.background).border_1().border_color(t.border).cursor_text()
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_key_down(escapeKey(state, null))
       .child(Input.new(state).h_full().w_full().text_size(12).text_color(t.foreground));
   }
 

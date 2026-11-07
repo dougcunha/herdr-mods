@@ -4,7 +4,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, shared, setShared, pickFolder, run, panes, notify, home, nextCommand } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
-import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint } from "./ui.js";
+import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
 
 // The base folders: one list for every copy of the panel, with forward slashes.
 const KEY_ROOTS = "git-dash.roots";
@@ -147,6 +147,7 @@ export default class GitDash extends View {
     // Read props once, here, and keep them: props() inside a later callback can
     // answer for another copy. Fall back to props() when the argument is empty.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
+    this.keys = cx.focus_handle(); // the panel's keyboard in a dialog, for Esc (see dialogKeys)
     this.depth = Number.isInteger(this.props.depth) && this.props.depth >= 0 ? this.props.depth : 4;
     // The saved list wins. When it does not exist yet, the old saved folder, else
     // the `root` prop, becomes its first item. An empty saved list stays empty.
@@ -560,6 +561,8 @@ export default class GitDash extends View {
       main = panel(
         h_flex().id(key("gd-msg")).h(30).px(10).items_center().rounded(7).bg(t.background).border_1().border_color(t.input).cursor_text()
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          // Esc cancels the commit, as the Cancel button does (the field keeps Esc from the dialog).
+          .on_key_down((e, cx) => { if (e.key !== "escape") return; this.ask = null; cx.stop_propagation(); cx.notify(); })
           .child(Input.new(this.msg).h_full().flex_1().min_w(0).text_size(12).text_color(t.foreground)),
         h_flex().flex_wrap().gap(4).children(modes.map((m) =>
           smallButton(t, key(`gd-mode-${m}`), this.s(`mode_${m}`), (cx) => { ask.mode = m; cx.notify(); },
@@ -715,8 +718,8 @@ export default class GitDash extends View {
 
   render(_cx) {
     const t = theme();
-    return v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
-      .border_1().border_color(t.border).text_color(t.foreground).text_size(13)
+    return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
+      .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)
       .child(this.header(t))
       .child(this.body(t));
   }

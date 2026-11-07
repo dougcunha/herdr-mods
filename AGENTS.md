@@ -76,10 +76,14 @@ changes what it does.
 - A `popup` overlay is as tall as its content: `height` in `mod.json` does not size it, so a `flex_1` list gets 0 px. Give lists a fixed height and `w_full()`.
 - `v_virtual_list` drew nothing inside a popup. Draw a windowed list yourself (rows at fixed offsets, `on_scroll_wheel`), like the shipped `picker` mod.
 - Esc closes a popup or a dialog before the mod's `on_key_down` sees it. Use Backspace or ← for "back".
+- A dialog made of a layout (the dock's panel dialogs) does not take the keyboard: the terminal behind it keeps it and gets Esc. The title row of the dialog (`panel-title` in `tabs-dock` and `kanban`) takes the keyboard when it opens and closes the dialog on Esc.
+- A click on a row in a dialog takes the keyboard from a text field, and no part of the dialog has it after that: Esc does nothing. Give the mod a focus handle (`track_focus` on its root, `on_key_down` for Esc) and focus it in the click handlers when it is in a dialog (`keepKeys` in `files-md`), or on the root's left mouse down while text fields stop their own mouse down (`dialogKeys` in `git-dash/ui.js`).
+- Exception: when a text field (`Input`) has the keyboard, Esc does not close the dialog; the mod's `on_key_down` gets it. Close the dialog there: `props().overlay`, or for a dock panel dialog the id in `shared("kanban.panelDialog")` (see `escapeKey` in `git-dash/ui.js`).
 - A text field keeps the keyboard for a moment after it leaves the screen. Call `handle.focus()` again with `cx.timer.after(40, …)`.
 - `space.select` does not change what a layout that follows the focused pane shows (the `kanban` layout). `pane.focus {terminal | pane}` works in every layout. `run()` returns null: find a new terminal by comparing `panes()` before and after.
 - `spaces()[i].folder` is where a space was made, not where it works now. Use the live folders of its terminals (`panes()[i].cwd`).
 - On Windows, Herdr runs an `argv` as `pwsh -NoExit -Command "& 'prog' 'arg'"`. To set an environment variable, start a nested `pwsh -NoProfile -Command "$env:X='…'; & 'prog'"`.
+- Do not run a bare `find` with `exec`: on Windows it is `find.exe`, which waits for input and hangs. In `herdr-app check`, `window()` does not say `windows`, so a Unix-only branch runs there too. Use `sh -c 'find "$1" …' name dir`.
 - `fs.readdir` reads only inside the home folder. `readTextFile` reads any path. Search other drives with `exec`.
 - `herdr-app check` does not draw deferred rows or later async states. Test in the app and look with `herdr-app shot`.
 - `localStorage` is one store for each copy of a mod (side panel, dialog, each layout). For a value that every copy must show, use `shared()` and `setShared()`: Herdr keeps the value and re-renders every copy.

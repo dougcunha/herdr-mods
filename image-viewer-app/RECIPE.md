@@ -1,6 +1,6 @@
 # Image Viewer
 
-A pane for the Herdr app that shows one image file. The Files panel opens it when you click a PNG, JPEG, GIF, WebP, BMP, SVG, ICO or TIFF file. The image fits the pane, or you zoom it from 10% to 800% and scroll. It never changes the file.
+A pane for the Herdr app that shows one image file. The Files panel (files-md) opens it from the right-click item Open in Image Viewer, for a PNG, JPEG, GIF, WebP, BMP, SVG, ICO or TIFF file. The image fits the pane, or you zoom it from 10% to 800% and scroll. It never changes the file.
 
 ![Image Viewer](preview.png)
 

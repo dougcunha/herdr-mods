@@ -171,6 +171,14 @@ export default class Tabs extends View {
     this.part = ["panel-title", "group-menu", "gear-menu"].includes(p.part) ? p.part : "bar";
     if (this.part !== "bar") {
       this.overlay = p.overlay ?? props()?.overlay;
+      if (this.part === "panel-title") {
+        // The title row takes the keyboard when the dialog opens. Else the terminal behind the dialog
+        // keeps it and gets Esc. The panel in the dialog can take the keyboard later (a filter field
+        // after 40 ms), so this runs at once and once more after 10 ms.
+        this.handle = cx.focus_handle();
+        this.handle.focus();
+        cx.timer.after(10, () => this.handle.focus());
+      }
       return;
     }
     this.barW = undefined; // the width of the bar, from on_size_change
@@ -349,13 +357,18 @@ export default class Tabs extends View {
       ? iconButton(t, "dlg-tab", "open", () => this.dialogToSide(), { tooltip: this.s("toTab") })
       : iconButton(t, "dlg-side", "panel", () => this.dialogToSide(), { tooltip: this.s("toSide") });
     return h_flex().id("dlg-title").size_full().pl(14).pr(8).gap(8).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .track_focus(this.handle)
+      .on_key_down((e, cx) => { if (e.key === "escape") { cx.stop_propagation(); this.closeDialog(); } })
       .child(glyph.flex_none())
       .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().text_color(t.foreground).child(String(p.label ?? "")))
       .child(move)
       .child(iconButton(t, "dlg-close", "close", () => this.closeDialog(), { tooltip: this.s("closeDialog"), glyph: 13 }));
   }
 
-  closeDialog() { if (this.overlay) closeOverlay(this.overlay); }
+  closeDialog() {
+    const id = this.overlay ?? shared(KEY_PANEL_DIALOG)?.id;
+    if (id) closeOverlay(id);
+  }
 
   // The name and the icon of a group button.
   groupInfo(group) {
