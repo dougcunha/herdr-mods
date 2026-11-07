@@ -6,3 +6,7 @@ Thumbs.db
 # Written by the Herdr app into a mod folder (editor types). Not part of a mod.
 **/mods/*/gpui-kit.d.ts
 **/mods/*/jsconfig.json
+
+# Local agent skills and settings of this machine.
+.agents/
+.claude/
