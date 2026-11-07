@@ -4,11 +4,12 @@
 //   "board" the columns with the cards.
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
+//   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
-  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc } from "herdr";
+  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents } from "herdr";
 import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop } from "./ui.js";
 import { WaitingTracker } from "./waiting.js";
@@ -75,6 +76,47 @@ const PANELS = [
 // The same as GROUPS in mods/tabs-dock.
 const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") } };
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
+const CLONE_W = 270; // px: the menu of the duplicate button of a card
+
+// The duplicate of an agent starts a new session: these flags continue an old one, so the clone drops them
+// (with their value, when they have one). The same lists as `drop` in the agent-resume hook.
+// An agent that is not here drops only --resume and --continue.
+const SESSION_FLAGS = {
+  claude: ["--resume", "-r", "--continue", "-c", "--session-id", "--fork-session", "--from-pr"],
+  agy: ["--continue", "-c", "--conversation"],
+  opencode: ["--continue", "-c", "--session", "-s"],
+  codex: ["--last"],
+};
+const SESSION_DEFAULT = ["--resume", "--continue"];
+
+/** The arguments of `agent` without the flags that continue a session. `codex resume <id>` loses "resume" and the id. */
+function freshArgs(agent, args) {
+  const drop = new Set(SESSION_FLAGS[agent] ?? SESSION_DEFAULT);
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const tok = args[i], next = args[i + 1];
+    const value = next !== undefined && !next.startsWith("-");
+    if (agent === "codex" && i === 0 && (tok === "resume" || tok === "fork")) { if (value) i++; continue; }
+    if (drop.has(tok.split("=")[0])) { if (!tok.includes("=") && value) i++; continue; }
+    out.push(tok);
+  }
+  return out;
+}
+
+/** The argv that starts a new session of the agent in terminal `address`, or null when it is not known.
+ *  First the labels of the agent-resume mod: resume.agent (the command) and resume.args (the flags it started
+ *  with). The terminal's own argv is the shell the agent runs in, so it cannot tell. Else the command of the
+ *  program in the list of known agents, with no arguments. */
+async function cloneArgv(address, programKey, machine) {
+  let labels = {};
+  try { labels = JSON.parse((await hc(["get", address, "--json"]))?.stdout ?? "")?.labels ?? {}; } catch {}
+  const agent = String(labels["resume.agent"] ?? "");
+  if (/^[\w.-]+$/.test(agent)) return [agent, ...freshArgs(agent, String(labels["resume.args"] ?? "").split(/\s+/).filter(Boolean))];
+  let list = [];
+  try { list = await knownAgents({ on: machine ?? null }); } catch {}
+  const known = list.find((k) => k.key === programKey && Array.isArray(k.run) && k.run.length);
+  return known ? [known.run[0], ...freshArgs(known.key, known.run.slice(1))] : null;
+}
 
 // The default order: needs you, working, waiting, done, idle. The arrows in a column header change it,
 // and shared(KEY_ORDER) keeps the new order.
@@ -124,6 +166,8 @@ const STR = {
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
     toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
+    duplicate: "Duplicate this agent", cloneHere: "Duplicate in this space", cloneWorktree: "Duplicate in a new worktree…",
+    cloneTitle: "Duplicate {name}", cloneFail: "Kanban: duplicate", noCommand: "The command of this agent is not known.",
   },
   pt: {
     title: "Agentes", search: "Buscar agentes…",
@@ -162,6 +206,8 @@ const STR = {
     opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
     toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
+    duplicate: "Duplicar este agente", cloneHere: "Duplicar neste espaço", cloneWorktree: "Duplicar num novo worktree…",
+    cloneTitle: "Duplicar {name}", cloneFail: "Kanban: duplicar", noCommand: "O comando deste agente não é conhecido.",
   },
 };
 
@@ -224,9 +270,9 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "group-menu"].includes(this.props.part) ? this.props.part : "board";
+    this.part = ["bar", "panel-title", "group-menu", "clone-menu"].includes(this.props.part) ? this.props.part : "board";
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
-    if (this.part === "panel-title" || this.part === "group-menu") {
+    if (this.part === "panel-title" || this.part === "group-menu" || this.part === "clone-menu") {
       this.overlay = this.props.overlay ?? props()?.overlay;
       return;
     }
@@ -656,6 +702,54 @@ export default class Kanban extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
+  /** Opens the menu of the duplicate button of a card at the pointer: duplicate in the same space, or in a new worktree. */
+  openClone(a) {
+    const name = a.space_name || a.program?.name || a.app || "Agent";
+    openOverlay({
+      mod: "kanban", kind: "popup", width: CLONE_W, height: MENU_PAD * 2 + MENU_HEAD + 2 * MENU_ROW,
+      props: { part: "clone-menu", lang: this.lang, title: this.s("cloneTitle", { name }), address: a.address },
+    });
+  }
+
+  /** The menu of the duplicate button. A row starts a new session of the same agent, with the same flags and no
+   *  session flag (see cloneArgv): in a new tab of the same space and folder, or in a new worktree of the repository
+   *  (Herdr's worktree dialog asks for the branch and opens a new space with the agent in its first tab). */
+  cloneMenu(t) {
+    const p = this.props;
+    const row = (id, symbol, label, where) => h_flex().id(`kb-cm-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
+      .text_size(13).text_color(this.cloneBusy ? t.dim : t.foreground)
+      .when(!this.cloneBusy, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => { cx.stop_propagation(); this.clone(where, cx); })
+      .child(svg(icon(symbol)).size(15).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(label));
+    return v_flex().id("kb-cm-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim)
+        .child(div().flex_1().min_w(0).truncate().child(String(p.title ?? ""))))
+      .child(row("here", "copy", this.s("cloneHere"), "here"))
+      .child(row("worktree", "branch", this.s("cloneWorktree"), "worktree"));
+  }
+
+  /** Duplicates the agent of props.address. `where`: "here" (a new tab of its space) or "worktree". */
+  clone(where, cx) {
+    if (this.cloneBusy) return;
+    const a = agents().find((x) => x.address === this.props.address);
+    if (!a) { this.closeDialog(); return; }
+    const space = spaces().find((s) => s.id === a.space);
+    const folder = panes().find((x) => x.pane === a.pane)?.cwd || space?.folder || undefined;
+    this.cloneBusy = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let argv = null;
+      try { argv = await cloneArgv(a.address, a.program?.key, space?.machine); } catch {}
+      this.cloneBusy = false;
+      // Act first, then close: this copy of the mod ends with its popup.
+      if (!argv) notify({ title: this.s("cloneFail"), body: this.s("noCommand"), level: "error", timeout: 6000 });
+      else if (where === "worktree") openOverlay({ mod: "worktree", kind: "dialog", width: 460, height: 280, props: { space: a.space, folder, action: "new", argv } });
+      else run("tab.new", { space: a.space, argv, ...(folder ? { folder } : {}) });
+      this.closeDialog();
+    });
+  }
+
   dialogToSide() {
     this.closeDialog();
     const tab = this.props.tab;
@@ -839,6 +933,7 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
         .when(over, (e) => e
           .when(Boolean(a.wait), (e) => e.child(small("notwait", "check", () => this.dismissWaiting(a), this.s("notWaiting"))))
+          .child(small("clone", "copy", () => this.openClone(a), this.s("duplicate")))
           .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
   }
@@ -895,6 +990,8 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.age(since)))
         .when(Boolean(a.wait), (e) => e.child(iconButton(t, `notwait-${a.address}`, "check", () => this.dismissWaiting(a),
           { tooltip: this.s("notWaiting"), size: 22, glyph: 12, color: t.dim })))
+        .child(iconButton(t, `clone-${a.address}`, "copy", () => this.openClone(a),
+          { tooltip: this.s("duplicate"), size: 22, glyph: 12, color: t.dim }))
         .child(iconButton(t, `pin-${a.address}`, "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }),
           { active: a.pinned, tooltip: this.s(a.pinned ? "unpin" : "pin"), size: 22, glyph: 12, color: a.pinned ? t.accent : t.dim }))
         .child(iconButton(t, `open-${a.address}`, "open", () => this.openInTab(a),
@@ -1225,6 +1322,7 @@ export default class Kanban extends View {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
     if (this.part === "group-menu") return this.groupMenu(t);
+    if (this.part === "clone-menu") return this.cloneMenu(t);
     this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
