@@ -286,6 +286,8 @@ export default class ModsUpdate extends View {
         this.modsError = errorText(e);
       }
       this.thirdNames = this.mods.filter((m) => m.origin === "third").map((m) => m.name);
+      // If the host refuses the state in a task, a click on the tab or on a section makes it.
+      try { this.prepareInputs(); } catch (e) { console.log(`mods-hub: text fields wait for a click (${errorText(e)})`); }
       // Open on the third-party list when one of them has an update (and the kit has none).
       if (this.filter === "kit" && !this.filterSet && this.thirdUpdates().length && !updateAvailable(this.local ?? 0)) this.filter = "third";
       cx.notify();
@@ -327,6 +329,7 @@ export default class ModsUpdate extends View {
     this.capture = null;
     this.keyAsk = null;
     setState({ tab: key });
+    if (key === "settings") this.prepareInputs();
     if (key === "news") this.loadNotes(cx);
     cx.notify();
   }
@@ -353,7 +356,30 @@ export default class ModsUpdate extends View {
     this.capture = null;
     this.keyAsk = null;
     setState({ section: id });
+    this.prepareInputs();
     cx.notify();
+  }
+
+  /** The id of the control of 1 field. fieldRow uses the same id. */
+  fieldId(section, f, i) {
+    return `mh-${section}-${f.id ?? i}`;
+  }
+
+  /**
+   * Creates the InputState of each text field that has none yet. InputState.new() cannot run in
+   * render, so call this from init, an event handler or a task, before the Settings tab shows.
+   */
+  prepareInputs() {
+    for (const s of this.sections()) {
+      s.fields.forEach((f, i) => {
+        if (f.type !== "text") return;
+        const id = this.fieldId(s.id, f, i);
+        if (this.inputs.has(id)) return;
+        const input = InputState.new({ placeholder: f.placeholder ?? "", value: String(readField(f) ?? "") });
+        input.on("change", () => writeField(f, input.value()));
+        this.inputs.set(id, input);
+      });
+    }
   }
 
   addFolder(f, cx) {
@@ -694,7 +720,7 @@ export default class ModsUpdate extends View {
 
   /** 1 field: the label and the hint at the left, the control at the right (or below, for the wide ones). */
   fieldRow(t, section, f, i) {
-    const id = `mh-${section}-${f.id ?? i}`;
+    const id = this.fieldId(section, f, i);
     const wide = ["folder-list", "key", "text", "enum"].includes(f.type);
     const control = this.fieldControl(t, id, f);
     return v_flex().w_full().flex_none().py(9).gap(6).border_b(1).border_color(t.border)
@@ -720,12 +746,9 @@ export default class ModsUpdate extends View {
         return stepper(t, id, label, (cx) => { writeField(f, v - step); cx.notify(); }, (cx) => { writeField(f, v + step); cx.notify(); });
       }
       case "text": {
-        let input = this.inputs.get(id);
-        if (!input) {
-          input = InputState.new({ placeholder: f.placeholder ?? "", value: readField(f) });
-          input.on("change", () => writeField(f, input.value()));
-          this.inputs.set(id, input);
-        }
+        // prepareInputs() makes the state; render must not create it.
+        const input = this.inputs.get(id);
+        if (!input) return div().text_size(12).text_color(t.dim).child("Loading…");
         return h_flex().id(`${id}-box`).w_full().h(30).px(10).items_center().rounded(7).bg(t.popover).border_1()
           .border_color(t.input).cursor_text()
           .child(Input.new(input).h_full().flex_1().min_w(0).text_size(12));
