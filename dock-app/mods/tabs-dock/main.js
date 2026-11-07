@@ -39,6 +39,7 @@ const DENSITIES = ["auto", "compact", "normal"];
 
 // Where the panel buttons open their panel, shared with the Kanban bar (the same keys and values as in mods/kanban).
 const KEY_PANEL_OPEN = "kanban.panelOpen"; // "auto" | "side" | "dialog"; absent: auto
+const KEY_AGENT_CARDS = "agent-cards.enabled"; // false: the sidebar shows Herdr's own agents list
 const KEY_PANEL_DIALOG = "kanban.panelDialog"; // { id, panel }: the panel dialog that is open now; null: none
 const PANEL_OPENS = ["auto", "side", "dialog"];
 const PANEL_NARROW = 1600; // px of window: below it, Auto opens a dialog
@@ -200,8 +201,15 @@ export default class Tabs extends View {
       }
     });
     // Keys open a panel as its button does: "ctrl-alt-g": "tabs-dock.graph" in keys.json. "tabs-dock.group-git"
-    // opens the menu of the Git button.
-    cx.spawn(async (cx) => { for (;;) { this.toggle(await nextCommand()); cx.notify(); } });
+    // opens the menu of the Git button. "tabs-dock.agent-cards" turns the agent cards on or off.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "agent-cards") setShared(KEY_AGENT_CARDS, shared(KEY_AGENT_CARDS) === false);
+        else this.toggle(c);
+        cx.notify();
+      }
+    });
   }
 
   // Reads dock/panels.json. A missing file is an empty list. A broken file keeps the last good list.
@@ -480,6 +488,22 @@ export default class Tabs extends View {
     return true;
   }
 
+  // The sidebar block `agents` shows the `agent-cards` mod, or Herdr's own `agents`
+  // list when the mods-hub setting `agent-cards.enabled` is off. A block with another
+  // mod is left alone. One attempt for each layout and choice, as in inject().
+  swapAgents(root) {
+    const mod = find(root, "agents")?.content?.mod;
+    if (mod !== "agents" && mod !== "agent-cards") return;
+    const want = shared(KEY_AGENT_CARDS) === false ? "agents" : "agent-cards";
+    if (mod === want) { this.agentsTry = null; return; }
+    const key = `${shared("layout")}|${want}`;
+    if (key === this.agentsTry) return;
+    this.agentsTry = key;
+    const tree = JSON.parse(JSON.stringify(root)), node = find(tree, "agents");
+    node.content = { ...node.content, mod: want };
+    run("layout.set", { layout: tree });
+  }
+
   // The side panel is remembered per space: switching shows that space's choice
   // (closed if it never had one), and opening or closing it records it.
   syncPanel(space, panel, body, enabled) {
@@ -551,6 +575,8 @@ export default class Tabs extends View {
     const commands = this.entries.filter(e => e.opens === "command");
     const panelEntries = wanted.filter(e => e.opens === "panel");
     const injecting = panel && body ? this.inject(root, body, panelEntries) : false;
+    // One layout edit for each render: the agents swap waits for the panel edit.
+    if (!injecting) this.swapAgents(root);
 
     // Files and Changes follow the welcome's choice (they are in the layout).
     const present = new Set((body?.children ?? []).map(c => c.id));

@@ -1,0 +1,15 @@
+{
+  "app": "dock-app",
+  "description": "The agents of the main-dock sidebar as cards: a small robot acts out each status (types when working, sleeps when idle, waves when it needs you, jumps when done), with sub-agents and a pin button.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app",
+  "settings": [
+    {
+      "id": "enabled",
+      "type": "bool",
+      "key": "agent-cards.enabled",
+      "default": true,
+      "label": "Agent cards",
+      "hint": "Show the agents of the main-dock sidebar as animated cards. Off: the sidebar shows Herdr's own Agents list."
+    }
+  ]
+}

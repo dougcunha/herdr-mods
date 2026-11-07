@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 10 -->
+<!-- herdr-mods-setup-version: 11 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -53,7 +53,7 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 
 For each item, read the `README.md` and the `RECIPE.md` of its folder before you copy anything. A mod copies as a whole folder (`<app>/mods/<name>/` to `~/.config/herdr-app/mods/<name>/`), a layout as a file (`<app>/layouts/<name>.json` and its `.svg`, if any, to `~/.config/herdr-app/layouts/`).
 
-1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `changes-split` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
+1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md`, `files-md-menu` and `agent-cards`. Install `agent-cards` before `tabs-dock` and the layout: the layout's `agents` block shows it, and the tab bar switches that block to `agent-cards` unless the setting **Agent cards** of Herdr Mods is off (`shared("agent-cards.enabled")` is `false`). Do not set that key yourself. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `changes-split` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
 2. `ci-dash-app`: the `ci-dash` mod.
 3. `git-dash-app`: the `git-dash` mod. It keeps a list of base folders in `shared("git-dash.roots")`. On its first start it fills the list from the folder that I chose before, else from the `root` prop of its `panels.json` entry. Do not edit `shared.json` for it.
 4. `image-viewer-app`: the `image-viewer` mod.
