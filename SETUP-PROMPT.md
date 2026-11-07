@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 6 -->
+<!-- herdr-mods-setup-version: 7 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -104,14 +104,14 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
   "panels": [
     { "id": "ci", "label": "CI", "icon": "mods/tabs-dock/ci.svg", "mod": "ci-dash" },
     { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
-    { "id": "repos", "label": "Repos", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
+    { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 1 exception: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. Entries of mods that are new in this repository (item 12) go in only if I chose to install the mod.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 12) go in only if I chose to install the mod.
 
 ### `~/.config/herdr-app/layouts/kanban.json`
 
@@ -162,7 +162,7 @@ On an update, do not change a key that is in the file: these are my own choices 
 
 ## Activate the panels
 
-The `tabs-dock` mod and the `kanban` mod add the CI, Repos and Graph panels to their layout by themselves, the first time their bar shows. Remember which layout is shown now (`herdr-app status`). Do this:
+The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to their layout by themselves, the first time their bar shows. Remember which layout is shown now (`herdr-app status`). Do this:
 
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.

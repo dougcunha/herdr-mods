@@ -76,7 +76,7 @@ Each item has an icon. For a folder on another machine, only the three Copy item
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
 | `group` | Optional. The entries with the same group share one button. `"git"` puts the entry under the **Git** button, with Changes. |
 
-**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Graph and Repos the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Graph, Repos) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
+**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Graph and Pending the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Graph, Pending) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
 
 The bar has its own icons for the panels, from [Lucide](https://lucide.dev) (ISC license): `mods/tabs-dock/files.svg`, `changes.svg`, `git.svg`, `graph.svg`, `repos.svg` and `ci.svg`. Use them in `panels.json` for a set of icons that match.
 

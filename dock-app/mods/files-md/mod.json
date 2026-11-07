@@ -1,5 +1,6 @@
 {
   "place": "none",
+  "title": "Files (Markdown)",
   "cloned_from": {
     "name": "files",
     "version": "0.1.12"

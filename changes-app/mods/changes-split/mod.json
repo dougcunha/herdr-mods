@@ -1,5 +1,6 @@
 {
   "place": "none",
+  "title": "Changes Split",
   "cloned_from": {
     "name": "changes",
     "version": "0.1.12"
