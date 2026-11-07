@@ -18,11 +18,14 @@ A status bar item for the Herdr app. It compares the version of `SETUP-PROMPT.md
 
 1. Title row: `update.svg` (18 px, `accent` when an update is available, else `muted`) and `Update the Herdr mods` (15 px, semibold).
 2. Status line: `Version <N> is available. Your last setup run: <version M | none recorded>.` in `foreground`; `You skipped version <N>. …` or `You have the newest version (<N>).` in `muted`; `Checking GitHub…` or `Could not check GitHub: <error>` in `blocked`.
-3. Explanation, 12 px, `dim`: the agent gets the prompt in a new space, installs the new mods, updates the ones the person did not change, and asks before it replaces a file that exists.
-4. Label, 12 px, semibold, `muted`: `Choose an agent to update the mods:` (or `… to run the setup again:`).
-5. Agent list: 1 row per installed agent (at most 9), 40 px tall, radius 6, `hover` fill on hover, `selected` fill while it starts. A row has the program tile (26 px: the agent icon on its tile color), the agent name, and its number (`1` to `9`) or `Starting…` at the right in `dim`.
-6. Error line, 12 px, `blocked`, when a start fails.
-7. Footer: `Check now` (or `Checking…`) at the left; `Skip version <N>` (only with an update) and `Close` at the right. Buttons are 28 px tall, 12 px side padding, radius 6, 1 px `border`.
+3. Tab row, 1 px `border` at the bottom: `Update` and `What's new`. A tab is 28 px tall, 12 px side padding, 12.5 px text. The shown tab has `foreground` semibold text and a 2 px `accent` bottom border; the other has `muted` text and a `popover` bottom border. Until the person clicks a tab, the dialog shows `What's new` when an update is available, else `Update`.
+4. **Update tab:**
+   1. Explanation, 12 px, `dim`: the agent gets the prompt in a new space, installs the new mods, updates the ones the person did not change, and asks before it replaces a file that exists.
+   2. Label, 12 px, semibold, `muted`: `Choose an agent to update the mods:` (or `… to run the setup again:`).
+   3. Agent list: 1 row per installed agent (at most 9), 40 px tall, radius 6, `hover` fill on hover, `selected` fill while it starts. A row has the program tile (26 px: the agent icon on its tile color), the agent name, and its number (`1` to `9`) or `Starting…` at the right in `dim`.
+   4. Error line, 12 px, `blocked`, when a start fails.
+5. **What's new tab:** 1 box, 280 px tall, 12 px padding, radius 6, `background` fill, 1 px `border`. It holds 1 `TextView.markdown` (scrollable, selectable) with a `## Version <N>` heading and the notes of each version, newest first. A version without notes shows `*Loading…*`, `*No notes for this version.*` (404) or `*Could not download the notes: <error>*`. Without a known GitHub version, the box shows `Checking GitHub…` (`dim`) or `Could not check GitHub, so the release notes are not known.` (`blocked`).
+6. Footer: `Check now` (or `Checking…`) at the left; `Skip version <N>` (only with an update) and `Close` at the right. Buttons are 28 px tall, 12 px side padding, radius 6, 1 px `border`.
 
 ## How it behaves
 
@@ -34,18 +37,20 @@ A status bar item for the Herdr app. It compares the version of `SETUP-PROMPT.md
 - **Prompt.** The text between `<!-- prompt-start -->` and `<!-- prompt-end -->`. When the first line is a code fence (3 or more backticks or tildes), the mod removes it and the matching last line. A missing marker is an error: `SETUP-PROMPT.md has no prompt-start and prompt-end markers`.
 - **Start.** A click on an agent (or its number key) downloads the file again, writes the prompt to `<appHome>/data/herdr-mods-setup-prompt.md` (`writeTextFile` with the old content as `expected`), and runs `space.new {name: "Mods update", folder: appHome(), argv: agent.run, task}`. The task is 1 line: `Read the file <path> and follow the instructions in it. It is the prompt of SETUP-PROMPT.md, version <N>, from https://github.com/dougcunha/herdr-mods.` Then the mod focuses the new terminal (it compares `panes()` before and after, for at most 2 s) and closes the dialog.
 - **Agents.** `knownAgents()` filtered to `installed` with a `run` entry.
+- **Release notes.** `whats-new/<N>.md` in the repository: English markdown, a list of changes, no title (the mod adds `## Version <N>`). The tab shows the versions `local + 1` to `remote` (at most 10, newest first); when `local >= remote`, only `remote`. The dialog downloads each file once (`fetch` of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/whats-new/<N>.md`), after it reads the local version and after each check. A 404 is "no notes", not an error. **Check now** downloads the notes again. The notes stay in the memory of the dialog only.
+- **Number keys** start an agent only on the `Update` tab.
 
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "Mods update", "overlay": { "kind": "dialog", "width": 460 } }`. Create it **before** `main.js`.
-- `setup.js`: the constants, `parseSetup(text)`, `download()`, `installedVersion()`, `writePrompt(prompt)`, `state()`, `setState(patch)` and `updateAvailable(local)`. It imports `appHome`, `readTextFile`, `writeTextFile`, `shared`, `setShared` from `herdr`.
-- `main.js`: 1 `View` with 2 modes. `props().overlay` set: the dialog. Not set: the status item. It imports `View`, `div`, `svg`, `image` from `gpui-kit`, `h_flex`, `v_flex` from `gpui-base`, and `theme`, `props`, `run`, `notify`, `closeOverlay`, `knownAgents`, `panes`, `appHome`, `nextCommand` from `herdr`.
+- `setup.js`: the constants (`notesUrl(n)`, `MAX_NOTES` = 10), `parseSetup(text)`, `download()`, `downloadNotes(n)` (text, or null on 404), `noteVersions(local, remote)`, `installedVersion()`, `writePrompt(prompt)`, `state()`, `setState(patch)` and `updateAvailable(local)`. It imports `appHome`, `readTextFile`, `writeTextFile`, `shared`, `setShared` from `herdr`.
+- `main.js`: 1 `View` with 2 modes. `props().overlay` set: the dialog. Not set: the status item. It imports `View`, `div`, `svg`, `image` from `gpui-kit`, `h_flex`, `v_flex`, `TextView` from `gpui-base`, and `theme`, `props`, `run`, `notify`, `closeOverlay`, `knownAgents`, `panes`, `appHome`, `nextCommand` from `herdr`.
 - Icons: `update.svg`, `check.svg`, `refresh.svg` (24×24, stroke `currentColor`, width 2).
 - In `SETUP-PROMPT.md`: the version line at the top, the 2 markers around the prompt, and the step "Record the run" that writes `version`.
 
 ## Watch out
 
-- **Disclose this before installing.** The mod uses the network (1 GET to `raw.githubusercontent.com`), reads and writes 1 file each in `~/.config/herdr-app/data/`, and starts an agent with a prompt that changes your Herdr files. It runs no `exec`.
+- **Disclose this before installing.** The mod uses the network (GETs to `raw.githubusercontent.com`: `SETUP-PROMPT.md`, and the `whats-new/<N>.md` files in the dialog), reads and writes 1 file each in `~/.config/herdr-app/data/`, and starts an agent with a prompt that changes your Herdr files. It runs no `exec`.
 - **Long text in `task`.** Do not pass the prompt itself as the task. It has about 17 KB of text with many lines, quotes, `$` and backticks. The mod writes it to a file and the task is 1 line.
 - **Trust prompt.** Claude Code asks to trust `~/.config/herdr-app` the first time. The task waits and runs after the person accepts. Tested.
 - **`mod.open` toggles.** A second `mod.open` closes the dialog.

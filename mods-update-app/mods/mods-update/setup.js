@@ -6,7 +6,13 @@ import { appHome, readTextFile, writeTextFile, shared, setShared } from "herdr";
 
 export const MOD = "mods-update";
 export const REPO = "https://github.com/dougcunha/herdr-mods";
-export const SOURCE = "https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md";
+const RAW = "https://raw.githubusercontent.com/dougcunha/herdr-mods/main";
+export const SOURCE = `${RAW}/SETUP-PROMPT.md`;
+/** The release notes of version `n`: `whats-new/<n>.md`. */
+export const notesUrl = (n) => `${RAW}/whats-new/${n}.md`;
+
+/** The most versions that the "What's new" tab shows. */
+export const MAX_NOTES = 10;
 
 /** How often a copy downloads SETUP-PROMPT.md again. */
 export const CHECK_EVERY = 6 * 60 * 60 * 1000;
@@ -54,6 +60,32 @@ export async function download() {
   const setup = parseSetup(await res.text());
   if (setup.version == null) throw new Error("SETUP-PROMPT.md has no version line");
   return setup;
+}
+
+/**
+ * Downloads the release notes of version `n` (`whats-new/<n>.md`).
+ * Resolves with the markdown text, or null when the file does not exist (404).
+ * Rejects on a network error or another HTTP status.
+ */
+export async function downloadNotes(n) {
+  const res = await fetch(notesUrl(n));
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+  const text = String(await res.text()).replace(/\r\n/g, "\n").trim();
+  return text || null;
+}
+
+/**
+ * The versions that the "What's new" tab shows, newest first: the versions
+ * after the last run here, up to the version on GitHub (at most MAX_NOTES).
+ * When this machine has the newest version, only that version.
+ */
+export function noteVersions(local, remote) {
+  if (remote == null || remote < 1) return [];
+  const first = Math.max(local < remote ? local + 1 : remote, remote - MAX_NOTES + 1, 1);
+  const out = [];
+  for (let n = remote; n >= first; n--) out.push(n);
+  return out;
 }
 
 /**

@@ -6,13 +6,14 @@
 // (data/herdr-mods-setup.json). When GitHub has a newer version, it shows an
 // "Update mods" button and posts 1 toast. The button (or `mod.open`) opens
 // this mod as a dialog: the person chooses an agent, and the mod starts it
-// in a new space with the prompt of SETUP-PROMPT.md.
+// in a new space with the prompt of SETUP-PROMPT.md. The "What's new" tab of
+// the dialog shows the release notes in whats-new/<version>.md.
 
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, TextView } from "gpui-base";
 import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand } from "herdr";
 import {
-  MOD, REPO, CHECK_EVERY, icon, download, installedVersion, writePrompt,
+  MOD, REPO, CHECK_EVERY, icon, download, downloadNotes, noteVersions, installedVersion, writePrompt,
   state, setState, updateAvailable,
 } from "./setup.js";
 
@@ -62,6 +63,8 @@ export default class ModsUpdate extends View {
   check(cx, force) {
     if (this.checking) return;
     if (!force && Date.now() - (state().checkedAt ?? 0) < CHECK_EVERY) return;
+    // In the dialog, a forced check also downloads the release notes again.
+    if (this.dialog && force) this.notes.clear();
     this.checking = true;
     cx.notify();
     cx.spawn(async (cx) => {
@@ -74,6 +77,26 @@ export default class ModsUpdate extends View {
       }
       this.checking = false;
       this.announce();
+      if (this.dialog) this.loadNotes(cx);
+      cx.notify();
+    });
+  }
+
+  /** Downloads the release notes that the "What's new" tab shows and that are not loaded yet. */
+  loadNotes(cx) {
+    if (this.local == null) return;
+    const wanted = noteVersions(this.local, state().remote).filter((n) => !this.notes.has(n));
+    if (!wanted.length) return;
+    for (const n of wanted) this.notes.set(n, { loading: true });
+    cx.notify();
+    cx.spawn(async (cx) => {
+      await Promise.all(wanted.map(async (n) => {
+        try {
+          this.notes.set(n, { text: await downloadNotes(n) });
+        } catch (e) {
+          this.notes.set(n, { error: errorText(e) });
+        }
+      }));
       cx.notify();
     });
   }
@@ -101,11 +124,14 @@ export default class ModsUpdate extends View {
     this.agents = null; // installed agents; null until known
     this.busy = null; // the key of the agent that starts
     this.launchError = null;
+    this.tab = null; // "update" or "news"; null: "news" when an update is available, else "update"
+    this.notes = new Map(); // version -> { loading } | { text } (null text: no file) | { error }
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.timer.after(40, () => this.handle.focus());
     cx.spawn(async (cx) => {
       this.local = await installedVersion();
+      this.loadNotes(cx);
       cx.notify();
       try {
         this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length);
@@ -174,7 +200,14 @@ export default class ModsUpdate extends View {
     cx.notify();
   }
 
+  /** The tab that the dialog shows. */
+  shownTab() {
+    if (this.tab) return this.tab;
+    return this.local != null && updateAvailable(this.local) ? "news" : "update";
+  }
+
   onKey(e, cx) {
+    if (this.shownTab() !== "update") return;
     const n = Number(e.key);
     if (Number.isInteger(n) && n >= 1 && n <= 9 && this.agents?.[n - 1]) this.launch(this.agents[n - 1], cx);
   }
@@ -244,6 +277,24 @@ export default class ModsUpdate extends View {
       });
     const list = v_flex().w_full().gap(2).children(rows);
 
+    const tab = this.shownTab();
+    const tabButton = (key, label) => {
+      const on = tab === key;
+      return h_flex().id(`mu-tab-${key}`).h(28).px(12).items_center().cursor_pointer().text_size(12.5)
+        .border_b(2).border_color(on ? t.accent : t.popover)
+        .text_color(on ? t.foreground : t.muted).when(on, (el) => el.font_semibold())
+        .hover((st) => st.text_color(t.foreground))
+        .on_click((_e, cx) => {
+          this.tab = key;
+          if (key === "news") this.loadNotes(cx);
+          cx.notify();
+        })
+        .child(label);
+    };
+    const tabs = h_flex().w_full().gap(4).border_b(1).border_color(t.border)
+      .child(tabButton("update", "Update"))
+      .child(tabButton("news", "What's new"));
+
     const footButton = (id, label, onClick) =>
       h_flex().id(id).h(28).px(12).items_center().rounded(6).cursor_pointer().text_size(12.5)
         .border_1().border_color(t.border).text_color(t.foreground)
@@ -258,19 +309,43 @@ export default class ModsUpdate extends View {
         .child(svg(icon("update")).size(18).text_color(update ? t.accent : t.muted))
         .child(div().text_size(15).font_semibold().child("Update the Herdr mods")))
       .child(div().text_color(statusColor).child(status))
-      .child(div().text_size(12).text_color(t.dim).child(
-        "The agent that you choose gets the prompt of SETUP-PROMPT.md in a new space. "
-        + "It installs the new mods and updates the ones that you did not change. "
-        + "It asks you before it replaces a file that exists."))
-      .child(div().text_size(12).font_semibold().text_color(t.muted)
-        .child(update ? "Choose an agent to update the mods:" : "Choose an agent to run the setup again:"))
-      .child(list)
-      .when(!!this.launchError, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.launchError)))
+      .child(tabs)
+      .when(tab === "update", (el) => el
+        .child(div().text_size(12).text_color(t.dim).child(
+          "The agent that you choose gets the prompt of SETUP-PROMPT.md in a new space. "
+          + "It installs the new mods and updates the ones that you did not change. "
+          + "It asks you before it replaces a file that exists."))
+        .child(div().text_size(12).font_semibold().text_color(t.muted)
+          .child(update ? "Choose an agent to update the mods:" : "Choose an agent to run the setup again:"))
+        .child(list)
+        .when(!!this.launchError, (el) => el.child(div().text_size(12).text_color(t.blocked).child(this.launchError))))
+      .when(tab === "news", (el) => el.child(this.renderNotes(t, local, s.remote)))
       .child(h_flex().w_full().pt(4).gap(8).items_center()
         .child(footButton("mu-check", this.checking ? "Checking…" : "Check now", (cx) => this.check(cx, true)))
         .child(div().flex_1())
         .when(update, (el) => el.child(footButton("mu-skip", `Skip version ${s.remote}`, (cx) => this.skip(cx))))
         .child(footButton("mu-close", "Close", () => this.close())));
+  }
+
+  /** The "What's new" tab: the notes of each version, newest first, in 1 scrollable box. */
+  renderNotes(t, local, remote) {
+    const versions = this.local == null ? [] : noteVersions(local, remote);
+    const box = div().w_full().h(280).p(12).rounded(6).bg(t.background).border_1().border_color(t.border)
+      .text_size(12.5).text_color(t.foreground);
+    const message = (text, color = t.dim) => box.child(div().text_size(12).text_color(color).child(text));
+    if (this.local == null || (remote == null && this.checking)) return message("Checking GitHub…");
+    if (!versions.length) return message("Could not check GitHub, so the release notes are not known.", t.blocked);
+    const parts = versions.map((n) => {
+      const note = this.notes.get(n);
+      const body = !note || note.loading ? "*Loading…*"
+        : note.error ? `*Could not download the notes: ${note.error}*`
+        : note.text ?? "*No notes for this version.*";
+      return `## Version ${n}\n\n${body}`;
+    });
+    const markdown = parts.join("\n\n");
+    // A new id when the text changes makes the view draw the new text.
+    const id = `mu-notes-${versions.join("-")}-${markdown.length}`;
+    return box.child(TextView.markdown(id, markdown).scrollable(true).selectable(true).size_full());
   }
 }
 

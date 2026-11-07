@@ -18,10 +18,15 @@ A status bar item for the Herdr app. It tells you when this repository has a new
 
 The prompt finds out by itself what is installed. It installs the new mods, updates the files that you did not change, and asks you about the files that you changed.
 
+The dialog has 2 tabs:
+
+- **Update:** the list of agents.
+- **What's new:** the release notes of each version after your last run, newest first. The mod downloads them from [`whats-new/<N>.md`](../whats-new). When you have the newest version, the tab shows the notes of that version. When an update is available, the dialog opens on this tab.
+
 In the dialog:
 
-- `1` to `9` choose an agent.
-- **Check now** downloads `SETUP-PROMPT.md` again.
+- `1` to `9` choose an agent (on the **Update** tab).
+- **Check now** downloads `SETUP-PROMPT.md` and the release notes again.
 - **Skip version N** hides the button until a newer version comes. The dialog still opens from the dim item, so you can run the setup again at any time.
 - `herdr-app do mods-update.check` checks GitHub from a shell (the status item must be on screen).
 
@@ -42,7 +47,7 @@ The `SETUP-PROMPT.md` prompt does these steps for the `main-dock` and `kanban` l
 
 ## What it runs
 
-- **Network:** 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md` at start, every 6 hours, on **Check now** and when you choose an agent.
+- **Network:** 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md` at start, every 6 hours, on **Check now** and when you choose an agent. In the dialog, 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/whats-new/<N>.md` for each version that the **What's new** tab shows (at most 10).
 - **Files:** it reads `data/herdr-mods-setup.json` and writes `data/herdr-mods-setup-prompt.md`, both in `~/.config/herdr-app`.
 - **Programs:** no `exec`. It starts the agent that you choose with the `space.new` command, with the `run` entry of that agent in Herdr's program table.
 - **Shared state:** the key `mods-update` in Herdr's shared state holds the version on GitHub, the time of the last check, the version that you skipped and the version that got a toast.
@@ -51,4 +56,4 @@ The `SETUP-PROMPT.md` prompt does these steps for the `main-dock` and `kanban` l
 
 - The first time an agent starts in `~/.config/herdr-app`, the agent can ask you to trust the folder. Claude Code does. The task stays in the queue: accept, and the agent starts the update.
 - The agent does the update, not the mod. Read the plan of the agent before you accept it.
-- The repository owner must increase the version in `SETUP-PROMPT.md` when a mod, a layout or a theme changes. Otherwise the button does not show.
+- The repository owner must increase the version in `SETUP-PROMPT.md` when a mod, a layout or a theme changes. Otherwise the button does not show. In the same commit, the owner adds `whats-new/<N>.md` with the changes of that version.

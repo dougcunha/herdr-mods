@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 2 -->
+<!-- herdr-mods-setup-version: 3 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-update`
@@ -63,7 +63,7 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
-11. `mods-update-app`: the `mods-update` mod. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md` from GitHub, reads `data/herdr-mods-setup.json` and, when I click its button, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts the agent that I choose.
+11. `mods-update-app`: the `mods-update` mod. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md` and the release notes in `whats-new/` from GitHub, reads `data/herdr-mods-setup.json` and, when I click its button, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts the agent that I choose.
 12. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
