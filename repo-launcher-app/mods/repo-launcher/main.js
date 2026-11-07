@@ -17,7 +17,7 @@ import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKe
 import { agentArgv, open, spacesFor } from "./launch.js";
 import {
   settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened, lastOpened,
-  boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut,
+  boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut, agentCache, setAgentCache,
 } from "./store.js";
 import {
   icon, GOLD, tint, spaceColor, repoColor, letterTile, programTile, pill, kbd, hint, toggle,
@@ -41,7 +41,7 @@ const MODES = [
 const MODE_TEXT = { tab: "in a new tab", split: "in a split to the right", go: "" };
 
 // Kept between openings of the popup, so the next one draws at once.
-const memory = { agents: null, accounts: null, scanningSince: 0 };
+const memory = { accounts: null, scanningSince: 0, checkingAgents: false };
 const isScanning = () => Date.now() - memory.scanningSince < 120000;
 
 export default class RepoLauncher extends View {
@@ -73,19 +73,14 @@ export default class RepoLauncher extends View {
       if (this.view === "list") this.query.focus();
     });
 
-    this.agents = memory.agents ?? [];
+    // The agents come from shared state. Only the first open (no list yet)
+    // and the Refresh button in the settings ask Herdr again.
+    const savedAgents = agentCache().list;
+    this.agents = savedAgents ?? [];
     this.accounts = memory.accounts ?? [];
     this.argInputs = {};
     this.ensureArgInputs();
-    cx.spawn(async (cx) => {
-      try {
-        this.agents = (await knownAgents()).filter((a) => a.installed);
-        memory.agents = this.agents;
-        // The agents can arrive after the settings view opened.
-        this.ensureArgInputs();
-      } catch {}
-      cx.notify();
-    });
+    if (!savedAgents) this.refreshAgents(cx);
     if (isWindows()) cx.spawn(async () => { await powershell(); });
     cx.spawn(async (cx) => {
       this.accounts = await detectAccounts();
@@ -290,6 +285,32 @@ export default class RepoLauncher extends View {
     this.ensureArgInputs();
     this.focusRoot(cx);
     cx.notify();
+  }
+
+  /**
+   * Asks Herdr for the installed agents and saves the list in shared state.
+   * Herdr starts a shell for this check, so it runs only on the first open
+   * and when a person clicks Refresh. `loud`: show a toast with the result.
+   */
+  refreshAgents(cx, { loud = false } = {}) {
+    if (memory.checkingAgents) return;
+    memory.checkingAgents = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const list = (await knownAgents()).filter((a) => a.installed);
+        this.agents = list;
+        setAgentCache(list);
+        // The agents can arrive after the settings view opened.
+        this.ensureArgInputs();
+        if (loud) notify({ title: "Agents updated", body: `${list.length} installed agent${list.length === 1 ? "" : "s"} found.`, level: "success" });
+      } catch (e) {
+        if (loud) notify({ title: "Could not read the agents", body: String(e?.message ?? e), level: "error" });
+      } finally {
+        memory.checkingAgents = false;
+      }
+      cx.notify();
+    });
   }
 
   /**
@@ -859,7 +880,14 @@ export default class RepoLauncher extends View {
           .child(this.argInputs[agent.key]
             ? Input.new(this.argInputs[agent.key]).flex_1().h_full().text_size(12).font_family(appSettings().font_family ?? "JetBrains Mono")
             : div()))))
-      .when(this.agents.length === 0, (e) => e.child(div().text_size(12).text_color(t.dim).child("Looking for installed agents…")));
+      .when(this.agents.length === 0, (e) => e.child(div().text_size(12).text_color(t.dim)
+        .child(memory.checkingAgents ? "Looking for installed agents…" : "No installed agents found.")))
+      .child(h_flex().gap(8).pt(2).items_center()
+        .child(button(t, "rl-refresh-agents", memory.checkingAgents ? "Checking…" : "Refresh agents",
+          (cx) => this.refreshAgents(cx, { loud: true }), { symbol: "refresh" }))
+        .child(div().flex_1())
+        .child(div().text_size(11).text_color(t.dim)
+          .child(agentCache().checkedAt ? `Checked ${ago(agentCache().checkedAt)}` : "")));
 
     // Accounts.
     const accountRows = [];
@@ -893,7 +921,7 @@ export default class RepoLauncher extends View {
       .child(this.card(t, "Repository folders", `The launcher looks for Git repositories down to 3 folder levels under each folder. It reads them again only when you add or remove a folder, or click Refresh.`, roots))
       .child(this.card(t, "Open space", "A repository has an open space when one of the space's terminals works in it.", reuse))
       .child(this.card(t, "Shortcut", "The keys that open this launcher.", shortcut))
-      .child(this.card(t, "Agent arguments", "Added after the command of each agent, for example --dangerously-skip-permissions.", args))
+      .child(this.card(t, "Agent arguments", "Added after the command of each agent, for example --dangerously-skip-permissions. The launcher keeps the list of agents. Click Refresh agents after you install or remove an agent.", args))
       .child(this.card(t, "Accounts", "Each account is a configuration folder. The launcher finds ~/.claude, ~/.claude-*, ~/.codex and ~/.codex-* itself.", accounts));
 
     return v_flex().size_full().min_h(0).child(head).child(body)

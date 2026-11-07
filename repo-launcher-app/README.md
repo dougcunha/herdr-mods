@@ -12,6 +12,7 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Accounts.** The launcher finds `~/.claude`, `~/.claude-*`, `~/.codex` and `~/.codex-*` and shows the e-mail of each account. You can add other account folders in the settings.
 - **Agent arguments.** Extra arguments per agent, for example `--dangerously-skip-permissions` for Claude Code or `--yolo` for Codex.
 - **Cached list.** The launcher reads the root folders only when you add or remove one, or click Refresh (`Ctrl+R`). It never reads the disk when the popup opens.
+- **Cached agents.** The launcher keeps the list of installed agents in shared state, so the popup opens without starting a shell. After you install or remove an agent, click **Refresh agents** in the settings.
 - **Shortcut.** Change it in the settings: click **Change** and press the new keys. The launcher writes it to `keys.json`.
 
 ![The choices of a repository: a terminal, and each agent with each of its accounts](preview-choices.png)

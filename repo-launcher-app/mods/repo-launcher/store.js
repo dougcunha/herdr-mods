@@ -11,6 +11,7 @@ export const OPEN_ACTION = `mod.open:${MOD}`;
 const SETTINGS = `${MOD}.settings`;
 const CACHE = `${MOD}.cache`;
 const SHORTCUT_STAMP = `${MOD}.shortcut-changed`;
+const AGENTS = `${MOD}.agents`;
 
 const DEFAULTS = {
   roots: [],
@@ -39,6 +40,19 @@ export function cache() {
 
 export function setCache(value) {
   setShared(CACHE, value);
+}
+
+/**
+ * The installed agents, as knownAgents() gave them, and the time of that
+ * check: `{ list, checkedAt }`. Asking for the agents starts a shell, so the
+ * launcher asks only when this is empty or when a person clicks Refresh.
+ */
+export function agentCache() {
+  return { list: null, checkedAt: null, ...(shared(AGENTS) ?? {}) };
+}
+
+export function setAgentCache(list) {
+  setShared(AGENTS, { list, checkedAt: Date.now() });
 }
 
 export function isFavorite(path) {
