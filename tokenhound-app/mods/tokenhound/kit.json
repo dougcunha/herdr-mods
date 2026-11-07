@@ -1,0 +1,35 @@
+{
+  "app": "tokenhound-app",
+  "description": "The quotas of the TokenHound HUD (Claude, Codex, Copilot and more): a status bar item, a Dock panel and an optional sidebar section. It reads the hud.json file of TokenHound.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/tokenhound-app",
+  "settings": [
+    {
+      "id": "status-metric",
+      "type": "enum",
+      "key": "tokenhound.statusMetric",
+      "default": "session",
+      "label": "Status bar value",
+      "hint": "What the status bar item shows for each provider.",
+      "options": [
+        { "value": "session", "label": "Session" },
+        { "value": "both", "label": "Session · week" }
+      ]
+    },
+    {
+      "id": "hidden",
+      "type": "text",
+      "key": "tokenhound.hidden",
+      "default": "",
+      "label": "Hidden providers",
+      "hint": "Provider ids to leave out of every view, separated by commas, for example: gemini, claude-pessoal.",
+      "placeholder": "gemini, opencode"
+    },
+    {
+      "id": "open-key",
+      "type": "key",
+      "action": "tokenhound.open",
+      "label": "Shortcut of the TokenHound panel",
+      "hint": "Saved in keys.json. Opens the panel as a dialog."
+    }
+  ]
+}

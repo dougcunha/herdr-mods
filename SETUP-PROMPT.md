@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 9 -->
+<!-- herdr-mods-setup-version: 10 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -65,7 +65,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
 11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, asks GitHub's public API once a day for the last commit of each installed third-party mod (no token, nothing about me), reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent. Its **Settings** tab writes the shared keys that the `kit.json` files of the mods name, and `keys.json` when I change a shortcut there. Do not set `shared("herdr-mods.lang")` (the kit language): it is my choice in that tab. The `"lang"` props that "Configure" writes stay as the first value.
     **Move from `mods-update`.** Before version 5 this mod was `mods-update` (folder `mods-update-app`). If `~/.config/herdr-app/mods/mods-update/` exists: back it up (rule 11), install `mods-hub`, then in `layouts/main-dock.json`, `layouts/kanban.json` and every other layout of mine in `layouts/` that has it, change the block `{ "id": "mods-update", "content": { "mod": "mods-update" } }` to `{ "id": "mods-hub", "content": { "mod": "mods-hub" } }` (keep its `size` and its place), then delete the folder `mods/mods-update/`. If my `mods-update` folder has files that equal no version of the repository (rule 3; look in the history of the old path `mods-update-app/mods/mods-update/`), show me the difference and ask before you delete it. Do not copy `shared("mods-update")`: the new mod reads it by itself.
-12. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
+13. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -160,12 +161,26 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
     { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
-    { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } }
+    { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
+    { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 12) go in only if I chose to install the mod.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 13) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed.
+
+### The places of `tokenhound`
+
+Do this only when the `tokenhound` mod is installed. If the `kanban` step above gave `"lang"` to its blocks, give the same `"lang"` to the `props` of the blocks below. Do it AFTER "Activate the panels": the `tabs-dock` and `kanban` mods rewrite their layout when they add the Quota panel, and a block written at the same moment can be lost. Read the layout file again after each change.
+
+1. In `layouts/main-dock.json` and `layouts/kanban.json`, add this block to the `children` of `status-row`, right after the `status` block, if no block with this id is there:
+   ```json
+   { "id": "tokenhound-status", "type": "block", "content": { "mod": "tokenhound", "props": { "part": "status" } }, "size": { "px": 260 } }
+   ```
+2. Ask me whether I want the TokenHound section under the agents list of `main-dock`. If yes, add this block to the `children` of `sidebar-lists` in `layouts/main-dock.json`, right after the `agents` block, if no block with this id is there:
+   ```json
+   { "id": "tokenhound-section", "type": "block", "content": { "mod": "tokenhound", "props": { "part": "section" } }, "size": { "px": 186 }, "min": 60 }
+   ```
 
 ### `~/.config/herdr-app/layouts/kanban.json`
 
@@ -220,8 +235,9 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.
-3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `graph`, and `insights` if it is a panel).
-4. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
+3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `graph`, `quota`, and `insights` if it is a panel).
+4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed.
+5. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
 
 ## Verify
 
@@ -232,7 +248,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 5. The Changes panel of `main-dock` and `kanban` shows the `Unified` and `Split` buttons in its header.
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
-8. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+8. If `tokenhound` is installed and TokenHound runs, the status bar of `main-dock` and `kanban` shows one agent icon and one percent for each provider, and `herdr-app do tokenhound.open` opens one dialog with `Live` in its header. Close the dialog with `herdr-app do overlay.close`.
+9. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 
