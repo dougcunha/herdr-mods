@@ -5,6 +5,7 @@
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 //   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
+//   "gear-menu" the menu of the gear button: Herdr's settings or Herdr Mods, a popup (the bar opens it, see openGear).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
@@ -14,6 +15,7 @@ import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop } from "./ui.js";
 import { WaitingTracker } from "./waiting.js";
 
+const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: props.lang
 const KEY_HIDDEN = "kanban.hidden"; // ids of the hidden columns
 const KEY_WAITING = "kanban.waiting"; // "on" | "off"; absent: props.waiting (on unless it is false)
 const KEY_DISMISSED = "kanban.waiting.dismissed"; // { "<terminal>": turn }: cards the person sent back to Done/Idle, for that turn
@@ -149,6 +151,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
+    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
     newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
@@ -189,6 +192,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
+    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
     newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
@@ -270,9 +274,8 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "group-menu", "clone-menu"].includes(this.props.part) ? this.props.part : "board";
-    this.lang = STR[this.props.lang] ? this.props.lang : "en";
-    if (this.part === "panel-title" || this.part === "group-menu" || this.part === "clone-menu") {
+    this.part = ["bar", "panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.props.part) ? this.props.part : "board";
+    if (["panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
       return;
     }
@@ -303,11 +306,13 @@ export default class Kanban extends View {
       });
       // "kanban.panel-open" steps where the panels open, as the button does. "kanban.panel-<id>" opens or
       // closes the panel <id> (files, changes, or an id of dock/panels.json), as its button does.
-      // "kanban.group-<id>" opens the menu of a group button (kanban.group-git).
+      // "kanban.group-<id>" opens the menu of a group button (kanban.group-git). "kanban.gear" does what the
+      // gear button does.
       cx.spawn(async (cx) => {
         for (;;) {
           const cmd = String(await nextCommand());
           if (cmd === "panel-open") this.stepPanelOpen();
+          else if (cmd === "gear") this.openGear();
           else if (cmd.startsWith("group-")) this.openGroup(cmd.slice(6));
           else if (cmd.startsWith("panel-")) this.togglePanel(cmd.slice(6));
           cx.notify();
@@ -321,6 +326,12 @@ export default class Kanban extends View {
     cx.timer.every(30000, (cx) => {
       if (this.waitingOn() && this.tracker.waits.size) this.syncWaiting(cx, true);
     });
+  }
+
+  /** The language: the kit setting `herdr-mods.lang` when it is set, else the `lang` prop, else English. */
+  get lang() {
+    const kit = shared(KEY_LANG);
+    return STR[kit] ? kit : STR[this.props?.lang] ? this.props.lang : "en";
   }
 
   s(key, vars) {
@@ -700,6 +711,35 @@ export default class Kanban extends View {
   pick(id) {
     run(`kanban.panel-${id}`);
     if (this.overlay) closeOverlay(this.overlay);
+  }
+
+  /** The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
+   *  Without it, it opens Herdr's settings, as before. */
+  openGear() {
+    const settingsOnly = () => run("app.settings");
+    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => {
+      if (text == null) return settingsOnly();
+      openOverlay({ mod: "kanban", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + 2 * MENU_ROW,
+        props: { part: "gear-menu", lang: this.lang } });
+    }, settingsOnly);
+  }
+
+  /** The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+   *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. */
+  gearMenu(t) {
+    const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
+    const row = (id, symbol, label, fn) => h_flex().id(`kb-gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
+      .cursor_pointer().text_size(13).text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { cx.stop_propagation(); go(fn); })
+      .child(svg(icon(symbol)).size(15).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(label));
+    return v_flex().id("kb-gear-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
+      .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
+      .child(row("mods", "mods", this.s("gearMods"), () => {
+        setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
+        run("mod.open", { name: "mods-hub" });
+      }));
   }
 
   /** Opens the menu of the duplicate button of a card at the pointer: duplicate in the same space, or in a new worktree. */
@@ -1262,7 +1302,7 @@ export default class Kanban extends View {
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
         .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
         .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close")))));
-    const settingsButton = iconButton(t, "kb-settings", "settings", () => run("app.settings"),
+    const settingsButton = iconButton(t, "kb-settings", "settings", () => this.openGear(),
       { size: 28, tooltip: this.s("settingsTip") });
     const newAgent = button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "bot", iconOnly: compact });
     const chips = this.columns().map((c) => {
@@ -1323,6 +1363,7 @@ export default class Kanban extends View {
     if (this.part === "panel-title") return this.panelTitle(t);
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "clone-menu") return this.cloneMenu(t);
+    if (this.part === "gear-menu") return this.gearMenu(t);
     this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)

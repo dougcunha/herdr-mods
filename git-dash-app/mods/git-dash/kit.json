@@ -1,5 +1,22 @@
 {
   "app": "git-dash-app",
   "description": "The pending work of every Git repository under your base folders: unpushed commits, changed files, stash, conflicts and merged branches, with safe fixes.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-dash-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-dash-app",
+  "settings": [
+    {
+      "id": "roots",
+      "type": "folder-list",
+      "key": "git-dash.roots",
+      "label": "Repository folders",
+      "hint": "Git Dash looks for Git repositories in each folder. Every Git Dash panel uses this list."
+    },
+    {
+      "id": "fetch",
+      "type": "bool",
+      "key": "git-dash.fetch",
+      "default": false,
+      "label": "Fetch on refresh",
+      "hint": "Run git fetch in each repository before it is read, so the behind counts are current. Slower."
+    }
+  ]
 }

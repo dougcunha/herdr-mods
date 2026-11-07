@@ -80,7 +80,14 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 | `mods/kanban/` | One mod with two parts, chosen by `props.part`: `bar` and `board`. They share state through `shared()`. `waiting.js` finds the agents that wait for subagents. |
 
 Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
-`kanban` blocks in the layout for Portuguese.
+`kanban` blocks in the layout for Portuguese. With the `mods-hub` mod, the
+**Language** setting of its **Kit** section (`shared("herdr-mods.lang")`) wins
+over the prop, in every bar of the kit, and changes the bar at once. The text
+in the search box changes after a restart.
+
+The gear button of the bar runs Herdr's settings. With the `mods-hub` mod
+installed, it opens a menu instead: **Herdr settings** or **Herdr Mods** (the
+dialog on its **Settings** tab). `kanban.gear` in `keys.json` does the same.
 
 ## What it does on your machine
 

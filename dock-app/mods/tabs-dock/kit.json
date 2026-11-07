@@ -1,5 +1,51 @@
 {
   "app": "dock-app",
   "description": "The tab bar of the main-dock layout, with buttons that show or hide the side panels (Changes, CI, Repos, Graph and more) from dock/panels.json.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app",
+  "settings": [
+    {
+      "id": "density",
+      "type": "enum",
+      "key": "kanban.density",
+      "default": "auto",
+      "label": "Button density",
+      "hint": "Auto shows the names of the bar buttons from 2250 px of bar width. Shared by the Kanban bar and the Dock bar.",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto"
+        },
+        {
+          "value": "compact",
+          "label": "Icons only"
+        },
+        {
+          "value": "normal",
+          "label": "Names"
+        }
+      ]
+    },
+    {
+      "id": "panel-open",
+      "type": "enum",
+      "key": "kanban.panelOpen",
+      "default": "auto",
+      "label": "Where panels open",
+      "hint": "Auto opens a panel at the side when the window is wide, else in a dialog. Shared by the Kanban bar and the Dock bar.",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto"
+        },
+        {
+          "value": "side",
+          "label": "Side"
+        },
+        {
+          "value": "dialog",
+          "label": "Dialog"
+        }
+      ]
+    }
+  ]
 }

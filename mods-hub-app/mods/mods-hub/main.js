@@ -11,15 +11,20 @@
 // with the prompt of SETUP-PROMPT.md).
 
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex, v_flex, TextView } from "gpui-base";
-import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand } from "herdr";
+import { h_flex, v_flex, TextView, InputState, Input } from "gpui-base";
+import { theme, props, run, notify, closeOverlay, knownAgents, panes, appHome, nextCommand, pickFolder } from "herdr";
+import { toggle, segmented, stepper, textButton, kbd } from "./ui.js";
+import { boundKeys, actionOf, prettyKeys, chordOf, bindKey } from "./keys.js";
+import { readField, writeField, sameFolder, normFolder } from "./fields.js";
 import {
   MOD, REPO, CHECK_EVERY, icon, download, downloadNotes, downloadReadme, noteVersions, installedVersion, readRecord,
   writePrompt, state, setState, updateAvailable,
 } from "./setup.js";
 import { scanMods, checkChanges } from "./mods.js";
 
-const TABS = [["mods", "Mods"], ["news", "What's new"], ["update", "Update"]];
+const TABS = [["mods", "Mods"], ["settings", "Settings"], ["news", "What's new"], ["update", "Update"]];
+/** The mod whose `settings` make the "Kit" section: the settings of the whole kit. */
+const KIT_SECTION = MOD;
 const ORIGINS = [["kit", "Kit"], ["third", "Third-party"], ["manual", "Manual"], ["herdr", "Herdr"]];
 
 /** A color with an alpha suffix (`"#rrggbb" + "aa"`). Other colors pass through. */
@@ -138,6 +143,11 @@ export default class ModsUpdate extends View {
     this.filter = "kit";
     this.openMod = null; // the name of the expanded row
     this.readme = null; // { app, name, loading } | { app, name, text } | { app, name, error }
+    // Settings tab
+    this.capture = null; // { id, action }: a key field that waits for the new keys
+    this.keyAsk = null; // { action, chord, other }: the new keys run another action now
+    this.keyError = null;
+    this.inputs = new Map(); // field id -> InputState of a text field
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.timer.after(40, () => this.handle.focus());
@@ -271,12 +281,81 @@ export default class ModsUpdate extends View {
   selectTab(key, cx) {
     this.tab = key;
     this.readme = null;
+    this.capture = null;
+    this.keyAsk = null;
     setState({ tab: key });
     if (key === "news") this.loadNotes(cx);
     cx.notify();
   }
 
+  // ---------------------------------------------------------------------------
+  // Settings
+
+  /** The sections of the Settings tab: "Kit" (the settings of mods-hub), then each kit mod with settings. */
+  sections() {
+    const kit = (this.mods ?? []).filter((m) => m.origin === "kit" && m.settings.length);
+    const own = kit.find((m) => m.name === KIT_SECTION);
+    return [
+      ...(own ? [{ id: KIT_SECTION, label: "Kit", fields: own.settings }] : []),
+      ...kit.filter((m) => m.name !== KIT_SECTION).map((m) => ({ id: m.name, label: m.title || m.name, fields: m.settings })),
+    ];
+  }
+
+  /** The section that the tab shows: the saved one (`section`), else the first. */
+  shownSection(list) {
+    return list.find((s) => s.id === state().section) ?? list[0] ?? null;
+  }
+
+  selectSection(id, cx) {
+    this.capture = null;
+    this.keyAsk = null;
+    setState({ section: id });
+    cx.notify();
+  }
+
+  addFolder(f, cx) {
+    cx.spawn(async (cx) => {
+      const dir = await pickFolder({ prompt: "Use this folder" }).catch(() => null);
+      if (!dir) return;
+      const list = readField(f);
+      if (list.some((p) => sameFolder(p) === sameFolder(dir))) {
+        notify({ title: "This folder is in the list already.", body: dir, level: "info" });
+        return;
+      }
+      writeField(f, [...list, normFolder(dir)]);
+      cx.notify();
+    });
+  }
+
+  /** Saves `chord` for the action of a key field. A key of another action needs `replace`. */
+  saveKey(action, chord, replace, cx) {
+    this.keyError = null;
+    cx.spawn(async (cx) => {
+      try {
+        await bindKey(action, chord, replace);
+        this.capture = null;
+        this.keyAsk = null;
+        // A change of keys.json does not redraw the mods; a change of shared state redraws all of them.
+        setState({ keysChanged: Date.now() });
+      } catch (e) {
+        const text = errorText(e);
+        if (text.startsWith("taken:")) this.keyAsk = { action, chord, other: text.slice(6) };
+        else this.keyError = text;
+      }
+      cx.notify();
+    });
+  }
+
   onKey(e, cx) {
+    if (this.capture && !this.keyAsk) {
+      const chord = chordOf(e);
+      if (!chord) return;
+      const other = actionOf(chord);
+      if (other && other !== this.capture.action) this.keyAsk = { action: this.capture.action, chord, other };
+      else this.saveKey(this.capture.action, chord, false, cx);
+      cx.notify();
+      return;
+    }
     // Esc closes the dialog before the mod sees it: Backspace and ← go back from a README.
     if (this.readme && (e.key === "backspace" || e.key === "left")) {
       this.readme = null;
@@ -382,6 +461,7 @@ export default class ModsUpdate extends View {
       .child(div().text_color(statusColor).child(status))
       .child(tabs)
       .when(tab === "mods", (el) => el.child(this.readme ? this.renderReadme(t) : this.renderMods(t)))
+      .when(tab === "settings", (el) => el.child(this.renderSettings(t)))
       .when(tab === "update", (el) => el
         .child(div().text_size(12).text_color(t.dim).child(
           "The agent that you choose gets the prompt of SETUP-PROMPT.md in a new space. "
@@ -486,6 +566,119 @@ export default class ModsUpdate extends View {
     return v_flex().w_full().flex_none().border_b(1).border_color(t.border)
       .child(head)
       .when(open, (el) => el.child(details));
+  }
+
+  /** The Settings tab: the sections at the left, the fields of the chosen section at the right. */
+  renderSettings(t) {
+    const frame = h_flex().w_full().h(360).rounded(6).bg(t.background).border_1().border_color(t.border).overflow_hidden();
+    const message = (text, color = t.dim) => frame.child(div().p(12).text_size(12).text_color(color).child(text));
+    if (this.mods == null) return message("Reading the mods folder…");
+    const list = this.sections();
+    if (!list.length) return message("No installed kit mod has settings. Run the setup (Update tab) to get the newest mods.");
+    const shown = this.shownSection(list);
+    const nav = v_flex().id("mh-sections").w(150).flex_none().h_full().p(4).gap(2).border_r(1).border_color(t.border)
+      .overflow_y_scrollbar()
+      .children(list.map((s) => {
+        const on = s.id === shown.id;
+        return h_flex().id(`mh-sec-${s.id}`).w_full().h(28).px(8).flex_none().items_center().rounded(5).cursor_pointer()
+          .text_size(12.5).bg(on ? t.selected : t.background).text_color(on ? t.foreground : t.muted)
+          .when(on, (el) => el.font_semibold())
+          .hover((st) => st.bg(on ? t.selected : t.hover))
+          .on_click((_e, cx) => this.selectSection(s.id, cx))
+          .child(div().truncate().child(s.label));
+      }));
+    const body = v_flex().id(`mh-fields-${shown.id}`).flex_1().min_w(0).h_full().px(14).pb(10).overflow_y_scrollbar()
+      .children(shown.fields.map((f, i) => this.fieldRow(t, shown.id, f, i)));
+    return frame.child(nav).child(body);
+  }
+
+  /** 1 field: the label and the hint at the left, the control at the right (or below, for the wide ones). */
+  fieldRow(t, section, f, i) {
+    const id = `mh-${section}-${f.id ?? i}`;
+    const wide = ["folder-list", "key", "text", "enum"].includes(f.type);
+    const control = this.fieldControl(t, id, f);
+    return v_flex().w_full().flex_none().py(9).gap(6).border_b(1).border_color(t.border)
+      .child(h_flex().w_full().gap(12).items_center()
+        .child(v_flex().flex_1().min_w(0).gap(1)
+          .child(div().text_size(12.5).child(f.label))
+          .when(Boolean(f.hint), (el) => el.child(div().text_size(11.5).text_color(t.dim).child(f.hint))))
+        .when(!wide, (el) => el.child(control)))
+      .when(wide, (el) => el.child(control));
+  }
+
+  fieldControl(t, id, f) {
+    switch (f.type) {
+      case "bool": {
+        const on = readField(f);
+        return toggle(t, id, on, (cx) => { writeField(f, !on); cx.notify(); });
+      }
+      case "enum":
+        return segmented(t, id, f.options ?? [], readField(f), (v, cx) => { writeField(f, v); cx.notify(); });
+      case "number": {
+        const v = readField(f), step = f.step ?? 1, scale = f.scale ?? 1;
+        const label = `${Math.round((v / scale) * 100) / 100}${f.unit ? ` ${f.unit}` : ""}`;
+        return stepper(t, id, label, (cx) => { writeField(f, v - step); cx.notify(); }, (cx) => { writeField(f, v + step); cx.notify(); });
+      }
+      case "text": {
+        let input = this.inputs.get(id);
+        if (!input) {
+          input = InputState.new({ placeholder: f.placeholder ?? "", value: readField(f) });
+          input.on("change", () => writeField(f, input.value()));
+          this.inputs.set(id, input);
+        }
+        return h_flex().id(`${id}-box`).w_full().h(30).px(10).items_center().rounded(7).bg(t.popover).border_1()
+          .border_color(t.input).cursor_text()
+          .child(Input.new(input).h_full().flex_1().min_w(0).text_size(12));
+      }
+      case "folder-list": {
+        const list = readField(f);
+        return v_flex().w_full().gap(4)
+          .children(list.map((p, i) => h_flex().w_full().h(30).px(8).gap(8).items_center().rounded(6)
+            .bg(t.popover).border_1().border_color(t.border)
+            .child(div().flex_1().min_w(0).truncate().text_size(12).child(p.replace(/\//g, appHome().includes("\\") ? "\\" : "/")))
+            .child(textButton(t, `${id}-rm-${i}`, "Remove", (cx) => {
+              writeField(f, list.filter((x) => sameFolder(x) !== sameFolder(p)));
+              cx.notify();
+            }))))
+          .when(!list.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No folder.")))
+          .child(h_flex().pt(2).child(textButton(t, `${id}-add`, "Add folder…", (cx) => this.addFolder(f, cx), { tone: "primary" })));
+      }
+      case "key": {
+        const bound = boundKeys(f.action);
+        const waiting = this.capture?.id === id;
+        const ask = waiting && this.keyAsk ? this.keyAsk : null;
+        const row = h_flex().w_full().gap(6).items_center().flex_wrap();
+        if (ask) {
+          return v_flex().w_full().gap(6).p(8).rounded(6).bg(tint(t.blocked, "14")).border_1().border_color(tint(t.blocked, "55"))
+            .child(div().text_size(12).text_color(t.foreground).child(`${prettyKeys(ask.chord)} runs “${ask.other}” now.`))
+            .child(h_flex().gap(6)
+              .child(textButton(t, `${id}-replace`, "Replace", (cx) => this.saveKey(ask.action, ask.chord, true, cx), { tone: "danger" }))
+              .child(textButton(t, `${id}-cancel`, "Cancel", (cx) => { this.capture = null; this.keyAsk = null; cx.notify(); })));
+        }
+        if (waiting) {
+          return row
+            .child(div().h(24).px(10).flex().items_center().rounded(6).text_size(12).text_color(t.accent)
+              .border_1().border_color(t.accent).bg(tint(t.accent, "14")).child("Press the new keys…"))
+            .child(textButton(t, `${id}-cancel`, "Cancel", (cx) => { this.capture = null; cx.notify(); }))
+            .when(Boolean(this.keyError), (el) => el.child(div().text_size(11.5).text_color(t.blocked).child(this.keyError)));
+        }
+        return row
+          .children(bound.length ? bound.map((k) => kbd(t, prettyKeys(k))) : [div().text_size(12).text_color(t.dim).child("No shortcut")])
+          .child(textButton(t, `${id}-change`, "Change", (cx) => {
+            this.capture = { id, action: f.action };
+            this.keyAsk = null;
+            this.keyError = null;
+            this.handle.focus();
+            cx.notify();
+          }));
+      }
+      case "action":
+        return textButton(t, id, f.button ?? "Open", () => {
+          try { run(f.command, f.args ?? {}); } catch (e) { notify({ title: "The command failed", body: errorText(e), level: "error" }); }
+        });
+      default:
+        return div();
+    }
   }
 
   /** The README of an app folder, in place of the list, with a back button. */

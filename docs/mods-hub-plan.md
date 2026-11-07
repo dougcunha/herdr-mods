@@ -1,9 +1,11 @@
 # Plan: the `mods-hub` panel and multiple folders in `git-dash`
 
-Status: agreed on 2026-11-07. Delivery 1 done (setup version 4). Delivery 2
-done (setup version 5): `kit.json` already holds `app`, `description` and
-`readme`; delivery 3 adds `settings`. The Settings tab and the gear menu are
-still open, and so is the hub key in delivery 3's list (done in delivery 2).
+Status: agreed on 2026-11-07. All 3 deliveries done: delivery 1 (setup
+version 4), delivery 2 (version 5), delivery 3 (version 6). The hub key came in
+delivery 2. Extra in delivery 3: `kanban.panelOpen` and `kanban.width` are
+settings too, and the gear menu has the commands `kanban.gear` and
+`tabs-dock.gear`. Repo Launcher keeps its folders, agent arguments and accounts
+in its own settings view; the hub has a button that opens the launcher.
 
 ## Goal
 

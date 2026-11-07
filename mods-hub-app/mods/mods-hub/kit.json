@@ -1,5 +1,36 @@
 {
   "app": "mods-hub-app",
   "description": "Herdr Mods: the installed mods, the release notes and the update of this kit, in one dialog.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/mods-hub-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/mods-hub-app",
+  "settings": [
+    {
+      "id": "lang",
+      "type": "enum",
+      "key": "herdr-mods.lang",
+      "default": null,
+      "label": "Language",
+      "hint": "The language of the Kanban, Dock and Git Dash bars. Each layout decides: the lang prop of its blocks.",
+      "options": [
+        {
+          "value": null,
+          "label": "Each layout decides"
+        },
+        {
+          "value": "en",
+          "label": "English"
+        },
+        {
+          "value": "pt",
+          "label": "Português"
+        }
+      ]
+    },
+    {
+      "id": "hub-key",
+      "type": "key",
+      "action": "mod.open:mods-hub",
+      "label": "Shortcut of Herdr Mods",
+      "hint": "Saved in keys.json. A new key removes the other keys of Herdr Mods, also the macOS key."
+    }
+  ]
 }

@@ -20,7 +20,9 @@ No preview of the dialog ships with this recipe: a real screenshot shows the mod
 
 Open it with a click on the status bar item, with `ctrl-shift-h` (`cmd-shift-h` on macOS; the setup adds the key only when it is free), or with `mod.open:mods-hub` in the palette.
 
-The dialog has 3 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
+The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **Herdr Mods**. **Herdr Mods** opens the dialog on its **Settings** tab.
+
+The dialog has 4 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
 
 ### Mods
 
@@ -39,6 +41,22 @@ Each row has a dot: red when the folder has a `*.error` file, yellow when a kit 
 - **README of `<app>`**: the README of the mod, downloaded from GitHub, in the dialog. **← Back** or Backspace goes back to the list.
 
 A setup run before version 5 wrote no hashes. Then the tab tells you to run the setup again.
+
+### Settings
+
+The settings of the kit mods in one place. At the left: **Kit** (the settings of the whole kit), then 1 row per installed kit mod with settings. At the right: the settings of the chosen row. A change is saved at once, and the mod shows it at once. The dialog opens on the last row that you chose.
+
+- **Kit:** the language of the Kanban, Dock and Git Dash bars (or **Each layout decides**: the `lang` prop of each layout), and the shortcut of Herdr Mods.
+- **agent-resume:** Auto resume, Shell wait, Toast, Agents without a hook.
+- **changes-split:** Unified or Split.
+- **git-dash:** the repository folders and Fetch on refresh.
+- **kanban:** button density, cards, the Waiting column, column width, where panels open.
+- **Repo Launcher:** Reuse open space, Open there as, the shortcut, and a button that opens the launcher for its folders, agent arguments and accounts.
+- **Dock tabs:** button density and where panels open (the same values as in Kanban).
+
+Each mod also keeps its own controls, so it works without the hub. The list of settings of a mod is in the `settings` field of its `kit.json`.
+
+A shortcut field writes the `global` section of `~/.config/herdr-app/keys.json`. **Change**, then press the new keys. When the keys run another action, the dialog asks before it replaces it. A new key removes the other keys of the same action, also the macOS key.
 
 ### What's new
 
@@ -86,9 +104,10 @@ The new mod reads the shared state of `mods-update` (the skipped version, the la
 ## What it runs
 
 - **Network:** 1 GET of `https://raw.githubusercontent.com/dougcunha/herdr-mods/main/SETUP-PROMPT.md` at start, every 6 hours, on **Check now** and when you choose an agent. In the dialog: 1 GET of `whats-new/<N>.md` for each version that the **What's new** tab shows (at most 10), and 1 GET of `<app>/README.md` when you open a README.
-- **Files:** it reads `data/herdr-mods-setup.json`, `installed.json`, and the files of the folders in `mods/` (to list them and compare the kit files with their hashes). It writes only `data/herdr-mods-setup-prompt.md`. All in `~/.config/herdr-app`.
+- **Files:** it reads `data/herdr-mods-setup.json`, `installed.json`, and the files of the folders in `mods/` (to list them, read their `kit.json` and compare the kit files with their hashes). It writes `data/herdr-mods-setup-prompt.md`, and `keys.json` when you change a shortcut on the **Settings** tab. All in `~/.config/herdr-app`.
+- **Settings:** the **Settings** tab writes the `shared()` keys that the `kit.json` files name (for example `kanban.density`, `agent-resume.config`, `git-dash.roots`, `herdr-mods.lang`). An object key keeps its other fields.
 - **Programs:** no `exec`. It starts the agent that you choose with the `space.new` command, with the `run` entry of that agent in Herdr's program table.
-- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked and the last version whose notes the dialog showed.
+- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked, the last row of the Settings tab, and the last version whose notes the dialog showed.
 
 ## Notes
 

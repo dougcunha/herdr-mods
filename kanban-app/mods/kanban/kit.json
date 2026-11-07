@@ -1,5 +1,123 @@
 {
   "app": "kanban-app",
   "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/kanban-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/kanban-app",
+  "settings": [
+    {
+      "id": "density",
+      "type": "enum",
+      "key": "kanban.density",
+      "default": "auto",
+      "label": "Button density",
+      "hint": "Auto shows the names of the bar buttons from 2250 px of bar width. Shared by the Kanban bar and the Dock bar.",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto"
+        },
+        {
+          "value": "compact",
+          "label": "Icons only"
+        },
+        {
+          "value": "normal",
+          "label": "Names"
+        }
+      ]
+    },
+    {
+      "id": "cards",
+      "type": "enum",
+      "key": "kanban.cards",
+      "default": "auto",
+      "label": "Cards",
+      "hint": "Auto shows summary cards while the board is compact.",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto"
+        },
+        {
+          "value": "summary",
+          "label": "Summary"
+        },
+        {
+          "value": "full",
+          "label": "Full"
+        }
+      ]
+    },
+    {
+      "id": "waiting",
+      "type": "bool",
+      "key": "kanban.waiting",
+      "values": [
+        "on",
+        "off"
+      ],
+      "default": true,
+      "label": "Waiting column",
+      "hint": "A column for the Claude Code agents that wait for their subagents."
+    },
+    {
+      "id": "width",
+      "type": "enum",
+      "key": "kanban.width",
+      "default": null,
+      "label": "Column width",
+      "hint": "The widest a column may be. Auto: the columns share the board.",
+      "options": [
+        {
+          "value": null,
+          "label": "Auto"
+        },
+        {
+          "value": 150,
+          "label": "150"
+        },
+        {
+          "value": 180,
+          "label": "180"
+        },
+        {
+          "value": 220,
+          "label": "220"
+        },
+        {
+          "value": 260,
+          "label": "260"
+        },
+        {
+          "value": 320,
+          "label": "320"
+        },
+        {
+          "value": 400,
+          "label": "400"
+        }
+      ]
+    },
+    {
+      "id": "panel-open",
+      "type": "enum",
+      "key": "kanban.panelOpen",
+      "default": "auto",
+      "label": "Where panels open",
+      "hint": "Auto opens a panel at the side when the window is wide, else in a dialog. Shared by the Kanban bar and the Dock bar.",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto"
+        },
+        {
+          "value": "side",
+          "label": "Side"
+        },
+        {
+          "value": "dialog",
+          "label": "Dialog"
+        }
+      ]
+    }
+  ]
 }

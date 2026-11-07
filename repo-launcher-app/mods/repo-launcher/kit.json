@@ -1,5 +1,57 @@
 {
   "app": "repo-launcher-app",
   "description": "A popup that finds your Git repositories and opens one in a space, with an agent, an account and arguments that you choose.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app",
+  "settings": [
+    {
+      "id": "reuse",
+      "type": "bool",
+      "key": "repo-launcher.settings",
+      "path": "reuse",
+      "default": true,
+      "label": "Reuse open space",
+      "hint": "When a space works in the repository, open the choice there."
+    },
+    {
+      "id": "reuse-mode",
+      "type": "enum",
+      "key": "repo-launcher.settings",
+      "path": "reuseMode",
+      "default": "tab",
+      "label": "Open there as",
+      "hint": "Used only when Reuse open space is on.",
+      "options": [
+        {
+          "value": "tab",
+          "label": "New tab"
+        },
+        {
+          "value": "split",
+          "label": "Split right"
+        },
+        {
+          "value": "go",
+          "label": "Go to space"
+        }
+      ]
+    },
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:repo-launcher",
+      "label": "Shortcut",
+      "hint": "Saved in keys.json. A Ctrl+letter key stops reaching the programs in the terminals."
+    },
+    {
+      "id": "more",
+      "type": "action",
+      "command": "mod.open",
+      "args": {
+        "name": "repo-launcher"
+      },
+      "button": "Open Repo Launcher",
+      "label": "Folders, agent arguments and accounts",
+      "hint": "These settings are in the launcher: open it and click the settings button at the top right."
+    }
+  ]
 }

@@ -24,8 +24,8 @@ import * as fs from "fs/promises";
 // A panel button (side panel or tab entry) opens its panel in the side panel (a tab entry: in its tab) or in a
 // dialog. The first button of the panel group sets where: Auto, Side panel or Dialog. Auto opens a dialog when
 // the window is narrower than PANEL_NARROW px. The setting and the open dialog are shared with the Kanban bar.
-// This mod has more parts: props.part "panel-title" (the title row of a panel dialog) and props.part "group-menu"
-// (the menu of a group button, a popup).
+// This mod has more parts: props.part "panel-title" (the title row of a panel dialog), props.part "group-menu"
+// (the menu of a group button, a popup) and props.part "gear-menu" (the menu of the gear button, a popup).
 
 const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
@@ -33,6 +33,7 @@ const RIGHT_GAP = 6; // between the panel group, the layout switch and the windo
 
 // The density of the buttons, shared with the Kanban bar (the same key and the same button):
 // "normal" shows the names, "compact" only the icons, "auto" (or absent) the names from LABELS_WIDE px.
+const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: props.lang
 const KEY_DENSITY = "kanban.density";
 const DENSITIES = ["auto", "compact", "normal"];
 
@@ -51,7 +52,8 @@ const GROUPS = { git: { label: "Git", icon: "mods/tabs-dock/git.svg" } };
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 
 const STR = {
-  en: { newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
+  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+    newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
     density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
     densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
     densityTip: "Density: {mode}. Click to switch to {next}.",
@@ -59,7 +61,8 @@ const STR = {
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
     toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close" },
-  pt: { newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
+  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+    newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
     densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
     densityTip: "Densidade: {mode}. Clique para mudar para {next}.",
@@ -165,8 +168,7 @@ export default class Tabs extends View {
     // Read props once: props() in a later callback can answer for another copy.
     const p = (given && Object.keys(given).length ? given : props()) || {};
     this.props = p;
-    this.lang = STR[p.lang] ? p.lang : "en";
-    this.part = ["panel-title", "group-menu"].includes(p.part) ? p.part : "bar";
+    this.part = ["panel-title", "group-menu", "gear-menu"].includes(p.part) ? p.part : "bar";
     if (this.part !== "bar") {
       this.overlay = p.overlay ?? props()?.overlay;
       return;
@@ -232,6 +234,12 @@ export default class Tabs extends View {
     cx.notify();
   }
 
+  /** The language: the kit setting `herdr-mods.lang` when it is set, else the `lang` prop, else English. */
+  get lang() {
+    const kit = shared(KEY_LANG);
+    return STR[kit] ? kit : STR[this.props?.lang] ? this.props.lang : "en";
+  }
+
   s(key, vars = {}) {
     return (STR[this.lang][key] ?? key).replace(/\{(\w+)\}/g, (_m, k) => String(vars[k] ?? ""));
   }
@@ -267,6 +275,8 @@ export default class Tabs extends View {
     if (id === "panel-open") return this.stepPanelOpen();
     // "tabs-dock.group-<id>" opens the menu of a group button, as a click on it does.
     if (String(id).startsWith("group-")) return this.openGroup(String(id).slice(6));
+    // "tabs-dock.gear" does what the gear button does.
+    if (id === "gear") return this.openGear();
     const command =this.entries.find(e => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
@@ -387,6 +397,35 @@ export default class Tabs extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
+  // The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
+  // Without it, it opens Herdr's settings, as before.
+  openGear() {
+    const settingsOnly = () => run("app.settings");
+    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => {
+      if (text == null) return settingsOnly();
+      openOverlay({ mod: "tabs-dock", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + 2 * MENU_ROW,
+        props: { part: "gear-menu", lang: this.lang } });
+    }, settingsOnly);
+  }
+
+  // The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+  // mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes.
+  gearMenu(t) {
+    const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
+    const row = (id, icon, label, fn) => h_flex().id(`gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
+      .cursor_pointer().text_size(13).text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => { cx.stop_propagation(); go(fn); })
+      .child(svg(`mods/tabs-dock/${icon}.svg`).size(15).flex_none().text_color(t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(label));
+    return v_flex().id("gear-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
+      .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
+      .child(row("mods", "mods", this.s("gearMods"), () => {
+        setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
+        run("mod.open", { name: "mods-hub" });
+      }));
+  }
+
   dialogToSide() {
     this.closeDialog();
     const tab = this.props.tab;
@@ -460,6 +499,7 @@ export default class Tabs extends View {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
     if (this.part === "group-menu") return this.groupMenu(t);
+    if (this.part === "gear-menu") return this.gearMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
@@ -522,6 +562,12 @@ export default class Tabs extends View {
       .on_mouse_down("left", stop)
       .on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_DENSITY, nextDensity); })
       .child(svg("mods/tabs-dock/density.svg").size(15).text_color(iconOnly ? t.accent : t.muted));
+    const gearButton = div().id("gear").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
+      .tooltip(this.s("gearTip"))
+      .hover(s => s.bg(t.hover))
+      .on_mouse_down("left", stop)
+      .on_click((_e, cx) => { cx.stop_propagation(); this.openGear(); })
+      .child(svg("mods/tabs-dock/settings.svg").size(15).text_color(t.muted));
     const inDialog = this.dialogPanel();
     const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
@@ -574,7 +620,7 @@ export default class Tabs extends View {
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
-      .child(buttonGroup(t, [densityButton]))
+      .child(buttonGroup(t, [densityButton, gearButton]))
       .child(right);
   }
 }

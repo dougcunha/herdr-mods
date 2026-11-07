@@ -14,6 +14,7 @@ const KEY_ROOTS = "git-dash.roots";
 const KEY_ROOT = "git-dash.root";
 const oldRootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
 const KEY_FETCH = "git-dash.fetch";
+const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: the `lang` prop
 // Keeps the slash of a drive root ("D:/") and of "/".
 const normRoot = (p) => String(p || "").trim().replace(/\\/g, "/").replace(/([^:/])\/+$/, "$1");
 /** A clean list of folders: strings only, normalized, no duplicates. */
@@ -146,7 +147,6 @@ export default class GitDash extends View {
     // Read props once, here, and keep them: props() inside a later callback can
     // answer for another copy. Fall back to props() when the argument is empty.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.lang = STR[this.props.lang] ? this.props.lang : "en";
     this.depth = Number.isInteger(this.props.depth) && this.props.depth >= 0 ? this.props.depth : 4;
     // The saved list wins. When it does not exist yet, the old saved folder, else
     // the `root` prop, becomes its first item. An empty saved list stays empty.
@@ -159,7 +159,6 @@ export default class GitDash extends View {
     }
     this.roots = cleanRoots(saved);
     this.sig = rootsSig(this.roots);
-    this.fetch = typeof this.props.fetch === "boolean" ? this.props.fetch : shared(KEY_FETCH) === true;
 
     this.view = "list"; // "list" | "folders"
     this.rootErrors = {}; // samePath(root) -> why the folder could not be read
@@ -197,6 +196,18 @@ export default class GitDash extends View {
       }
     });
     if (this.roots.length) this.refresh(cx);
+  }
+
+  /** The language: the kit setting `herdr-mods.lang` when it is set, else the `lang` prop, else English. */
+  get lang() {
+    const kit = shared(KEY_LANG);
+    return STR[kit] ? kit : STR[this.props.lang] ? this.props.lang : "en";
+  }
+
+  /** Fetch on refresh: the saved choice when there is one, else the `fetch` prop. */
+  get fetch() {
+    const v = shared(KEY_FETCH);
+    return typeof v === "boolean" ? v : this.props.fetch === true;
   }
 
   s(key, vars) { return fill(STR[this.lang][key] ?? key, vars); }
@@ -321,8 +332,7 @@ export default class GitDash extends View {
   }
 
   toggleFetch(cx) {
-    this.fetch = !this.fetch;
-    setShared(KEY_FETCH, this.fetch);
+    setShared(KEY_FETCH, !this.fetch);
     cx.notify();
   }
 

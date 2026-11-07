@@ -5,6 +5,7 @@
 import { appHome, readTextFile } from "herdr";
 import * as fs from "fs/promises";
 import { hashText, ignoredFile, binaryFile } from "./hash.js";
+import { cleanFields } from "./fields.js";
 
 /** The third-party mods that SETUP-PROMPT.md installs, with their repositories. */
 export const THIRD_PARTY = {
@@ -62,7 +63,8 @@ async function listFiles(dir, prefix = "") {
 
 /**
  * The mods of `mods/`, sorted by name. Each is
- * `{ name, title, origin, app, description, readme, errors: [{file, text}] }`.
+ * `{ name, title, origin, app, description, readme, settings, errors: [{file, text}] }`.
+ * `settings`: the valid fields of the `settings` list of kit.json (see fields.js).
  * `origin`: "kit" (the mod has a kit.json, or the setup record lists it),
  * "herdr" (Herdr installed it: installed.json), "third" (a third-party mod of
  * the setup prompt) or "manual".
@@ -91,6 +93,7 @@ export async function scanMods(record) {
       app: (typeof kit?.app === "string" && kit.app) || (item.endsWith("-app") ? item : ""),
       description: typeof kit?.description === "string" ? kit.description : "",
       readme: (typeof kit?.readme === "string" && kit.readme) || THIRD_PARTY[name] || "",
+      settings: cleanFields(kit?.settings),
       errors,
     };
   }));

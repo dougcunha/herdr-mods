@@ -135,8 +135,10 @@ Bind a key, or run `herdr-app do git-dash.<command>`:
 | ---- | ------- |
 | `root` | The first base folder. It is used only once, when no list of folders is saved yet. After that, the saved list wins, also when it is empty. |
 | `depth` | How many folder levels to search. Default `4`. |
-| `fetch` | `true` starts with fetch on. |
-| `lang` | `"en"` (default) or `"pt"`. |
+| `fetch` | `true` starts with fetch on. A click on the Download button (or the mods-hub setting) wins over it. |
+| `lang` | `"en"` (default) or `"pt"`. With the `mods-hub` mod, its **Language** setting (`shared("herdr-mods.lang")`) wins over the prop. |
+
+With the `mods-hub` mod, its **Settings** tab shows the folders and Fetch on refresh of Git Dash too.
 
 ## What it runs, and its limits
 

@@ -38,10 +38,22 @@ this file from GitHub and shows it to the person.
 ## `kit.json` in every mod
 
 Every mod folder of this repository has a `kit.json`:
-`{ "app": "<app folder>", "description": "<1 or 2 sentences>", "readme": "<GitHub URL of the app folder>" }`.
+`{ "app": "<app folder>", "description": "<1 or 2 sentences>", "readme": "<GitHub URL of the app folder>", "settings": [...] }`.
 The **Mods** tab of `mods-hub` shows the description and marks the mod as part
 of the kit. Add it to a new mod, and change the description when the mod
 changes what it does.
+
+`settings` (optional) lists the preferences that the **Settings** tab of
+`mods-hub` shows. The field types and their keys are in
+`mods-hub-app/mods/mods-hub/fields.js`. Rules:
+
+- Put a preference in `shared()`, never only in a prop or in `localStorage`.
+  A prop can give the first value; the shared key wins when it is set.
+- Read the key on every render (or in a short timer), not once in `init`, so a
+  change in the hub shows at once.
+- List preferences only, not UI state (search text, column order, recent
+  items).
+- When a mod reads `props.lang`, read `shared("herdr-mods.lang")` first.
 
 - Write the notes in English only.
 - Write a markdown list. Do not add a title: the mod adds `## Version <N>`.
