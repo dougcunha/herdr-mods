@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 3 -->
+<!-- herdr-mods-setup-version: 4 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-update`
@@ -55,7 +55,7 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 
 1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `changes-split` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
 2. `ci-dash-app`: the `ci-dash` mod.
-3. `git-dash-app`: the `git-dash` mod.
+3. `git-dash-app`: the `git-dash` mod. It keeps a list of base folders in `shared("git-dash.roots")`. On its first start it fills the list from the folder that I chose before, else from the `root` prop of its `panels.json` entry. Do not edit `shared.json` for it.
 4. `image-viewer-app`: the `image-viewer` mod.
 5. `changes-app`: the `changes-split` mod, Herdr's Changes panel with a Unified / Split switch. The `main-dock` and `kanban` layouts use it, so install it BEFORE you install or update those layouts. It runs `git` only, the same as Herdr's Changes panel.
 6. `kanban-app`: the `kanban` layout and the `kanban` mod. Its Changes panel is the `changes-split` mod (item 5).

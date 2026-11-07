@@ -1,17 +1,38 @@
 // Git Dash for the Herdr app: the pending work of every Git repository under
-// one base folder. Port of git-pendencias.py.
+// one or more base folders. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder, run, panes, notify } from "herdr";
+import { theme, props, shared, setShared, pickFolder, run, panes, notify, home, nextCommand } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint } from "./ui.js";
 
+// The base folders: one list for every copy of the panel, with forward slashes.
+const KEY_ROOTS = "git-dash.roots";
+// The single folder of older versions. A copy with a `root` prop kept its choice
+// under "git-dash.root:<root>", a copy without it under "git-dash.root". These
+// keys are read once, when "git-dash.roots" does not exist yet, and never written.
 const KEY_ROOT = "git-dash.root";
-// The saved folder is per panel: a copy with a `root` prop keeps its choice under
-// "git-dash.root:<root>", so two panels with different roots do not share it.
-// A copy without `root` keeps the old key.
-const rootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
+const oldRootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
 const KEY_FETCH = "git-dash.fetch";
+// Keeps the slash of a drive root ("D:/") and of "/".
+const normRoot = (p) => String(p || "").trim().replace(/\\/g, "/").replace(/([^:/])\/+$/, "$1");
+/** A clean list of folders: strings only, normalized, no duplicates. */
+const cleanRoots = (list) => {
+  const out = [], seen = new Set();
+  for (const p of Array.isArray(list) ? list : []) {
+    const r = typeof p === "string" ? normRoot(p) : "";
+    if (r && !seen.has(samePath(r))) { seen.add(samePath(r)); out.push(r); }
+  }
+  return out;
+};
+const rootsSig = (list) => list.map(samePath).join("\n");
+/** A path for the screen: native slashes, `~` for the home folder. */
+const nativePath = (p) => {
+  const h = normRoot(home());
+  let s = normRoot(p);
+  if (h && (samePath(s) === samePath(h) || samePath(s).startsWith(`${samePath(h)}/`))) s = `~${s.slice(h.length)}`;
+  return /^[A-Za-z]:[\\/]/.test(home()) ? s.replace(/\//g, "\\") : s;
+};
 const WORKERS = 12; // repositories analyzed at once
 const AUTO_MS = 5 * 60 * 1000; // a silent refresh when the data is this old
 const MAX_FILES = 12;
@@ -22,6 +43,11 @@ const STR = {
     pickTitle: "Choose a folder with your repositories",
     pickHint: "Git Dash looks for Git repositories inside it, up to {depth} levels deep, and shows what is pending in each one.",
     pickPrompt: "Use this folder",
+    folders: "Folders", nFolders: "{n} folders", foldersTitle: "Repository folders",
+    foldersHint: "Git Dash looks for Git repositories in each folder, up to {depth} levels deep.",
+    addFolder: "Add folder…", removeFolder: "Remove this folder", back: "Back to the list",
+    reposN: "{n} repos", notFound: "not found", missing: "{n} folder(s) not found",
+    alreadyThere: "This folder is in the list already.",
     pending: "Pending", clean: "Clean", errors: "Errors", all: "All",
     repos: "{n} repositories", withPending: "{n} with pending",
     scanning: "Scanning folders…", analyzing: "Analyzing {done}/{total}", updated: "Updated {t}",
@@ -66,6 +92,11 @@ const STR = {
     pickTitle: "Escolha a pasta dos seus repositórios",
     pickHint: "O Git Dash procura repositórios Git dentro dela, até {depth} níveis, e mostra as pendências de cada um.",
     pickPrompt: "Usar esta pasta",
+    folders: "Pastas", nFolders: "{n} pastas", foldersTitle: "Pastas de repositórios",
+    foldersHint: "O Git Dash procura repositórios Git em cada pasta, até {depth} níveis.",
+    addFolder: "Adicionar pasta…", removeFolder: "Remover esta pasta", back: "Voltar para a lista",
+    reposN: "{n} repos", notFound: "não encontrada", missing: "{n} pasta(s) não encontrada(s)",
+    alreadyThere: "Esta pasta já está na lista.",
     pending: "Pendentes", clean: "Limpos", errors: "Erros", all: "Todos",
     repos: "{n} repositórios", withPending: "{n} com pendência",
     scanning: "Procurando pastas…", analyzing: "Analisando {done}/{total}", updated: "Atualizado {t}",
@@ -117,13 +148,22 @@ export default class GitDash extends View {
     this.props = (given && Object.keys(given).length ? given : props()) || {};
     this.lang = STR[this.props.lang] ? this.props.lang : "en";
     this.depth = Number.isInteger(this.props.depth) && this.props.depth >= 0 ? this.props.depth : 4;
-    // The folder the person chose (saved) wins over the `root` prop, which is only the first guess.
-    this.rootKey = rootKey(this.props);
-    const saved = shared(this.rootKey);
-    this.root = (typeof saved === "string" && saved) || (typeof this.props.root === "string" && this.props.root) || null;
+    // The saved list wins. When it does not exist yet, the old saved folder, else
+    // the `root` prop, becomes its first item. An empty saved list stays empty.
+    let saved = shared(KEY_ROOTS);
+    if (!Array.isArray(saved)) {
+      const old = shared(oldRootKey(this.props));
+      const first = (typeof old === "string" && old) || (typeof this.props.root === "string" && this.props.root) || "";
+      saved = cleanRoots([first]);
+      if (saved.length) setShared(KEY_ROOTS, saved);
+    }
+    this.roots = cleanRoots(saved);
+    this.sig = rootsSig(this.roots);
     this.fetch = typeof this.props.fetch === "boolean" ? this.props.fetch : shared(KEY_FETCH) === true;
 
-    this.repos = new Map(); // path -> result of analyze()
+    this.view = "list"; // "list" | "folders"
+    this.rootErrors = {}; // samePath(root) -> why the folder could not be read
+    this.repos = new Map(); // path -> result of analyze(), with `root`
     this.gen = 0; // bumps when a run must be ignored (a new folder was chosen)
     this.loading = false;
     this.scanning = false;
@@ -145,7 +185,18 @@ export default class GitDash extends View {
     this.msg.on("submit", (_e, cx) => this.commit(cx));
 
     cx.timer.every(30000, (cx) => this.tick(cx));
-    if (this.root) this.refresh(cx);
+    // Another copy of the panel (or the mods-hub) can change the list: follow it.
+    cx.timer.every(1000, (cx) => this.followRoots(cx));
+    // Commands: `git-dash.folders` shows the folders view, `git-dash.list` the list, `git-dash.refresh` reads again.
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const c = await nextCommand();
+        if (c === "folders" || c === "list") this.view = c;
+        else if (c === "refresh") this.refresh(cx);
+        cx.notify();
+      }
+    });
+    if (this.roots.length) this.refresh(cx);
   }
 
   s(key, vars) { return fill(STR[this.lang][key] ?? key, vars); }
@@ -153,33 +204,51 @@ export default class GitDash extends View {
   // ---- data --------------------------------------------------------------
 
   tick(cx) {
-    if (this.root && !this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.refresh(cx);
+    if (this.roots.length && !this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.refresh(cx);
     else cx.notify(); // keeps "Updated 3m ago" fresh
   }
 
   refresh(cx) {
-    if (!this.root || this.loading) return;
-    const gen = ++this.gen, root = this.root, fetch = this.fetch;
+    if (!this.roots.length || this.loading) return;
+    const gen = ++this.gen, roots = [...this.roots], fetch = this.fetch;
     this.loading = true; this.scanning = true; this.scanError = null;
     this.progress = { done: 0, total: 0 };
     cx.spawn(async (cx) => {
       try {
-        const paths = await findRepos(root, this.depth);
+        // One search per folder, at the same time. A folder that cannot be read
+        // does not stop the others: it goes in rootErrors.
+        const found = await Promise.all(roots.map((root) => findRepos(root, this.depth)
+          .then((list) => ({ root, list }), (e) => ({ root, error: String(e?.message || e) }))));
         if (gen !== this.gen) return;
-        this.capped = paths.length >= MAX_REPOS;
+        const errors = {}, entries = [], seen = new Set();
+        let capped = false;
+        for (const f of found) {
+          if (f.error) { errors[samePath(f.root)] = f.error; continue; }
+          if (f.list.length >= MAX_REPOS) capped = true;
+          // A folder inside another base folder: its repositories show once, under the first folder.
+          for (const e of f.list) {
+            if (seen.has(samePath(e.path))) continue;
+            seen.add(samePath(e.path));
+            entries.push({ ...e, root: f.root });
+          }
+        }
+        this.rootErrors = errors;
+        if (!entries.length && found.every((f) => f.error)) throw new Error(found.map((f) => f.error).join(" · "));
+        this.capped = capped;
         this.scanning = false;
-        this.progress = { done: 0, total: paths.length };
+        this.progress = { done: 0, total: entries.length };
         cx.notify();
-        await mapLimit(paths, WORKERS, async (entry) => {
-          const r = await analyze(entry, root, { fetch });
+        await mapLimit(entries, WORKERS, async (entry) => {
+          const r = await analyze(entry, entry.root, { fetch });
           if (gen !== this.gen) return;
+          r.root = entry.root;
           this.repos.set(entry.path, r);
           this.progress.done += 1;
           cx.notify();
         });
         if (gen !== this.gen) return;
-        const seen = new Set(paths.map((p) => p.path));
-        for (const k of [...this.repos.keys()]) if (!seen.has(k)) this.repos.delete(k);
+        const keep = new Set(entries.map((p) => p.path));
+        for (const k of [...this.repos.keys()]) if (!keep.has(k)) this.repos.delete(k);
         this.updated = Date.now();
       } catch (e) {
         if (gen === this.gen) this.scanError = String(e?.message || e);
@@ -191,17 +260,64 @@ export default class GitDash extends View {
     cx.notify();
   }
 
-  chooseFolder(cx) {
+  /** Uses `roots` as the list: saves it when `save`, then reads every folder again. */
+  setRoots(roots, cx, save = true) {
+    this.roots = cleanRoots(roots);
+    this.sig = rootsSig(this.roots);
+    if (save) setShared(KEY_ROOTS, this.roots);
+    this.gen += 1; this.loading = false; this.scanning = false;
+    this.repos.clear(); this.open.clear(); this.ask = null; this.running.clear(); this.result.clear();
+    this.rootErrors = {}; this.updated = 0; this.scanError = null; this.capped = false;
+    this.refresh(cx);
+    cx.notify();
+  }
+
+  /** Follows a list that another copy of the panel (or the mods-hub) saved. */
+  followRoots(cx) {
+    const now = cleanRoots(shared(KEY_ROOTS));
+    if (Array.isArray(shared(KEY_ROOTS)) && rootsSig(now) !== this.sig) this.setRoots(now, cx, false);
+  }
+
+  addFolder(cx) {
     cx.spawn(async (cx) => {
       const dir = await pickFolder({ prompt: this.s("pickPrompt") }).catch(() => null);
       if (!dir) return;
-      this.gen += 1; this.loading = false; this.repos.clear(); this.open.clear();
-      this.ask = null; this.running.clear(); this.result.clear();
-      this.root = dir; this.updated = 0; this.scanError = null;
-      setShared(this.rootKey, dir);
-      this.refresh(cx);
-      cx.notify();
+      if (this.roots.some((r) => samePath(r) === samePath(dir))) {
+        notify({ title: this.s("alreadyThere"), body: nativePath(dir), level: "info" });
+        return;
+      }
+      this.setRoots([...this.roots, dir], cx);
     });
+  }
+
+  removeRoot(root, cx) {
+    const rest = this.roots.filter((r) => samePath(r) !== samePath(root));
+    if (this.loading) { this.setRoots(rest, cx); return; }
+    // No run: drop the cards of that folder, and keep the others without a new search.
+    this.roots = rest;
+    this.sig = rootsSig(rest);
+    setShared(KEY_ROOTS, rest);
+    delete this.rootErrors[samePath(root)];
+    for (const [k, r] of [...this.repos]) {
+      if (samePath(r.root) === samePath(root)) { this.repos.delete(k); this.open.delete(k); this.result.delete(k); }
+    }
+    if (this.ask && !this.repos.has(this.ask.path)) this.ask = null;
+    cx.notify();
+  }
+
+  /** The name of a card: the path under its base folder, with the folder's name first when there are 2 or more. */
+  label(r) {
+    if (this.roots.length < 2 || !r.root) return r.name;
+    const prefix = this.prefix(r.root);
+    return samePath(r.path) === samePath(r.root) ? prefix : `${prefix}/${r.name}`;
+  }
+
+  /** The short name of a base folder: its last part, or its last 2 parts when another folder has the same last part. */
+  prefix(root) {
+    const parts = (p) => normRoot(p).split("/").filter(Boolean);
+    const last = (p) => parts(p).slice(-1)[0] || normRoot(p);
+    const twin = this.roots.some((o) => samePath(o) !== samePath(root) && last(o).toLowerCase() === last(root).toLowerCase());
+    return twin ? parts(root).slice(-2).join("/") : last(root);
   }
 
   toggleFetch(cx) {
@@ -214,14 +330,15 @@ export default class GitDash extends View {
 
   /** Reads one repository again (its operations too), after a fix or a terminal. */
   refreshOne(path, cx) {
-    const gen = this.gen, root = this.root;
+    const gen = this.gen, root = this.repos.get(path)?.root;
+    if (!root) return;
     cx.spawn(async (cx) => {
       const found = await findRepos(path, 0).catch(() => null);
-      const same = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-      const entry = found?.find((e) => same(e.path) === same(path))
+      const entry = found?.find((e) => samePath(e.path) === samePath(path))
         ?? { path, operations: this.repos.get(path)?.operations ?? [] };
       const r = await analyze({ path, operations: entry.operations }, root);
       if (gen !== this.gen || !this.repos.has(path)) return;
+      r.root = root;
       this.repos.set(path, r);
       cx.notify();
     });
@@ -323,12 +440,19 @@ export default class GitDash extends View {
     return h_flex().h(40).flex_none().px(12).gap(6).items_center()
       .child(svg(icon("repos")).size(16).flex_none().text_color(t.accent))
       .child(div().font_semibold().flex_none().child(this.s("title")))
-      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.root ? base(this.root) : ""))
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.rootsText()))
       .child(iconButton(t, "gd-fetch", "download", (cx) => this.toggleFetch(cx),
         { active: this.fetch, tooltip: this.s(this.fetch ? "fetchTipOn" : "fetchTipOff") }))
-      .child(iconButton(t, "gd-folder", "folder", (cx) => this.chooseFolder(cx), { tooltip: this.s("choose") }))
+      .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? "list" : "folders"; cx.notify(); },
+        { active: this.view === "folders", tooltip: this.s(this.view === "folders" ? "back" : "folders") }))
       .child(iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx),
-        { disabled: !this.root, spin: this.loading, tooltip: this.s("refresh") }));
+        { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }));
+  }
+
+  /** The header text: the name of the only folder, or `2 folders`. */
+  rootsText() {
+    if (!this.roots.length) return "";
+    return this.roots.length === 1 ? base(this.roots[0]) : this.s("nFolders", { n: this.roots.length });
   }
 
   /** `12 repositories · 5 with pending` on the left, the progress or age on the right. */
@@ -337,9 +461,40 @@ export default class GitDash extends View {
     const state = this.scanning ? this.s("scanning")
       : this.loading ? this.s("analyzing", this.progress)
       : this.updated ? this.s("updated", { t: this.age() }) : "";
+    const missing = Object.keys(this.rootErrors).length;
     return h_flex().flex_none().px(14).pb(2).gap(8).items_center().text_size(11).text_color(t.dim)
       .child(div().flex_1().min_w(0).truncate().child(`${this.s("repos", { n: list.length })} · ${this.s("withPending", { n: withPending })}`))
+      .when(missing > 0, (e) => e.child(div().id("gd-missing").flex_none().text_color(t.blocked).cursor_pointer()
+        .hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => { this.view = "folders"; cx.notify(); })
+        .child(this.s("missing", { n: missing }))))
       .child(div().flex_none().text_color(this.loading ? t.accent : t.dim).child(state));
+  }
+
+  /** The list of base folders: 1 row per folder, then Add folder. */
+  foldersView(t) {
+    const all = [...this.repos.values()];
+    const row = (root) => {
+      const k = samePath(root);
+      const error = this.rootErrors[k];
+      const n = all.filter((r) => samePath(r.root || "") === k).length;
+      const count = error ? this.s("notFound") : this.scanning ? "…" : this.s("reposN", { n });
+      return h_flex().id(`gd-root-${k}`).h(40).flex_none().px(14).gap(10).items_center().border_b(1).border_color(t.border)
+        .when(Boolean(error), (e) => e.tooltip(error))
+        .child(svg(icon("folder")).size(15).flex_none().text_color(error ? t.blocked : t.accent))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground).child(nativePath(root)))
+        .child(pill(t, { label: count, color: error ? t.blocked : undefined }))
+        .child(iconButton(t, `gd-rm-${k}`, "trash", (cx) => this.removeRoot(root, cx), { tooltip: this.s("removeFolder") }));
+    };
+    return v_flex().flex_1().min_h(0)
+      .child(v_flex().flex_none().px(14).pt(4).pb(10).gap(2)
+        .child(div().text_size(13).font_semibold().child(this.s("foldersTitle")))
+        .child(div().text_size(11).text_color(t.dim).child(this.s("foldersHint", { depth: this.depth }))))
+      .child(v_flex().id("gd-roots").flex_1().min_h(0).overflow_y_scrollbar().border_t(1).border_color(t.border)
+        .children(this.roots.map(row))
+        .child(h_flex().flex_none().px(14).py(10).gap(8)
+          .child(button(t, "gd-add", this.s("addFolder"), (cx) => this.addFolder(cx), { primary: true }))
+          .when(this.roots.length > 0, (e) => e.child(button(t, "gd-back", this.s("back"), (cx) => { this.view = "list"; cx.notify(); })))));
   }
 
   pills(r, t) {
@@ -476,7 +631,7 @@ export default class GitDash extends View {
       }))
       .child(h_flex().gap(8).items_center()
         .child(div().size(8).rounded(4).flex_none().bg(this.sevColor(r, t)))
-        .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().child(r.name))
+        .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().child(this.label(r)))
         .when(expandable, (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(open ? "▾" : "▸"))))
       .when(Boolean(r.error), (e) => e.child(div().pl(16).text_size(11).text_color(t.ansi1).child(r.error)))
       .when(!r.error, (e) => e.child(h_flex().pl(16).flex_wrap().gap(6).items_center().children(this.pills(r, t))))
@@ -493,27 +648,33 @@ export default class GitDash extends View {
         .child(svg(icon("repos")).size(22).text_color(t.accent)))
       .child(div().text_size(14).font_semibold().text_color(t.foreground).child(title))
       .when(Boolean(detail), (e) => e.child(div().max_w(300).text_size(12).text_color(t.dim).text_center().child(detail)))
-      .when(withButton, (e) => e.child(button(t, "gd-pick", this.s("choose"), (cx) => this.chooseFolder(cx), { primary: true })));
+      .when(withButton, (e) => e.child(h_flex().gap(8)
+        .child(button(t, "gd-pick", this.s(this.roots.length ? "addFolder" : "choose"), (cx) => this.addFolder(cx), { primary: true }))
+        .when(this.roots.length > 0, (x) => x.child(button(t, "gd-folders", this.s("folders"), (cx) => { this.view = "folders"; cx.notify(); })))));
   }
 
   body(t) {
-    if (!this.root) return this.emptyState(t, this.s("pickTitle"), this.s("pickHint", { depth: this.depth }), true);
-    if (this.scanError && !this.repos.size) return this.emptyState(t, this.scanError, this.root, true);
-    if (this.scanning && !this.repos.size) return busy(t, this.s("scanning"), this.root);
+    if (!this.roots.length) return this.emptyState(t, this.s("pickTitle"), this.s("pickHint", { depth: this.depth }), true);
+    if (this.view === "folders") return this.foldersView(t);
+    const where = this.roots.map(nativePath).join(", ");
+    if (this.scanError && !this.repos.size) return this.emptyState(t, this.scanError, where, true);
+    if (this.scanning && !this.repos.size) return busy(t, this.s("scanning"), where);
     if (!this.repos.size && !this.loading) {
-      return this.emptyState(t, this.s("none"), this.s("noneHint", { root: this.root, depth: this.depth }), true);
+      return this.emptyState(t, this.s("none"), this.s("noneHint", { root: where, depth: this.depth }), true);
     }
-    if (!this.repos.size) return busy(t, this.s("analyzing", this.progress), this.root);
+    if (!this.repos.size) return busy(t, this.s("analyzing", this.progress), where);
 
     const all = [...this.repos.values()];
+    const names = new Map(all.map((r) => [r.path, this.label(r)]));
+    const byName = (a, b) => names.get(a.path).localeCompare(names.get(b.path));
     const bad = all.filter((r) => r.error);
     const todo = all.filter((r) => !r.error && pending(r))
-      .sort((a, b) => severity(b) - severity(a) || a.name.localeCompare(b.name));
-    const clean = all.filter((r) => !r.error && !pending(r)).sort((a, b) => a.name.localeCompare(b.name));
-    bad.sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => severity(b) - severity(a) || byName(a, b));
+    const clean = all.filter((r) => !r.error && !pending(r)).sort(byName);
+    bad.sort(byName);
 
     const q = this.query.value().trim().toLowerCase();
-    const hit = (r) => !q || `${r.name} ${r.branch}`.toLowerCase().includes(q);
+    const hit = (r) => !q || `${names.get(r.path)} ${r.branch}`.toLowerCase().includes(q);
     const pools = { pending: todo, clean, errors: bad, all: [...todo, ...clean, ...bad] };
     const shown = pools[this.filter].filter(hit);
 

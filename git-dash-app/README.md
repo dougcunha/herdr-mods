@@ -1,6 +1,6 @@
 # Git Dash for the Herdr app
 
-A Herdr app mod that shows the pending work of every Git repository under one base folder. It is a port of a `git-pendencias.py` report into a panel.
+A Herdr app mod that shows the pending work of every Git repository under one or more base folders. It is a port of a `git-pendencias.py` report into a panel.
 
 The panel lists only the repositories that need attention, the most urgent first. Each card shows the branch and colored counts: unpushed commits, staged, modified and new files, stash entries, conflicts, a merge or rebase in progress, and merged branches that were not deleted. A click on a card shows its changed files and its fixes. **Refresh** reads all repositories again.
 
@@ -46,11 +46,12 @@ herdr-app do tab.new --name Repos --mod git-dash --props '{"root":"D:/Projetos"}
 
 | Control | What it does |
 | ------- | ------------ |
-| Folder button | Opens the folder picker. The folder is saved and used on the next start. Each panel with its own `root` prop saves its own folder. |
+| Folder button | Shows the list of base folders: 1 row per folder, with its repository count (or `not found`) and a trash button, then **Add folder…**. A second click goes back to the list of repositories. The list is saved and every Git Dash panel uses it. |
 | Refresh button | Reads all repositories again. It spins while it works. The panel also refreshes by itself every 5 minutes. |
 | Download button | Fetch on refresh. When it is on, `git fetch --all --prune` runs in each repository, so the *behind* count is current. It is off by default. |
 | Chips | **Pending**, **Clean**, **Errors** and **All**. |
 | Filter box | Filters by repository path or branch. |
+| `N folder(s) not found` | Shows in red in the summary line when a base folder cannot be read. A click shows the list of folders. |
 | A card | Shows or hides the changed files of that repository (the first 12) and its fixes. |
 | **Commit** | Shows a message box and the files to include: **Staged only**, **Tracked files** (`git add -u`) or **All, with new files** (`git add -A`, in red). Enter or **Commit** runs it. |
 | **Push** | `git push`, when the branch is ahead of its upstream and not behind. |
@@ -114,11 +115,25 @@ These problems have no fix button. The card lists them under *Resolve by hand*: 
 
 Colors: red for conflicts, an operation in progress and unpushed commits; yellow for staged or modified files; cyan for new files; magenta for a stash or merged branches only; green for a clean repository.
 
+### More than 1 base folder
+
+With 2 or more base folders, each card shows the name of its base folder before the path (`Projetos/api`), and the header shows `2 folders`. When 2 base folders have the same name, the name has its parent folder too (`D:/Projetos`, `E:/Projetos`). The sort by urgency is one list for all folders. A repository that is in 2 base folders (one folder inside the other) shows once.
+
+### Commands
+
+Bind a key, or run `herdr-app do git-dash.<command>`:
+
+| Command | What it does |
+| ------- | ------------ |
+| `git-dash.folders` | Shows the list of base folders. |
+| `git-dash.list` | Shows the list of repositories. |
+| `git-dash.refresh` | Reads all repositories again. |
+
 ## Props
 
 | Prop | Meaning |
 | ---- | ------- |
-| `root` | The first base folder. A folder that you choose with the picker wins over it. Two panels with different `root` props keep separate choices. |
+| `root` | The first base folder. It is used only once, when no list of folders is saved yet. After that, the saved list wins, also when it is empty. |
 | `depth` | How many folder levels to search. Default `4`. |
 | `fetch` | `true` starts with fetch on. |
 | `lang` | `"en"` (default) or `"pt"`. |
@@ -129,7 +144,7 @@ Colors: red for conflicts, an operation in progress and unpushed commits; yellow
 - Git reads with `--no-optional-locks`: it does not write to the index. Git 2.35 or newer is needed (`status --show-stash`).
 - A fix runs `git` with no input and a 30 second limit. A push that needs a password, or a slow commit hook, fails. Use **Run in terminal** then.
 - After **Terminal** or **New space**, the card reads the repository again after 20 seconds, 90 seconds and 5 minutes.
-- The search skips `node_modules`, `.venv`, `venv`, `__pycache__`, `bin`, `obj`, `dist`, `build`, `target`, `packages`, `.idea`, `.vs`, `.vscode`, `.gradle`, `.next` and `.cache`. It stops at 400 repositories.
+- The search skips `node_modules`, `.venv`, `venv`, `__pycache__`, `bin`, `obj`, `dist`, `build`, `target`, `packages`, `.idea`, `.vs`, `.vscode`, `.gradle`, `.next` and `.cache`. It stops at 400 repositories in each base folder.
 - A fetch that needs a password fails after 30 seconds, because the app gives a program no input.
 - The panel checks at most 20 merged branches per repository.
 - Local folders only. Tested on Windows with Herdr 0.1.12. The `sh` search is untested.
