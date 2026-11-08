@@ -129,7 +129,7 @@ async function listFiles(dir, prefix = "") {
 
 /**
  * The mods of `mods/`, sorted by name. Each is
- * `{ name, title, origin, app, description, readme, settings, errors: [{file, text}] }`.
+ * `{ name, title, origin, app, description, readme, settings, partOf, errors: [{file, text}] }`.
  * `settings`: the valid fields of the `settings` list of kit.json (see fields.js).
  * `origin`: "kit" (the mod has a kit.json, or the setup record lists it),
  * "herdr" (Herdr installed it: installed.json), "third" (a third-party mod of
@@ -160,6 +160,8 @@ export async function scanMods(record) {
       description: typeof kit?.description === "string" ? kit.description : "",
       readme: (typeof kit?.readme === "string" && kit.readme) || thirdUrl(name),
       settings: cleanFields(kit?.settings),
+      // A part of another mod (kit.json "partOf"): it goes on and off with that mod.
+      partOf: typeof kit?.partOf === "string" ? kit.partOf : "",
       errors,
     };
   }));

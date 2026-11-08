@@ -43,6 +43,10 @@ The **Mods** tab of `mods-hub` shows the description and marks the mod as part
 of the kit. Add it to a new mod, and change the description when the mod
 changes what it does.
 
+`partOf` (optional) names the mod that this mod is a part of
+(`repo-launcher-status` → `repo-launcher`). The **Mods** tab shows no switch
+for a part: it goes on and off with that mod.
+
 `settings` (optional) lists the preferences that the **Settings** tab of
 `mods-hub` shows. The field types and their keys are in
 `mods-hub-app/mods/mods-hub/fields.js`. Rules:
@@ -54,6 +58,22 @@ changes what it does.
 - List preferences only, not UI state (search text, column order, recent
   items).
 - When a mod reads `props.lang`, read `shared("herdr-mods.lang")` first.
+
+### On and off
+
+The **Mods** tab of `mods-hub` turns a kit mod off with the shared key
+`herdr-mods.disabled` (a list of mod names; see `mods-hub/onoff.js`). Every new
+kit mod must follow it:
+
+- Copy the `kitOff()` and `offView()` helpers of an other kit mod. Start
+  `render()` with `if (kitOff()) return offView();`, and skip timed work
+  (`cx.timer.every(…, (cx) => kitOff() || …)`).
+- A button that opens an other kit mod checks that mod too (see `namerOff` in
+  `agent-cards`).
+- A `dock/panels.json` entry needs nothing more: the bars leave out its button
+  and hide its block. A block of a layout of the kit also needs nothing: the
+  bars hide it. A mod that replaces a Herdr mod in a block goes into
+  `ORIGINALS` of `tabs-dock` and `kanban`.
 
 - Write the notes in English only.
 - Write a markdown list. Do not add a title: the mod adds `## Version <N>`.

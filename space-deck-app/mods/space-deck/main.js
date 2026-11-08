@@ -12,12 +12,17 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home } from "herdr";
+import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay } from "herdr";
 import { Git } from "./git.js";
 import { rows, sections, recentRows, needsYou } from "./model.js";
 import { KEYS, item, pins, pinAt, unpin, view, cardField, gitEvery, needsYouFirst, recentCount, touch, fillOf, PALETTE } from "./store.js";
 import { overlayFor, popup, programIcon, tile } from "./overlays.js";
 import { demoModel } from "./demo.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("space-deck"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const MOD = "space-deck";
 const ICON = (name) => `mods/${MOD}/${name}.svg`;
@@ -58,6 +63,7 @@ export default class SpaceDeck extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     return (this.part ?? this.deck).render(cx);
   }
 }
@@ -77,9 +83,9 @@ class Deck {
     this.folded = new Set(JSON.parse(localStorage.getItem("folded") ?? "[]")); // machines, and "recent"
     if (!localStorage.getItem("folded")) this.folded.add("recent");
     this.refreshFiles(cx);
-    cx.timer.every(10000, (cx) => this.refreshFiles(cx));
-    cx.timer.every(1000, (cx) => this.tick(cx));
-    cx.timer.every(30000, (cx) => cx.notify()); // the "5m" times
+    cx.timer.every(10000, (cx) => kitOff() || this.refreshFiles(cx));
+    cx.timer.every(1000, (cx) => kitOff() || this.tick(cx));
+    cx.timer.every(30000, (cx) => kitOff() || cx.notify()); // the "5m" times
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -174,8 +180,14 @@ class Deck {
     popup("agents", { space: r.id, folder: r.folder, machine: r.machine }, 240, 300);
   }
 
+  /** True when repo-launcher is installed and not turned off in the mods-hub. */
+  launcherOn() {
+    const off = shared("herdr-mods.disabled");
+    return this.launcher && !(Array.isArray(off) && off.includes("repo-launcher"));
+  }
+
   plus() {
-    if (this.launcher) run("mod.open", { name: "repo-launcher" });
+    if (this.launcherOn()) run("mod.open", { name: "repo-launcher" });
     else popup("plus", {}, 220, 90);
   }
 
@@ -481,7 +493,7 @@ class Deck {
         .when(!narrow, (el) => el.child(div().flex_1().text_size(11.5).text_color(t.dim).child(this.demo ? "Spaces · demo" : "Spaces"))
           .child(this.headerButton("deck-view", cards ? "list" : "layout-grid", cards ? "Show as a list" : "Show as cards", t,
             () => setShared(KEYS.view, cards ? "list" : "card"))))
-        .child(this.headerButton("deck-plus", "plus", this.launcher ? "Open a repository (repo-launcher)" : "New space", t, () => this.plus())))
+        .child(this.headerButton("deck-plus", "plus", this.launcherOn() ? "Open a repository (repo-launcher)" : "New space", t, () => this.plus())))
       .child(v_flex()
         .id("deck-body")
         .flex_1()

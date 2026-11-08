@@ -12,6 +12,8 @@ import { stage } from "./robot.js";
 // and the other cards go to the bottom of the panel, under a line.
 const KEY_NEEDS_YOU = "agent-cards.needsYouFirst";
 const needsYouFirst = () => shared(KEY_NEEDS_YOU) === true;
+// True when the person turned tab-namer off in the mods-hub: the cards show no pencil then.
+const namerOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("tab-namer"); };
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -294,7 +296,7 @@ export default class AgentCards extends View {
             .when(Boolean(icon(a.program, 14, t.foreground)), (el) => el.child(icon(a.program, 14, t.foreground)))
             .child(div().flex_1().min_w(0).truncate().font_medium().text_color(a.status === "idle" ? t.muted : t.foreground).child(info.name))
             .when(Boolean(since) && !hovered, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
-            .when(hovered && this.namer, (el) => el.child(this.rename(t, a)))
+            .when(hovered && this.namer && !namerOff(), (el) => el.child(this.rename(t, a)))
             .when(hovered || a.pinned, (el) => el.child(this.pin(t, a))))
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()

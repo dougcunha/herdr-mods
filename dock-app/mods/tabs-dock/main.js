@@ -42,6 +42,14 @@ const KEY_PANEL_OPEN = "kanban.panelOpen"; // "auto" | "side" | "dialog"; absent
 const KEY_AGENT_CARDS = "agent-cards.enabled"; // false: the sidebar shows Herdr's own agents list
 const KEY_PANEL_DIALOG = "kanban.panelDialog"; // { id, panel }: the panel dialog that is open now; null: none
 const PANEL_OPENS = ["auto", "side", "dialog"];
+// The mods that the person turned off in the mods-hub: a list of mod folder names. The same key and the same rules
+// as in mods/kanban. The bar shows no button of an entry whose mod is off, hides the blocks of an off mod in its
+// layout, and shows Herdr's own mod in a block of an off replacement mod (ORIGINALS). It undoes only what it did.
+const KEY_OFF = "herdr-mods.disabled";
+const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "changes-split": "changes" };
+const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(v) ? v.filter(n => typeof n === "string") : []); };
+// The mod of a panels.json entry: its `mod`, the mod of a "<mod>.<command>" or of a mod.open command.
+const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);
 const PANEL_NARROW = 1600; // px of window: below it, Auto opens a dialog
 const DIALOG_TITLE = 36; // px: the title row of a panel dialog
 // The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
@@ -187,6 +195,8 @@ export default class Tabs extends View {
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
     this.entries = [];
     this.injected = new Set(JSON.parse(localStorage.getItem("injected") ?? "[]"));
+    // The blocks that this bar hid or swapped for an off mod: { "<layout>|<block id>": "<mod>" }.
+    this.kitOff = JSON.parse(localStorage.getItem("kitOff") ?? "{}");
     this.version = 0;
     this.lastTry = null;
     this.groups = new Map(); // group id -> its entries, from the last render: the menu of a group button lists them
@@ -277,7 +287,7 @@ export default class Tabs extends View {
       if (typeof name === "string" && names.includes(name) && !items.some(i => i.name === name)) items.push({ name, label, symbol, entry });
     };
     add(here, layoutLabel(here), "mods/tabs-dock/layout-main.svg", { id: "layout-here", run: "layout.switch", args: { name: here } });
-    for (const e of this.entries) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon, e);
+    for (const e of this.liveEntries()) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon, e);
     return items;
   }
 
@@ -293,11 +303,14 @@ export default class Tabs extends View {
     if (String(id).startsWith("group-")) return this.openGroup(String(id).slice(6));
     // "tabs-dock.gear" does what the gear button does.
     if (id === "gear") return this.openGear();
-    const command =this.entries.find(e => e.id === id && e.opens === "command");
+    const live = this.liveEntries();
+    // A key of a panel whose mod is off does nothing.
+    if (live.length < this.entries.length && this.entries.some(e => e.id === id) && !live.some(e => e.id === id)) return;
+    const command = live.find(e => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command);
     const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
-    const node = panel ? (body?.children ?? []).find(c => c.id === id) : null;
-    const tab = node ? null : this.entries.find(e => e.id === id && e.opens === "tab");
+    const node = panel ? (body?.children ?? []).find(c => c.id === id && !c.hidden) : null;
+    const tab = node ? null : live.find(e => e.id === id && e.opens === "tab");
     if (!node && !tab) return;
     // A click on any panel button closes the open dialog first; a click on the button of that dialog only closes it.
     const open = shared(KEY_PANEL_DIALOG);
@@ -475,7 +488,7 @@ export default class Tabs extends View {
     const missing = wanted.filter(e => !body.children.some(c => c.id === e.id));
     const stale = body.children.filter(c => this.injected.has(c.id) && !keep.has(c.id));
     if (!missing.length && !stale.length) { this.since = null; return false; }
-    const key = `${shared("layout")}|${this.version}`;
+    const key = `${shared("layout")}|${this.version}|${[...offMods()].sort().join(",")}`;
     if (key === this.lastTry) return false;
     this.lastTry = key; this.since = Date.now();
     const tree = JSON.parse(JSON.stringify(root)), target = find(tree, "panel-body");
@@ -490,20 +503,55 @@ export default class Tabs extends View {
     return true;
   }
 
-  // The sidebar block `agents` shows the `agent-cards` mod, or Herdr's own `agents`
-  // list when the mods-hub setting `agent-cards.enabled` is off. A block with another
-  // mod is left alone. One attempt for each layout and choice, as in inject().
-  swapAgents(root) {
-    const mod = find(root, "agents")?.content?.mod;
-    if (mod !== "agents" && mod !== "agent-cards") return;
-    const want = shared(KEY_AGENT_CARDS) === false ? "agents" : "agent-cards";
-    if (mod === want) { this.agentsTry = null; return; }
-    const key = `${shared("layout")}|${want}`;
-    if (key === this.agentsTry) return;
-    this.agentsTry = key;
-    const tree = JSON.parse(JSON.stringify(root)), node = find(tree, "agents");
-    node.content = { ...node.content, mod: want };
+  // The entries of panels.json whose mod is on.
+  liveEntries() {
+    const off = offMods();
+    return off.size ? this.entries.filter(e => !off.has(entryMod(e))) : this.entries;
+  }
+
+  // Makes the layout follow the mods that are on. The sidebar block `agents` shows the `agent-cards` mod, or
+  // Herdr's own `agents` list when the mods-hub setting `agent-cards.enabled` is off. A block of a mod that is off
+  // (shared KEY_OFF) is hidden; a block of an off replacement mod shows Herdr's own mod (ORIGINALS). When the mod is
+  // on again, the bar shows the block again, or puts the mod back. A side panel that shows an off mod closes.
+  // One attempt for each layout and wanted change, as in inject(). Returns true when it edits the layout.
+  reconcile(root) {
+    const name = shared("layout"), off = offMods();
+    const tree = JSON.parse(JSON.stringify(root));
+    let changed = false;
+    const agents = find(tree, "agents");
+    if (agents?.content?.mod === "agents" || agents?.content?.mod === "agent-cards") {
+      const want = shared(KEY_AGENT_CARDS) === false ? "agents" : "agent-cards";
+      if (agents.content.mod !== want) { agents.content = { ...agents.content, mod: want }; changed = true; }
+    }
+    const walk = (node) => {
+      for (const child of node?.children ?? []) walk(child);
+      const mod = node?.content?.mod, key = `${name}|${node?.id}`;
+      if (!node?.id || typeof mod !== "string") return;
+      const mine = this.kitOff[key];
+      if (mine && !off.has(mine)) {
+        // The mod is on again: undo what this bar did (only when the block is still as the bar left it).
+        if (ORIGINALS[mine] && mod === ORIGINALS[mine]) { node.content = { ...node.content, mod: mine }; changed = true; }
+        else if (!ORIGINALS[mine] && mod === mine && node.hidden) { delete node.hidden; changed = true; }
+        delete this.kitOff[key];
+      } else if (off.has(mod)) {
+        if (ORIGINALS[mod]) node.content = { ...node.content, mod: ORIGINALS[mod] };
+        else if (!node.hidden) node.hidden = true;
+        else return;
+        this.kitOff[key] = mod;
+        changed = true;
+      }
+    };
+    walk(tree);
+    // The side panel shows a block that is now hidden: close it.
+    const panel = find(tree, "panel"), body = find(tree, "panel-body");
+    if (panel && !panel.hidden && (body?.children ?? []).some(c => c.id === body.active && c.hidden)) { panel.hidden = true; changed = true; }
+    localStorage.setItem("kitOff", JSON.stringify(this.kitOff));
+    if (!changed) { this.reconcileTry = null; return false; }
+    const attempt = `${name}|${JSON.stringify(tree)}`;
+    if (attempt === this.reconcileTry) return false;
+    this.reconcileTry = attempt;
     run("layout.set", { layout: tree });
+    return true;
   }
 
   // The side panel is remembered per space: switching shows that space's choice
@@ -573,12 +621,19 @@ export default class Tabs extends View {
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body?.children ?? []) taken.delete(c.id);
-    const wanted = this.entries.filter(e => e.opens !== "command" && !taken.has(e.id) && !BUILTIN.some(b => b.id === e.id));
-    const commands = this.entries.filter(e => e.opens === "command");
+    const live = this.liveEntries();
+    const wanted = live.filter(e => e.opens !== "command" && !taken.has(e.id) && !BUILTIN.some(b => b.id === e.id));
+    const commands = live.filter(e => e.opens === "command");
     const panelEntries = wanted.filter(e => e.opens === "panel");
     const injecting = panel && body ? this.inject(root, body, panelEntries) : false;
-    // One layout edit for each render: the agents swap waits for the panel edit.
-    if (!injecting) this.swapAgents(root);
+    // One layout edit for each render: the agents swap and the off mods wait for the panel edit.
+    if (!injecting) this.reconcile(root);
+    // A panel dialog that shows a mod that is now off closes.
+    const openDialog = shared(KEY_PANEL_DIALOG);
+    if (openDialog?.id && liveDialogs().has(openDialog.id)) {
+      const entry = this.entries.find(e => e.id === openDialog.panel);
+      if (entry && offMods().has(entryMod(entry))) { closeOverlay(openDialog.id); setShared(KEY_PANEL_DIALOG, null); }
+    }
 
     // Files and Changes follow the welcome's choice (they are in the layout).
     const present = new Set((body?.children ?? []).map(c => c.id));

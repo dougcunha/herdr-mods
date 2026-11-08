@@ -17,6 +17,11 @@ import {
 } from "./actions.js";
 import { demoSpecs } from "./demo.js";
 
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("spec-board"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+
 const MOD = "spec-board";
 const KEY_LANG = "herdr-mods.lang";
 const icon = (name) => `mods/${MOD}/${name}.svg`;
@@ -144,8 +149,8 @@ export default class SpecBoard extends View {
     this.demo = null;
     this.search = InputState.new({ placeholder: this.s("search") });
     this.search.on("change", (_e, cx) => cx.notify());
-    cx.timer.every(1500, (cx) => this.follow(cx));
-    cx.timer.every(30000, (cx) => this.refresh(cx));
+    cx.timer.every(1500, (cx) => kitOff() || this.follow(cx));
+    cx.timer.every(30000, (cx) => kitOff() || this.refresh(cx));
     this.follow(cx);
     cx.spawn(async (cx) => {
       for (;;) {
@@ -952,6 +957,7 @@ export default class SpecBoard extends View {
   // ---- render -----------------------------------------------------------------------
 
   render(cx) {
+    if (kitOff()) return offView();
     this.cx = cx;
     const t = theme();
     const wide = this.width >= WIDE;

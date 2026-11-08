@@ -19,13 +19,18 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { notify, theme, props, openOverlay, nextCommand, agents, terminals, hc, run } from "herdr";
+import { notify, theme, props, openOverlay, nextCommand, agents, terminals, hc, run, shared, closeOverlay } from "herdr";
 import {
   AGENTS, config, labeled, inspect, sessionState, resumeNow, forget,
   agentForApp, recordWithoutHook, refreshPid,
 } from "./resume.js";
 import { codexSessions, matchCodex } from "./codex.js";
 import { Panel } from "./panel.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("agent-resume"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 // Time between 2 scans.
 const SCAN_MS = 3000;
@@ -50,7 +55,7 @@ export default class AgentResume extends View {
     this.scans = 0;
     this.busy = false;
     this.lastCount = 0; // sessions resumed in the last scan that resumed any
-    cx.timer.every(SCAN_MS, (cx) => this.scan(cx));
+    cx.timer.every(SCAN_MS, (cx) => kitOff() || this.scan(cx));
     this.scan(cx);
     // "agent-resume.panel" (a key in keys.json, or herdr-app do) opens the panel.
     cx.spawn(async () => {
@@ -224,6 +229,7 @@ export default class AgentResume extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     if (this.panel) return this.panel.render(cx);
     const t = theme();
     const on = config().enabled;

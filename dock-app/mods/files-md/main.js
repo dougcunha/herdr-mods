@@ -9,6 +9,11 @@ import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input } from
 import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, openOverlay, closeOverlay, appHome, shared, props } from "herdr";
 import { tokens, matchEntry, segments } from "./fuzzy.js";
 
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("files-md"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+
 const isMarkdown = name => /\.(md|markdown|mdown|mkd|mdx)$/i.test(name);
 const isImage = name => /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i.test(name);
 
@@ -189,7 +194,7 @@ export default class Files extends View {
     // the first frame, so focus it again a moment later.
     this.filter.focus();
     cx.timer.after(40, cx => { if (!this.file) this.filter.focus(); cx.notify(); });
-    cx.timer.every(10000, cx => this.refresh(cx));
+    cx.timer.every(10000, cx => kitOff() || this.refresh(cx));
     sweepImages();
     // The optional third-party reader adds a menu item when it is installed.
     try { readTextFile(`${appHome()}/mods/markdown-reader/mod.json`).then(text => { this.reader = text !== null; }).catch(() => {}); } catch {}
@@ -453,7 +458,8 @@ export default class Files extends View {
     const items = [];
     if (!this.on) {
       if (!entry.dir) items.push({ label: "Open with default app", icon: "external-link", exec: win ? ["powershell", ["-NoProfile", "-Command", "& { param($p) Invoke-Item -LiteralPath $p } " + quote(native)]] : mac ? ["open", [native]] : ["xdg-open", [native]] });
-      if (!entry.dir && isImage(entry.name)) {
+      const off = shared("herdr-mods.disabled");
+      if (!entry.dir && isImage(entry.name) && !(Array.isArray(off) && off.includes("image-viewer"))) {
         const plan = this.besidePlan("image-viewer", { file: abs, fileOn: this.on });
         if (plan) items.push({ label: "Open in Image Viewer", icon: "image", cmds: plan });
       }
@@ -629,6 +635,7 @@ export default class Files extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)

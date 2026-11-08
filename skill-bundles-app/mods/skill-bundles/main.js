@@ -11,14 +11,19 @@
 // Every copy reads on its own (a node run of probe.mjs takes about 0.2 s). The fetch of the
 // Catalog and the running action are shared() keys, so that 2 copies do not do them twice.
 
-import { View } from "gpui-kit";
+import { View, div } from "gpui-kit";
 import { InputState } from "gpui-base";
-import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings } from "herdr";
+import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay } from "herdr";
 import * as C from "./catalog.js";
 import { parseCatalog, parseManifest, formatManifest, resolveManifest, sameRepo, withSource, withoutSource, withGitignoreBlock, orderBundles } from "./manifest.js";
 import { buildRows, groupRows, pending } from "./status.js";
 import { STR, fill } from "./text.js";
 import { panelView, statusView } from "./view.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("skill-bundles"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const MOD = "skill-bundles";
 const KEY = {
@@ -83,6 +88,7 @@ export default class SkillBundles extends View {
       this.query.on("change", (_e, cx) => cx.notify());
     }
     cx.timer.every(CHECK_MS, (cx) => {
+      if (kitOff()) return;
       if (this.running) setShared(KEY.job, { ...(shared(KEY.job) ?? {}), at: Date.now() });
       this.reload(cx, false);
     });
@@ -439,6 +445,7 @@ export default class SkillBundles extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     this.watchChanges(cx);
     const t = theme();
     const m = this.model();

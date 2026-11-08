@@ -1,5 +1,6 @@
 {
   "app": "repo-launcher-app",
   "description": "The status bar item that opens repo-launcher and shows its shortcut.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app",
+  "partOf": "repo-launcher"
 }

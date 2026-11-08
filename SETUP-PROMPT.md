@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 20 -->
+<!-- herdr-mods-setup-version: 21 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -45,6 +45,7 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 10. Herdr writes some files inside mod folders by itself: `gpui-kit.d.ts`, `jsconfig.json`, hidden files and `*.error`. Ignore them when you compare, and never delete or replace them.
 11. Before you replace or change any file that exists, copy it to `~/.config/herdr-app/backups/herdr-mods-<date and time>/`, with the same relative path. That folder is outside `mods/`, so Herdr does not load it. Tell me where it is at the end.
 12. Install the required items and only the optional items that I chose (see "Choose the optional items"). Skip every step, `panels.json` entry, layout block, key and check of an item that is not installed. Every step for `layouts/kanban.json` runs only when the `kanban` layout is installed.
+13. I can turn a kit mod off in the **Mods** tab of Herdr Mods. Read `"herdr-mods.disabled"` in `~/.config/herdr-app/shared.json` (a list of mod names; read the file, do not edit it). A mod in that list stays off: update its files as usual, but do not add its layout blocks, do not do its "Configure" steps and skip its checks. Never remove `"hidden": true` from a block of a layout, and never put a mod back in a block where the bars put Herdr's own mod (`spaces`, `files`, `changes`): the bars of the kit do that when I turn the mod on again. The bars also leave out the buttons of an off mod, so keep its `panels.json` entry.
 
 ## Before you start
 

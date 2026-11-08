@@ -11,12 +11,17 @@
 //
 // The mod only reads the file. It runs no program and uses no network.
 
-import { View } from "gpui-kit";
+import { View, div } from "gpui-kit";
 import { theme, props, shared, setShared, settings, layout, run, openOverlay, closeOverlay, nextCommand, watchFolder } from "herdr";
 import { feedDir, feedState, hiddenIds, isFeedPath, readFeed, visibleProviders } from "./feed.js";
 import { loadPrograms, providerIcon } from "./icons.js";
 import { STR } from "./text.js";
 import { panelView, sectionView, statusView } from "./view.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("tokenhound"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const MOD = "tokenhound";
 const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: props.lang
@@ -59,7 +64,7 @@ export default class TokenHound extends View {
     this.programs = new Map(); // Herdr's program table, for the agent icons (icons.js)
     cx.spawn(async (cx) => { this.programs = await loadPrograms(); cx.notify(); });
     this.reload(cx);
-    cx.timer.every(REFRESH_MS, (cx) => this.reload(cx));
+    cx.timer.every(REFRESH_MS, (cx) => kitOff() || this.reload(cx));
     // "tokenhound.open" (a key in keys.json, or herdr-app do) opens the panel as a dialog.
     // Only the status bar copy listens: a command reaches every shown copy, so more listeners
     // would open more dialogs.
@@ -216,6 +221,7 @@ export default class TokenHound extends View {
   }
 
   render() {
+    if (kitOff()) return offView();
     const t = theme();
     const m = this.model();
     switch (this.part) {

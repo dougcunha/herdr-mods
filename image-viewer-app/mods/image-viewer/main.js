@@ -5,7 +5,12 @@
 import { View, div } from "gpui-kit";
 import { image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { props, exec, appHome, window, theme, settings } from "herdr";
+import { props, exec, appHome, window, theme, settings, shared, closeOverlay } from "herdr";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("image-viewer"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i;
 const MAX_BYTES = 64 * 1024 * 1024;
@@ -117,6 +122,7 @@ export default class ImageViewer extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     const t = theme(), zoomable = Boolean(this.size);
     const bar = h_flex().h(42).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().font_semibold().flex_none().child("Image"))

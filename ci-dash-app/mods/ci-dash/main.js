@@ -2,11 +2,16 @@
 // focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { spaces, panes, focused, exec, home, theme, notify, props } from "herdr";
+import { spaces, panes, focused, exec, home, theme, notify, props, shared, closeOverlay } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
 import { icon, pill, section, searchBox, filterChip, busy, dialogKeys } from "./ui.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("ci-dash"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const POLL_MS = 5000;
 
@@ -84,7 +89,7 @@ export default class CiDash extends View {
     this.runFilter = this.makeFilter("Filter runs…");
     this.artFilter = this.makeFilter("Filter artifacts…");
     this.reset();
-    cx.timer.every(POLL_MS, (cx) => this.tick(cx));
+    cx.timer.every(POLL_MS, (cx) => kitOff() || this.tick(cx));
   }
 
   makeFilter(placeholder) {
@@ -624,6 +629,7 @@ export default class CiDash extends View {
   }
 
   render(cx) {
+    if (kitOff()) return offView();
     this.ensureContext(cx);
     const t = theme();
     let body;

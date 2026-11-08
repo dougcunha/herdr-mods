@@ -42,6 +42,21 @@ Each row has a dot: red when the folder has a `*.error` file, yellow when a kit 
 
 A setup run before version 5 wrote no hashes. Then the tab tells you to run the setup again.
 
+#### Turn a mod off
+
+Each kit mod has an on/off switch at the right of its row. A mod that is off has a dim name and an **off** pill. Nothing is deleted: turn it on again and everything comes back.
+
+- The list of off mods is the shared key `herdr-mods.disabled` (mod folder names).
+- The bars of the `main-dock` (`tabs-dock`) and `kanban` layouts show no button of a `dock/panels.json` entry whose mod is off. They hide the blocks of an off mod in their layout (`"hidden": true`): the sidebar section and the status bar item of `tokenhound`, the status bar items of `skill-bundles`, `repo-launcher-status` and `agent-resume`, and the side panels. A side panel or a panel dialog that shows the mod closes.
+- A replacement mod gives its block back to Herdr's own mod while it is off: `space-deck` → `spaces`, `files-md` → `files`, `changes-split` → `changes`.
+- Each kit mod draws nothing while it is off, closes its dialog (a key that opens it does nothing) and skips its timed work. A block that is hidden before it shows never starts, so after a restart an off mod does no work at all.
+- Buttons of other mods follow too: the pencil of the Kanban and agent cards (`tab-namer`), the + of `space-deck` (`repo-launcher`) and **Open in Image Viewer** of `files-md` (`image-viewer`).
+- A part of another mod has no switch: it goes on and off with that mod (`"partOf"` in its `kit.json`). `repo-launcher-status` goes with `repo-launcher`, and `files-md-menu` with `files-md`.
+- `agent-cards` keeps its own setting: its switch writes `agent-cards.enabled`, the same as **Agent cards** in the Settings tab.
+- `mods-hub`, `tabs-dock` and `kanban` are always on: they draw this dialog and the bars.
+
+Only the bars of the kit edit the layouts, and each bar edits only its own layout. In another layout of yours, a block of an off mod draws nothing but keeps its place.
+
 #### Updates of third-party mods
 
 Once a day, the mod asks GitHub's public API for the last commit that changed the folder of each installed third-party mod (`GET /repos/<owner>/<repo>/commits?path=<mod folder>&per_page=1`, no token). It compares that commit with the version that the setup recorded in `third.<mod>` of `data/herdr-mods-setup.json` (`tools/record-third-party.mjs` writes it). On the **Third-party** list:
@@ -84,6 +99,7 @@ The prompt finds out by itself what is installed. It installs the new mods, upda
 - **Check now** downloads `SETUP-PROMPT.md` and the release notes again, and asks GitHub for the third-party mods again. On the **Mods** tab, it also reads the mods folder again.
 - **Skip version N** hides the button until a newer version comes. The dialog still opens from the dim item.
 - `herdr-app do mods-hub.check` checks GitHub from a shell (the status item must be on screen).
+- `mods-hub.off-<mod>` and `mods-hub.on-<mod>` turn a kit mod off and on, and `mods-hub.open-<tab>` opens the dialog on a tab (`mods`, `settings`, `news`, `update`). Bind them to keys in `keys.json`, or run them with `herdr-app do` (the status item must be on screen).
 
 ## Install
 

@@ -5,7 +5,12 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, run, keys, window } from "herdr";
+import { theme, run, keys, window, shared, props, closeOverlay } from "herdr";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("repo-launcher-status"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const ACTION = "mod.open:repo-launcher";
 
@@ -22,6 +27,7 @@ function shortcut() {
 
 export default class RepoLauncherStatus extends View {
   render() {
+    if (kitOff()) return offView();
     const t = theme();
     const key = shortcut();
     return h_flex().id("repo-launcher-status").size_full().pr(14).items_center().justify_end()

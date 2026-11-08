@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, run, settings as appSettings } from "herdr";
+import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, run, settings as appSettings, shared } from "herdr";
 import { matchRepo } from "./fuzzy.js";
 import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, ACCOUNT_AGENTS } from "./scan.js";
 import { agentArgv, open, spacesFor } from "./launch.js";
@@ -23,6 +23,11 @@ import {
   icon, GOLD, tint, spaceColor, repoColor, letterTile, programTile, pill, kbd, hint, toggle,
   iconButton, button, segmented, highlighted, ago, sectionTitle,
 } from "./ui.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("repo-launcher"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 const RECENT_COUNT = 5;
 const ROW_H = 50;
@@ -498,6 +503,7 @@ export default class RepoLauncher extends View {
   // Drawing
 
   render() {
+    if (kitOff()) return offView();
     const t = theme();
     const body = this.view === "actions" ? this.renderActions(t)
       : this.view === "settings" ? this.renderSettings(t)

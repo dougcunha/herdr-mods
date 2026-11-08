@@ -36,6 +36,14 @@ const DIALOG_TITLE = 36; // px: the title row of a panel dialog
 // name a dialog that is gone: the bar trusts it only when its id is here. On globalThis, not in the module:
 // a layout switch starts a new copy of the bar with a new module, and the dialog stays open.
 const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
+// The mods that the person turned off in the mods-hub: a list of mod folder names. The same key and the same rules
+// as in mods/tabs-dock. The bar shows no button of an entry whose mod is off, hides the blocks of an off mod in its
+// layout, and shows Herdr's own mod in a block of an off replacement mod (ORIGINALS). It undoes only what it did.
+const KEY_OFF = "herdr-mods.disabled";
+const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "changes-split": "changes" };
+const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(v) ? v.filter((n) => typeof n === "string") : []); };
+// The mod of a panels.json entry: its `mod`, the mod of a "<mod>.<command>" or of a mod.open command.
+const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
@@ -304,6 +312,9 @@ export default class Kanban extends View {
       this.lastTry = null;
       this.injected = new Set();
       try { this.injected = new Set(JSON.parse(localStorage.getItem("kanban.injected") ?? "[]")); } catch {}
+      // The blocks that this bar hid or swapped for an off mod: { "<layout>|<block id>": "<mod>" }.
+      this.kitOff = {};
+      try { this.kitOff = JSON.parse(localStorage.getItem("kanban.kitOff") ?? "{}") ?? {}; } catch {}
       const dir = `${appHome()}/dock`;
       cx.spawn(async (cx) => {
         try { await fs.mkdir(dir, { recursive: true }); } catch {}
@@ -576,9 +587,9 @@ export default class Kanban extends View {
     const keep = new Set(wanted.map((e) => e.id));
     const missing = wanted.filter((e) => !body.children.some((c) => c.id === e.id));
     const stale = body.children.filter((c) => this.injected.has(c.id) && !keep.has(c.id));
-    if (!missing.length && !stale.length) return;
-    const key = `${shared("layout")}|${this.version}`;
-    if (key === this.lastTry) return;
+    if (!missing.length && !stale.length) return false;
+    const key = `${shared("layout")}|${this.version}|${[...offMods()].sort().join(",")}`;
+    if (key === this.lastTry) return false;
     this.lastTry = key;
     const tree = JSON.parse(JSON.stringify(root)), target = find(tree, "panel-body");
     target.children = target.children.filter((c) => !stale.some((s) => s.id === c.id));
@@ -588,6 +599,50 @@ export default class Kanban extends View {
     for (const s of stale) this.injected.delete(s.id);
     for (const e of missing) this.injected.add(e.id);
     try { localStorage.setItem("kanban.injected", JSON.stringify([...this.injected])); } catch {}
+    run("layout.set", { layout: tree });
+    return true;
+  }
+
+  /** The entries of panels.json whose mod is on. */
+  liveEntries() {
+    const off = offMods();
+    return off.size ? this.entries.filter((e) => !off.has(entryMod(e))) : this.entries;
+  }
+
+  /** Makes the layout follow the mods that are on (the same as reconcile in mods/tabs-dock). A block of a mod
+   *  that is off (shared KEY_OFF) is hidden; a block of an off replacement mod shows Herdr's own mod (ORIGINALS).
+   *  When the mod is on again, the bar shows the block again, or puts the mod back. A side panel that shows a
+   *  hidden block closes. One attempt for each layout and wanted change, as in inject(). */
+  reconcile(root) {
+    const name = shared("layout"), off = offMods();
+    const tree = JSON.parse(JSON.stringify(root));
+    let changed = false;
+    const walk = (node) => {
+      for (const child of node?.children ?? []) walk(child);
+      const mod = node?.content?.mod, key = `${name}|${node?.id}`;
+      if (!node?.id || typeof mod !== "string") return;
+      const mine = this.kitOff[key];
+      if (mine && !off.has(mine)) {
+        // The mod is on again: undo what this bar did (only when the block is still as the bar left it).
+        if (ORIGINALS[mine] && mod === ORIGINALS[mine]) { node.content = { ...node.content, mod: mine }; changed = true; }
+        else if (!ORIGINALS[mine] && mod === mine && node.hidden) { delete node.hidden; changed = true; }
+        delete this.kitOff[key];
+      } else if (off.has(mod)) {
+        if (ORIGINALS[mod]) node.content = { ...node.content, mod: ORIGINALS[mod] };
+        else if (!node.hidden) node.hidden = true;
+        else return;
+        this.kitOff[key] = mod;
+        changed = true;
+      }
+    };
+    walk(tree);
+    const panel = sidePanel(tree), body = find(tree, "panel-body");
+    if (panel && !panel.hidden && (body?.children ?? []).some((c) => c.id === body.active && c.hidden)) { panel.hidden = true; changed = true; }
+    try { localStorage.setItem("kanban.kitOff", JSON.stringify(this.kitOff)); } catch {}
+    if (!changed) { this.reconcileTry = null; return; }
+    const attempt = `${name}|${JSON.stringify(tree)}`;
+    if (attempt === this.reconcileTry) return;
+    this.reconcileTry = attempt;
     run("layout.set", { layout: tree });
   }
 
@@ -606,11 +661,14 @@ export default class Kanban extends View {
    *  there. A click on another panel button closes the open dialog first. A tab entry of dock/panels.json
    *  (Insights) opens in a dialog too, else in its tab. */
   togglePanel(id) {
-    const command = this.entries.find((e) => e.id === id && e.opens === "command");
+    const live = this.liveEntries();
+    // A key of a panel whose mod is off does nothing.
+    if (live.length < this.entries.length && this.entries.some((e) => e.id === id) && !live.some((e) => e.id === id)) return;
+    const command = live.find((e) => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command); // a command of a group menu
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
-    const tab = this.entries.find((e) => e.id === id && e.opens === "tab");
-    const node = (body?.children ?? []).find((c) => c.id === id);
+    const tab = live.find((e) => e.id === id && e.opens === "tab");
+    const node = (body?.children ?? []).find((c) => c.id === id && !c.hidden);
     if (!tab && (!panel || !node)) return;
     const open = shared(KEY_PANEL_DIALOG);
     if (open?.id) {
@@ -868,7 +926,7 @@ export default class Kanban extends View {
       if (typeof name === "string" && names.includes(name) && !items.some((i) => i.name === name)) items.push({ name, label, symbol });
     };
     if (back) add(back, layoutLabel(back), icon("layout-main"));
-    for (const e of this.entries) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon);
+    for (const e of this.liveEntries()) if (e.opens === "command" && e.run === "layout.switch") add(e.args?.name, e.label, e.icon);
     add(here, layoutLabel(here), icon("board"));
     return items;
   }
@@ -999,7 +1057,7 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
         .when(over, (e) => e
           .when(Boolean(a.wait), (e) => e.child(small("notwait", "check", () => this.dismissWaiting(a), this.s("notWaiting"))))
-          .when(this.namer, (e) => e.child(small("rename", "pencil", () => this.openNamer(a), this.s("rename"))))
+          .when(this.namer && !offMods().has("tab-namer"), (e) => e.child(small("rename", "pencil", () => this.openNamer(a), this.s("rename"))))
           .child(small("clone", "copy", () => this.openClone(a), this.s("duplicate")))
           .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
@@ -1072,7 +1130,7 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.age(since)))
         .when(Boolean(a.wait), (e) => e.child(iconButton(t, `notwait-${a.address}`, "check", () => this.dismissWaiting(a),
           { tooltip: this.s("notWaiting"), size: 22, glyph: 12, color: t.dim })))
-        .when(this.namer, (e) => e.child(iconButton(t, `rename-${a.address}`, "pencil", () => this.openNamer(a),
+        .when(this.namer && !offMods().has("tab-namer"), (e) => e.child(iconButton(t, `rename-${a.address}`, "pencil", () => this.openNamer(a),
           { tooltip: this.s("rename"), size: 22, glyph: 12, color: t.dim })))
         .child(iconButton(t, `clone-${a.address}`, "copy", () => this.openClone(a),
           { tooltip: this.s("duplicate"), size: 22, glyph: 12, color: t.dim }))
@@ -1216,8 +1274,17 @@ export default class Kanban extends View {
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body.children ?? []) taken.delete(c.id);
-    const usable = this.entries.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
-    if (this.loaded) this.inject(root, body, usable.filter((e) => e.opens === "panel"));
+    const live = this.liveEntries();
+    const usable = live.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
+    // One layout edit for each render: the off mods wait for the panel edit.
+    const injecting = this.loaded ? this.inject(root, body, usable.filter((e) => e.opens === "panel")) : false;
+    if (!injecting) this.reconcile(root);
+    // A panel dialog that shows a mod that is now off closes.
+    const openDialog = shared(KEY_PANEL_DIALOG);
+    if (openDialog?.id && liveDialogs().has(openDialog.id)) {
+      const entry = this.entries.find((e) => e.id === openDialog.panel);
+      if (entry && offMods().has(entryMod(entry))) { closeOverlay(openDialog.id); setShared(KEY_PANEL_DIALOG, null); }
+    }
     const present = new Set((body.children ?? []).map((c) => c.id));
     const inDialog = this.dialogPanel();
     const lit = (id) => (!panel.hidden && body.active === id) || inDialog === id;
@@ -1228,7 +1295,7 @@ export default class Kanban extends View {
       ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
         ? { ...e, key: `kb-tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
         : { ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
-      ...this.entries.filter((e) => e.opens === "command" && e.run !== "layout.switch").map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
+      ...live.filter((e) => e.opens === "command" && e.run !== "layout.switch").map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
     ];
     const folded = foldGroups(items);
     this.groups = new Map(folded.filter((it) => it.members).map((g) => [g.group, g.members]));

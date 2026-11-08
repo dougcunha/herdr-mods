@@ -2,9 +2,14 @@
 // one or more base folders. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder, run, panes, notify, home, nextCommand } from "herdr";
+import { theme, props, shared, setShared, pickFolder, run, panes, notify, home, nextCommand, closeOverlay } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
+
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-dash"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
 // The base folders: one list for every copy of the panel, with forward slashes.
 const KEY_ROOTS = "git-dash.roots";
@@ -184,9 +189,9 @@ export default class GitDash extends View {
     this.msg.on("change", (_e, cx) => cx.notify());
     this.msg.on("submit", (_e, cx) => this.commit(cx));
 
-    cx.timer.every(30000, (cx) => this.tick(cx));
+    cx.timer.every(30000, (cx) => kitOff() || this.tick(cx));
     // Another copy of the panel (or the mods-hub) can change the list: follow it.
-    cx.timer.every(1000, (cx) => this.followRoots(cx));
+    cx.timer.every(1000, (cx) => kitOff() || this.followRoots(cx));
     // Commands: `git-dash.folders` shows the folders view, `git-dash.list` the list, `git-dash.refresh` reads again.
     cx.spawn(async (cx) => {
       for (;;) {
@@ -717,6 +722,7 @@ export default class GitDash extends View {
   }
 
   render(_cx) {
+    if (kitOff()) return offView();
     const t = theme();
     return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
       .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)

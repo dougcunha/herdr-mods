@@ -12,6 +12,11 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, theme, shared, nextCommand } from "herdr";
 import { target, currentName, generate, save } from "./namer.js";
 
+// The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
+// nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
+const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("tab-namer"); };
+const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+
 const ICON = (name) => `mods/tab-namer/${name}.svg`;
 
 const TEXT = {
@@ -121,6 +126,7 @@ export default class TabNamer extends View {
   }
 
   render() {
+    if (kitOff()) return offView();
     const t = theme();
     const s = TEXT[lang()];
     const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8)

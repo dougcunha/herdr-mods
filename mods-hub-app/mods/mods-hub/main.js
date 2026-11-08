@@ -22,6 +22,7 @@ import {
   writePrompt, state, setState, updateAvailable,
 } from "./setup.js";
 import { scanMods, checkChanges, checkThird, thirdStatus, compareUrl, installedThird } from "./mods.js";
+import { canTurnOff, isOn, setOn } from "./onoff.js";
 
 /** Opens a web page in the browser of this computer. */
 function openUrl(url) {
@@ -57,13 +58,27 @@ export default class ModsUpdate extends View {
     cx.timer.every(10 * 60 * 1000, (cx) => this.check(cx, false));
     this.readLocal(cx);
     this.check(cx, false);
-    // `herdr-app do mods-hub.check` (or a key bound to it) checks GitHub now.
+    // `herdr-app do mods-hub.check` (or a key bound to it) checks GitHub now. `mods-hub.off-<mod>` and
+    // `mods-hub.on-<mod>` turn a kit mod off and on, as its switch in the Mods tab does.
     cx.spawn(async (cx) => {
       for (;;) {
-        const c = await nextCommand();
+        const c = String(await nextCommand());
         if (c === "check") {
           this.readLocal(cx);
           this.check(cx, true);
+        }
+        // `mods-hub.open-<tab>` (mods, settings, news, update) opens the dialog on that tab.
+        const tab = c.match(/^open-(.+)$/)?.[1];
+        if (tab && TABS.some(([k]) => k === tab)) {
+          setState({ tab, newsSeen: state().remote });
+          run("mod.open", { name: MOD });
+        }
+        const turn = c.match(/^(on|off)-(.+)$/);
+        if (turn) {
+          const mods = await scanMods(await readRecord()).catch(() => []);
+          const m = mods.find((x) => x.name === turn[2]);
+          if (m && canTurnOff(m)) setOn(m, turn[1] === "on", mods);
+          else notify({ title: "Herdr Mods", body: `${turn[2]} is not a kit mod that can be turned off.`, level: "error" });
         }
       }
     });
@@ -626,20 +641,35 @@ export default class ModsUpdate extends View {
       .child(div().w(70).flex_none().text_color(t.dim).child(label))
       .child(div().flex_1().min_w(0).text_color(color).child(value));
 
+    // A kit mod has an on/off switch; a part of another mod goes with it (see onoff.js).
+    const switchable = canTurnOff(m), on = m.origin !== "kit" || isOn(m);
+    const owner = m.partOf ? this.mods.find((x) => x.name === m.partOf) : null;
+    const onOff = switchable
+      ? div().id(`mh-on-${m.name}`).flex_none()
+        .tooltip(on ? `${m.name} is on. Click to turn it off: its buttons and blocks go away, nothing is deleted.` : `${m.name} is off. Click to turn it on.`)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(toggle(t, `mh-on-${m.name}-sw`, on, (cx) => { cx.stop_propagation(); setOn(m, !on, this.mods); cx.notify(); }))
+      : null;
+
     const head = h_flex().id(`mh-row-${m.name}`).w_full().h(34).px(10).gap(8).items_center().cursor_pointer()
       .hover((st) => st.bg(t.hover))
       .on_click((_e, cx) => { this.openMod = open ? null : m.name; cx.notify(); })
-      .child(div().size(8).flex_none().rounded(4).bg(dot))
-      .child(div().flex_none().font_semibold().child(m.name))
+      .child(div().size(8).flex_none().rounded(4).bg(on ? dot : t.dim))
+      .child(div().flex_none().font_semibold().text_color(on ? t.foreground : t.dim).child(m.name))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(m.title && m.title !== m.name ? m.title : ""))
+      .when(!on, (el) => el.child(pill("off", t.dim)))
       .when(m.errors.length > 0, (el) => el.child(pill("error", t.blocked)))
       .when(third === "update", (el) => el.child(pill("update", t.accent)))
       .when(nChanged > 0, (el) => el.child(pill(`${nChanged} changed`, t.ansi3)))
       .when(Boolean(m.app), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(m.app)))
+      .when(Boolean(onOff), (el) => el.child(onOff))
       .child(div().flex_none().text_size(11).text_color(t.dim).child(open ? "▾" : "▸"));
 
     const details = v_flex().w_full().px(26).pb(10).gap(4)
       .when(Boolean(m.description), (el) => el.child(div().pb(2).text_size(12).text_color(t.muted).child(m.description)))
+      .when(switchable && !on, (el) => el.child(line("State", "Off. Its buttons and blocks are hidden and it does no work. Turn it on with the switch.", t.ansi3)))
+      .when(Boolean(m.partOf), (el) => el.child(line("State", `Part of ${m.partOf}: it goes on and off with it${owner ? (isOn(owner) ? " (on now)." : " (off now).") : "."}`)))
+      .when(m.origin === "kit" && !switchable && !m.partOf, (el) => el.child(line("State", "Always on: it draws a bar of the layouts or this dialog.", t.dim)))
       .when(m.origin === "kit", (el) => {
         if (ch === undefined) return el.child(line("Files", "Checking…", t.dim));
         if (ch === null) return el.child(line("Files", "No hashes in the setup record for this mod.", t.dim));
