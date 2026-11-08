@@ -386,7 +386,8 @@ export default class SkillBundles extends View {
   setMode(mode, cx) {
     this.mode = mode;
     this.error = null;
-    if (mode === "bundles") this.pick = new Set(this.proj.manifest?.bundles ?? ["core"]);
+    // As Configure-Skills.ps1: only the Bundles of the Catalog are kept; an unknown one drops on save.
+    if (mode === "bundles") this.pick = new Set((this.proj.manifest?.bundles ?? ["core"]).filter((b) => this.cat.catalog?.bundles.has(b)));
     if (mode === "add") { this.persist = false; this.query?.set_value?.(""); }
     cx.notify();
   }

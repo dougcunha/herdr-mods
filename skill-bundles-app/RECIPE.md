@@ -21,7 +21,7 @@ A panel that compares the agent skills of the focused project with a skill Catal
    - **Add skill:** **Back**, a search field (28 px, `input` border, search icon), a **Keep in skills.yaml** switch, and the skills of the Catalog that the Manifest does not cover: Bundle (96 px, dim), name (monospace), `Extra` when it is installed, and **Install**.
 4. **Footer** (only when needed): a spinner and the label of the running action on `surface`, or `Failed`, the error text (monospace) and **Dismiss** on a red tint.
 
-**Status bar item**: right-aligned in a `chrome` block with a top border, 11.8 px: the layers icon (12 px), `skills`, and a mark: `✓` (dim), the number of skills that ask for action (`ansi3`, or `ansi1` when one is missing), `—` without `skills.yaml`, `?` without a Catalog. A spinner replaces the icon while an action runs.
+**Status bar item**: right-aligned in a `chrome` block with a top border, 11.8 px: the layers icon (12 px), `skills`, and a mark: `✓` (dim), the number of skills that ask for action (`ansi3`, or `ansi1` when one is missing), `—` without `skills.yaml`, `?` without a Catalog, `!` (`ansi1`) when the Catalog or the probe failed (the tooltip has the error). A spinner replaces the icon while an action runs.
 
 ## How it behaves
 

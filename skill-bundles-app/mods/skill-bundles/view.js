@@ -306,6 +306,11 @@ export function statusView(t, m) {
   } else if (m.cat.state === "unset") {
     mark = "?";
     tip = str.noCatalog;
+  } else if (m.cat.state === "error" || (p.state === "ready" && p.probe?.error)) {
+    // Without the Catalog or the probe, the counts would be wrong: show the error instead.
+    mark = "!";
+    color = t.ansi1;
+    tip = m.cat.state === "error" ? `${str.cloneFailed}\n${m.cat.error}` : fill(str.probeError, { error: p.probe.error });
   } else if (p.state === "ready" && !p.manifest) {
     mark = "—";
     tip = fill(str.statusTipNoManifest, { project: p.name });
