@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 16 -->
+<!-- herdr-mods-setup-version: 17 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -68,7 +68,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
 13. `agent-cards-app`: the `agent-cards` mod, the agents of the sidebar as cards with a small robot. The `agents` block of `main-dock` shows it (item 1). It runs no program, reads no file and uses no network. Before version 13 this mod was in `dock-app/mods/agent-cards/`. The installed folder stays `mods/agent-cards/`. When you look for its baseline ("Update an installed item", step 2), use `git log --follow`, or the old path, because the commits before the move are under `dock-app/`. Record its source as `agent-cards-app/mods/agent-cards`.
 14. `space-deck-app`: the `space-deck` mod, a Spaces sidebar with cards or a list, an icon, a color and a note for each space, pinned spaces and recent spaces. It runs `git status` and `git rev-parse` in the folder of each space (on the machine of the space), reads `view.json` (the recent spaces) and checks if `mods/repo-launcher/mod.json` exists. No network. It writes the shared keys `space-deck.*` and Herdr's `space.colors`. After you install it, do "The `spaces` block" in "Configure".
-15. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+15. `spec-board-app`: the `spec-board` mod, a Dock panel with the SDD specs (`tasks/prd-*`) of the shown repository and its worktrees: status, phase, task progress, the markdown (read and edit), delete to the Recycle Bin, and buttons that start an agent with the SDD skills, here or in a new git worktree. It runs `git` (`rev-parse`, `worktree list`, `ls-files`, `status`, and on a click `check-ref-format` and `worktree add`), PowerShell or `sh` to list and copy `tasks/` and to move a spec to the Recycle Bin, and `explorer`, `open` or `xdg-open`. It reads and writes files in the repositories of my spaces (only the markdown that I save) and watches their `tasks/` folders. No network. It writes the shared keys `spec-board.*`. Its place is the `specs` entry of `panels.json` in "Configure".
+16. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -162,6 +163,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "ci", "label": "CI", "icon": "mods/tabs-dock/ci.svg", "mod": "ci-dash" },
     { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
     { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
+    { "id": "specs", "label": "Specs", "icon": "mods/spec-board/specs.svg", "mod": "spec-board" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
     { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" }
@@ -169,7 +171,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 14) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 16) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, and the `specs` entry only when the `spec-board` mod is installed.
 
 ### The places of `tokenhound`
 
@@ -261,7 +263,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 7. A second run of "Configure" would change nothing.
 8. If `tokenhound` is installed and TokenHound runs, the status bar of `main-dock` and `kanban` shows one agent icon and one percent for each provider, and `herdr-app do tokenhound.open` opens one dialog with `Live` in its header. Close the dialog with `herdr-app do overlay.close`.
 9. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
-10. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+10. If `spec-board` is installed, the Dock shows a **Specs** button, and with its panel open `herdr-app do spec-board.demo` shows example specs (run it again to show mine).
+11. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

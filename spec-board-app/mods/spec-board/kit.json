@@ -1,0 +1,82 @@
+{
+  "app": "spec-board-app",
+  "description": "The SDD specs (tasks/prd-*) of the shown repository and its worktrees, with status, phase and task progress. Read and edit the markdown, delete old specs, and start or continue a spec with the SDD skills, here or in a new worktree.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/spec-board-app",
+  "settings": [
+    {
+      "id": "agent",
+      "type": "text",
+      "key": "spec-board.agent",
+      "default": "claude",
+      "placeholder": "claude",
+      "label": "Agent",
+      "hint": "The agent that runs the SDD skills: a key of the agents menu (claude, codex, opencode…). Empty: claude."
+    },
+    {
+      "id": "prompt",
+      "type": "text",
+      "key": "spec-board.prompt",
+      "default": "/{skill} {args}",
+      "placeholder": "/{skill} {args}",
+      "label": "Prompt",
+      "hint": "The first message for the agent. {skill} is the skill name and {args} its arguments (--prd <name>, --prompt \"…\", --modo auto)."
+    },
+    {
+      "id": "triageSkills",
+      "type": "text",
+      "key": "spec-board.triageSkills",
+      "default": "sdd-triar",
+      "placeholder": "sdd-triar, sdd-triage",
+      "label": "New spec skill",
+      "hint": "Names of the triage skill, separated by commas. The panel uses the first one that the repository or your profile has installed."
+    },
+    {
+      "id": "flowSkills",
+      "type": "text",
+      "key": "spec-board.flowSkills",
+      "default": "sdd-orquestrar-fluxo",
+      "placeholder": "sdd-orquestrar-fluxo, sdd-orchestrate-flow",
+      "label": "Flow skill",
+      "hint": "Names of the skill that starts and continues a spec, separated by commas. The first installed one wins."
+    },
+    {
+      "id": "worktreeRoot",
+      "type": "text",
+      "key": "spec-board.worktreeRoot",
+      "default": "",
+      "placeholder": "~/.herdr/worktrees",
+      "label": "Worktree folder",
+      "hint": "Where Start in worktree makes the checkout: <folder>/<repository>/<branch>. Empty: ~/.herdr/worktrees, the folder of Herdr's own worktrees."
+    },
+    {
+      "id": "branchPrefix",
+      "type": "text",
+      "key": "spec-board.branchPrefix",
+      "default": "feat/",
+      "placeholder": "feat/",
+      "label": "Branch prefix",
+      "hint": "The start of the branch name that the panel suggests for a new worktree."
+    },
+    {
+      "id": "sort",
+      "type": "enum",
+      "key": "spec-board.sort",
+      "default": "urgency-group",
+      "label": "Order",
+      "hint": "Urgency puts the specs that need you first. Grouped puts the parts of one split (name-01-…, name-02-…) together.",
+      "options": [
+        { "value": "urgency-group", "label": "Urgency, grouped" },
+        { "value": "urgency", "label": "Urgency" },
+        { "value": "name", "label": "Name" }
+      ]
+    },
+    {
+      "id": "showDone",
+      "type": "bool",
+      "key": "spec-board.showDone",
+      "default": false,
+      "label": "Show done specs",
+      "hint": "Show the specs with the status Done in the list."
+    }
+  ]
+}
