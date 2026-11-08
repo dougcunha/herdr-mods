@@ -24,7 +24,7 @@ const TEXT = {
     noTab: "No tab to rename.",
     cancel: "Cancel",
     save: "Save",
-    aiTip: "Ctrl+G. Reads the agent's session and asks a small model for a name.",
+    aiTip: "Reads the agent's session and asks a small model for a name.",
   },
   pt: {
     title: "Renomear tab",
@@ -35,7 +35,7 @@ const TEXT = {
     noTab: "Não há tab para renomear.",
     cancel: "Cancelar",
     save: "Salvar",
-    aiTip: "Ctrl+G. Lê a sessão do agente e pede um nome a um modelo pequeno.",
+    aiTip: "Lê a sessão do agente e pede um nome a um modelo pequeno.",
   },
 };
 

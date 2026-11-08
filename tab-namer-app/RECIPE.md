@@ -34,8 +34,9 @@ A dialog of 460px (Herdr's dialog frame), `popover` background, 18px padding:
   text selected. Enter or Save runs `tab.rename {id, name}` and closes. An empty
   name gives the tab its number again.
 - **Generate with AI** shows only when the agent has a `resume.session` (from
-  the Agent Resume mod) and the tab is on this machine. A click, Ctrl+G or
-  `herdr-app do tab-namer.generate` (while the dialog is open):
+  the Agent Resume mod) and the tab is on this machine. A click, or
+  `herdr-app do tab-namer.generate` while the dialog is open (Ctrl+G in the
+  dialog's `on_key_down` too, not tested: the text field can take the key):
   1. Reads the session. Claude Code: `~/.claude/projects/<cwd with every
      non-alphanumeric character as "-">/<session>.jsonl`, else that file in any
      folder of `projects/`. Records `type: "user"` (text that does not start

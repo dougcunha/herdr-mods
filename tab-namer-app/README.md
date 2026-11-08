@@ -19,7 +19,7 @@ the AI writes it for you in about 10 seconds.
 - **F2** opens the dialog for the focused tab. The field shows the tab name
   (empty when nobody named the tab). Enter saves. An empty name gives the tab
   its number again, and the cards show the agent's own title.
-- **Generate with AI** (or Ctrl+G) reads the session of the agent in the tab:
+- **Generate with AI** reads the session of the agent in the tab:
   the first prompt, the last 5 prompts and the last answer of the agent (about
   6,000 characters). It asks the model for a name and puts it in the field. You
   can change it before you save.
