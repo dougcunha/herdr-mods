@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 16 -->
+<!-- herdr-mods-setup-version: 17 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -68,7 +68,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
 13. `agent-cards-app`: the `agent-cards` mod, the agents of the sidebar as cards with a small robot. The `agents` block of `main-dock` shows it (item 1). It runs no program, reads no file and uses no network. Before version 13 this mod was in `dock-app/mods/agent-cards/`. The installed folder stays `mods/agent-cards/`. When you look for its baseline ("Update an installed item", step 2), use `git log --follow`, or the old path, because the commits before the move are under `dock-app/`. Record its source as `agent-cards-app/mods/agent-cards`.
 14. `space-deck-app`: the `space-deck` mod, a Spaces sidebar with cards or a list, an icon, a color and a note for each space, pinned spaces and recent spaces. It runs `git status` and `git rev-parse` in the folder of each space (on the machine of the space), reads `view.json` (the recent spaces) and checks if `mods/repo-launcher/mod.json` exists. No network. It writes the shared keys `space-deck.*` and Herdr's `space.colors`. After you install it, do "The `spaces` block" in "Configure".
-15. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+15. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). Ask me whether I use such a Catalog. If I say no, skip this item: then its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
+16. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -164,12 +165,13 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
-    { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" }
+    { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" },
+    { "id": "skills", "label": "Skills", "icon": "mods/skill-bundles/bundles.svg", "mod": "skill-bundles" }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 14) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 14) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed.
 
 ### The places of `tokenhound`
 
@@ -183,6 +185,14 @@ Do this only when the `tokenhound` mod is installed. If the `kanban` step above 
    ```json
    { "id": "tokenhound-section", "type": "block", "content": { "mod": "tokenhound", "props": { "part": "section" } }, "size": { "px": 186 }, "min": 60 }
    ```
+
+### The status bar item of `skill-bundles`
+
+Do this only when the `skill-bundles` mod is installed, and AFTER "Activate the panels", for the same reason as `tokenhound`. In `layouts/main-dock.json` and `layouts/kanban.json`, add this block to the `children` of `status-row`, right after the `status` block (after `tokenhound-status` when it is there), if no block with this id is there. If the step for `kanban` gave `"lang"` to its blocks, give the same `"lang"` to `props`:
+
+```json
+{ "id": "skill-bundles-status", "type": "block", "content": { "mod": "skill-bundles", "props": { "part": "status" } }, "size": { "px": 90 } }
+```
 
 ### The `spaces` block
 
@@ -247,7 +257,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.
 3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `graph`, `quota`, and `insights` if it is a panel).
-4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed.
+4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, and the status bar item of `skill-bundles`, if that mod is installed.
 5. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
 
 ## Verify
@@ -260,8 +270,9 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
 8. If `tokenhound` is installed and TokenHound runs, the status bar of `main-dock` and `kanban` shows one agent icon and one percent for each provider, and `herdr-app do tokenhound.open` opens one dialog with `Live` in its header. Close the dialog with `herdr-app do overlay.close`.
-9. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
-10. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+9. If `skill-bundles` is installed, the status bar of `main-dock` and `kanban` shows `skills` with `?` (no Catalog yet) or a number, the dock bar shows a **Skills** button, and `herdr-app do skill-bundles.open` opens one dialog. Close it with `herdr-app do overlay.close`. Tell me to write my Catalog in the **Settings** tab of Herdr Mods.
+10. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
+11. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

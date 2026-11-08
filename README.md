@@ -59,6 +59,10 @@ For the Herdr app, the TokenHound mod (the quotas of the [TokenHound](https://gi
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/tokenhound-app and follow its README to add its status bar item and its Quota panel`
 
+For the Herdr app, the Skill Bundles mod (the agent skills of the focused project against your skill Catalog: up to date, outdated, missing and extra skills, and buttons that install, update, add and remove them with `npx skills`):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app and follow its README to add its status bar item and its Skills panel`
+
 For the Herdr app, five light themes (One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light):
 
 `Read ~/.config/herdr-app/AGENTS.md, then copy the themes of https://github.com/dougcunha/herdr-mods/tree/main/light-themes-app to ~/.config/herdr-app/themes/ without overwriting a file that exists`
@@ -95,6 +99,7 @@ overwrites a file that exists.
 | [`light-themes-app`](light-themes-app/README.md) | Five light themes for `~/.config/herdr-app/themes/`: One Light, GitHub Light, Solarized Light, Catppuccin Latte and Gruvbox Light. The app ships only one light theme (`paper`). |
 | [`mods-hub-app`](mods-hub-app/README.md) | The Herdr Mods dialog (before version 5: Mods Update). A status bar item compares the version of `SETUP-PROMPT.md` on GitHub with the version of your last run. When GitHub is newer, it shows **Update mods**. The dialog lists the installed mods with their errors and local changes, shows the settings of the kit mods in one place (with one language for the kit), shows the release notes, and starts an installed agent in a new space with the prompt. |
 | [`tokenhound-app`](tokenhound-app/README.md) | The TokenHound mod (`tokenhound`). It reads the `hud.json` file of the [TokenHound](https://github.com/dougcunha/TokenHound) tray app and shows its HUD in the Herdr app: a status bar item with one agent icon and one percent for each provider, a **Quota** panel in the Dock with every quota and reset countdown, and an optional section under the agents list. It needs Windows and TokenHound 0.1.16 or newer. |
+| [`skill-bundles-app`](skill-bundles-app/README.md) | The Skill Bundles mod (`skill-bundles`). It compares the agent skills of the focused project with a skill Catalog: a repository with a `bundles.yaml` (named groups of skills), read through the `skills.yaml` of each project. It shows each skill as up to date, outdated, missing, extra or local, and starts, installs, updates, adds and removes skills with `npx skills`. A status bar item counts the skills that ask for action; a **Skills** panel goes in the Dock. Windows and macOS. |
 | [`dark-themes-app`](dark-themes-app/README.md) | Six soft dark themes for `~/.config/herdr-app/themes/`: Nord, Catppuccin Frappé, Everforest Dark, Gruvbox Dark Soft, Palenight and Zenburn. Their backgrounds are lighter than the shipped dark themes. |
 
 ![CI Dash in the Herdr app](ci-dash-app/preview.png)

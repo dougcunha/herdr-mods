@@ -1,0 +1,53 @@
+{
+  "app": "skill-bundles-app",
+  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
+  "settings": [
+    {
+      "id": "catalog",
+      "type": "text",
+      "key": "skill-bundles.catalog",
+      "default": "",
+      "label": "Skill Catalog",
+      "hint": "The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. The mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git.",
+      "placeholder": "your-org/agent-skills"
+    },
+    {
+      "id": "clone",
+      "type": "text",
+      "key": "skill-bundles.clone",
+      "default": "",
+      "label": "Your own clone (optional)",
+      "hint": "A folder with your own clone of the Catalog. The mod then reads that working tree as it is and does not keep a clone of its own. On a branch that is not the default one, the mod installs from that branch, as Install-Skills.ps1 does.",
+      "placeholder": "D:/repos/agent-skills"
+    },
+    {
+      "id": "git-url",
+      "type": "text",
+      "key": "skill-bundles.gitUrl",
+      "default": "",
+      "label": "Clone URL (optional)",
+      "hint": "The URL for git clone when gh is not logged in, or when you want another URL. Empty: git@github.com:<owner>/<name>.git.",
+      "placeholder": "https://github.com/your-org/agent-skills.git"
+    },
+    {
+      "id": "fetch-minutes",
+      "type": "number",
+      "key": "skill-bundles.fetchMinutes",
+      "default": 15,
+      "min": 5,
+      "max": 240,
+      "step": 5,
+      "unit": "min",
+      "label": "Fetch the Catalog every",
+      "hint": "How often the mod fetches the Catalog to find outdated skills. The refresh button of the panel fetches at once."
+    },
+    {
+      "id": "open-key",
+      "type": "key",
+      "action": "skill-bundles.open",
+      "label": "Shortcut of the Skill Bundles panel",
+      "hint": "Saved in keys.json. Opens the panel as a dialog. Only the status bar item listens for this command, so the key works in a layout with the status bar item."
+    }
+  ]
+}
