@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 22 -->
+<!-- herdr-mods-setup-version: 23 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -71,6 +71,7 @@ The items marked **Required** in "The items" are always installed: do not ask ab
 - `tokenhound-app`: the quotas of the TokenHound HUD. Offer it only on Windows.
 - `skill-bundles-app`: Skill Bundles, the agent skills of a project against a skill Catalog (a repository with a `bundles.yaml`). Runs `git`, `gh`, `node` and `npx skills`.
 - `tab-namer-app`: Tab Namer, F2 and a pencil on the agent cards rename the tab of an agent, with a button that asks a small AI model for a name (runs `claude` or `codex` once for each click, reads the session files of the agent; the AI button needs `agent-resume-app`). It takes the F2 key from Herdr's own tab rename.
+- `automations-app`: Automations, runs a coding agent with a prompt in a folder on a schedule, by hand, or when an agent, a file or a git branch changes, with check, pre and post scripts (runs `pwsh` or `sh`, `hc`, `git` and the agent that I choose for each automation).
 - `light-themes-app`: 5 light themes.
 - `dark-themes-app`: 6 soft dark themes.
 - `git-graph` (third-party): a Graph panel of the commits.
@@ -109,7 +110,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 15. `spec-board-app`: the `spec-board` mod, a Dock panel with the SDD specs (`tasks/prd-*`) of the shown repository and its worktrees: status, phase, task progress, the markdown (read and edit), delete to the Recycle Bin, and buttons that start an agent with the SDD skills, here or in a new git worktree. It runs `git` (`rev-parse`, `worktree list`, `ls-files`, `status`, and on a click `check-ref-format` and `worktree add`), PowerShell or `sh` to list and copy `tasks/` and to move a spec to the Recycle Bin, and `explorer`, `open` or `xdg-open`. It reads and writes files in the repositories of my spaces (only the markdown that I save) and watches their `tasks/` folders. No network. It writes the shared keys `spec-board.*`. Its place is the `specs` entry of `panels.json` in "Configure".
 16. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). When I did not choose it, its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
 17. `tab-namer-app`: the `tab-namer` mod, a dialog that renames the tab of an agent. The `kanban` and `agent-cards` mods show a pencil on each card when it is installed, and `agent-resume` clears a name that it saved when the agent starts a new session (`/clear`, `/new`). It runs `claude -p` or `codex exec` (only when I click **Generate with AI**), `hc label` and `hc read`, and reads the session files of the agents (`~/.claude/projects/`, `~/.codex/sessions/`). No other network than the call of that agent. Its key is in "Configure". Tell me that the AI button needs `agent-resume` and Claude Code or Codex.
-18. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
+18. `automations-app`: the `automations` mod. Its status bar item (a block of the same mod with `"part": "status"`) is also the runner: the automations run only while the shown layout has it. Its places are in "Configure": the status bar item and the `automations` entry of `panels.json`. It runs the check, pre and post scripts that I write with `pwsh` (Windows) or `sh`, a headless agent in a background terminal (`hc run`, `hc get`, `hc rm`, `hc kill`), `hc read` and `hc label` for agents in a tab, and `git rev-parse`, `git branch` and `git log` for the git trigger. It starts the agents that I choose with my account, opens tabs and spaces (`tab.new`, `space.new`) and closes only the tab of a run, by id. It reads and writes `data/automations.json`, `data/automation-runs.json` and `data/automation-runs/`. No network of its own. Do not create automations for me.
+19. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
@@ -207,12 +209,13 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
     { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" },
-    { "id": "skills", "label": "Skills", "icon": "mods/skill-bundles/bundles.svg", "mod": "skill-bundles" }
+    { "id": "skills", "label": "Skills", "icon": "mods/skill-bundles/bundles.svg", "mod": "skill-bundles" },
+    { "id": "automations", "label": "Automations", "icon": "mods/automations/zap.svg", "mod": "automations" }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 17) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 17) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed.
 
 ### The places of `tokenhound`
 
@@ -233,6 +236,14 @@ Do this only when the `skill-bundles` mod is installed, and AFTER "Activate the 
 
 ```json
 { "id": "skill-bundles-status", "type": "block", "content": { "mod": "skill-bundles", "props": { "part": "status" } }, "size": { "px": 90 } }
+```
+
+### The status bar item of `automations`
+
+Do this only when the `automations` mod is installed, and AFTER "Activate the panels", for the same reason as `tokenhound`. In `layouts/main-dock.json` and `layouts/kanban.json`, add this block to the `children` of `status-row`, right before the `repo-launcher-status` block (else before the `mods-hub` block, else at the end), if no block with this id is there. This block runs the automations: tell me that they run only while a layout with it is shown.
+
+```json
+{ "id": "automations-status", "type": "block", "content": { "mod": "automations", "props": { "part": "status" } }, "size": { "px": 120 } }
 ```
 
 ### The `spaces` block
@@ -299,7 +310,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.
 3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `graph`, `quota`, and `insights` if it is a panel).
-4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, and the status bar item of `skill-bundles`, if that mod is installed.
+4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, the status bar item of `skill-bundles`, if that mod is installed, and the status bar item of `automations`, if that mod is installed.
 5. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
 
 ## Verify
@@ -316,7 +327,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 10. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
 11. If `spec-board` is installed, the Dock shows a **Specs** button, and with its panel open `herdr-app do spec-board.demo` shows example specs (run it again to show mine).
 12. If `tab-namer` is installed, `herdr-app do mod.open --name tab-namer` opens one dialog with the name of the focused tab. Close it with `herdr-app do overlay.close`. If `agent-resume` is installed too, the status bar of `kanban` shows `Resume on` at the left, as `main-dock` does.
-13. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+13. If `automations` is installed, the status bar of `main-dock` and `kanban` shows `automations`, the dock bar shows an **Automations** button, and within 10 s `~/.config/herdr-app/shared.json` has `"automations.leader"` with a recent `at`. `herdr-app do mod.open --name automations` opens one dialog. Close it with `herdr-app do overlay.close`.
+14. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

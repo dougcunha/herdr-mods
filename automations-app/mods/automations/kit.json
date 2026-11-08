@@ -1,0 +1,14 @@
+{
+  "app": "automations-app",
+  "description": "Runs a coding agent with a prompt in a folder on a schedule, by hand, or when an agent, a file or a git branch changes. Check, pre and post scripts can skip the run and use its result.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/automations-app",
+  "settings": [
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:automations",
+      "label": "Shortcut",
+      "hint": "Opens the Automations dialog. Saved in keys.json."
+    }
+  ]
+}
