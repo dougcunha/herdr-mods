@@ -86,7 +86,7 @@ over the prop, in every bar of the kit, and changes the bar at once. The text
 in the search box changes after a restart.
 
 The gear button of the bar runs Herdr's settings. With the `mods-hub` mod
-installed, it opens a menu instead: **Herdr settings** or **Herdr Mods** (the
+installed, it opens a menu instead: **Herdr settings** or **PowerMods** (the
 dialog on its **Settings** tab). `kanban.gear` in `keys.json` does the same.
 
 ## What it does on your machine

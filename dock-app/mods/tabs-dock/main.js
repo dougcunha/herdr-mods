@@ -61,7 +61,7 @@ const GROUPS = { git: { label: "Git", icon: "mods/tabs-dock/git.svg" } };
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 
 const STR = {
-  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
     newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
     density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
     densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
@@ -70,7 +70,7 @@ const STR = {
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
     toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close" },
-  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
     newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
     densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
@@ -433,7 +433,7 @@ export default class Tabs extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  // The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
+  // The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the PowerMods dialog.
   // Without it, it opens Herdr's settings, as before.
   openGear() {
     const settingsOnly = () => run("app.settings");
@@ -444,7 +444,7 @@ export default class Tabs extends View {
     }, settingsOnly);
   }
 
-  // The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+  // The menu of the gear button. "PowerMods" opens the dialog on its Settings tab (the tab that the
   // mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes.
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };

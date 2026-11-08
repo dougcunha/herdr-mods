@@ -1,4 +1,4 @@
-// The version check of the Herdr mods: the SETUP-PROMPT.md on GitHub, the
+// The version check of PowerMods: the SETUP-PROMPT.md on GitHub, the
 // record that the last run of the prompt wrote, and the state that every
 // copy of this mod shares.
 

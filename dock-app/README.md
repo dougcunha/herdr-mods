@@ -64,7 +64,7 @@ Right-click the empty area below the rows for New file, New folder and Paste in 
 
 The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod (`agent-cards`): one card for each agent, with a small robot that acts out the status. Install it before the layout.
 
-**Turn them off** in Herdr Mods → **Settings** → **Agent cards**. Off, the sidebar shows Herdr's own Agents list again; on, the cards come back. The tab bar makes the change in `layouts/main-dock.json` and keeps the size of the block. `tabs-dock.agent-cards` in `keys.json` flips the same setting.
+**Turn them off** in PowerMods → **Settings** → **Agent cards**. Off, the sidebar shows Herdr's own Agents list again; on, the cards come back. The tab bar makes the change in `layouts/main-dock.json` and keeps the size of the block. `tabs-dock.agent-cards` in `keys.json` flips the same setting.
 
 ## `panels.json`
 
@@ -97,7 +97,7 @@ A `layout.switch` entry goes to the **layout switch**, a group at the right end 
 
 The **density** button (two chevrons, left of the panel buttons) goes **Auto → Compact → Normal**. **Normal** shows the names of the panel buttons and the layout switch, **Compact** shows only their icons, and **Auto** shows their names when the bar is 2250 px wide or more. The Kanban bar has the same button and uses the same value (`shared("kanban.density")`), so a change in one bar shows in the other.
 
-The **gear** button, right of the density button, opens Herdr's settings. With the `mods-hub` mod installed, it opens a menu instead: **Herdr settings** or **Herdr Mods** (the dialog on its **Settings** tab). `tabs-dock.gear` in `keys.json` does the same.
+The **gear** button, right of the density button, opens Herdr's settings. With the `mods-hub` mod installed, it opens a menu instead: **Herdr settings** or **PowerMods** (the dialog on its **Settings** tab). `tabs-dock.gear` in `keys.json` does the same.
 
 Language: English, or Portuguese with `"lang": "pt"` in the `props` of the bar block. With the `mods-hub` mod, its **Language** setting (`shared("herdr-mods.lang")`) wins over the prop.
 
@@ -119,7 +119,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 - `files-md` needs the `files-md-menu` mod (the right-click menu). The `image-viewer` mod ([this repository](../image-viewer-app)) is optional: only the menu item "Open in Image Viewer" uses it. To show an image, `files-md` copies it to `data/files-md/` in the Herdr home and deletes the copy when you open another file or close the panel. The `markdown-reader` mod (third party) is optional: only the menu item "Open in Markdown Reader" uses it. To go back to Herdr's own Files panel, point the `files` block of `layouts/main-dock.json` to the mod `files`.
 - The Changes panel is the `changes-split` mod ([this repository](../changes-app)). Install it before the layout, or the panel stays empty. To go back to Herdr's own Changes panel, point the `changes` block of `layouts/main-dock.json` to the mod `changes`.
 - The right-click menu, the Explorer and default app items and the clipboard items were not clicked in a real session: the checks were `herdr-app check`, a screenshot of the menu popup, and the Markdown and highlighting views in the app. Test them on your machine. Tested only on Windows; the macOS and Linux commands are written, not run. The scripts of the edit items were run on Windows (PowerShell and Git's `sh`) outside the app.
-- The `agents` block shows the `agent-cards` mod ([this repository](../agent-cards-app)). Install it before the layout, or turn **Agent cards** off in Herdr Mods.
+- The `agents` block shows the `agent-cards` mod ([this repository](../agent-cards-app)). Install it before the layout, or turn **Agent cards** off in PowerMods.
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,
   clone `main` and `tabs` again.

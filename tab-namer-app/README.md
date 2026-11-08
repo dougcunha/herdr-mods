@@ -52,7 +52,7 @@ named the tab. The agent's own title is in the tooltip.
 
 ## Settings
 
-In the **Settings** tab of Herdr Mods (`kit.json`, key `tab-namer.settings`):
+In the **Settings** tab of PowerMods (`kit.json`, key `tab-namer.settings`):
 
 | Setting | Values | Default |
 | --- | --- | --- |

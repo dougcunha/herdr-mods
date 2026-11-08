@@ -26,14 +26,14 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
 - Put the pointer on a card for the **pin** button. A pinned card stays at the top and shows the pin.
 - Sub-agents show under their card, one row each. Click a row to peek at the sub-agent. Click "N sub-agents" to fold them.
 - A narrow sidebar (the rail) shows a number and a status dot for each agent.
-- **Needs you first.** Click the bell in the header to put the agents that need you at the top. The other cards go to the bottom of the panel, under the line "Other agents", so they do not move when an agent asks for you. Click the bell again to turn it off. The same switch is in Herdr Mods → **Settings** → **Needs you first**, and `herdr-app do agent-cards.needs-you` flips it.
+- **Needs you first.** Click the bell in the header to put the agents that need you at the top. The other cards go to the bottom of the panel, under the line "Other agents", so they do not move when an agent asks for you. Click the bell again to turn it off. The same switch is in PowerMods → **Settings** → **Needs you first**, and `herdr-app do agent-cards.needs-you` flips it.
 - The animations run inside Herdr (no timer redraws the panel).
 
 To see all four robots at once, run `herdr-app do agent-cards.demo`. Run it again to show your agents.
 
 ## Where it shows
 
-- **Dock layout.** The `agents` block of `layouts/main-dock.json` shows the cards. Turn them off in Herdr Mods → **Settings** → **Agent cards**. Off, the sidebar shows Herdr's own Agents list again; on, the cards come back. The Dock tab bar (`tabs-dock`) makes the change in the layout and keeps the size of the block. `tabs-dock.agent-cards` in `keys.json` flips the same setting.
+- **Dock layout.** The `agents` block of `layouts/main-dock.json` shows the cards. Turn them off in PowerMods → **Settings** → **Agent cards**. Off, the sidebar shows Herdr's own Agents list again; on, the cards come back. The Dock tab bar (`tabs-dock`) makes the change in the layout and keeps the size of the block. `tabs-dock.agent-cards` in `keys.json` flips the same setting.
 - **Your own layout.** Set the mod of the agents block to `agent-cards`: `{ "id": "agents", "content": { "mod": "agent-cards" } }`. Only the Dock tab bar reads the **Agent cards** setting, so in another layout you change the block by hand.
 
 ## What it does on your machine

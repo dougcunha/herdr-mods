@@ -5,7 +5,7 @@
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 //   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
-//   "gear-menu" the menu of the gear button: Herdr's settings or Herdr Mods, a popup (the bar opens it, see openGear).
+//   "gear-menu" the menu of the gear button: Herdr's settings or PowerMods, a popup (the bar opens it, see openGear).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
@@ -159,7 +159,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
     newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
@@ -200,7 +200,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
     newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
@@ -797,7 +797,7 @@ export default class Kanban extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  /** The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
+  /** The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the PowerMods dialog.
    *  Without it, it opens Herdr's settings, as before. */
   openGear() {
     const settingsOnly = () => run("app.settings");
@@ -808,7 +808,7 @@ export default class Kanban extends View {
     }, settingsOnly);
   }
 
-  /** The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+  /** The menu of the gear button. "PowerMods" opens the dialog on its Settings tab (the tab that the
    *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. */
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };

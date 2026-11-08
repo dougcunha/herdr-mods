@@ -12,12 +12,12 @@ Copy and paste this prompt to your LLM agent:
 
 ## What it shows
 
-- **Cards or a list.** The button in the panel header changes the view. The same choice is in Herdr Mods → **Settings** → **View**.
-- **A card** shows the folder where the space works (and the machine of a remote space), the git branch with ahead, behind and changed files, the number of tabs and terminals, the time of the last activity, the agents with their status, and the note. Turn each line on or off in Herdr Mods → **Settings**.
+- **Cards or a list.** The button in the panel header changes the view. The same choice is in PowerMods → **Settings** → **View**.
+- **A card** shows the folder where the space works (and the machine of a remote space), the git branch with ahead, behind and changed files, the number of tabs and terminals, the time of the last activity, the agents with their status, and the note. Turn each line on or off in PowerMods → **Settings**.
 - **The list** shows one row for each space: the icon, the name, the branch and the status.
 - **Pinned.** Pinned spaces go to the **Pinned** section at the top, from every machine. Drag a space into the section to pin it. Drag it inside the section to change the order. Drag it out to unpin it.
 - **Groups.** Spaces of other machines show in their own group, as in Herdr's own sidebar. A worktree shows under the space of its repository. Drag a space in its group to change the order of Herdr's spaces.
-- **Needs you.** A space with an agent that is blocked or done gets a colored border and a dot that pulses. With **Needs you first** on (Herdr Mods → Settings), these spaces go to the top of their section.
+- **Needs you.** A space with an agent that is blocked or done gets a colored border and a dot that pulses. With **Needs you first** on (PowerMods → Settings), these spaces go to the top of their section.
 - **Recent.** The **Recent** section at the bottom (folded at first) lists the spaces that you closed. A click opens the space again in the same folder.
 - **A narrow sidebar** (less than 160 px) shows only the icons, with a status dot.
 
@@ -47,7 +47,7 @@ Run `herdr-app do space-deck.<command>`, or bind one in `keys.json` (`"ctrl-alt-
 
 ## Settings
 
-In Herdr Mods → **Settings** → **Space Deck**:
+In PowerMods → **Settings** → **Space Deck**:
 
 | Setting | Default |
 | ------- | ------- |

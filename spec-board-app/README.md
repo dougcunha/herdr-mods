@@ -53,7 +53,7 @@ Run `herdr-app do spec-board.<command>`, or bind one in `keys.json`:
 
 ## Settings
 
-In Herdr Mods → **Settings** → **Spec Board**:
+In PowerMods → **Settings** → **Spec Board**:
 
 | Setting | Default |
 | ------- | ------- |
