@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 17 -->
+<!-- herdr-mods-setup-version: 18 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -17,6 +17,11 @@ AmpCode, Cursor, etc.) with the Herdr app installed and running:
 
 The agent finds out by itself which case it is, item by item. You can run the
 prompt again whenever the repository has news.
+
+The agent always installs the required items (the Dock layout and the mods
+that it needs). It asks you which optional items you want. On an update, it
+asks only about the optional items that are new or that you have not answered
+yet.
 
 On a new machine, fill in the 1 placeholder in square brackets: the base
 folder of your Git repositories. On an update, leave it as it is: the agent reads
@@ -39,6 +44,7 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 9. In PowerShell, pass `--props` through a variable with forward slashes (`/`). Backslashes arrive empty.
 10. Herdr writes some files inside mod folders by itself: `gpui-kit.d.ts`, `jsconfig.json`, hidden files and `*.error`. Ignore them when you compare, and never delete or replace them.
 11. Before you replace or change any file that exists, copy it to `~/.config/herdr-app/backups/herdr-mods-<date and time>/`, with the same relative path. That folder is outside `mods/`, so Herdr does not load it. Tell me where it is at the end.
+12. Install the required items and only the optional items that I chose (see "Choose the optional items"). Skip every step, `panels.json` entry, layout block, key and check of an item that is not installed. Every step for `layouts/kanban.json` runs only when the `kanban` layout is installed.
 
 ## Before you start
 
@@ -47,9 +53,38 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 3. Run `herdr-app status` and note the Herdr version. If it is newer than 0.1.12, tell me. The `main-dock` layout is a copy of version 0.1.12 and can be out of date.
 4. Make a FULL clone (not `--depth 1`, you need the history) of `https://github.com/dougcunha/herdr-mods` into a temporary folder OUTSIDE `~/.config/herdr-app`. Note the commit you got (`git rev-parse HEAD`).
 5. Read `~/.config/herdr-app/data/herdr-mods-setup.json`. It is the record that the last run of this prompt left: `{ "repo", "commit", "version", "date", "items": { "<name>": "<source folder in the repo>" } }`. If it exists, show me what is new: `git log --oneline <recorded commit>..HEAD`, grouped by app folder. If it does not exist, I may still have run the prompt before: you will find the baseline by comparing files.
-6. Make the list of the items below, and for each one decide: **install** (not on this machine), **up to date**, **update** or **conflict** (I changed it). If the plan replaces or changes any file that exists, show me the plan as a table and wait for my OK. A plan that only adds new things needs no OK.
+6. Choose the optional items with me (next section).
+7. Make the list of the items below (the required ones and the optional ones that are installed or that I chose), and for each one decide: **install** (not on this machine), **up to date**, **update** or **conflict** (I changed it). If the plan replaces or changes any file that exists, show me the plan as a table and wait for my OK. A plan that only adds new things needs no OK.
+
+## Choose the optional items
+
+The items marked **Required** in "The items" are always installed: do not ask about them. Ask me which of the optional items below I want, in ONE question with multiple choice (use your question tool when you have one; else a numbered list in one message). Give each choice its name and the line below, and what it runs when that is not only reading.
+
+- `kanban-app`: the Kanban layout, every agent as a card in a column by status.
+- `ci-dash-app`: CI Dash, GitHub Actions runs, dispatch and artifacts in a panel (runs `gh`).
+- `git-dash-app`: Git Dash, the repositories under a base folder with pending work (runs `git`).
+- `agent-resume-app`: Agent Resume, starts the agent sessions again after a reboot (adds hooks to the agents).
+- `repo-launcher-app`: Repo Launcher, `Ctrl+P` to open a repository in a terminal or an agent.
+- `space-deck-app`: Space Deck, the Spaces sidebar as cards, with an icon, a color and a note for each space.
+- `tokenhound-app`: the quotas of the TokenHound HUD. Offer it only on Windows.
+- `skill-bundles-app`: Skill Bundles, the agent skills of a project against a skill Catalog (a repository with a `bundles.yaml`). Runs `git`, `gh`, `node` and `npx skills`.
+- `light-themes-app`: 5 light themes.
+- `dark-themes-app`: 6 soft dark themes.
+- `git-graph` (third-party): a Graph panel of the commits.
+- `markdown-reader` (third-party): opens Markdown files from the Files panel.
+- `insights` (third-party): a dashboard of the agent sessions (uses Node).
+
+On a new machine, ask about all of them. On an update:
+
+- An optional item that is installed stays: update it, do not ask.
+- Ask only about the optional items that are not installed and that are not in `declined` of the record (`data/herdr-mods-setup.json`). An item that is new since the last run is in neither list, so it is asked.
+- If no item is left to ask about, do not ask. Tell me that I can ask for an item that I declined before.
+
+An item that I do not choose is skipped (rule 12). Keep my answer for "Record the run".
 
 ## The items
+
+**Required:** items 1, 4, 5, 11 and 13 (the `main-dock` layout and the mods that it needs). The other items and the third-party mods are optional: install them only when they are installed already or when I chose them (see "Choose the optional items").
 
 For each item, read the `README.md` and the `RECIPE.md` of its folder before you copy anything. A mod copies as a whole folder (`<app>/mods/<name>/` to `~/.config/herdr-app/mods/<name>/`), a layout as a file (`<app>/layouts/<name>.json` and its `.svg`, if any, to `~/.config/herdr-app/layouts/`).
 
@@ -63,15 +98,15 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
-11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, asks GitHub's public API once a day for the last commit of each installed third-party mod (no token, nothing about me), reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent. Its **Settings** tab writes the shared keys that the `kit.json` files of the mods name, and `keys.json` when I change a shortcut there. Do not set `shared("herdr-mods.lang")` (the kit language): it is my choice in that tab. The `"lang"` props that "Configure" writes stay as the first value.
+11. `mods-hub-app`: the `mods-hub` mod, the **Herdr Mods** dialog. Put its block in the status row of the `main-dock` and `kanban` layouts, at the right end, after the `repo-launcher-status` block, or after the last block when that one is not there (see "Install" in its `README.md`). It downloads `SETUP-PROMPT.md`, the release notes in `whats-new/` and the README files from GitHub, asks GitHub's public API once a day for the last commit of each installed third-party mod (no token, nothing about me), reads `data/herdr-mods-setup.json`, `installed.json` and the files of the folders in `mods/` (to list them and compare their hashes), and, when I click an agent, writes the prompt to `data/herdr-mods-setup-prompt.md` and starts that agent. Its **Settings** tab writes the shared keys that the `kit.json` files of the mods name, and `keys.json` when I change a shortcut there. Do not set `shared("herdr-mods.lang")` (the kit language): it is my choice in that tab. The `"lang"` props that "Configure" writes stay as the first value.
     **Move from `mods-update`.** Before version 5 this mod was `mods-update` (folder `mods-update-app`). If `~/.config/herdr-app/mods/mods-update/` exists: back it up (rule 11), install `mods-hub`, then in `layouts/main-dock.json`, `layouts/kanban.json` and every other layout of mine in `layouts/` that has it, change the block `{ "id": "mods-update", "content": { "mod": "mods-update" } }` to `{ "id": "mods-hub", "content": { "mod": "mods-hub" } }` (keep its `size` and its place), then delete the folder `mods/mods-update/`. If my `mods-update` folder has files that equal no version of the repository (rule 3; look in the history of the old path `mods-update-app/mods/mods-update/`), show me the difference and ask before you delete it. Do not copy `shared("mods-update")`: the new mod reads it by itself.
-12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
+12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, when I chose it, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
 13. `agent-cards-app`: the `agent-cards` mod, the agents of the sidebar as cards with a small robot. The `agents` block of `main-dock` shows it (item 1). It runs no program, reads no file and uses no network. Before version 13 this mod was in `dock-app/mods/agent-cards/`. The installed folder stays `mods/agent-cards/`. When you look for its baseline ("Update an installed item", step 2), use `git log --follow`, or the old path, because the commits before the move are under `dock-app/`. Record its source as `agent-cards-app/mods/agent-cards`.
 14. `space-deck-app`: the `space-deck` mod, a Spaces sidebar with cards or a list, an icon, a color and a note for each space, pinned spaces and recent spaces. It runs `git status` and `git rev-parse` in the folder of each space (on the machine of the space), reads `view.json` (the recent spaces) and checks if `mods/repo-launcher/mod.json` exists. No network. It writes the shared keys `space-deck.*` and Herdr's `space.colors`. After you install it, do "The `spaces` block" in "Configure".
-15. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). Ask me whether I use such a Catalog. If I say no, skip this item: then its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
-16. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+15. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). When I did not choose it, its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
+16. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
 
-Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
+Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
 1. `git-graph`: https://github.com/rabeeh-ta/herdr-git-graph
 2. `markdown-reader` (and `markdown-reader-pane`, if the repository has it): https://github.com/kissmikijr/herdr-markdown-reader
@@ -276,12 +311,12 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 
 ## Record the run
 
-When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, `items`, with the name of each item that is installed and the folder of the repository that it came from (`mods-hub`, not `mods-update`), and `files`. For `files`, run `node tools/record-hashes.mjs` in the clone. It prints `{ "<mod>": { "<file>": "<hash>" } }` for every mod of the repository. Keep only the mods that are installed and that came from the repository (also a mod where I kept my own file: the `mods-hub` dialog then shows that file as changed). Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
+When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, `items`, with the name of each item that is installed and the folder of the repository that it came from (`mods-hub`, not `mods-update`), `declined` (the names of the optional items from "Choose the optional items" that are not installed: the ones that I did not choose now, and the ones of the old record that I was not asked about again; an item that I chose now leaves the list), and `files`. For `files`, run `node tools/record-hashes.mjs` in the clone. It prints `{ "<mod>": { "<file>": "<hash>" } }` for every mod of the repository. Keep only the mods that are installed and that came from the repository (also a mod where I kept my own file: the `mods-hub` dialog then shows that file as changed). Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
 
 Then record the third-party mods, so that the `mods-hub` dialog can tell when GitHub has a newer version: for each one that is installed (`git-graph`, `markdown-reader`, `markdown-reader-pane`, `insights`), clone its repository with `git clone --filter=blob:none <repository>` (once for the 2 Markdown Reader mods), and run `node tools/record-third-party.mjs --name <name> --clone <clone> --write` in the clone of this repository. Run it after the Esc patches. It finds the commit that the installed folder equals best and writes `third.<name>` into the record, with the other fields kept. If it fails for a mod, tell me in the report and go on.
 
 ## Final report
 
-Say first which case this was: a new machine, an update, or a mix. Give me a table with 4 columns: item, source, status (installed, updated, up to date, kept because I changed it, skipped or failed) and note. Add one row for each agent of `agent-resume` (Claude Code, Codex, Antigravity, OpenCode): connected, already connected, not installed, or failed. Add "What is new" (the commits since the last run, in one line each) when this was an update. At the end, list what I must do by hand: the `gh` login, the font, the conflicts that I have not decided, anything that failed, and where the backup folder is.
+Say first which case this was: a new machine, an update, or a mix. Then list the optional items that I chose and the ones that I declined. Give me a table with 4 columns: item, source, status (installed, updated, up to date, kept because I changed it, skipped or failed) and note. Add one row for each agent of `agent-resume` (Claude Code, Codex, Antigravity, OpenCode): connected, already connected, not installed, or failed. Add "What is new" (the commits since the last run, in one line each) when this was an update. At the end, list what I must do by hand: the `gh` login, the font, the conflicts that I have not decided, anything that failed, and where the backup folder is.
 ````
 <!-- prompt-end -->
