@@ -26,6 +26,7 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
 - Put the pointer on a card for the **pin** button. A pinned card stays at the top and shows the pin.
 - Sub-agents show under their card, one row each. Click a row to peek at the sub-agent. Click "N sub-agents" to fold them.
 - A narrow sidebar (the rail) shows a number and a status dot for each agent.
+- **Needs you first.** Click the bell in the header to put the agents that need you at the top. The other cards go to the bottom of the panel, under the line "Other agents", so they do not move when an agent asks for you. Click the bell again to turn it off. The same switch is in Herdr Mods → **Settings** → **Needs you first**, and `herdr-app do agent-cards.needs-you` flips it.
 - The animations run inside Herdr (no timer redraws the panel).
 
 To see all four robots at once, run `herdr-app do agent-cards.demo`. Run it again to show your agents.
@@ -43,6 +44,7 @@ To see all four robots at once, run `herdr-app do agent-cards.demo`. Run it agai
 
 ## Limits
 
-- Checked with `herdr-app check` and with screenshots of the four statuses (`agent-cards.demo`), the sub-agents and the pin. A click on the pin and on a sub-agent row was not tested in a real session.
+- Checked with `herdr-app check` and with screenshots of the four statuses (`agent-cards.demo`), the sub-agents, the pin and **Needs you first**. A click on the pin, on a sub-agent row and on the bell was not tested in a real session.
+- **Needs you first** looks only at the status of the agent. An agent whose sub-agent needs you stays in the lower part.
 - Tested only in the `main-dock` layout, on Windows. Untested: macOS, Linux, a remote machine's window, other layouts.
 - `RECIPE.md` has the full brief to build it from scratch.

@@ -10,6 +10,14 @@
       "default": true,
       "label": "Agent cards",
       "hint": "Show the agents of the main-dock sidebar as animated cards. Off: the sidebar shows Herdr's own Agents list."
+    },
+    {
+      "id": "needsYouFirst",
+      "type": "bool",
+      "key": "agent-cards.needsYouFirst",
+      "default": false,
+      "label": "Needs you first",
+      "hint": "Put the agents that need you at the top of the list. The other agents go to the bottom of the panel, under a line. The bell button in the panel header does the same."
     }
   ]
 }

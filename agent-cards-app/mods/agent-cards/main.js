@@ -4,8 +4,13 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand } from "herdr";
+import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared } from "herdr";
 import { stage } from "./robot.js";
+
+// The mods-hub setting "Needs you first": the agents that need you go to the top,
+// and the other cards go to the bottom of the panel, under a line.
+const KEY_NEEDS_YOU = "agent-cards.needsYouFirst";
+const needsYouFirst = () => shared(KEY_NEEDS_YOU) === true;
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -74,10 +79,12 @@ export default class AgentCards extends View {
     this.hovered = null;
     cx.timer.every(30000, (cx) => cx.notify());
     // `herdr-app do agent-cards.demo` shows one example card for each status.
+    // `agent-cards.needs-you` turns "Needs you first" on or off.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "demo") this.demo = !this.demo;
+        if (c === "needs-you") setShared(KEY_NEEDS_YOU, !needsYouFirst());
         cx.notify();
       }
     });
@@ -100,6 +107,25 @@ export default class AgentCards extends View {
         : [];
       return { a, info: { name: space, detail: tab }, subs };
     }).sort((x, y) => (y.a.pinned ? 1 : 0) - (x.a.pinned ? 1 : 0));
+  }
+
+  // The header button that turns "Needs you first" on or off.
+  needsYouButton(t, on) {
+    return div()
+      .id("ac-needs-you")
+      .flex_none()
+      .p(3)
+      .rounded(5)
+      .text_color(on ? t.blocked : t.dim)
+      .when(on, (el) => el.bg(t.blocked + "22"))
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(on ? t.blocked : t.foreground))
+      .tooltip(on ? "Needs you first: on. Click to turn off." : "Needs you first: off. Click to put the agents that need you at the top.")
+      .on_click((_e, cx) => {
+        setShared(KEY_NEEDS_YOU, !on);
+        cx.notify();
+      })
+      .child(svg("mods/agent-cards/needs-you.svg").size(13));
   }
 
   // Live sub-agents of `addr`, depth first.
@@ -276,7 +302,9 @@ export default class AgentCards extends View {
     // A card ranks by its most urgent status, its sub-agents included.
     const urgency = new Map(list.map((a) => [a.address, Math.max(RANK[a.status] ?? 0, ...subsOf.get(a.address).map((s) => RANK[s.status] ?? 0))]));
     const since = (a) => this.changed[a.address]?.at ?? 0;
-    list.sort((x, y) => (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || urgency.get(y.address) - urgency.get(x.address) || since(y) - since(x) || y.seq - x.seq);
+    const first = needsYouFirst();
+    const top = (a) => (first && a.status === "blocked" ? 1 : 0);
+    list.sort((x, y) => top(y) - top(x) || (y.pinned ? 1 : 0) - (x.pinned ? 1 : 0) || urgency.get(y.address) - urgency.get(x.address) || since(y) - since(x) || y.seq - x.seq);
     setAgentOrder(list.map((a) => a.address));
 
     if (narrow()) {
@@ -293,6 +321,22 @@ export default class AgentCards extends View {
     };
     const busy = list.filter((a) => a.status !== "idle").length;
     const cards = this.demo ? this.demoCards(now) : list.map((a) => ({ a, info: infoOf(a), subs: subsOf.get(a.address) }));
+    const draw = (c) => this.card(t, c.a, c.info, now, c.subs);
+    // "Needs you first": the blocked cards at the top, a space that grows, a line,
+    // and the other cards at the bottom of the panel.
+    const body = !first ? cards.map(draw) : (() => {
+      const needs = cards.filter((c) => c.a.status === "blocked");
+      const rest = cards.filter((c) => c.a.status !== "blocked");
+      return [
+        ...needs.map(draw),
+        div().id("ac-spacer").flex_1(),
+        ...(needs.length && rest.length ? [h_flex().id("ac-divider").flex_none().mx(4).gap(8).items_center()
+          .child(div().flex_1().h(1).bg(t.input))
+          .child(div().flex_none().text_size(10.5).font_medium().text_color(t.dim).child("Other agents"))
+          .child(div().flex_1().h(1).bg(t.input))] : []),
+        ...rest.map(draw),
+      ];
+    })();
 
     return v_flex()
       .size_full()
@@ -303,11 +347,13 @@ export default class AgentCards extends View {
       .text_size(13)
       .child(h_flex().px(16).h(41).pt(14).pb(5).flex_none().items_center().justify_between()
         .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
-        .child(div().text_size(11).text_color(this.demo ? t.accent : t.dim)
-          .child(this.demo ? "Demo" : list.length ? `${busy} active · ${list.length}` : "")))
+        .child(h_flex().gap(6).items_center()
+          .child(div().text_size(11).text_color(this.demo ? t.accent : t.dim)
+            .child(this.demo ? "Demo" : list.length ? `${busy} active · ${list.length}` : ""))
+          .child(this.needsYouButton(t, first))))
       .when(cards.length === 0, (el) => el.child(div().px(16).text_size(12).text_color(t.dim)
         .child("No agents yet. Agents show up here when they report their status.")))
       .child(v_flex().id("ac-list").flex_1().min_h(0).px(10).pb(10).gap(8).overflow_y_scrollbar()
-        .children(cards.map((c) => this.card(t, c.a, c.info, now, c.subs))));
+        .children(body));
   }
 }
