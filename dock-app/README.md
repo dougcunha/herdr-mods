@@ -28,7 +28,6 @@ To add a button later, for example the [Git Graph](https://github.com/rabeeh-ta/
 | `mods/tabs-dock/` | Herdr's tab bar plus the dock: it reads `dock/panels.json`, draws the buttons and adds the panels to the layout. |
 | `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12) with a right-click menu, rendered Markdown and syntax highlighting. See [The Files panel](#the-files-panel). |
 | `mods/files-md-menu/` | The popup of that right-click menu. `files-md` needs it. |
-| `mods/agent-cards/` | The agents of the sidebar as animated cards. See [The agent cards](#the-agent-cards). |
 
 Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
@@ -63,25 +62,9 @@ Right-click the empty area below the rows for New file, New folder and Paste in 
 
 ## The agent cards
 
-The **Agents** list of the sidebar is the `agent-cards` mod: one card for each agent, with a small robot that acts out the status.
-
-| Status | The robot | The pill |
-| ------ | --------- | -------- |
-| Working | Types on a laptop: the hands move, the head bobs and a gear turns. | `Working...` |
-| Idle | Sleeps: the eyes are closed and "z" letters rise. | `Sleeping` |
-| Blocked | Waves an arm, shakes, and shows a `!` bubble. The card border is red. | `Needs you` |
-| Done | Jumps with happy eyes and confetti. | `Done` |
-
-- Each card shows the program icon, the space, the tab (or the agent's title) and the time since the last status change. Click a card to go to the agent.
-- The order is the order of Herdr's own list: pinned agents first, then the ones that need you, done, working and idle. `agent.next` and `agent.prev` follow it.
-- Put the pointer on a card for the **pin** button. A pinned card stays at the top and shows the pin.
-- Sub-agents show under their card, one row each. Click a row to peek at the sub-agent. Click "N sub-agents" to fold them.
-- A narrow sidebar (the rail) shows a number and a status dot for each agent.
-- The animations run inside Herdr (no timer redraws the panel).
+The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod (`agent-cards`): one card for each agent, with a small robot that acts out the status. Install it before the layout.
 
 **Turn them off** in Herdr Mods → **Settings** → **Agent cards**. Off, the sidebar shows Herdr's own Agents list again; on, the cards come back. The tab bar makes the change in `layouts/main-dock.json` and keeps the size of the block. `tabs-dock.agent-cards` in `keys.json` flips the same setting.
-
-To see all four robots at once, run `herdr-app do agent-cards.demo`. Run it again to show your agents.
 
 ## `panels.json`
 
@@ -136,7 +119,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 - `files-md` needs the `files-md-menu` mod (the right-click menu). The `image-viewer` mod ([this repository](../image-viewer-app)) is optional: only the menu item "Open in Image Viewer" uses it. To show an image, `files-md` copies it to `data/files-md/` in the Herdr home and deletes the copy when you open another file or close the panel. The `markdown-reader` mod (third party) is optional: only the menu item "Open in Markdown Reader" uses it. To go back to Herdr's own Files panel, point the `files` block of `layouts/main-dock.json` to the mod `files`.
 - The Changes panel is the `changes-split` mod ([this repository](../changes-app)). Install it before the layout, or the panel stays empty. To go back to Herdr's own Changes panel, point the `changes` block of `layouts/main-dock.json` to the mod `changes`.
 - The right-click menu, the Explorer and default app items and the clipboard items were not clicked in a real session: the checks were `herdr-app check`, a screenshot of the menu popup, and the Markdown and highlighting views in the app. Test them on your machine. Tested only on Windows; the macOS and Linux commands are written, not run. The scripts of the edit items were run on Windows (PowerShell and Git's `sh`) outside the app.
-- The agent cards were checked with `herdr-app check` and with screenshots of the four statuses (`agent-cards.demo`), the sub-agents and the pin. A click on the pin and on a sub-agent row was not tested in a real session.
+- The `agents` block shows the `agent-cards` mod ([this repository](../agent-cards-app)). Install it before the layout, or turn **Agent cards** off in Herdr Mods.
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,
   clone `main` and `tabs` again.
