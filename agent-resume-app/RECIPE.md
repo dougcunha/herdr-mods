@@ -189,6 +189,12 @@ short:
 - `hc server restart` does not lose terminals: they live in the holder
   process (`herdr-core hold`). To test a loss, stop the holder process. That
   stops every terminal, the agent that runs the test too.
+- **`hc` may not be on the PATH on Windows.** The installer puts `hc.exe` in
+  `%LOCALAPPDATA%\Programs\herdr-core` and adds only the `herdr-app` folder to
+  the PATH. A hook that calls a bare `hc` fails without a word: the mod's own
+  fallback still writes `resume.agent` and `resume.pid`, so the status bar looks
+  fine, but no terminal gets `resume.session`. The PowerShell hook and the
+  OpenCode plugin take `hc` from the PATH, else that `hc.exe`.
 - **Codex runs hooks in a shared daemon** (`codex app-server
   --managed-daemon`) with the environment of the terminal that started the
   daemon. A Codex hook writes labels on the wrong terminal. Do not use one.
