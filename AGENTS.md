@@ -105,7 +105,9 @@ Rules:
 
 ### Guardrails
 - Write `mod.json` (with `"place": "none"`) BEFORE `main.js` in every new mod folder, also in a throwaway test mod. Without it, Herdr docks a block of the mod into the shown layout file (`layouts/<name>.json`), and the block stays after the folder is deleted.
+- Give every new mod a `"title"` in `mod.json` (for example `"title": "Agent Cards"`). Without it, the `mods-hub` dialog does not show the name of the mod.
 - Preview images (`preview.png` and others) must not show e-mail addresses, tokens or other personal data. Use example values (`you@work.example`) for the screenshot.
+- Preview images must show only folders and repositories of `D:\MyProjects`. Never show a work folder or a work repository.
 - Run `herdr-app check` on the installed copy in `~/.config/herdr-app/mods/`, not on the repository folder: the check writes `gpui-kit.d.ts` and `jsconfig.json` into the folder that it checks.
 
 ### Herdr app runtime traps
