@@ -35,6 +35,16 @@ Every time you increase `N` in `SETUP-PROMPT.md`, create `whats-new/<N>.md` in
 the same commit. The **What's new** tab of the `mods-hub` dialog downloads
 this file from GitHub and shows it to the person.
 
+Rules:
+
+- Write the notes in English only.
+- Write a markdown list. Do not add a title: the mod adds `## Version <N>`.
+- Write 1 item for each change that the person can see or must know. Start the
+  item with the name of the mod, layout or theme set in bold, for example
+  `- **repo-launcher:** …`.
+- Write what changed for the person, not how the code changed.
+- Do not edit the file of an older version, unless it has an error.
+
 ## `kit.json` in every mod
 
 Every mod folder of this repository has a `kit.json`:
@@ -75,13 +85,6 @@ kit mod must follow it:
   bars hide it. A mod that replaces a Herdr mod in a block goes into
   `ORIGINALS` of `tabs-dock` and `kanban`.
 
-- Write the notes in English only.
-- Write a markdown list. Do not add a title: the mod adds `## Version <N>`.
-- Write 1 item for each change that the person can see or must know. Start the
-  item with the name of the mod, layout or theme set in bold, for example
-  `- **repo-launcher:** …`.
-- Write what changed for the person, not how the code changed.
-- Do not edit the file of an older version, unless it has an error.
 
 ## Gallery image: `preview.png`
 
