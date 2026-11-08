@@ -609,6 +609,8 @@ export default class Kanban extends View {
       setShared(KEY_PANEL_DIALOG, null);
       if (open.panel === id && liveDialogs().has(open.id)) return;
     }
+    // A panel that shows in the side panel now (also one moved there from a dialog) closes, in every mode.
+    if (node && panel && !panel.hidden && body.active === id) return run("layout.hide", { id: panel.id });
     if (this.dialogNow()) return this.openDialog(id, tab ? { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } : node.content, tab);
     if (tab) return this.runEntry(tab);
     if (!panel.hidden && body.active === id) run("layout.hide", { id: panel.id });
