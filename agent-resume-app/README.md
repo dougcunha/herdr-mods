@@ -18,6 +18,8 @@ types the resume command of the agent in each of these shells (for example
   `Resume on · 2 sessions` (the count of terminals with a recorded agent).
   When you turn auto resume off, the dot is gray and the text is
   `Resume off`. The tooltip shows the count of the last resume.
+
+  ![Agent Resume indicator in the status bar](preview-status.png)
 - **The panel**: click the indicator, or run the mod command
   `agent-resume.panel` (bind it in `keys.json`, for example
   `"global": { "ctrl-alt-r": "agent-resume.panel" }`, or run

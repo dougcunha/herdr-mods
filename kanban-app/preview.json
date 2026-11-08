@@ -1,0 +1,6 @@
+{
+  "name": "Kanban",
+  "tagline": "Your agents on a board",
+  "kind": "layout",
+  "source": "layouts/kanban.svg"
+}

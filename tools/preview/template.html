@@ -1,0 +1,140 @@
+<!doctype html>
+<!--
+  Gallery preview template for the mods of this repository.
+  herdr.dev/gallery shows preview.png in a 16:10 card (960x600, object-fit: cover,
+  anchored at the top left). render.mjs fills the DATA block below and renders
+  this page at 1920x1200, so the card shows the full picture with no crop.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #0a0b0c;
+    --panel: #111214;
+    --line: #2b2e33;
+    --fg: #f2f3f5;
+    --mute: #9aa0a8;
+    --accent: #f5a524;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1200px; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: "Segoe UI Variable Display", "Segoe UI", -apple-system, "SF Pro Display", Inter, Roboto, sans-serif;
+    color: var(--fg);
+    position: relative;
+  }
+  .glow {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(1100px 700px at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+      radial-gradient(900px 700px at 100% 100%, #1b2a4a66, transparent 70%);
+  }
+  .grid {
+    position: absolute; inset: 0; opacity: .35;
+    background-image: linear-gradient(#ffffff08 1px, transparent 1px), linear-gradient(90deg, #ffffff08 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+  .page { position: absolute; inset: 0; display: flex; padding: 88px 96px; gap: 72px; }
+
+  .text { display: flex; flex-direction: column; justify-content: center; gap: 28px; }
+  .kind {
+    align-self: flex-start;
+    font-size: 34px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent);
+    padding: 10px 22px; border: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); border-radius: 999px;
+  }
+  h1 { font-size: 150px; line-height: .95; font-weight: 700; letter-spacing: -.035em; }
+  .tagline { font-size: 64px; line-height: 1.12; font-weight: 500; color: var(--mute); letter-spacing: -.01em; }
+  .brand { display: flex; align-items: center; gap: 14px; font-size: 30px; color: var(--mute); }
+  .brand b { color: var(--fg); font-weight: 600; }
+
+  .shot-wrap { flex: 1; min-width: 0; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .frame {
+    max-width: 100%; max-height: 100%;
+    border-radius: 22px; overflow: hidden;
+    background: var(--panel);
+    box-shadow: 0 0 0 2px var(--line), 0 60px 120px -30px #000000f0;
+    display: flex;
+  }
+  .frame img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+
+  /* wide: text on top, screenshot below */
+  .wide .page { flex-direction: column; gap: 52px; padding-top: 72px; padding-bottom: 0; }
+  .wide .text { flex: none; gap: 14px; }
+  .wide .kind { position: absolute; top: 96px; right: 96px; }
+  .wide .brand { display: none; }
+  .wide .head { display: flex; align-items: baseline; gap: 40px; flex-wrap: wrap; }
+  .wide h1 { font-size: 132px; }
+  .wide .tagline { font-size: 60px; }
+  .wide .page { padding-bottom: 72px; }
+  .wide .shot-wrap { align-items: center; }
+  .wide .frame.cut { align-self: flex-start; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+  /* tall: text on the left, screenshot on the right */
+  .tall .page { padding: 72px 88px; gap: 64px; }
+  .tall .text { width: 800px; flex: none; }
+  .tall .shot-wrap { justify-content: center; }
+
+  /* strip: a status bar or a thin bar, shown large */
+  .strip .page { flex-direction: column; justify-content: center; gap: 96px; }
+  .strip .text { align-items: center; text-align: center; }
+  .strip .kind { align-self: center; }
+  .strip .shot-wrap { flex: none; }
+  .strip .frame { border-radius: 18px; }
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="grid"></div>
+<div class="page">
+  <div class="text">
+    <span class="kind" id="kind"></span>
+    <div class="head"><h1 id="name"></h1></div>
+    <p class="tagline" id="tagline"></p>
+    <div class="brand"><b>Herdr</b> app · herdr-mods</div>
+  </div>
+  <div class="shot-wrap"><div class="frame"><img id="shot" alt=""></div></div>
+</div>
+<script>
+  /*DATA*/ const DATA = { name: "Mod name", tagline: "Short call to action", kind: "mod", image: "", variant: "wide", accent: "" }; /*END*/
+  document.body.className = DATA.variant;
+  if (DATA.accent) document.documentElement.style.setProperty("--accent", DATA.accent);
+  document.getElementById("name").textContent = DATA.name;
+  document.getElementById("tagline").textContent = DATA.tagline;
+  document.getElementById("kind").textContent = DATA.kind;
+  const img = document.getElementById("shot");
+  img.src = DATA.image;
+  img.onload = () => {
+    if (DATA.variant === "strip") {
+      // Scale a thin strip up so that it fills the width of the page.
+      const w = Math.min(1728, img.naturalWidth * 3);
+      img.style.width = w + "px";
+      img.style.maxHeight = "none";
+    }
+    if (DATA.variant === "tall") {
+      // Scale the panel up (at most 2.4x) so that it fills the free area.
+      const wrap = img.closest(".shot-wrap").getBoundingClientRect();
+      const s = Math.min(wrap.width / img.naturalWidth, wrap.height / img.naturalHeight, 2.4);
+      img.style.width = Math.round(img.naturalWidth * s) + "px";
+      img.style.height = Math.round(img.naturalHeight * s) + "px";
+      img.style.maxWidth = img.style.maxHeight = "none";
+    }
+    if (DATA.variant === "wide") {
+      // Fill the width; the bottom of the screenshot may run off the page.
+      const frame = img.parentElement;
+      frame.style.maxHeight = "none";
+      // A bitmap grows at most 1.4x; an SVG grows to fill the free area.
+      const free = frame.parentElement.getBoundingClientRect();
+      const cap = /\.svg$/i.test(DATA.image) ? 10 : 1.4;
+      const fit = /\.svg$/i.test(DATA.image) ? free.height * img.naturalWidth / img.naturalHeight : Infinity;
+      img.style.width = Math.round(Math.min(1728, img.naturalWidth * cap, fit)) + "px";
+      img.style.maxHeight = "none";
+      // A screenshot that is taller than the free space runs off the bottom edge.
+      const wrap = frame.parentElement.getBoundingClientRect();
+      if (img.getBoundingClientRect().height > wrap.height) frame.classList.add("cut");
+    }
+  };
+</script>
+</body>
+</html>
