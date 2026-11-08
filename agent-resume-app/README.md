@@ -95,6 +95,12 @@ session. Instead, the mod reads the first line of each session file
 gives each Codex terminal the newest interactive session (`codex-tui`) of its
 folder that no other terminal has.
 
+**Tab names of [Tab Namer](../tab-namer-app).** When Tab Namer saves a tab
+name, it writes `namer.session=<session>` on the agent's terminal. When the
+`resume.session` of that terminal changes (`/clear` in Claude Code, `/new` in
+Codex), the name is about the old session. The mod then runs `tab.rename` with
+an empty name and removes the label: the tab shows the agent's own title again.
+
 ### What the mod runs and reads
 
 - It runs `hc get`, `hc label` and `hc send`.
@@ -134,6 +140,10 @@ Then replace the `status` block of the layout with a row:
 
 The indicator is at the left of the status bar. On a wide monitor, the right
 end is far from the eye.
+
+The mod runs only while its block is shown. Put the block in every layout that
+you use (for example `main-dock` and `kanban`): Herdr runs the copy of the
+shown layout only.
 
 ### 3. Connect each agent that you use
 

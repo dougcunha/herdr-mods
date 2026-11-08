@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 19 -->
+<!-- herdr-mods-setup-version: 20 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -69,6 +69,7 @@ The items marked **Required** in "The items" are always installed: do not ask ab
 - `spec-board-app`: Spec Board, the SDD specs of a repository in a Dock panel, with buttons that start an agent (runs `git`, and PowerShell or `sh`).
 - `tokenhound-app`: the quotas of the TokenHound HUD. Offer it only on Windows.
 - `skill-bundles-app`: Skill Bundles, the agent skills of a project against a skill Catalog (a repository with a `bundles.yaml`). Runs `git`, `gh`, `node` and `npx skills`.
+- `tab-namer-app`: Tab Namer, F2 and a pencil on the agent cards rename the tab of an agent, with a button that asks a small AI model for a name (runs `claude` or `codex` once for each click, reads the session files of the agent; the AI button needs `agent-resume-app`). It takes the F2 key from Herdr's own tab rename.
 - `light-themes-app`: 5 light themes.
 - `dark-themes-app`: 6 soft dark themes.
 - `git-graph` (third-party): a Graph panel of the commits.
@@ -95,7 +96,7 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 4. `image-viewer-app`: the `image-viewer` mod.
 5. `changes-app`: the `changes-split` mod, Herdr's Changes panel with a Unified / Split switch. The `main-dock` and `kanban` layouts use it, so install it BEFORE you install or update those layouts. It runs `git` only, the same as Herdr's Changes panel.
 6. `kanban-app`: the `kanban` layout and the `kanban` mod. Its Changes panel is the `changes-split` mod (item 5).
-7. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
+7. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and also at the left end of the `status-row` of `layouts/kanban.json` when the `kanban` layout is installed (the same block, if no block with the id `agent-resume` is there: the mod runs only in the shown layout), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
 10. `dark-themes-app`: the 6 soft dark themes. Copy each file of `dark-themes-app/themes/` to `~/.config/herdr-app/themes/`, with the same rules as item 9. This folder has no `RECIPE.md` either.
@@ -106,7 +107,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 14. `space-deck-app`: the `space-deck` mod, a Spaces sidebar with cards or a list, an icon, a color and a note for each space, pinned spaces and recent spaces. It runs `git status` and `git rev-parse` in the folder of each space (on the machine of the space), reads `view.json` (the recent spaces) and checks if `mods/repo-launcher/mod.json` exists. No network. It writes the shared keys `space-deck.*` and Herdr's `space.colors`. After you install it, do "The `spaces` block" in "Configure".
 15. `spec-board-app`: the `spec-board` mod, a Dock panel with the SDD specs (`tasks/prd-*`) of the shown repository and its worktrees: status, phase, task progress, the markdown (read and edit), delete to the Recycle Bin, and buttons that start an agent with the SDD skills, here or in a new git worktree. It runs `git` (`rev-parse`, `worktree list`, `ls-files`, `status`, and on a click `check-ref-format` and `worktree add`), PowerShell or `sh` to list and copy `tasks/` and to move a spec to the Recycle Bin, and `explorer`, `open` or `xdg-open`. It reads and writes files in the repositories of my spaces (only the markdown that I save) and watches their `tasks/` folders. No network. It writes the shared keys `spec-board.*`. Its place is the `specs` entry of `panels.json` in "Configure".
 16. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). When I did not choose it, its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
-17. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
+17. `tab-namer-app`: the `tab-namer` mod, a dialog that renames the tab of an agent. The `kanban` and `agent-cards` mods show a pencil on each card when it is installed, and `agent-resume` clears a name that it saved when the agent starts a new session (`/clear`, `/new`). It runs `claude -p` or `codex exec` (only when I click **Generate with AI**), `hc label` and `hc read`, and reads the session files of the agents (`~/.claude/projects/`, `~/.codex/sessions/`). No other network than the call of that agent. Its key is in "Configure". Tell me that the AI button needs `agent-resume` and Claude Code or Codex.
+18. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
@@ -271,10 +273,11 @@ In the `global` section, add the keys that are missing:
 "cmd-shift-r": "mod.open:markdown-reader-pane",
 "ctrl-p": "mod.open:repo-launcher",
 "ctrl-shift-h": "mod.open:mods-hub",
-"cmd-shift-h": "mod.open:mods-hub"
+"cmd-shift-h": "mod.open:mods-hub",
+"f2": "mod.open:tab-namer"
 ```
 
-If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, and the two `mods-hub` keys only when `mods-hub` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
+If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Exception: `f2` runs `tab.rename` in Herdr's default keys; when the `tab-namer` mod is installed and `f2` is `tab.rename` (or missing), set it to `mod.open:tab-namer` and tell me that F2 now opens the Tab Namer dialog. When `f2` has another action of mine, leave it and ask me. Add `f2` only when `tab-namer` is installed. Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, and the two `mods-hub` keys only when `mods-hub` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
 
 ### `~/.config/herdr-app/settings.json`
 
@@ -311,7 +314,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 9. If `skill-bundles` is installed, the status bar of `main-dock` and `kanban` shows `skills` with `?` (no Catalog yet) or a number, the dock bar shows a **Skills** button, and `herdr-app do skill-bundles.open` opens one dialog. Close it with `herdr-app do overlay.close`. Tell me to write my Catalog in the **Settings** tab of Herdr Mods.
 10. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
 11. If `spec-board` is installed, the Dock shows a **Specs** button, and with its panel open `herdr-app do spec-board.demo` shows example specs (run it again to show mine).
-12. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+12. If `tab-namer` is installed, `herdr-app do mod.open --name tab-namer` opens one dialog with the name of the focused tab. Close it with `herdr-app do overlay.close`. If `agent-resume` is installed too, the status bar of `kanban` shows `Resume on` at the left, as `main-dock` does.
+13. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

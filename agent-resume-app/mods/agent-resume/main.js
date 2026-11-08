@@ -19,7 +19,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { notify, theme, props, openOverlay, nextCommand, agents, terminals, hc } from "herdr";
+import { notify, theme, props, openOverlay, nextCommand, agents, terminals, hc, run } from "herdr";
 import {
   AGENTS, config, labeled, inspect, sessionState, resumeNow, forget,
   agentForApp, recordWithoutHook, refreshPid,
@@ -100,6 +100,14 @@ export default class AgentResume extends View {
     }
     const toRecord = this.unlabeledAgents(now, c.noHook);
     const codexTerms = list.filter((t) => t.status && t.labels["resume.agent"] === "codex");
+    // The tab-namer mod writes namer.session=<session> when it names a tab. A new
+    // session in the terminal (/clear, /new) makes that name old: clear it, and
+    // the tab shows the agent's own title again.
+    const toUnname = list.filter((t) => {
+      const named = t.labels["namer.session"];
+      const current = t.labels["resume.session"];
+      return named && current && named !== current && t.labels["herdr.tab"];
+    });
     this.scans++;
 
     this.busy = true;
@@ -111,6 +119,10 @@ export default class AgentResume extends View {
         for (const t of toRefresh) await refreshPid(t.address);
         for (const a of toRecord) await recordWithoutHook(a.address, a.agent);
         if (codexTerms.length > 0) await this.matchCodex(codexTerms, list);
+        for (const t of toUnname) {
+          run("tab.rename", { id: t.labels["herdr.tab"], name: "" });
+          await hc(["label", t.address, "namer.session="]);
+        }
         for (const t of toResume) {
           if (await this.tryResume(t)) resumed.push(t);
         }

@@ -1,0 +1,50 @@
+{
+  "app": "tab-namer-app",
+  "description": "F2 and the pencil of the agent cards rename the tab of an agent. A button asks a small AI model for a short name from the agent's session.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/tab-namer-app",
+  "settings": [
+    {
+      "id": "provider",
+      "type": "enum",
+      "key": "tab-namer.settings",
+      "path": "provider",
+      "default": "auto",
+      "label": "AI program",
+      "hint": "The program that makes the name. Auto: Claude Code when it is installed, else Codex.",
+      "options": [
+        { "value": "auto", "label": "Auto" },
+        { "value": "claude", "label": "Claude Code" },
+        { "value": "codex", "label": "Codex" }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "key": "tab-namer.settings",
+      "path": "model",
+      "placeholder": "haiku / gpt-6-luna",
+      "label": "Model",
+      "hint": "Empty: haiku for Claude Code, gpt-6-luna for Codex."
+    },
+    {
+      "id": "lang",
+      "type": "enum",
+      "key": "tab-namer.settings",
+      "path": "nameLang",
+      "default": "session",
+      "label": "Name language",
+      "hint": "The language of the names that the AI makes.",
+      "options": [
+        { "value": "session", "label": "Same as the session" },
+        { "value": "kit", "label": "Kit language" }
+      ]
+    },
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:tab-namer",
+      "label": "Shortcut",
+      "hint": "Saved in keys.json. It replaces Herdr's F2 (tab.rename)."
+    }
+  ]
+}

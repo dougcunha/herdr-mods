@@ -4,7 +4,8 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared } from "herdr";
+import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared,
+  openOverlay, readTextFile, appHome } from "herdr";
 import { stage } from "./robot.js";
 
 // The mods-hub setting "Needs you first": the agents that need you go to the top,
@@ -77,6 +78,15 @@ export default class AgentCards extends View {
     // Cards whose sub-agents are folded.
     this.folded = new Set();
     this.hovered = null;
+    // The pencil of a card opens the tab-namer dialog, when that mod is installed.
+    this.namer = false;
+    const findNamer = (cx) => cx.spawn(async (cx) => {
+      let found = false;
+      try { found = Boolean(await readTextFile(`${appHome()}/mods/tab-namer/mod.json`)); } catch {}
+      if (found !== this.namer) { this.namer = found; cx.notify(); }
+    });
+    findNamer(cx);
+    cx.timer.every(60000, (cx) => findNamer(cx));
     cx.timer.every(30000, (cx) => cx.notify());
     // `herdr-app do agent-cards.demo` shows one example card for each status.
     // `agent-cards.needs-you` turns "Needs you first" on or off.
@@ -190,6 +200,24 @@ export default class AgentCards extends View {
       .child(svg(`mods/workspace-chrome/${a.pinned && this.hovered === a.address ? "pin-off" : "pin"}.svg`).size(13));
   }
 
+  // The pencil button: shown while the pointer is on the card. It opens the tab-namer dialog for the agent's tab.
+  rename(t, a) {
+    return div()
+      .id(`rename-${a.address}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip("Rename the tab")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (!a.demo) openOverlay({ mod: "tab-namer", kind: "dialog", width: 460, props: { tab: a.tab, terminal: a.address } });
+      })
+      .child(svg("mods/agent-cards/pencil.svg").size(13));
+  }
+
   // The sub-agents of a card: a header that folds them, then one row for each.
   subs(t, a, subs) {
     const open = !this.folded.has(a.address);
@@ -266,6 +294,7 @@ export default class AgentCards extends View {
             .when(Boolean(icon(a.program, 14, t.foreground)), (el) => el.child(icon(a.program, 14, t.foreground)))
             .child(div().flex_1().min_w(0).truncate().font_medium().text_color(a.status === "idle" ? t.muted : t.foreground).child(info.name))
             .when(Boolean(since) && !hovered, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
+            .when(hovered && this.namer, (el) => el.child(this.rename(t, a)))
             .when(hovered || a.pinned, (el) => el.child(this.pin(t, a))))
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()

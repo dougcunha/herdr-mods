@@ -90,6 +90,13 @@ lost terminal, and shows a toast.
   (`{enabled, settleMs, toast, noHook}`), and every copy renders again.
   "Resume" types the resume command now, only into a live shell with no
   status. "Forget" removes the 5 labels.
+- **Tab Namer names.** Each scan finds the labeled terminals with a
+  `namer.session` label (written by the `tab-namer` mod when it saves a tab
+  name) that is not empty and not equal to a non-empty `resume.session`. For
+  each one it runs `tab.rename {id: <herdr.tab label>, name: ""}` and
+  `hc label <t> namer.session=`.
+- The mod runs only while its block is shown: put the block in the status row
+  of every layout that you use (`main-dock` and `kanban`).
 
 ## Built from
 

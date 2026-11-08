@@ -169,7 +169,7 @@ const STR = {
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
     toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
-    duplicate: "Duplicate this agent", cloneHere: "Duplicate in this space", cloneWorktree: "Duplicate in a new worktree…",
+    rename: "Rename the tab", duplicate: "Duplicate this agent", cloneHere: "Duplicate in this space", cloneWorktree: "Duplicate in a new worktree…",
     cloneTitle: "Duplicate {name}", cloneFail: "Kanban: duplicate", noCommand: "The command of this agent is not known.",
   },
   pt: {
@@ -210,7 +210,7 @@ const STR = {
     opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
     toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
-    duplicate: "Duplicar este agente", cloneHere: "Duplicar neste espaço", cloneWorktree: "Duplicar num novo worktree…",
+    rename: "Renomear a tab", duplicate: "Duplicar este agente", cloneHere: "Duplicar neste espaço", cloneWorktree: "Duplicar num novo worktree…",
     cloneTitle: "Duplicar {name}", cloneFail: "Kanban: duplicar", noCommand: "O comando deste agente não é conhecido.",
   },
 };
@@ -285,6 +285,15 @@ export default class Kanban extends View {
     this.tracker = new WaitingTracker({ hc, home, dirs: this.props.claudeDirs, ttlMs: minutes > 0 ? minutes * 60000 : undefined });
     this.waitSig = null;
     this.waitBusy = false;
+    // The pencil of a card opens the tab-namer dialog, when that mod is installed.
+    this.namer = false;
+    const findNamer = (cx) => cx.spawn(async (cx) => {
+      let found = false;
+      try { found = Boolean(await readTextFile(`${appHome()}/mods/tab-namer/mod.json`)); } catch {}
+      if (found !== this.namer) { this.namer = found; cx.notify(); }
+    });
+    findNamer(cx);
+    cx.timer.every(60000, (cx) => findNamer(cx));
     if (this.part === "bar") {
       this.query = InputState.new({ placeholder: this.s("search"), value: String(shared(KEY_QUERY) ?? "") });
       this.query.on("change", () => setShared(KEY_QUERY, this.query.value()));
@@ -962,7 +971,7 @@ export default class Kanban extends View {
     const selected = a.focused || focused()?.agent === a.address;
     const hot = a.status === "blocked";
     const name = a.program?.name || a.app || "Agent";
-    const title = (a.title || "").trim();
+    const { text: title } = this.cardTitle(a, name);
     const head = a.space_name || name;
     // A waiting agent says what it waits for, in place of its title.
     const line = a.wait ? this.waitText(a)
@@ -990,9 +999,23 @@ export default class Kanban extends View {
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(line))
         .when(over, (e) => e
           .when(Boolean(a.wait), (e) => e.child(small("notwait", "check", () => this.dismissWaiting(a), this.s("notWaiting"))))
+          .when(this.namer, (e) => e.child(small("rename", "pencil", () => this.openNamer(a), this.s("rename"))))
           .child(small("clone", "copy", () => this.openClone(a), this.s("duplicate")))
           .child(small("pin", "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }), this.s(a.pinned ? "unpin" : "pin"), a.pinned))
           .child(small("open", "open", () => this.openInTab(a), this.s("open")))));
+  }
+
+  /** The title of a card: the name of its tab when a person named the tab (not a number, not the
+   *  program name that the launcher gives), else the agent's own title. `named` tells which. */
+  cardTitle(a, programName) {
+    const tabName = String(a.tab_name ?? "").trim();
+    const named = Boolean(tabName) && !/^\d+$/.test(tabName) && tabName !== programName;
+    return named ? { text: tabName, named, agentTitle: (a.title || "").trim() } : { text: (a.title || "").trim(), named };
+  }
+
+  /** The tab-namer dialog for the tab of this agent. */
+  openNamer(a) {
+    openOverlay({ mod: "tab-namer", kind: "dialog", width: 460, props: { tab: a.tab, terminal: a.address, lang: this.lang } });
   }
 
   /** "2 subagents", "1 subagent · 1 command", or "1 command · Run the tests" when there is only one job
@@ -1015,10 +1038,10 @@ export default class Kanban extends View {
     const selected = a.focused || focused()?.agent === a.address;
     const hot = a.status === "blocked";
     const name = a.program?.name || a.app || "Agent";
-    const title = (a.title || "").trim();
+    // A tab that a person named gives the card its title (the agent's own title goes to the tooltip).
+    const { text: title, named, agentTitle } = this.cardTitle(a, name);
     const branch = pane?.branch || null;
     const folder = base(pane?.cwd);
-    const tabLabel = /^\d+$/.test(String(a.tab_name)) ? "" : a.tab_name;
 
     return v_flex().id(`card-${a.address}`).w_full().flex_none().p(compact ? 9 : 12).gap(compact ? 7 : 9).rounded(compact ? 10 : 12).cursor_pointer()
       .bg(selected ? t.raised : t.background)
@@ -1036,17 +1059,21 @@ export default class Kanban extends View {
           .when(Boolean(a.space_name), (e) => e.child(div().truncate().text_size(11).text_color(t.dim).child(name))))
         .child(this.mark(a, t)))
       .when(Boolean(title) && title !== name, (e) => e.child(
-        div().max_h(34).overflow_hidden().text_size(12).text_color(t.muted).child(title)))
+        div().id(`title-${a.address}`).max_h(34).overflow_hidden().text_size(12)
+          .text_color(named ? t.foreground : t.muted)
+          .when(named && Boolean(agentTitle) && agentTitle !== title, (el) => el.tooltip(agentTitle))
+          .child(title)))
       .child(h_flex().flex_wrap().gap(5).items_center()
         .when(Boolean(a.wait), (e) => e.child(pill(t, { label: this.waitText(a), symbol: "hourglass", color })))
         .when(Boolean(branch), (e) => e.child(pill(t, { label: branch, symbol: "branch", code: true })))
         // No pill that repeats the head of the card (the space, the program) or the branch.
-        .when(Boolean(folder) && folder !== branch && folder !== a.space_name, (e) => e.child(pill(t, { label: folder, symbol: "folder" })))
-        .when(Boolean(tabLabel) && tabLabel !== name, (e) => e.child(pill(t, { label: tabLabel, symbol: "terminal" }))))
+        .when(Boolean(folder) && folder !== branch && folder !== a.space_name, (e) => e.child(pill(t, { label: folder, symbol: "folder" }))))
       .child(h_flex().h(22).gap(2).items_center()
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.age(since)))
         .when(Boolean(a.wait), (e) => e.child(iconButton(t, `notwait-${a.address}`, "check", () => this.dismissWaiting(a),
           { tooltip: this.s("notWaiting"), size: 22, glyph: 12, color: t.dim })))
+        .when(this.namer, (e) => e.child(iconButton(t, `rename-${a.address}`, "pencil", () => this.openNamer(a),
+          { tooltip: this.s("rename"), size: 22, glyph: 12, color: t.dim })))
         .child(iconButton(t, `clone-${a.address}`, "copy", () => this.openClone(a),
           { tooltip: this.s("duplicate"), size: 22, glyph: 12, color: t.dim }))
         .child(iconButton(t, `pin-${a.address}`, "pin", () => run("terminal.pin", { terminal: a.address, pinned: !a.pinned }),
