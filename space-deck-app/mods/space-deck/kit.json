@@ -1,0 +1,56 @@
+{
+  "app": "space-deck-app",
+  "description": "A Spaces sidebar with cards or a list: an icon, a color and a note for each space, pinned spaces on top, the agents, tabs and git status of each space, and recent spaces to open again.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/space-deck-app",
+  "settings": [
+    {
+      "id": "view",
+      "type": "enum",
+      "key": "space-deck.view",
+      "default": "card",
+      "label": "View",
+      "hint": "Cards show the details of each space. The list shows one row for each space. The button in the panel header does the same.",
+      "options": [
+        { "value": "card", "label": "Cards" },
+        { "value": "list", "label": "List" }
+      ]
+    },
+    { "id": "cardAgents", "type": "bool", "key": "space-deck.card", "path": "agents", "default": true, "label": "Card: agents", "hint": "Show the agents of the space and their status on the card." },
+    { "id": "cardTabs", "type": "bool", "key": "space-deck.card", "path": "tabs", "default": true, "label": "Card: tabs and terminals", "hint": "Show how many tabs and terminals the space has." },
+    { "id": "cardGit", "type": "bool", "key": "space-deck.card", "path": "git", "default": true, "label": "Card: git", "hint": "Show the branch, ahead and behind, and the changed files." },
+    { "id": "cardFolder", "type": "bool", "key": "space-deck.card", "path": "folder", "default": true, "label": "Card: folder and machine", "hint": "Show the folder where the space works and the machine of a remote space." },
+    { "id": "cardActivity", "type": "bool", "key": "space-deck.card", "path": "activity", "default": true, "label": "Card: last activity", "hint": "Show when an agent of the space changed status, or when you selected the space, for the last time." },
+    { "id": "cardNote", "type": "bool", "key": "space-deck.card", "path": "note", "default": true, "label": "Card: note", "hint": "Show the note of the space." },
+    {
+      "id": "gitEvery",
+      "type": "number",
+      "key": "space-deck.gitEvery",
+      "default": 15,
+      "min": 5,
+      "max": 120,
+      "step": 5,
+      "unit": "s",
+      "label": "Git refresh",
+      "hint": "How often the panel reads the git status of each space. It also reads it when an agent of the space changes status."
+    },
+    {
+      "id": "needsYouFirst",
+      "type": "bool",
+      "key": "space-deck.needsYouFirst",
+      "default": false,
+      "label": "Needs you first",
+      "hint": "Put the spaces with an agent that needs you (blocked or done) at the top of their section."
+    },
+    {
+      "id": "recentCount",
+      "type": "number",
+      "key": "space-deck.recentCount",
+      "default": 5,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "label": "Recent spaces",
+      "hint": "How many closed spaces the Recent section shows. 0 hides the section."
+    }
+  ]
+}

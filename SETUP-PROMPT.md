@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 14 -->
+<!-- herdr-mods-setup-version: 15 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -67,7 +67,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
     **Move from `mods-update`.** Before version 5 this mod was `mods-update` (folder `mods-update-app`). If `~/.config/herdr-app/mods/mods-update/` exists: back it up (rule 11), install `mods-hub`, then in `layouts/main-dock.json`, `layouts/kanban.json` and every other layout of mine in `layouts/` that has it, change the block `{ "id": "mods-update", "content": { "mod": "mods-update" } }` to `{ "id": "mods-hub", "content": { "mod": "mods-hub" } }` (keep its `size` and its place), then delete the folder `mods/mods-update/`. If my `mods-update` folder has files that equal no version of the repository (rule 3; look in the history of the old path `mods-update-app/mods/mods-update/`), show me the difference and ask before you delete it. Do not copy `shared("mods-update")`: the new mod reads it by itself.
 12. `tokenhound-app`: the `tokenhound` mod, the quotas of the [TokenHound](https://github.com/dougcunha/TokenHound) HUD. It works only on Windows, with TokenHound 0.1.16 or newer running. Not on Windows: skip this item, do not ask, and tell me in the report. On Windows, check that `%LOCALAPPDATA%\TokenHound\hud.json` exists. If it does not, TokenHound is not installed or not running: tell me and ask whether to install the mod anyway (it shows `TokenHound not found` until TokenHound runs). If I say no, skip the item: then the `quota` entry and the places of `tokenhound` in "Configure" are skipped too. It only reads that file and watches its folder: no program, no network. Its places are in "Configure": the status bar item, the **Quota** panel of the dock, and, if I say yes, a section under the agents list of `main-dock`.
 13. `agent-cards-app`: the `agent-cards` mod, the agents of the sidebar as cards with a small robot. The `agents` block of `main-dock` shows it (item 1). It runs no program, reads no file and uses no network. Before version 13 this mod was in `dock-app/mods/agent-cards/`. The installed folder stays `mods/agent-cards/`. When you look for its baseline ("Update an installed item", step 2), use `git log --follow`, or the old path, because the commits before the move are under `dock-app/`. Record its source as `agent-cards-app/mods/agent-cards`.
-14. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
+14. `space-deck-app`: the `space-deck` mod, a Spaces sidebar with cards or a list, an icon, a color and a note for each space, pinned spaces and recent spaces. It runs `git status` and `git rev-parse` in the folder of each space (on the machine of the space), reads `view.json` (the recent spaces) and checks if `mods/repo-launcher/mod.json` exists. No network. It writes the shared keys `space-deck.*` and Herdr's `space.colors`. After you install it, do "The `spaces` block" in "Configure".
+15. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and ask me whether to install it. Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods. Read the recipe of each one and tell me what it runs before you copy it:
 
@@ -183,6 +184,15 @@ Do this only when the `tokenhound` mod is installed. If the `kanban` step above 
    { "id": "tokenhound-section", "type": "block", "content": { "mod": "tokenhound", "props": { "part": "section" } }, "size": { "px": 186 }, "min": 60 }
    ```
 
+### The `spaces` block
+
+Do this only when the `space-deck` mod is installed, and only once: if a layout names `space-deck` already, or if I said no before (on an update, ask again only when no layout of mine names `space-deck`).
+
+1. Run `herdr-app status` and note the shown layout (`layout`).
+2. If that layout is Herdr's own `main` (read-only, rule 4), tell me and ask whether to copy it to a new layout of mine first. If I say no, skip this section.
+3. In the shown layout, find the block with the id `spaces` and `"content": { "mod": "spaces" }`. Back up the file (rule 11), then change only `content.mod` to `"space-deck"`. Keep the id, the size and the place of the block. If the block has another mod, leave it and tell me.
+4. Ask me whether to do the same in my other layouts that have a `spaces` block with `"mod": "spaces"` (for example `main-dock` and `kanban`). Change only the ones that I name.
+5. Tell me that I can go back with `"mod": "spaces"` in the same block.
 ### `~/.config/herdr-app/layouts/kanban.json`
 
 1. In the `bar` block, add `"lang": "pt"` and `"back": "main-dock"` to `props`. (Use `"lang": "en"`, or leave it out, if I want English.) If `lang` is there already, keep it.
@@ -250,7 +260,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
 8. If `tokenhound` is installed and TokenHound runs, the status bar of `main-dock` and `kanban` shows one agent icon and one percent for each provider, and `herdr-app do tokenhound.open` opens one dialog with `Live` in its header. Close the dialog with `herdr-app do overlay.close`.
-9. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+9. If `space-deck` is installed, the `spaces` block of the layouts that I chose shows it, and `herdr-app do space-deck.demo` shows example cards (run it again to show my spaces).
+10. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

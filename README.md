@@ -31,6 +31,10 @@ For the Herdr app, the Agent Cards mod (the agents of the sidebar as cards, with
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/agent-cards-app`
 
+For the Herdr app, the Space Deck mod (the Spaces sidebar as cards or a list, with an icon, a color and a note for each space, pinned spaces, git status and recent spaces):
+
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/space-deck-app and put it in the "spaces" block of the layout that I use`
+
 For the Herdr app, the Image Viewer mod (shows an image file, with fit and zoom):
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/image-viewer-app`
@@ -81,6 +85,7 @@ overwrites a file that exists.
 | [`ci-dash-app`](ci-dash-app/README.md) | The CI Dash mod. It has three tabs: **Runs**, **Dispatch** and **Artifacts**. It opens in a tab or beside a terminal. |
 | [`dock-app`](dock-app/README.md) | A layout (`main-dock`) whose tab bar draws its side-panel buttons from `~/.config/herdr-app/dock/panels.json`. Add one entry and a button and its panel show up, with no new clone. It holds three mods: `tabs-dock`, `files-md` (the Files panel: rendered Markdown, syntax colors, images in the Image Viewer, and a right-click menu with Open with default app, Show in Explorer and Copy path) and `files-md-menu` (that menu). Its sidebar shows the Agent Cards mod. |
 | [`agent-cards-app`](agent-cards-app/README.md) | The Agent Cards mod (`agent-cards`): the agents of the sidebar as cards, with a small robot that acts out each status, sub-agents and a pin button. The `main-dock` layout shows it; a setting in Herdr Mods turns it off. |
+| [`space-deck-app`](space-deck-app/README.md) | The Space Deck mod (`space-deck`): a replacement for Herdr's Spaces sidebar. Cards or a list; an icon, a color and a note for each space, kept by its repository; a Pinned section; the agents, tabs, terminals, git status and last activity of each space; recent spaces; and a + that opens Repo Launcher. |
 | [`changes-app`](changes-app/README.md) | The Changes Split mod (`changes-split`): Herdr's Changes panel with a **Unified / Split** switch. Split shows the old file on the left and the new file on the right, each with its own line numbers. The `kanban` and `main-dock` layouts use it for their Changes panel. |
 | [`image-viewer-app`](image-viewer-app/README.md) | The Image Viewer mod. It shows one image file, fitted to the pane or zoomed from 10% to 800%. |
 | [`kanban-app`](kanban-app/README.md) | A layout (`kanban`) where every agent is a card in a column by status: idle, needs you, working, waiting for subagents, done. You can hide any column and turn the waiting column off. It has a side panel for Files, Changes and the buttons of `dock/panels.json`. It holds one mod, `kanban`. |
