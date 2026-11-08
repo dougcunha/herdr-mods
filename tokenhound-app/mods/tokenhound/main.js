@@ -12,8 +12,8 @@
 // The mod only reads the file. It runs no program and uses no network.
 
 import { View } from "gpui-kit";
-import { theme, props, shared, settings, openOverlay, closeOverlay, nextCommand, watchFolder } from "herdr";
-import { feedDir, feedState, isFeedPath, readFeed, visibleProviders } from "./feed.js";
+import { theme, props, shared, setShared, settings, layout, run, openOverlay, closeOverlay, nextCommand, watchFolder } from "herdr";
+import { feedDir, feedState, hiddenIds, isFeedPath, readFeed, visibleProviders } from "./feed.js";
 import { loadPrograms, providerIcon } from "./icons.js";
 import { STR } from "./text.js";
 import { panelView, sectionView, statusView } from "./view.js";
@@ -22,6 +22,24 @@ const MOD = "tokenhound";
 const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: props.lang
 const KEY_HIDDEN = "tokenhound.hidden"; // provider ids to leave out, comma separated
 const KEY_METRIC = "tokenhound.statusMetric"; // "session" (default) or "both" (session · week) in the status bar
+const KEY_MINIMIZED = "tokenhound.sectionMinimized"; // true: the sidebar section shows only its head and one strip
+const KEY_SIZE = "tokenhound.sectionSize"; // the height (px) of the section block before it was minimized
+// The height of a minimized section: the head and one strip. The block's "min" (60 in the
+// setup) is the floor: Herdr does not make a block smaller than its min.
+const MINIMIZED_PX = 56;
+const DEFAULT_PX = 186;
+
+/** The layout node that shows the sidebar section, or null. */
+function sectionNode(node) {
+  if (!node || typeof node !== "object") return null;
+  const c = node.content;
+  if (c?.mod === MOD && c?.props?.part === "section") return node;
+  for (const child of node.children ?? []) {
+    const found = sectionNode(child);
+    if (found) return found;
+  }
+  return null;
+}
 // The file is also read on this timer: it catches a stale feed, a folder that did not exist yet,
 // and it moves the countdowns. TokenHound writes at least every 30 s.
 const REFRESH_MS = 30000;
@@ -36,6 +54,8 @@ export default class TokenHound extends View {
     this.reading = false;
     this.watching = false;
     this.keys = cx.focus_handle();
+    this.hover = null; // the provider line under the pointer (section)
+    this.applied = null; // the minimized state that the block size matches (section)
     this.programs = new Map(); // Herdr's program table, for the agent icons (icons.js)
     cx.spawn(async (cx) => { this.programs = await loadPrograms(); cx.notify(); });
     this.reload(cx);
@@ -47,6 +67,14 @@ export default class TokenHound extends View {
       cx.spawn(async () => {
         for (;;) {
           if ((await nextCommand()) === "open") this.openDialog();
+        }
+      });
+    }
+    // "tokenhound.minimize" minimizes or expands the sidebar section. Only the section copy listens.
+    if (this.part === "section") {
+      cx.spawn(async () => {
+        for (;;) {
+          if ((await nextCommand()) === "minimize") setShared(KEY_MINIMIZED, !this.minimized());
         }
       });
     }
@@ -95,10 +123,62 @@ export default class TokenHound extends View {
     });
   }
 
-  model() {
+  /** Adds a provider to the hidden list (every view leaves it out). */
+  hide(id) {
+    const list = hiddenIds(shared(KEY_HIDDEN));
+    if (!list.includes(id.toLowerCase())) setShared(KEY_HIDDEN, [...list, id.toLowerCase()].join(", "));
+  }
+
+  unhide(id) {
+    const list = hiddenIds(shared(KEY_HIDDEN)).filter((x) => x !== id.toLowerCase());
+    setShared(KEY_HIDDEN, list.length ? list.join(", ") : null);
+  }
+
+  minimized() {
+    return shared(KEY_MINIMIZED) === true;
+  }
+
+  /**
+   * Makes the block of the section as tall as the minimized state asks: small, or the height that
+   * it had before. Runs on render, so a change in the Settings of the hub works too.
+   */
+  syncSize() {
+    const small = this.minimized();
+    if (this.applied === small) return;
+    const node = sectionNode(layout());
+    if (!node?.id) return;
+    const px = Number(node.size?.px);
+    if (this.applied === null && (small ? px <= MINIMIZED_PX + 8 : px > MINIMIZED_PX + 8)) {
+      this.applied = small; // the block already has the right size
+      return;
+    }
+    this.applied = small;
+    if (small) {
+      if (px > MINIMIZED_PX + 8) setShared(KEY_SIZE, px);
+      run("layout.resize", { id: node.id, px: MINIMIZED_PX });
+    } else {
+      const back = Number(shared(KEY_SIZE));
+      run("layout.resize", { id: node.id, px: Number.isFinite(back) && back > MINIMIZED_PX ? back : DEFAULT_PX });
+    }
+  }
+
+  model(cx) {
     const now = Date.now();
     const doc = this.result?.doc ?? null;
+    const hiddenSet = new Set(hiddenIds(shared(KEY_HIDDEN)));
+    const all = Array.isArray(doc?.providers) ? doc.providers.filter((p) => p && typeof p.providerId === "string") : [];
+    const known = new Map(all.map((p) => [p.providerId.toLowerCase(), p.displayName ?? p.providerId]));
     return {
+      hidden: [...hiddenSet].map((id) => ({ id, name: known.get(id) ?? id })),
+      ui: {
+        minimized: this.minimized(),
+        hover: this.hover,
+        setHover: (id, cx) => { if (id !== this.hover) { this.hover = id; cx.notify(); } },
+        toggle: () => setShared(KEY_MINIMIZED, !this.minimized()),
+        hide: (id) => this.hide(id),
+        unhide: (id) => this.unhide(id),
+        unhideAll: () => setShared(KEY_HIDDEN, null),
+      },
       state: feedState(this.result, now),
       doc,
       error: this.result?.error ?? null,
@@ -142,6 +222,7 @@ export default class TokenHound extends View {
       case "status":
         return statusView(t, m, () => this.openDialog());
       case "section":
+        this.syncSize();
         return sectionView(t, m, this.width, () => this.openDialog())
           .on_size_change((size, cx) => { this.setWidth(size, cx); });
       default:

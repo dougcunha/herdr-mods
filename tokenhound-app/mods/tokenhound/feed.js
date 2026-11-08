@@ -52,9 +52,12 @@ export function feedState(result, now = Date.now()) {
   return "live";
 }
 
+/** The ids of the hidden list (comma or space separated), in lower case. */
+export const hiddenIds = (hiddenText) => [...new Set(String(hiddenText || "").split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
+
 /** The providers to show: all of them, less the ids in the hidden list (comma or space separated). */
 export function visibleProviders(doc, hiddenText) {
-  const hidden = new Set(String(hiddenText || "").split(/[\s,;]+/).map((s) => s.trim().toLowerCase()).filter(Boolean));
+  const hidden = new Set(hiddenIds(hiddenText));
   const list = Array.isArray(doc?.providers) ? doc.providers : [];
   return list.filter((p) => p && typeof p.providerId === "string" && !hidden.has(p.providerId.toLowerCase()));
 }

@@ -28,6 +28,13 @@ export const STR = {
     resetsIn: "Resets in {time}",
     used: "{pct} used",
     clickHint: "Click to show the quotas.",
+    minimize: "Minimize",
+    expand: "Expand",
+    hideProvider: "Hide this provider",
+    showProvider: "Show this provider again",
+    hiddenLabel: "Hidden:",
+    hiddenCount: "{n} hidden",
+    showAll: "Show the hidden providers",
   },
   pt: {
     title: "TokenHound",
@@ -55,6 +62,13 @@ export const STR = {
     resetsIn: "Reinicia em {time}",
     used: "{pct} usado",
     clickHint: "Clique para ver as cotas.",
+    minimize: "Minimizar",
+    expand: "Expandir",
+    hideProvider: "Ocultar este provider",
+    showProvider: "Mostrar este provider de novo",
+    hiddenLabel: "Ocultos:",
+    hiddenCount: "{n} ocultos",
+    showAll: "Mostrar os providers ocultos",
   },
 };
 

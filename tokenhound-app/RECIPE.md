@@ -29,7 +29,8 @@ All text uses the UI font. Colors are theme names, except the HUD levels: green 
 - **Countdowns** are computed from `resetTimeUtc` on every render: `Resets now`, `Resets in 7m`, `Resets in 2h 10m`, `Resets in 3d 4h` (minimum 1 minute). Without `resetTimeUtc`, the row shows TokenHound's `resetText`. The 30 s timer moves them.
 - **Fractions** are never computed by the mod. A null `usedFraction` shows TokenHound's `primaryText` (`~120 requests`) and no bar.
 - **Language.** `shared("herdr-mods.lang")`, else `props.lang`, else English. In Portuguese the mod's own texts change and a value with a fraction reads `<pct> usado`; the labels and messages from TokenHound stay in English.
-- **Hidden providers.** `shared("tokenhound.hidden")`: ids separated by commas, spaces or semicolons, compared without case.
+- **Hidden providers.** `shared("tokenhound.hidden")`: ids separated by commas, spaces or semicolons, compared without case. The eye-off button (`eye-off.svg`) on a card of the panel, and on a line of the section while the pointer is on it (in place of the percent), adds the id in lower case. The panel shows "Hidden:" and one chip (`eye.svg` and the name) for each hidden id under the cards; a click removes that id. The section head shows "N hidden" (`eye.svg`); a click removes the key. The buttons stop the mouse down and the click, so they do not open the dialog.
+- **Minimized section.** `shared("tokenhound.sectionMinimized")` (`true` is on). The head of the section has a button at the right (`chevron-down.svg`, `chevron-up.svg` when minimized). Minimized, the section shows the head and one strip: a 14 px badge and the session percent of each provider. On render, the section finds its own block in `layout()` (the node with `content.mod` `tokenhound` and `props.part` `section`) and runs `layout.resize {id, px: 56}`; it keeps the old height in `shared("tokenhound.sectionSize")` and gives it back when expanded (186 when unknown). Herdr does not make a block smaller than its `min` (60 in the setup). The command `tokenhound.minimize` flips the key; only the section copy reads it.
 - **Status value.** `shared("tokenhound.statusMetric")`: `"both"` shows `<session> · <week>`; any other value shows the session.
 - **Keys.** `tokenhound.open` opens the dialog. Only the status copy reads `nextCommand()`, because a mod command reaches every shown copy.
 - **Esc.** In its own dialog and in a Dock panel dialog (`shared("kanban.panelDialog")`), a click gives the panel the keyboard, and Esc closes the dialog.
@@ -37,7 +38,8 @@ All text uses the UI font. Colors are theme names, except the HUD levels: green 
 ## Built from
 
 - `mod.json`: `{ "place": "none", "title": "TokenHound" }`. Create it **before** `main.js`.
-- `kit.json`: the kit entry and 3 settings: `tokenhound.statusMetric` (enum `session`/`both`), `tokenhound.hidden` (text), and a `key` field for `tokenhound.open`.
+- `kit.json`: the kit entry and 4 settings: `tokenhound.statusMetric` (enum `session`/`both`), `tokenhound.hidden` (text), `tokenhound.sectionMinimized` (bool), and a `key` field for `tokenhound.open`.
+- `eye.svg`, `eye-off.svg`, `chevron-down.svg`, `chevron-up.svg`: [Lucide](https://lucide.dev) 0.460.0 (ISC).
 - `feed.js`: the path (`home()` + `/AppData/Local/TokenHound/hud.json`; mods get no environment variables, so `%LOCALAPPDATA%` cannot be read), `readFeed()`, `feedState()`, `visibleProviders()`, `percent()`, `levelColor()`, `statusColor()`.
 - `text.js`: the English and Portuguese strings, `fill()`, `duration()` and `countdown()`.
 - `icons.js`: `loadPrograms()` (`knownAgents()` once, in `init`) and `providerIcon()`.
@@ -65,3 +67,4 @@ All text uses the UI font. Colors are theme names, except the HUD levels: green 
 5. When TokenHound exits from its tray menu, the status bar shows the last data dimmed and the panel shows `TokenHound closed` within 1 second. After a kill, it shows `Not updated` within 90 s.
 6. With `hud.json` renamed, every place shows `TokenHound not found`.
 7. `tokenhound.hidden` set to `gemini` removes Antigravity from every place at once.
+8. `herdr-app do tokenhound.minimize` makes the section block 60 px (its min) with the head and one strip; a second run gives the old height back (`layouts/main-dock.json` shows it).

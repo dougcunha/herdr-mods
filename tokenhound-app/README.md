@@ -57,12 +57,16 @@ In `main-dock.json`, add this block to the `children` of `sidebar-lists`, after 
 
 186 px holds 5 providers. Each provider needs about 26 px more. The list scrolls when it is longer than the block.
 
+- **Minimize.** The arrow button at the right of the section head makes the block small: the head and one line with the icon and the session percent of each provider. Click it again to get the old height back. `herdr-app do tokenhound.minimize` does the same.
+- **Hide a provider.** Put the pointer on a provider line: an eye button replaces the percent. Click it to hide the provider. The head then shows "N hidden"; click it to show all of them again.
+
 ## Settings
 
 The **Settings** tab of the Herdr Mods dialog (`mods-hub`) shows:
 
 - **Status bar value:** `Session` (the default) or `Session · week`.
-- **Hidden providers:** provider ids to leave out of every place, separated by commas (`gemini, claude-pessoal`). The ids are in the `providerId` field of `hud.json`.
+- **Hidden providers:** provider ids to leave out of every place, separated by commas (`gemini, claude-pessoal`). The ids are in the `providerId` field of `hud.json`. The eye button of a provider (in the sidebar section on hover, and on each card of the panel) adds its id here. The panel lists the hidden providers at the bottom; click one to show it again.
+- **Minimize the sidebar section:** the same as the arrow button in the head of the section.
 - **Shortcut of the TokenHound panel:** a key for `tokenhound.open`. It opens the panel as a dialog. Only the status bar item listens for this command, so the key works in a layout with the status bar item.
 - **Language** (the kit language, `herdr-mods.lang`): the texts of the mod in English or Portuguese. The row labels and the status messages come from TokenHound and stay in English.
 

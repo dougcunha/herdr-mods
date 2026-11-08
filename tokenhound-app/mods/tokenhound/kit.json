@@ -21,8 +21,16 @@
       "key": "tokenhound.hidden",
       "default": "",
       "label": "Hidden providers",
-      "hint": "Provider ids to leave out of every view, separated by commas, for example: gemini, claude-pessoal.",
+      "hint": "Provider ids to leave out of every view, separated by commas, for example: gemini, claude-pessoal. The eye button of a provider in the sidebar section or in the panel adds it here; a click on a hidden chip in the panel, or on \"N hidden\" in the section, takes it out.",
       "placeholder": "gemini, opencode"
+    },
+    {
+      "id": "section-minimized",
+      "type": "bool",
+      "key": "tokenhound.sectionMinimized",
+      "default": false,
+      "label": "Minimize the sidebar section",
+      "hint": "The sidebar section shows only its head and one line with the badge and the session percent of each provider. The arrow button in the head of the section does the same."
     },
     {
       "id": "open-key",
