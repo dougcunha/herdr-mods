@@ -9,7 +9,7 @@
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { run, props, closeOverlay, openOverlay, theme, knownAgents, pickFolder, shared } from "herdr";
-import { item, setItem, pinAt, unpin, PALETTE, fillOf, KEYS } from "./store.js";
+import { item, setItem, pins, pinAt, unpin, PALETTE, fillOf, KEYS } from "./store.js";
 
 const MOD = "space-deck";
 const ICON = (name) => `mods/${MOD}/${name}.svg`;
@@ -99,11 +99,11 @@ const glyph = (name) => (t) => svg(name.includes("/") ? name : ICON(name)).size(
 class MenuPart extends ListPart {
   entries() {
     const p = props() ?? {};
-    const pinned = (shared(KEYS.pins) ?? []).includes(p.key);
+    const pinned = pins().includes(p.key);
     return [
-      { label: "Icon and color…", icon: glyph("palette"), run: () => { close(); popup("picker", { key: p.key, name: p.name }, 300, 380); } },
+      { label: "Icon and color…", icon: glyph("palette"), run: () => { close(); popup("picker", { space: p.space, key: p.key, name: p.name }, 300, 380); } },
       { label: pinned ? "Unpin" : "Pin", icon: glyph(pinned ? "pin-off" : "pin"), run: () => { close(); pinned ? unpin(p.key) : pinAt(p.key); } },
-      { label: "Note…", icon: glyph("sticky-note"), run: () => { close(); popup("note", { key: p.key, name: p.name }, 300, 120); } },
+      { label: "Note…", icon: glyph("sticky-note"), run: () => { close(); popup("note", { space: p.space, key: p.key, name: p.name }, 300, 120); } },
       { label: "New agent…", icon: glyph("bot"), run: () => { close(); popup("agents", { space: p.space, folder: p.folder, machine: p.machine }, 240, 300); } },
       null,
       {

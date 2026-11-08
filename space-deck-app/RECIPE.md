@@ -44,7 +44,7 @@ A Herdr app mod (`space-deck`) that replaces Herdr's `spaces` sidebar mod: cards
 - A `popup` is as tall as its content: the icon grid has a fixed height.
 - The buttons on a row stop the mouse down and up, or a click on them also starts a drag or shows the space.
 - Not ported from Herdr's `spaces`: the **Connect** button for a rebuilt machine, the `+` on each machine head, and `watchFolder` on each repository.
-- Untested: a drag with the mouse in a real session, macOS, Linux, a remote machine.
+- Untested: a drag with the mouse, a click on the hover buttons, a chosen color in Herdr's sidebar and in `repo-launcher` (all in a real session), macOS, Linux, a remote machine.
 
 ## Done when
 

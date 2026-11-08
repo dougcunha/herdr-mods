@@ -71,4 +71,4 @@ The mod has no place of its own (`"place": "none"`). Put it in the `spaces` bloc
 
 - Icons: [Lucide](https://lucide.dev) (ISC license).
 - Herdr's own Spaces sidebar can also reconnect a machine that was rebuilt and watches the `.git` folders for changes. Space Deck does not: use Herdr's sidebar or `hc machine` to reconnect, and Space Deck reads git on its timer and when an agent changes status.
-- Checked with `herdr-app check`, with screenshots of the cards, the list, the demo and each popup, and with the pin command. A drag with the mouse was not tested in a real session.
+- Checked with `herdr-app check`, with screenshots of the cards, the list, the demo and each popup, and with the pin command. A drag with the mouse, a click on the hover buttons (New agent, Close space), and a chosen color in Herdr's own sidebar and in Repo Launcher were not tested in a real session.
