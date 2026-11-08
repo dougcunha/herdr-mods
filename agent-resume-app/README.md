@@ -105,7 +105,9 @@ an empty name and removes the label: the tab shows the agent's own title again.
 
 - It runs `hc get`, `hc label` and `hc send`.
 - It reads `~/.codex/sessions` (only the Codex session files).
-- The hooks run `hc get` and `hc label`. On Windows, they read the process
+- The hooks run `hc get` and `hc label`. They take `hc` from the PATH. On
+  Windows, when it is not on the PATH, they use the `hc.exe` of the installer
+  folder, `%LOCALAPPDATA%\Programs\herdr-core`. On Windows, they read the process
   list (`Win32_Process`) to find the command line of the agent. On macOS and
   Linux they use `ps`.
 - Nothing uses the network.
