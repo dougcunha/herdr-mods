@@ -40,12 +40,37 @@ export function saveLink(space, repo, link) {
   all[space.id] = { main: repo?.main ?? null, on: repo?.on ?? null, ...link };
   setShared(KEY, all);
 }
+// Removes a space's own link: it follows its repository's link, else the default project.
+export function clearLink(space) {
+  const { [space.id]: _gone, ...rest } = shared(KEY) ?? {};
+  setShared(KEY, rest);
+}
+// Where a space's link comes from: "space" (its own), "repo" (another space of its repository) or null.
+export function linkSource(space, repo) {
+  const all = shared(KEY) ?? {};
+  if (all[space.id]) return "space";
+  return repo && Object.values(all).some((l) => l.main === repo.main && (l.on ?? null) === repo.on) ? "repo" : null;
+}
 
-// Every Jira site any space links to, most used first: a guess for unlinked spaces.
+// The default Jira project of every space without a link: shared("issues.defaultJira")
+// { site, key, filter? }, set in Link space ("Save for: every space without a link") or in the Settings
+// tab of Herdr Mods. Used after a space's link and the repository's .herdr/jira.toml, before a guess.
+export const DEFAULT_JIRA = "issues.defaultJira";
+export function defaultJira() {
+  const d = shared(DEFAULT_JIRA);
+  const site = String(d?.site ?? "").trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "").toLowerCase();
+  const key = String(d?.key ?? "").trim().toUpperCase();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(site) || !/^[A-Z][A-Z0-9_]+$/.test(key)) return null;
+  const filter = String(d?.filter ?? "").trim();
+  return { site, key, ...(filter ? { filter } : {}) };
+}
+
+// Every Jira site any space links to, most used first (the default project's first): a guess for unlinked spaces.
 export function knownSites() {
   const counts = new Map();
   for (const l of Object.values(shared(KEY) ?? {})) if (l.jira?.site) counts.set(l.jira.site, (counts.get(l.jira.site) ?? 0) + 1);
-  return [...counts].sort((a, b) => b[1] - a[1]).map(([site]) => site);
+  const d = defaultJira()?.site;
+  return [...new Set([...(d ? [d] : []), ...[...counts].sort((a, b) => b[1] - a[1]).map(([site]) => site)])];
 }
 
 // The repository's GitHub name from its remote, read once per checkout. Only a found name is

@@ -29,6 +29,36 @@
       ]
     },
     {
+      "id": "defaultSite",
+      "type": "text",
+      "key": "issues.defaultJira",
+      "path": "site",
+      "default": "",
+      "label": "Default Jira site",
+      "placeholder": "example.atlassian.net",
+      "hint": "The Jira site of the default project: every space without a Jira link of its own shows its issues. Link space can set it too (Use it for: every space without a link)."
+    },
+    {
+      "id": "defaultKey",
+      "type": "text",
+      "key": "issues.defaultJira",
+      "path": "key",
+      "default": "",
+      "label": "Default Jira project",
+      "placeholder": "PROJ",
+      "hint": "The key of the default project."
+    },
+    {
+      "id": "defaultFilter",
+      "type": "text",
+      "key": "issues.defaultJira",
+      "path": "filter",
+      "default": "",
+      "label": "Default JQL filter",
+      "placeholder": "sprint in openSprints()",
+      "hint": "Optional JQL that narrows the open issues of the default project. Empty: every open issue."
+    },
+    {
       "id": "extraFields",
       "type": "text",
       "key": "issues.extraFields",

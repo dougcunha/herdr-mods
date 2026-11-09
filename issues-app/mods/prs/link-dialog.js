@@ -10,8 +10,8 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, closeOverlay, theme, spaces, exec, run } from "herdr";
-import { spaceRepo, linkOf, saveLink, knownSites, detectGithub, openUrl } from "./links.js";
+import { props, closeOverlay, theme, spaces, exec, run, setShared } from "herdr";
+import { spaceRepo, linkOf, saveLink, linkSource, knownSites, detectGithub, openUrl, defaultJira, DEFAULT_JIRA } from "./links.js";
 import { credentials, myself, findProjects, cleanSite, call, TOKEN_PAGE, storeSignIn, removeSignIn, platform, STORE, validSite, trustedSite, trustSite } from "./jira-client.js";
 import { fs, button as kitButton, chip as kitChip, segmented } from "./links.js";
 
@@ -61,19 +61,24 @@ export class LinkDialog extends View {
     cx.spawn(async (cx) => {
       this.repo = await spaceRepo(this.space).catch(() => null);
       const link = linkOf(this.space, this.repo) ?? {};
+      // Without a Jira link of its own (or of its repository) the space follows the default project:
+      // the form shows it, and Save keeps it the default unless "This space" is picked.
+      const def = defaultJira(), jira = link.jira ?? (link.issues === "github" ? null : def);
+      this.saveFor = !link.jira && def && link.issues !== "github" ? "default" : "space";
+      this.source = link.jira ? (linkSource(this.space, this.repo) === "space" ? "space" : "repo") : jira ? "default" : null;
       const github = link.github || (this.repo ? await detectGithub(this.repo).catch(() => null) : null);
       this.set("github", this.github, github ?? "");
-      this.guess = link.jira?.key ?? branchKey(this.space?.branch);
-      this.site.set_value(link.jira?.site ?? knownSites()[0] ?? "");
-      if (link.jira?.key) { this.chosen = { key: link.jira.key, name: "" }; this.set("project", this.project, link.jira.key); }
+      this.guess = jira?.key ?? branchKey(this.space?.branch);
+      this.site.set_value(jira?.site ?? knownSites()[0] ?? "");
+      if (jira?.key) { this.chosen = { key: jira.key, name: "" }; this.set("project", this.project, jira.key); }
       // A new Jira link starts on the open sprints; an existing one keeps its filter, empty included.
-      this.filter.set_value(link.jira ? link.jira.filter ?? "" : DEFAULT_FILTER);
+      this.filter.set_value(jira ? jira.filter ?? "" : DEFAULT_FILTER);
       this.ghFilter.set_value(link.issuesFilter ?? "");
       this.custom = !PRESETS.some(([, , q]) => norm(q) === norm(this.filter.value()));
       const mail = this.repo ? await exec("git", ["-C", this.repo.main, "config", "user.email"], { on: this.repo.on }).catch(() => null) : null;
       if (mail?.code === 0) this.email.set_value(mail.stdout.trim());
       // A link of Herdr Ranch can say `issues: "linear"`: this kit reads only Jira and GitHub.
-      this.issues = link.issues === "github" ? "github" : link.jira || this.guess ? "jira" : "github";
+      this.issues = link.issues === "github" ? "github" : jira || this.guess ? "jira" : "github";
       this.ghOpen = false; this.jiraOpen = false;
       this.checkSite(cx);
       cx.notify();
@@ -209,10 +214,14 @@ export class LinkDialog extends View {
     if (site) trustSite(site);
     if (key && !/^[A-Z][A-Z0-9_]+$/.test(key)) { this.error = "Pick a project from the list, or type its key."; cx.notify(); return; }
     const ghFilter = this.ghFilter.value().trim(), fromGithub = this.issues === "github";
+    // "Every space without a link": the project becomes the default, and this space keeps only its
+    // GitHub part, so it follows the default too.
+    const asDefault = this.saveFor === "default" && !fromGh && Boolean(site);
     const store = () => {
+      if (asDefault) setShared(DEFAULT_JIRA, { site, key, ...(filter ? { filter } : {}) });
       saveLink(this.space, this.repo, {
         ...(github ? { github } : {}),
-        ...(site ? { jira: { site, key, ...(filter ? { filter } : {}) } } : {}),
+        ...(site && !asDefault ? { jira: { site, key, ...(filter ? { filter } : {}) } } : {}),
         ...(fromGithub ? { issues: "github" } : {}),
         ...(ghFilter ? { issuesFilter: ghFilter } : {}),
       });
@@ -327,6 +336,15 @@ export class LinkDialog extends View {
             .child(hint("GitHub search, e.g. label:bug milestone:v2"))
             .when(Boolean(this.ghFilterError), (e) => e.child(hint(this.ghFilterError, t.ansi1)))))
         .when(jira, (e) => e.child(section(3, "Project and filter", null, v_flex().gap(10)
+          // One project for most spaces: the default, used by every space without a Jira link of its own.
+          .child(v_flex().gap(4)
+            .child(label("Use it for"))
+            .child(h_flex().gap(6).flex_wrap()
+              .child(chip("for-default", "Every space without a link (default)", this.saveFor === "default", (cx) => { this.saveFor = "default"; cx.notify(); }))
+              .child(chip("for-space", `Only ${this.space?.name ?? "this space"}`, this.saveFor === "space", (cx) => { this.saveFor = "space"; cx.notify(); })))
+            .child(hint(this.saveFor === "default"
+              ? "Saved as the default project. Spaces with a link of their own keep it."
+              : this.source === "default" ? "This space gets a link of its own: it stops following the default project." : "Saved for this space and the other spaces of its repository.")))
           .child(v_flex().gap(4)
             .child(label("Project"))
             .child(box(this.project, this.jiraOpen))

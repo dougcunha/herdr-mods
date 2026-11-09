@@ -23,6 +23,17 @@ The changes of this kit:
 - No Linear: the issues come from Jira Cloud or GitHub.
 - Extra Jira fields for the prompts: see below.
 
+## Default Jira project
+
+A space shows the issues of, first that has one: its own link (**Link space…**), the link of another space of its repository, the repository's `.herdr/jira.toml`, the **default project**, a Jira key in its branch, its GitHub repository.
+
+Set the default project once for all the spaces that have no link of their own:
+
+- In **Link space…**, pick the project and, under **Use it for**, **Every space without a link (default)**. Or:
+- In **Herdr Mods** → **Settings** → **Issues**: **Default Jira site**, **Default Jira project** and **Default JQL filter**.
+
+A space that needs another project gets a link of its own: **Link space…** → **Only <space>**. The list header shows `(default)` when a space follows the default.
+
 ## Start agent
 
 The **Start agent** dialog of an issue asks where the agent runs:

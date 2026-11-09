@@ -21,7 +21,7 @@ import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
-import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button } from "./links.js";
+import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -49,7 +49,7 @@ const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
 const split = () => asSplit("issues");
 const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priority");
 // The list's space and every link: either changing means another project.
-const contextKey = (space) => `${space?.id}|${order()}|${JSON.stringify(shared("space-links") ?? {})}`;
+const contextKey = (space) => `${space?.id}|${order()}|${JSON.stringify(shared("space-links") ?? {})}|${JSON.stringify(defaultJira())}`;
 // The last list per space and order, so a switch or a restart shows it at once while it refreshes.
 const remembered = (key) => { try { return JSON.parse(localStorage.getItem(`issues:${key}`) ?? "null"); } catch { return null; } };
 const remember = (key, v) => { try { localStorage.setItem(`issues:${key}`, JSON.stringify(v)); } catch { /* best effort */ } };
@@ -84,14 +84,18 @@ const short = (text) => {
   return `${t.slice(0, cut > MAX / 2 ? cut : MAX)}\n\n_… the rest is online._`;
 };
 
-// Where the space's projects come from, in order; `from` says which.
+// Where the space's projects come from, in order; `from` says which: the space's link (or its
+// repository's), the repository's .herdr/jira.toml, the default project (Link space or Herdr Mods),
+// a guess from the branch, the GitHub repository.
 async function projects(c) {
   const gh = c.github && { provider: "github", repo: c.github, site: github.SITE, key: c.github, filter: c.link.issuesFilter };
   if (c.link.issues === "github" && gh) return { from: "link", projects: [gh] };
   if (c.link.jira) return { from: "link", projects: [c.link.jira] };
-  if (!c.repo) return { from: gh ? "repo" : null, projects: gh ? [gh] : [] };
+  const fallback = defaultJira();
+  if (!c.repo) return fallback ? { from: "default", projects: [fallback] } : { from: gh ? "repo" : null, projects: gh ? [gh] : [] };
   const file = await fileLinks(c.repo);
   if (file.length) return { from: "file", projects: file };
+  if (fallback) return { from: "default", projects: [fallback] };
   const key = /\b([A-Z][A-Z0-9]{1,9})-\d+\b/.exec(c.space.branch ?? "")?.[1] || await suggestKey(c.repo).catch(() => "");
   const site = knownSites()[0];
   if (key && site) return { from: "guess", projects: [{ site, key }] };
@@ -640,7 +644,7 @@ export default class SpaceIssues extends View {
     const unlinked = !this.loading && !this.error && !this.projects.length;
     const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open issues.");
     const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
-      + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : "");
+      + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
     const s = { t, keyW, activeBg: t.accent + "30", two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, agents: agentSpaces(this.repo?.main).issues };

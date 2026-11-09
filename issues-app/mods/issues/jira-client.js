@@ -26,10 +26,12 @@ const SITE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
 const ATLASSIAN = /\.(atlassian\.net|jira\.com)$/;
 const TRUSTED = "jira-sites", LINKS = "space-links";
 export const validSite = (site) => SITE.test(site ?? "");
-// Sites the person typed (shared("jira-sites"), Atlassian ones included) or linked a space to
-// (shared("space-links")). A site named only by a repository's file is not one of them.
+// Sites the person typed (shared("jira-sites"), Atlassian ones included), linked a space to
+// (shared("space-links")) or set as the default project (shared("issues.defaultJira")). A site named
+// only by a repository's file is not one of them.
 export const personSite = (site) => validSite(site)
-  && ((shared(TRUSTED) ?? []).includes(site) || Object.values(shared(LINKS) ?? {}).some((l) => l?.jira?.site === site));
+  && ((shared(TRUSTED) ?? []).includes(site) || Object.values(shared(LINKS) ?? {}).some((l) => l?.jira?.site === site)
+    || String(shared("issues.defaultJira")?.site ?? "").trim().toLowerCase() === site);
 export const trustedSite = (site) => validSite(site) && (ATLASSIAN.test(site) || personSite(site));
 export function trustSite(site) {
   if (validSite(site) && !(shared(TRUSTED) ?? []).includes(site)) setShared(TRUSTED, [...(shared(TRUSTED) ?? []), site]);
