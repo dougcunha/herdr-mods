@@ -18,7 +18,7 @@
       "key": "skill-bundles.clone",
       "default": "",
       "label": "Your own clone (optional)",
-      "hint": "A folder with your own clone of the Catalog. The mod does not keep a clone of its own: it pulls your clone (git pull --ff-only) each time it fetches the Catalog, so your clone always stays up to date. A clone with changes that are not committed is only fetched. On a branch that is not the default one, the mod installs from that branch, as Install-Skills.ps1 does.",
+      "hint": "A folder with your own clone of the Catalog. The mod does not keep a clone of its own: it pulls your clone (git pull --ff-only) each time it fetches the Catalog, so your clone always stays up to date. When the clone has changes that are not committed or commits that are not pushed, the panel shows buttons to fix it (stash, discard, push, commit with an agent, or use a clone of the mod). On a branch that is not the default one, the mod installs from that branch, as Install-Skills.ps1 does.",
       "placeholder": "D:/repos/agent-skills"
     },
     {

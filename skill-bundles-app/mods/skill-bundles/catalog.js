@@ -2,8 +2,9 @@
 //
 // The mod keeps its own clone of the Catalog in <appHome>/cache/skill-bundles/<owner>/<name>
 // and fetches it on a timer. A person can point the mod to a clone of their own instead
-// (setting "skill-bundles.clone"): the mod then reads that working tree as it is, and installs
-// from its branch when that branch is not the default one, as Install-Skills.ps1 does.
+// (setting "skill-bundles.clone"): the mod then pulls it (fast-forward only) on the same timer,
+// reads its working tree, and installs from its branch when that branch is not the default one,
+// as Install-Skills.ps1 does. A clone that it cannot pull gets a problem and fixes (ownCloneRef).
 //
 // The clone uses the person's own git settings (core.autocrlf): `npx skills` downloads with the
 // same settings, so the folder hashes match the Lock.
@@ -12,6 +13,9 @@ import { exec, appHome, window, readTextFile } from "herdr";
 
 const isWindows = () => window()?.platform === "windows";
 const slash = (p) => String(p ?? "").replace(/\\/g, "/");
+
+/** A path with the separators of the platform, for a folder of space.new. */
+export const native = (p) => (isWindows() ? slash(p).replace(/\//g, "\\") : slash(p));
 
 /** Runs a program. Never throws: a program that cannot start gives code -1. */
 export async function sh(cmd, args, opts = {}) {
@@ -118,16 +122,42 @@ export async function ownCloneRef(dir) {
   const cur = (await sh("git", ["-C", dir, "branch", "--show-current"])).out.trim();
   if (!cur) return { branch: null };
   const def = (await sh("git", ["-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"])).out.trim().replace(/^origin\//, "");
+  const branch = def && def === cur ? null : cur;
   const dirty = (await sh("git", ["-C", dir, "status", "--porcelain"])).out.trim();
-  if (dirty) return { branch: def && def === cur ? null : cur, problem: "dirty" };
-  if (def && def === cur) {
-    const ahead = await sh("git", ["-C", dir, "rev-list", "--count", "@{u}..HEAD"]);
-    return Number(ahead.out.trim()) > 0 ? { branch: null, problem: "ahead" } : { branch: null };
+  if (dirty) return { branch, current: cur, problem: "dirty" };
+  const remote = await sh("git", ["-C", dir, "rev-parse", "--verify", "--quiet", `refs/remotes/origin/${cur}`]);
+  if (remote.code !== 0) return branch ? { branch, current: cur, problem: "unpushed" } : { branch, current: cur };
+  const count = await sh("git", ["-C", dir, "rev-list", "--left-right", "--count", `HEAD...refs/remotes/origin/${cur}`]);
+  const [ahead, behind] = count.out.trim().split(/\s+/).map(Number);
+  if (ahead > 0) return { branch, current: cur, problem: behind > 0 ? "diverged" : "ahead" };
+  return { branch, current: cur };
+}
+
+/**
+ * The fixes of a clone problem (ownCloneRef), as git arguments. `current` is the branch of the
+ * clone. Each fix runs in the clone folder.
+ */
+export const CLONE_FIXES = {
+  stash: () => [["stash", "push", "--include-untracked", "-m", "skill-bundles: before the update of the Catalog"]],
+  discard: () => [["reset", "--hard", "--quiet"], ["clean", "-fd", "--quiet"]],
+  push: () => [["push", "--quiet"]],
+  pushBranch: (current) => [["push", "--quiet", "-u", "origin", current]],
+  reset: (current) => [["reset", "--hard", "--quiet", `refs/remotes/origin/${current}`]],
+};
+
+/** Deletes a folder (or a link to a folder) and all in it, with node. Returns null or an error. */
+export async function removeFolder(path) {
+  const r = await sh("node", ["-e", "require('fs').rmSync(process.argv[1], { recursive: true, force: true })", path]);
+  return r.code === 0 ? null : tail(r) || `could not delete ${path}`;
+}
+
+/** Runs a fix of CLONE_FIXES in the clone. Returns null or an error. */
+export async function fixClone(dir, fix, current) {
+  for (const args of CLONE_FIXES[fix](current)) {
+    const r = await sh("git", ["-C", dir, ...args]);
+    if (r.code !== 0) return tail(r) || `git ${args.join(" ")}`;
   }
-  const remote = await sh("git", ["-C", dir, "rev-parse", `refs/remotes/origin/${cur}`]);
-  if (remote.code !== 0) return { branch: cur, problem: "unpushed" };
-  const local = (await sh("git", ["-C", dir, "rev-parse", "HEAD"])).out.trim();
-  return remote.out.trim() === local ? { branch: cur } : { branch: cur, problem: "ahead" };
+  return null;
 }
 
 /** Runs the node helper (probe.mjs) for a project. Returns its JSON, or { error }. */

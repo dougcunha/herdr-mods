@@ -13,7 +13,7 @@
 
 import { View, div } from "gpui-kit";
 import { InputState } from "gpui-base";
-import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay } from "herdr";
+import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
 import * as C from "./catalog.js";
 import { parseCatalog, parseManifest, formatManifest, resolveManifest, sameRepo, withSource, withoutSource, withGitignoreBlock, orderBundles } from "./manifest.js";
 import { buildRows, groupRows, pending } from "./status.js";
@@ -83,9 +83,17 @@ export default class SkillBundles extends View {
     this.settingsKey = null;
     this.changedAt = shared(KEY.changed)?.at ?? 0;
     this.keys = cx.focus_handle();
+    this.confirm = null; // { fix, until }: a dangerous action waits for a second click (see armed)
+    this.collapsed = new Set(); // the keys of the folded groups of the list (UI state of this copy)
+    try { this.collapsed = new Set(JSON.parse(localStorage.getItem("collapsed") ?? "[]")); } catch {}
+    this.agents = []; // the installed agents, most picked first, for "Commit and push with an agent"
     if (this.part !== "status") {
       this.query = InputState.new({ placeholder: this.str.search });
       this.query.on("change", (_e, cx) => cx.notify());
+      cx.spawn(async (cx) => {
+        try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length); } catch {}
+        cx.notify();
+      });
     }
     cx.timer.every(CHECK_MS, (cx) => {
       if (kitOff()) return;
@@ -240,6 +248,83 @@ export default class SkillBundles extends View {
     return fill(this.str[`problem_${ref.problem}`], { branch: ref.branch ?? "" });
   }
 
+  /**
+   * The fixes for a problem of the person's own clone (ownCloneRef): [{ id, label, tip, kind, run }].
+   * A clone with a problem is not pulled and must not be installed from.
+   */
+  cloneFixes() {
+    const ref = this.cat.ref;
+    if (!this.cat.own || !ref?.problem) return [];
+    const s = this.str;
+    const waiting = this.waiting();
+    const git = (id, kind) => ({
+      id, kind,
+      label: waiting === id ? s.confirmAgain : s[`fix_${id}`],
+      tip: fill(s[`fix_${id}Tip`], { branch: ref.current ?? "" }),
+      run: (cx) => this.fixClone(cx, id, kind === "danger"),
+    });
+    const list = [];
+    if (ref.problem === "dirty") list.push(git("stash", "primary"), git("discard", "danger"));
+    if (ref.problem === "ahead") list.push(git("push", "primary"));
+    if (ref.problem === "unpushed") list.push(git("pushBranch", "primary"));
+    if (ref.problem === "diverged") list.push(git("reset", "danger"));
+    if (ref.problem === "dirty" || ref.problem === "diverged") {
+      const agent = this.agents[0];
+      list.push({
+        id: "agent", kind: "plain",
+        label: agent ? fill(s.fix_agent, { agent: agent.name }) : s.fix_terminal,
+        tip: agent ? s.fix_agentTip : s.fix_terminalTip,
+        run: () => this.agentFix(agent),
+      });
+    }
+    list.push({ id: "useMod", kind: "plain", label: s.fix_useMod, tip: s.fix_useModTip, run: () => setShared(KEY.clone, "") });
+    return list;
+  }
+
+  /** The key of the action that waits for a second click, or null. */
+  waiting() {
+    return this.confirm && this.confirm.until > Date.now() ? this.confirm.fix : null;
+  }
+
+  /**
+   * A dangerous action asks for a second click within 5 s. Returns true on the second click;
+   * on the first one, the button shows "Click again to confirm".
+   */
+  armed(cx, key) {
+    if (this.waiting() === key) { this.confirm = null; return true; }
+    this.confirm = { fix: key, until: Date.now() + 5000 };
+    cx.notify();
+    cx.timer.after(5100, (cx) => cx.notify()); // the button shows its own label again
+    return false;
+  }
+
+  /** Runs a git fix in the person's own clone, then fetches and reads again. */
+  fixClone(cx, fix, danger) {
+    if (this.job() || this.cat.state !== "ready") return;
+    if (danger && !this.armed(cx, fix)) return;
+    const { dir, ref } = this.cat;
+    setShared(KEY.job, { project: null, label: this.str.busyFix, at: Date.now() });
+    this.running = true;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let failed = null;
+      try { failed = await C.fixClone(dir, fix, ref?.current ?? ""); } catch (e) { failed = errorText(e); }
+      this.running = false;
+      setShared(KEY.job, null);
+      if (failed) this.error = { text: failed };
+      cx.notify();
+      this.reload(cx, true);
+    });
+  }
+
+  /** Opens a new space in the clone with an agent that commits and pushes (or a plain terminal). */
+  agentFix(agent) {
+    const folder = C.native(this.cat.dir);
+    const task = "This folder is a Git clone of a skill Catalog. Commit the changes that are not committed, with a clear message. Then bring in the new commits of the remote with git pull --rebase, and push. Ask me before you discard a change.";
+    run("space.new", { name: "Catalog clone", folder, ...(agent ? { argv: agent.run, task } : {}) });
+  }
+
   /** The package for `npx skills add`: the Catalog at the branch of the person's own clone. */
   pkg(repo) {
     const catalog = this.cat.catalog;
@@ -247,7 +332,7 @@ export default class SkillBundles extends View {
   }
 
   /** Runs one action for the project, then reads again and posts a toast with what changed. */
-  act(cx, label, work) {
+  act(cx, label, work, doneBody = null) {
     if (this.job() || this.proj.state !== "ready") return;
     const project = this.proj;
     const before = project.probe?.lock ?? {};
@@ -275,7 +360,7 @@ export default class SkillBundles extends View {
         const added = Object.keys(after).filter((k) => !before[k]).length;
         const removed = Object.keys(before).filter((k) => !after[k]).length;
         const updated = Object.keys(after).filter((k) => before[k] && (before[k].computedHash ?? "") !== (after[k].computedHash ?? "")).length;
-        notify({ title: fill(this.str.doneTitle, { project: project.name }), body: fill(this.str.doneBody, { updated, added, removed }), timeout: 5000 });
+        notify({ title: fill(this.str.doneTitle, { project: project.name }), body: doneBody ?? fill(this.str.doneBody, { updated, added, removed }), timeout: 5000 });
         this.mode = "list";
       }
       cx.notify();
@@ -326,6 +411,29 @@ export default class SkillBundles extends View {
 
   removeExtra(cx, row) {
     this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => this.uninstall(p.root, [row.name]));
+  }
+
+  /**
+   * Deletes a Local skill (a folder with a SKILL.md and no Lock entry) from .agents/skills and
+   * .claude/skills. It asks for a second click: the folder does not go to the trash.
+   */
+  removeLocal(cx, row) {
+    if (row.state !== "local" || !/^[\w.-]+$/.test(row.name) || /^\.+$/.test(row.name)) return;
+    if (this.job() || !this.armed(cx, `local:${row.name}`)) return;
+    this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => {
+      for (const sub of [".agents/skills", ".claude/skills"]) {
+        const error = await C.removeFolder(`${p.root}/${sub}/${row.name}`);
+        if (error) throw new Error(error);
+      }
+    }, fill(this.str.localRemoved, { name: row.name }));
+  }
+
+  /** Folds or unfolds a group of the list. The choice stays in this copy (localStorage). */
+  toggleGroup(key, cx) {
+    if (this.collapsed.has(key)) this.collapsed.delete(key);
+    else this.collapsed.add(key);
+    try { localStorage.setItem("collapsed", JSON.stringify([...this.collapsed])); } catch {}
+    cx.notify();
   }
 
   keepExtra(cx, row) {
@@ -422,6 +530,9 @@ export default class SkillBundles extends View {
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       pending: p.state === "ready" ? pending(p.counts) : 0,
       blocked: this.installBlock(),
+      fixes: this.cloneFixes(),
+      waiting: this.waiting(),
+      collapsed: this.collapsed,
       settingSlug: C.repoSlug(shared(KEY.catalog)),
       a: {
         reload: (cx) => this.reload(cx, true),
@@ -434,6 +545,8 @@ export default class SkillBundles extends View {
         installOne: (row, cx) => this.installOne(cx, row),
         removeExtra: (row, cx) => this.removeExtra(cx, row),
         keepExtra: (row, cx) => this.keepExtra(cx, row),
+        removeLocal: (row, cx) => this.removeLocal(cx, row),
+        toggleGroup: (key, cx) => this.toggleGroup(key, cx),
         dropSource: (row, cx) => this.dropSource(cx, row),
         applyBundles: (cx) => this.applyBundles(cx),
         start: (cx) => this.start(cx),

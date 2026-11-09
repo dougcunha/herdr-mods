@@ -58,7 +58,7 @@ The mod reads these files with the same rules as the PowerShell scripts of the C
 | **Missing** | The Manifest asks for it, but it is not installed. | **Install** |
 | **Unchecked** | Installed from a repository that is not the Catalog. The mod cannot compare it. | — |
 | **Extra** | Installed with `npx skills add`, but not in the Manifest (a skill added for one task and not removed). | **Keep** (adds it to `sources:`), **Remove** |
-| **Local** | A skill folder that a person wrote in the project. It has no Lock entry. | — (never changed) |
+| **Local** | A skill folder that a person wrote in the project. It has no Lock entry. | **Remove** (deletes its folder from `.agents/skills` and `.claude/skills`, after a second click) |
 
 A project without `skills.yaml` shows the Bundles of the Catalog with check boxes (`core` is always on). **Create skills.yaml and install** writes `skills.yaml`, adds the generated files to `.gitignore` (`.agents/`, `.claude/skills/`, `.codex/skills/`, `skills-lock.json`) and installs the skills.
 
@@ -68,7 +68,21 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 - **Bundles:** the Bundles of the Catalog with check boxes. **Save and apply** writes `skills.yaml`, installs the skills of the new Bundles and removes the skills of the Bundles that you took out.
 - **Add skill:** the skills of the Catalog that the Manifest does not cover, with a search field. **Install** installs one skill. With **Keep in skills.yaml** off, the skill is for now and shows as Extra; with it on, the skill goes to `sources:`.
 - **Remove** on a Source: takes the skill out of `sources:` and uninstalls it.
+- A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
 - The refresh button of the header fetches the Catalog at once. The gear opens the Settings of Herdr Mods.
+
+### Your own clone with a problem
+
+When your own clone cannot be pulled, the line under the header says why and shows buttons. A button in red asks for a second click.
+
+| Problem | Buttons |
+| --- | --- |
+| Changes that are not committed | **Stash the changes** (`git stash --include-untracked`), **Discard the changes** (`git reset --hard`, `git clean -fd`), **Commit and push with <agent>** (a new space in the clone; **Open a terminal** when no agent is installed) |
+| Commits that are not pushed | **Push** |
+| A branch that is not on the remote | **Push the branch** (`git push -u origin <branch>`) |
+| New commits in the clone and on the remote | **Reset to the remote** (`git reset --hard origin/<branch>`), **Commit and push with <agent>** |
+
+Every problem also shows **Use a clone of the mod**: it clears the setting, and the mod keeps its own clone up to date. Your clone does not change.
 
 Each action runs in the background. The bottom of the panel shows what runs; a toast says how many skills were updated, added and removed, or shows the error. One action runs at a time, in all copies of the mod.
 
@@ -115,7 +129,7 @@ Add this block to the `children` of `status-row`, after the `status` block:
 The **Settings** tab of the Herdr Mods dialog (`mods-hub`) shows:
 
 - **Skill Catalog:** `owner/name` of the Catalog on GitHub.
-- **Your own clone (optional):** a folder with your own clone of the Catalog. The mod keeps no clone of its own and keeps your clone up to date: each time it fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. So the hashes match what `npx skills` downloads from GitHub. When that clone is on a branch that is not the default one, the mod installs the Catalog's skills from that branch (`owner/name#branch`) and says so under the header. It does not install while the clone has changes that are not committed or commits that are not pushed, because `npx skills` downloads from GitHub, not from your folder.
+- **Your own clone (optional):** a folder with your own clone of the Catalog. The mod keeps no clone of its own and keeps your clone up to date: each time it fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. So the hashes match what `npx skills` downloads from GitHub. When that clone is on a branch that is not the default one, the mod installs the Catalog's skills from that branch (`owner/name#branch`) and says so under the header. It does not install while the clone has changes that are not committed or commits that are not pushed, because `npx skills` downloads from GitHub, not from your folder. The panel then shows buttons to fix the clone (see [Your own clone with a problem](#your-own-clone-with-a-problem)).
 - **Clone URL (optional):** the URL for `git clone` when `gh` is not logged in. Empty: `git@github.com:<owner>/<name>.git`.
 - **Fetch the Catalog every:** 15 minutes by default.
 - **Shortcut of the Skill Bundles panel:** a key for `skill-bundles.open`. Only the status bar item listens for it.

@@ -107,9 +107,12 @@ function catalogLine(t, m) {
   if (m.proj.state === "ready" && m.proj.probe?.lockError) notes.push([t.ansi1, fill(m.str.lockError, { error: m.proj.probe.lockError })]);
   if (m.proj.state === "ready" && m.proj.probe?.error) notes.push([t.ansi1, fill(m.str.probeError, { error: m.proj.probe.error })]);
   const at = fill(m.str.catalogAt, { repo: c.catalog.repo, commit: c.commit || "?" }) + (c.own ? ` · ${m.str.ownClone}` : "");
+  const busy = Boolean(m.job);
   return v_flex().flex_none().px(12).py(6).gap(3).border_b(1).border_color(t.border).text_size(11)
     .child(div().truncate().text_color(t.dim).child(at))
-    .children(notes.map(([color, text]) => div().text_color(color).child(text)));
+    .children(notes.map(([color, text]) => div().text_color(color).child(text)))
+    .when(m.fixes.length > 0, (e) => e.child(h_flex().pt(3).gap(6).flex_wrap()
+      .children(m.fixes.map((f) => button(t, `sb-fix-${f.id}`, f.label, f.run, { kind: f.kind, disabled: busy, tip: f.tip })))));
 }
 
 /** The counts and the main buttons of the list. */
@@ -145,6 +148,10 @@ function rowActions(t, m, row) {
     list.push(button(t, id("keep"), m.str.keep, (cx) => m.a.keepExtra(row, cx), { disabled: busy || !m.proj.manifest, tip: m.str.keepTip }));
     list.push(button(t, id("remove"), m.str.remove, (cx) => m.a.removeExtra(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeTip }));
   }
+  if (row.state === "local") {
+    const label = m.waiting === `local:${row.name}` ? m.str.confirmAgain : m.str.remove;
+    list.push(button(t, id("delete"), label, (cx) => m.a.removeLocal(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeLocalTip }));
+  }
   if (onlySource && row.state !== "extra") list.push(button(t, id("drop"), m.str.dropSource, (cx) => m.a.dropSource(row, cx), { kind: "danger", disabled: busy, tip: m.str.dropSourceTip }));
   return list;
 }
@@ -159,11 +166,19 @@ function skillRow(t, m, row, s) {
     .children(rowActions(t, m, row));
 }
 
+/** The key of a group for the folded set: a Bundle and the Sources group can have the same name. */
+const groupKey = (g) => `${g.kind}:${g.key}`;
+
 function groupTitle(t, m, g) {
   const catalog = m.cat.catalog;
   const title = g.kind === "bundle" ? g.key : m.str[`group_${g.kind}`];
   const desc = g.kind === "bundle" ? catalog?.descriptions.get(g.key) ?? "" : "";
-  return h_flex().h(28).px(12).gap(8).items_center().bg(t.surface).border_b(1).border_color(t.border)
+  const folded = m.collapsed.has(groupKey(g));
+  return h_flex().id(`sb-group-${groupKey(g)}`).h(28).pl(8).pr(12).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
+    .cursor_pointer().hover((x) => x.bg(t.hover))
+    .tooltip(folded ? m.str.expand : m.str.collapse)
+    .on_click((_e, cx) => m.a.toggleGroup(groupKey(g), cx))
+    .child(svg(ICON(folded ? "chevron-right" : "chevron-down")).size(13).flex_none().text_color(t.dim))
     .child(div().flex_none().text_size(11.5).font_semibold().text_color(t.muted).child(title))
     .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(desc))
     .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.length)));
@@ -174,7 +189,7 @@ function listView(t, m, s) {
   return v_flex().flex_1().min_h(0)
     .child(summary(t, m))
     .child(v_flex().id("sb-list").flex_1().min_h(0).overflow_y_scrollbar()
-      .children(groups.flatMap((g) => [groupTitle(t, m, g), ...g.rows.map((r) => skillRow(t, m, r, s))])));
+      .children(groups.flatMap((g) => [groupTitle(t, m, g), ...(m.collapsed.has(groupKey(g)) ? [] : g.rows.map((r) => skillRow(t, m, r, s)))])));
 }
 
 /** One line of the Bundle picker: a check box, the name and the description. */

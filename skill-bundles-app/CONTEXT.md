@@ -32,7 +32,7 @@ A skill that `npx skills add` installed in the project but that is not in the Ma
 _Avoid_: orphan, ad hoc skill
 
 **Local skill**:
-A skill that a person wrote in the project by hand. It has no entry in the Lock and is never removed.
+A skill that a person wrote in the project by hand. It has no entry in the Lock. The mod removes it only when the person clicks **Remove** on it.
 _Avoid_: custom skill
 
 ### States
