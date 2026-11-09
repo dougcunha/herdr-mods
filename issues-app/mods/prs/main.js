@@ -14,6 +14,8 @@ import { call } from "./jira-client.js";
 import { kit, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
+import { RowMenu, rowAction } from "./row-menu.js";
+import { chip } from "./links.js";
 import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -36,6 +38,13 @@ const keepWidth = (w) => { try { localStorage.setItem(`width:${place()}`, String
 const contextKey = (space) => `${space?.id}|${JSON.stringify(shared("space-links") ?? {})}`;
 // What a space's list keeps in memory (the last SPACES spaces), so switching back shows it at once.
 const SPACES = 20;
+// Hide merged (a chip next to the filters, and a setting of Herdr Mods): merged pull requests leave the list.
+const HIDE_MERGED = "prs.hideMerged";
+const hideMerged = () => shared(HIDE_MERGED) === true;
+// The Details card of a page, collapsed or expanded: the same in every copy (UI state).
+const detailsOpen = () => shared("prs.detailsOpen") !== false;
+// Agent review from a row's menu (row-menu.js) comes back to the list that opened it.
+const ROW_ACTION = rowAction("prs");
 const KEPT = ["where", "login", "prs", "data", "hay", "stacks", "inStack", "saved", "meta", "version", "cache", "error", "unlinked", "cursor"];
 
 // What a row draws, worked out once per load: the row renderer runs inside layout, twice
@@ -63,7 +72,9 @@ export default class PullRequests extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.seenAction = shared(ROW_ACTION)?.at ?? 0;
     this.prs = []; this.login = null; this.error = null; this.loading = false;
     this.query = ""; this.filter = null; this.mentions = null; this.mentionsVersion = 0; this.open = null; this.page = null; this.pageError = null; this.width = lastWidth(); this.version = 0;
     this.gen = 0; this.data = new Map(); this.hay = new Map(); this.stacks = []; this.inStack = new Map(); this.collapsed = new Set(); this.saved = null; this.versions = 0; this.kept = new Map();
@@ -87,7 +98,7 @@ export default class PullRequests extends View {
   pageOnly(p, cx) {
     this.prs = p.prs ?? []; this.where = p.where ?? null; this.login = p.login ?? null; this.pages = new Map(); this.page = null; this.pageError = null; this.pageW = 900;
     for (const l of p.avatars ?? []) avatarPics.add(l);
-    this.only = { at: Math.max(0, this.prs.findIndex((x) => x.number === p.number)) }; this.tab = p.tab ?? "conversation";
+    this.only = { at: Math.max(0, this.prs.findIndex((x) => x.number === p.number)) }; this.tab = p.tab ?? "description";
     this.handle = cx.focus_handle();
     // Focus can't move inside a render, so right after: Up/Down then reach the dialog.
     cx.timer.after(0, () => { try { this.handle.focus(); } catch { /* the pointer still works */ } });
@@ -229,6 +240,7 @@ export default class PullRequests extends View {
   // (asked of me directly) and Recent activity (updated in the last 7 days). None: all.
   keep(p) {
     const me = this.login;
+    if (p.state === "MERGED" && hideMerged()) return false;
     if (this.filter === "created") return p.author?.login === me;
     if (this.filter === "assigned") return (p.assignees ?? []).includes(me);
     if (this.filter === "mentioned") return Boolean(this.mentions?.has(p.number));
@@ -318,7 +330,7 @@ export default class PullRequests extends View {
   // change (agents, focus), so a render must stay cheap.
   items() {
     const branch = this.space()?.branch ?? "";
-    const k = `${this.version}|${this.query}|${this.filter}|${this.mentionsVersion}|${branch}|${[...this.collapsed].join(",")}`;
+    const k = `${this.version}|${this.query}|${this.filter}|${hideMerged()}|${this.mentionsVersion}|${branch}|${[...this.collapsed].join(",")}`;
     if (this.cache?.k !== k) {
       const ws = words(this.query);
       const shown = this.prs.filter((p) => matches(this.hay.get(p.number), ws) && this.keep(p));
@@ -422,7 +434,7 @@ export default class PullRequests extends View {
     if (m.platform || m.control || m.alt) return false;
     if (e.key === "o") { openUrl(pr.url); return true; }
     if (e.key === "b") { this.copyBranch(cx); return true; }
-    const tab = { 1: "conversation", 2: "checks", 3: "files" }[e.key];
+    const tab = { 1: "description", 2: "conversation", 3: "checks", 4: "files" }[e.key];
     if (tab) { this.pickTab(tab, cx); return true; }
     return false;
   }
@@ -445,6 +457,42 @@ export default class PullRequests extends View {
     if (!b) return;
     cx.write_to_clipboard(b); notify({ title: `Copied ${b}`, level: "success", timeout: 2000 });
   }
+  // owner/repo#12: GitHub links it in any issue, pull request or commit message.
+  copyNumber(cx) {
+    const n = (this.page ?? this.picked)?.number;
+    if (n == null || !this.where?.github) return;
+    const k = `${this.where.github}#${n}`;
+    cx.write_to_clipboard(k); notify({ title: `Copied ${k}`, level: "success", timeout: 2000 });
+  }
+
+  // The right-click menu of a row (row-menu.js), under the pointer.
+  rowMenu(number) {
+    const pr = this.prs.find((x) => x.number === number);
+    if (!pr || !this.where?.github) return;
+    openOverlay({ mod: "prs", kind: "popup", width: 220, props: {
+      dialog: "row", mod: "prs", to: this.uid, key: String(pr.number), url: pr.url, open: "Open on GitHub",
+      copy: `${this.where.github}#${pr.number}`, copyLabel: "Copy number", branch: pr.headRefName ?? "",
+      agent: pr.state === "OPEN" && this.where?.repo ? "Agent review" : null,
+    } });
+  }
+  // Agent review from a row's menu: only the list copy that opened it (`to`), after the page loads.
+  followRowAction(cx) {
+    const a = shared(ROW_ACTION);
+    if (!a?.at || a.at === this.seenAction || !this.uid || a.to !== this.uid) return;
+    this.seenAction = a.at;
+    const number = Number(a.key);
+    if (!this.where?.repo || !this.prs.some((x) => x.number === number)) return;
+    try {
+      cx.timer.after(0, (cx) => {
+        const page = this.pages.get(`${this.where.github}#${number}`);
+        if (page) { this.review(page); return; }
+        cx.spawn(async () => {
+          try { this.review(await this.fetchPage(number)); }
+          catch (e) { notify({ title: `#${number} did not load`, body: String(e?.message ?? e).slice(0, 300), level: "error" }); }
+        });
+      });
+    } catch { this.seenAction = 0; }
+  }
 
   safeDetail(t, page = this.page) {
     try {
@@ -458,11 +506,13 @@ export default class PullRequests extends View {
       const working = agentSpaces(this.where?.repo?.main).prs.get((page ?? this.picked)?.number) ?? [];
       return detail(page ?? { ...this.picked, loading: true }, t, {
         error: this.pageError, nav, login: this.login, agents: working, go: (id) => this.go(id), jiraKey: this.where?.jiraKey, github: this.where?.github, jira: this.where?.jira, jiraIssues: page?.jiraIssues,
-        wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, tab: this.tab ?? "conversation",
+        wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, tab: this.tab ?? "description",
         pickTab: (tab, cx) => this.pickTab(tab, cx), copyBranch: (cx) => this.copyBranch(cx), openUrl: (url) => openUrl(url),
+        copyNumber: (cx) => this.copyNumber(cx),
+        fold: { open: detailsOpen(), toggle: (cx) => { setShared("prs.detailsOpen", !detailsOpen()); cx.notify(this.pageView); } },
         open: () => openUrl((this.page ?? this.picked).url),
         review: this.where?.repo ? () => this.review(this.page) : null,
-        keys: [...(this.only || asSplit("prs") ? [[["↑", "↓"], "previous / next"]] : []), [["1", "2", "3"], "tabs"],
+        keys: [...(this.only || asSplit("prs") ? [[["↑", "↓"], "previous / next"]] : []), [["1", "2", "3", "4"], "tabs"],
           ...(liveAgent(working) ? [[["⌘", "↵"], "go to agent"]] : canReview ? [[["⌘", "↵"], "Agent review"]] : []), [["O"], "open on GitHub"], [["B"], "copy branch"], [["Esc"], this.only ? "close" : "back"]],
       });
     } catch (e) { return div().p(14).text_color(t.ansi1).child(`Cannot show this pull request: ${e?.stack ?? e}`); }
@@ -539,6 +589,7 @@ export default class PullRequests extends View {
   render(cx) {
     if (kitOff()) return offView();
     if (this.dialog) return this.dialog;
+    this.followRowAction(cx);
     readSizes();
     if (this.open != null) this.watchAgents(cx, agentSpaces(this.where?.repo?.main).prs.get(this.open));
     if (this.only) {
@@ -570,10 +621,11 @@ export default class PullRequests extends View {
     const { items } = this.items(), wide = this.width >= WIDE;
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.prs.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open pull requests.");
-    const filters = h_flex().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", "Mentioned"], ["review", "Review requests"], ["recent", "Recent"]], this.filter, (id, cx) => {
+    const filters = h_flex().gap(8).items_center().flex_wrap().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", "Mentioned"], ["review", "Review requests"], ["recent", "Recent"]], this.filter, (id, cx) => {
       this.filter = id;
       if (this.filter === "mentioned" && !this.mentions && !this.mentionsLoading) this.loadMentions(cx);
-    }, t));
+    }, t))
+      .child(chip(t, "hide-merged", "Hide merged", hideMerged(), (cx) => { setShared(HIDE_MERGED, !hideMerged()); cx.notify(); }));
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
     const s = { t, two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, agents: agentSpaces(this.where?.repo?.main).prs };
@@ -585,6 +637,8 @@ export default class PullRequests extends View {
       .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "pr-list-keys" : "pr-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar()
         .children(shownItems.map((i) => (i.group ? heading(i.group) : i.stack ? this.stackRow(i, s) : this.row(i.data, s, i.level ? i : null).id(i.key)
           .on_click((_e, cx) => { this.handle.focus(); this.pick(i.data.number, cx); })
+          // Right-click: Open on GitHub, Agent review, Copy number, Copy branch (row-menu.js).
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rowMenu(i.data.number); })
           .on_hover((on, cx) => {
             const n = i.data.number;
             if (!on) { if (this.hovered === n) this.hovered = null; return; }

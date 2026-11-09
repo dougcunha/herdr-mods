@@ -1,15 +1,18 @@
-// The right-click menu of a row of the list: Move (Jira), Open in Jira / GitHub, Start agent, Copy key.
-// The issues mod opens itself as this popup with props { dialog: "row", to, key, site, status, url,
-// copy, jira, agent }. Move opens the Move menu (transition.js); Start agent goes back to the list
-// that opened the menu (shared ROW_ACTION, with the id `to` of that copy): it has the repository and the page.
+// The right-click menu of a row of the list (issues and prs): Move (a Jira issue), Open in Jira or on
+// GitHub, Start agent or Agent review, Copy key or number, Copy branch (a pull request).
+// The mod opens itself as this popup with props { dialog: "row", mod, to, key, site, status, url,
+// open (its label), copy (the text), copyLabel, branch, jira, agent (its label, or null) }.
+// Move opens the Move menu (transition.js). The agent action goes back to the list that opened the
+// menu (shared rowAction(mod), with the id `to` of that copy): it has the repository and the page.
 // The rows look like the kit's menus (space-deck, files-md-menu). ↑ ↓ move, Enter runs, Esc closes.
+// Shared by issues and prs: identical copies.
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, openOverlay, theme, notify, setShared } from "herdr";
 import { fs, icon, openUrl } from "./links.js";
 
-export const ROW_ACTION = "issues.rowAction";
+export const rowAction = (mod) => `${mod}.rowAction`;
 
 export class RowMenu extends View {
   init(_props, cx) {
@@ -21,18 +24,20 @@ export class RowMenu extends View {
 
   items() {
     const p = props() ?? {}, close = () => closeOverlay(p.overlay);
+    const copy = (text) => (cx) => {
+      cx.write_to_clipboard(text);
+      notify({ title: `Copied ${text}`, level: "success", timeout: 2000 });
+      close();
+    };
     return [
       p.jira && { id: "move", label: `Move · ${p.status || "?"}`, icon: "pending", run: () => {
         close();
-        openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "transition", site: p.site, key: p.key, status: p.status } });
+        openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "transition", site: p.site, key: p.key, status: p.status } });
       } },
-      { id: "open", label: `Open in ${p.jira ? "Jira" : "GitHub"}`, icon: "external", run: () => { close(); openUrl(p.url); } },
-      p.agent && { id: "agent", label: "Start agent", icon: "bot", run: () => { close(); setShared(ROW_ACTION, { to: p.to, key: p.key, action: "agent", at: Date.now() }); } },
-      { id: "copy", label: "Copy key", icon: "copy", run: (cx) => {
-        cx.write_to_clipboard(p.copy);
-        notify({ title: `Copied ${p.copy}`, level: "success", timeout: 2000 });
-        close();
-      } },
+      { id: "open", label: p.open ?? "Open", icon: "external", run: () => { close(); openUrl(p.url); } },
+      p.agent && { id: "agent", label: p.agent, icon: "bot", run: () => { close(); setShared(rowAction(p.mod), { to: p.to, key: p.key, at: Date.now() }); } },
+      { id: "copy", label: p.copyLabel ?? "Copy key", icon: "copy", run: copy(p.copy) },
+      p.branch && { id: "branch", label: "Copy branch", icon: "pr", run: copy(p.branch) },
     ].filter(Boolean);
   }
 

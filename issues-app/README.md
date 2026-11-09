@@ -35,6 +35,13 @@ The changes of this kit:
 
 The mod finds the Sprint and the story points fields (`Story Points` or `Story point estimate`) in the field list of the site; you set nothing.
 
+## The pull request page
+
+- **Under the title:** the state, and for an open pull request chips for the review (approved, changes requested, review required), the checks (failing, running, passed), the merge state (conflicts, behind the base, ready to merge) and the size (+/−). A copy button copies `owner/repo#number`.
+- **Tabs:** **Description**, **Conversation** (comments, reviews, events and the merge box), **Checks** and **Files**. Keys 1 to 4.
+- **Details:** the author, the reviewers with their verdict, the assignees, the labels, the branches (with a copy button), the changes, the commits and the dates. A click on **Details** collapses or expands it.
+- **The list:** a right-click on a pull request opens a menu with **Open on GitHub**, **Agent review** (an open pull request, when the space has a git repository), **Copy number** and **Copy branch**. The **Hide merged** chip next to the filters leaves the merged pull requests out; it is also a setting in Herdr Mods → Settings → Pull Requests.
+
 ## Default Jira project
 
 A space shows the issues of, first that has one: its own link (**Link space…**), the link of another space of its repository, the repository's `.herdr/jira.toml`, the **default project**, a Jira key in its branch, its GitHub repository.

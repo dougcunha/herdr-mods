@@ -1,7 +1,7 @@
-// A pull request's page, laid out like GitHub's: a header (position, actions, title, state
-// badge, "wants to merge"), tabs (Conversation, Checks, Files), the conversation as a
-// timeline ending in the merge box, and reviewers, assignees, labels and linked issues in a
-// sidebar.
+// A pull request's page, like the issue page: a header (position, actions, title, copy, state
+// badge and chips for the review, checks, merge state and size, "wants to merge"), tabs
+// (Description, Conversation, Checks, Files), the conversation as a timeline ending in the merge
+// box, and a Details card (people, branches, size, dates; it collapses) and Development in a sidebar.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
@@ -42,7 +42,7 @@ export function prepare(pr) {
 
 // `pr` is a prepared page, or the list's row (`loading: true`) until the page arrives: the
 // header shows at once and the rest says it is loading. `a`: { error, nav, open, review,
-// copyBranch, tab, pickTab, wide, login, jira (site), jiraIssues, keys (footer) }.
+// copyBranch, copyNumber, fold ({ open, toggle } of Details), tab, pickTab, wide, login, jira (site), jiraIssues, keys (footer) }.
 export function detail(pr, t, a) {
   const k = kit(t), loading = Boolean(pr.loading);
   const state = pr.state === "MERGED" ? ["Merged", "merged", t.ansi5] : pr.state === "CLOSED" ? ["Closed", "closed", t.ansi1]
@@ -51,7 +51,7 @@ export function detail(pr, t, a) {
   const n = { pass: 0, fail: 0, pending: 0 };
   for (const c of checks) n[c.state]++;
   const files = pr.files ?? [];
-  const tab = loading ? "conversation" : a.tab;
+  const tab = loading ? "description" : a.tab;
   const color = { pass: t.ansi2, fail: t.ansi1, pending: t.ansi3 };
 
   const merge = () => {
@@ -84,8 +84,9 @@ export function detail(pr, t, a) {
     return v_flex().rounded(8).border_1().border_color(t.border).overflow_hidden().ml(38).children(rows);
   };
 
+  const descriptionTab = () => [k.panel(`pr-body-${pr.number}`, TextView.markdown(`body-${pr.number}`, pr.body || "_No description._").selectable(true).on_link_click((url) => openUrl(url)))];
   const conversationTab = () => [
-    k.card("pr-body", pr.author?.login, "opened", pr.createdAt ? `${ago(pr.createdAt)} ago` : "", TextView.markdown(`body-${pr.number}`, pr.body || "_No description._").selectable(true).on_link_click((url) => openUrl(url))),
+    ...(pr.conversation.length ? [] : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments or reviews yet.")]),
     ...pr.conversation.map((c, i) => (c.text != null
       ? k.event(`ev-${pr.number}-${i}`, c.who, c.text, `${ago(c.at)} ago`, c.color && t[c.color])
       : k.card(`cv-${pr.number}-${i}`, c.who, c.verdict ? h_flex().gap(6).items_center().child("reviewed").child(k.pill(VERDICT[c.verdict]?.[0] ?? c.verdict.toLowerCase(), t[VERDICT[c.verdict]?.[2]] ?? t.muted)) : "commented",
@@ -108,7 +109,7 @@ export function detail(pr, t, a) {
       .when(pr.changedFiles > files.length, (e) => e.child(div().text_size(fs.meta).text_color(t.dim).child(`${pr.changedFiles - files.length} more files are on GitHub.`)))
     : div().text_color(t.dim).child("No files.")];
 
-  const people = (logins) => (logins?.length ? v_flex().gap(5).children(logins.map((l) => k.person(l))) : div().text_size(fs.meta).text_color(t.dim).child("Nobody"));
+  const people = (logins) => (logins?.length ? v_flex().gap(5).children(logins.map((l) => k.person(l))) : div().text_color(t.dim).child("Nobody"));
   const issues = [
     ...(pr.issues ?? []).map((i) => ({ id: `gi-${i.number}`, label: `#${i.number}`, title: i.repo && i.repo !== a.github ? i.repo : "", url: i.url, kind: "issue" })),
     // Only keys of the space's linked Jira project: "UTF-8" or "SHA-256" in a title aren't issues.
@@ -118,23 +119,41 @@ export function detail(pr, t, a) {
     }),
   ];
   const lead = liveAgent(a.agents);
-  const side = loading ? [k.agents(a.agents, a.go)] : [
-    k.agents(a.agents, a.go),
-    k.section("Reviewers", (pr.reviewers ?? []).length ? v_flex().gap(5).children(pr.reviewers.map((r) => {
+  // The Details card (as on an issue page): people, branches, size and dates; it collapses (`a.fold`).
+  const details = ["full", k.facts("Details", [
+    ["Author", k.person(pr.author?.login ?? "?"), "user"],
+    ["Reviewers", (pr.reviewers ?? []).length ? v_flex().gap(5).children(pr.reviewers.map((r) => {
       const [label, glyph, c] = VERDICT[r.state] ?? [r.state.toLowerCase(), "comment", "muted"];
       return h_flex().gap(6).items_center().min_w(0).child(div().flex_1().min_w(0).child(k.person(r.login, r.login === a.login ? `${r.login} (you)` : r.login)))
         .child(h_flex().flex_none().gap(3).items_center().text_size(fs.tiny).text_color(t[c] ?? t.muted).child(icon(glyph, t[c] ?? t.muted, 12)).child(label));
-    })) : div().text_size(fs.meta).text_color(t.dim).child("Nobody asked")),
-    k.section("Assignees", people(pr.assignees)),
-    (pr.labels ?? []).length > 0 && k.section("Labels", h_flex().flex_wrap().gap(4).children(pr.labels.map((l) => k.label(l)))),
+    })) : div().text_color(t.dim).child("Nobody asked"), "comment"],
+    ["Assignees", people(pr.assignees), "user"],
+    (pr.labels ?? []).length > 0 && ["Labels", h_flex().flex_wrap().gap(4).children(pr.labels.map((l) => k.label(l))), "tag"],
+    pr.baseRefName && ["Into", k.tag(pr.baseRefName, t.accent), "merged"],
+    pr.headRefName && ["From", h_flex().gap(4).items_center().min_w(0).child(div().min_w(0).child(k.tag(pr.headRefName, t.muted)))
+      .child(iconButton(t, "copy-branch-details", "copy", (cx) => a.copyBranch(cx), { size: 22, tooltip: "Copy the branch name" })), "pr"],
+    ["Changes", h_flex().gap(6).child(div().text_color(t.ansi2).child(`+${pr.additions}`)).child(div().text_color(t.ansi1).child(`−${pr.deletions}`))
+      .when(pr.changedFiles != null, (e) => e.child(div().text_color(t.dim).child(`${pr.changedFiles} file${pr.changedFiles === 1 ? "" : "s"}`))), "stack"],
+    pr.commitCount && ["Commits", div().child(String(pr.commitCount)), "check"],
+    pr.createdAt && ["Opened", div().text_color(t.muted).child(`${ago(pr.createdAt)} ago`), "pending"],
+    pr.mergedAt && ["Merged", div().text_color(t.ansi5).child(`${ago(pr.mergedAt)} ago`), "merged"],
+  ], a.fold)];
+  const side = loading ? [k.agents(a.agents, a.go)] : [
+    k.agents(a.agents, a.go),
+    details,
     k.section("Development", issues.length ? v_flex().gap(4).children(issues.map((x) => h_flex().id(x.id).gap(6).items_center().min_w(0).text_size(fs.meta)
         .when(Boolean(x.url), (e) => e.cursor_pointer().hover((s) => s.text_color(t.accent)).on_click(() => a.openUrl(x.url)))
         .child(icon(x.kind, kindColor(x.kind, t), 13)).child(div().flex_none().text_color(t.dim).child(x.label))
         .child(div().min_w(0).truncate().when(Boolean(x.done), (e) => e.line_through().text_color(t.muted)).child(x.title))))
       : div().text_size(fs.meta).text_color(t.dim).child("No linked issue")),
-    k.section("Changes", h_flex().gap(6).text_size(fs.meta).child(div().text_color(t.ansi2).child(`+${pr.additions}`)).child(div().text_color(t.ansi1).child(`−${pr.deletions}`))
-      .when(pr.changedFiles != null, (e) => e.child(div().text_color(t.dim).child(`${pr.changedFiles} file${pr.changedFiles === 1 ? "" : "s"}`)))),
   ];
+  // The facts that matter at a glance, as chips under the title (open pull requests: review, checks, merge).
+  const open = pr.state === "OPEN" && !loading;
+  const d = pr.reviewDecision, ms = pr.mergeStateStatus;
+  const review = d === "APPROVED" ? ["Approved", "check", t.ansi2, true] : d === "CHANGES_REQUESTED" ? ["Changes requested", "x", t.ansi1, true]
+    : d === "REVIEW_REQUIRED" ? ["Review required", "pending", t.ansi3, false] : null;
+  const checkChip = !checks.length ? null : n.fail ? [`${n.fail} failing`, "x", t.ansi1, true] : n.pending ? [`${n.pending} running`, "pending", t.ansi3, false] : [`${n.pass} passed`, "check", t.ansi2, false];
+  const mergeChip = ms === "DIRTY" ? ["Conflicts", "x", t.ansi1, true] : ms === "BEHIND" ? ["Behind base", "pending", t.ansi3, false] : ms === "CLEAN" ? ["Ready to merge", "merged", t.ansi2, true] : null;
 
   const commits = pr.commitCount ? `${pr.commitCount} commit${pr.commitCount > 1 ? "s" : ""}` : "";
   return pageLayout({
@@ -146,16 +165,23 @@ export function detail(pr, t, a) {
         k.button("pr-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => a.go(lead.id), { primary: true, icon: "bot" }),
       ] : pr.state === "OPEN" && a.review && !loading ? [k.button("pr-review", "Agent review", a.review, { primary: true, icon: "bot" })] : []),
     ],
-    title: pr.title, key: `#${pr.number}`,
-    status: h_flex().gap(6).items_center().flex_wrap().text_size(fs.meta).text_color(t.muted)
-      .child(k.badge(state[0], state[2], state[1]))
-      .child(div().font_semibold().text_color(t.foreground).child(pr.author?.login ?? "?"))
-      .child(pr.state === "MERGED" ? `merged ${commits}` : `wants to merge ${commits}`).when(Boolean(pr.baseRefName), (e) => e.child("into").child(k.code(pr.baseRefName)))
-      .child("from").child(k.code(pr.headRefName ?? ""))
-      .child(iconButton(t, "copy-branch", "copy", (cx) => a.copyBranch(cx), { size: 24, tooltip: "Copy the branch name" })),
-    tabs: k.tabs(tab, [["conversation", "Conversation", loading ? null : pr.commentCount], ["checks", "Checks", loading ? null : checks.length], ["files", "Files", loading ? null : pr.changedFiles ?? files.length]], a.pickTab),
+    title: pr.title, key: `#${pr.number}`, copy: a.copyNumber,
+    status: v_flex().gap(6)
+      .child(h_flex().gap(6).items_center().flex_wrap()
+        .child(k.badge(state[0], state[2], state[1]))
+        .when(open && Boolean(review), (e) => e.child(k.chip(review[1], review[0], review[2], review[3])))
+        .when(open && Boolean(checkChip), (e) => e.child(k.chip(checkChip[1], checkChip[0], checkChip[2], checkChip[3])))
+        .when(open && Boolean(mergeChip), (e) => e.child(k.chip(mergeChip[1], mergeChip[0], mergeChip[2], mergeChip[3])))
+        .when(pr.additions != null, (e) => e.child(h_flex().flex_none().gap(5).items_center().h(22).px(8).rounded_full().border_1().border_color(t.border).text_size(fs.meta)
+          .child(div().text_color(t.ansi2).child(`+${pr.additions}`)).child(div().text_color(t.ansi1).child(`−${pr.deletions}`)))))
+      .child(h_flex().gap(6).items_center().flex_wrap().text_size(fs.meta).text_color(t.muted)
+        .child(div().font_semibold().text_color(t.foreground).child(pr.author?.login ?? "?"))
+        .child(pr.state === "MERGED" ? `merged ${commits}` : `wants to merge ${commits}`).when(Boolean(pr.baseRefName), (e) => e.child("into").child(k.code(pr.baseRefName)))
+        .child("from").child(k.code(pr.headRefName ?? ""))
+        .child(iconButton(t, "copy-branch", "copy", (cx) => a.copyBranch(cx), { size: 24, tooltip: "Copy the branch name" }))),
+    tabs: k.tabs(tab, [["description", "Description"], ["conversation", "Conversation", loading ? null : pr.commentCount], ["checks", "Checks", loading ? null : checks.length], ["files", "Files", loading ? null : pr.changedFiles ?? files.length]], a.pickTab),
     main: loading ? [div().p(10).text_color(a.error ? t.ansi1 : t.dim).child(a.error ?? "Loading the description, checks and conversation…")]
-      : tab === "checks" ? checksTab() : tab === "files" ? filesTab() : conversationTab(),
+      : tab === "checks" ? checksTab() : tab === "files" ? filesTab() : tab === "conversation" ? conversationTab() : descriptionTab(),
     side,
     footer: k.footer(a.keys),
   });

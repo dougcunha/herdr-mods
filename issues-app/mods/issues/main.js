@@ -21,7 +21,8 @@ import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
-import { RowMenu, ROW_ACTION } from "./row-menu.js";
+import { RowMenu, rowAction } from "./row-menu.js";
+const ROW_ACTION = rowAction("issues");
 import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -547,15 +548,15 @@ export default class SpaceIssues extends View {
     const i = this.issues.find((x) => x.key === key);
     if (!i) return;
     openOverlay({ mod: "issues", kind: "popup", width: 220, props: {
-      dialog: "row", to: this.uid, key: i.key, site: i.site, status: i.fields.status?.name ?? "", url: browse(i),
-      copy: keyText(i), jira: !isGithub(i), agent: Boolean(this.repo),
+      dialog: "row", mod: "issues", to: this.uid, key: i.key, site: i.site, status: i.fields.status?.name ?? "", url: browse(i),
+      open: `Open in ${home(i)}`, copy: keyText(i), copyLabel: "Copy key", jira: !isGithub(i), agent: this.repo ? "Start agent" : null,
     } });
   }
   // Start agent from a row's menu: the shared ROW_ACTION names this copy (`to`). The page is
   // fetched first when the list doesn't have it yet.
   followRowAction(cx) {
     const a = shared(ROW_ACTION);
-    if (!a?.at || a.at === this.seenAction || a.to !== this.uid) return;
+    if (!a?.at || a.at === this.seenAction || !this.uid || a.to !== this.uid) return;
     this.seenAction = a.at;
     const i = this.issues.find((x) => x.key === a.key);
     if (!i || !this.repo) return;
