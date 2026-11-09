@@ -400,9 +400,20 @@ export default class SkillBundles extends View {
     await writeTextFile(`${project.root}/skills.yaml`, formatManifest(manifest), project.manifestText);
   }
 
-  /** Update all: installs every skill of the Manifest (missing and outdated), as Install-Skills.ps1. */
+  /**
+   * Update all: installs only the skills that differ (Missing and Outdated), grouped by
+   * repository, as a click on Install or Update of each row. Up-to-date skills are not touched.
+   */
   syncAll(cx) {
-    this.act(cx, this.str.syncAll, async (p) => this.install(p.root, this.required(p.manifest).groups));
+    const byRepo = new Map();
+    for (const r of this.proj.rows ?? []) {
+      if (r.state !== "missing" && r.state !== "outdated") continue;
+      if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
+      byRepo.get(r.repo).push(r.name);
+    }
+    if (!byRepo.size) return;
+    const groups = [...byRepo].map(([repo, skills]) => ({ repo, skills }));
+    this.act(cx, this.str.syncAll, async (p) => this.install(p.root, groups));
   }
 
   installOne(cx, row) {

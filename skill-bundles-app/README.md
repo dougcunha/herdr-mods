@@ -64,7 +64,7 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 
 ## Buttons
 
-- **Update all:** installs every skill of the Manifest (`npx skills add` for each repository). Missing skills come in and outdated skills are updated. Extra skills stay.
+- **Update all:** installs only the Missing and Outdated skills (`npx skills add` for each repository), as a click on **Install** or **Update** of each row. Up-to-date, Unchecked, Extra and Local skills stay as they are. The button is off when no skill differs.
 - **Bundles:** the Bundles of the Catalog with check boxes. **Save and apply** writes `skills.yaml`, installs the skills of the new Bundles and removes the skills of the Bundles that you took out.
 - **Add skill:** the skills of the Catalog that the Manifest does not cover, with a search field. **Install** installs one skill. With **Keep in skills.yaml** off, the skill is for now and shows as Extra; with it on, the skill goes to `sources:`.
 - **Remove** on a Source: takes the skill out of `sources:` and uninstalls it.

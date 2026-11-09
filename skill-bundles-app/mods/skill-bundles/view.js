@@ -129,7 +129,7 @@ function summary(t, m) {
       .when(c.unchecked > 0, (e) => e.child(pill(t, `${c.unchecked} ${m.str.state_unchecked}`, stateColor(t, "unchecked"))))
       .when(c.local > 0, (e) => e.child(pill(t, `${c.local} ${m.str.state_local}`, stateColor(t, "local")))))
     .child(h_flex().gap(6).items_center()
-      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: work > 0 ? "primary" : "plain", disabled: busy || Boolean(m.blocked), tip: m.str.syncAllTip, icon: "refresh" }))
+      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: work > 0 ? "primary" : "plain", disabled: busy || work === 0 || Boolean(m.blocked), tip: m.str.syncAllTip, icon: "refresh" }))
       .child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" }))
       .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode("add", cx), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
     .when(work === 0 && c.extra === 0 && c.ok > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
