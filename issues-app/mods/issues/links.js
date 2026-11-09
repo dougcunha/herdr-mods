@@ -232,6 +232,8 @@ export function pageDialog(id, handle, page, on) {
     .track_focus(handle)
     .on_size_change((size, cx) => on.width?.(Math.round(size.width), cx))
     .on_key_down((e, cx) => {
+      // A text field of the page has the keyboard (on.typing): only Esc is the dialog's.
+      if (e.key !== "escape" && on.typing?.()) return;
       const plain = !e.modifiers?.platform && !e.modifiers?.control && !e.modifiers?.alt;
       if (plain && (e.key === "down" || e.key === "up")) on.step(e.key === "down" ? 1 : -1, cx);
       else if (e.key === "escape") close();

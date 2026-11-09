@@ -489,7 +489,7 @@ export default class SpaceIssues extends View {
   // The page's own keys (Up, Down and Esc are the dialog's or the list's): ⌘↵ Start agent, O open, C copy the key.
   pageKey(e, cx) {
     const i = this.open, p = this.page, m = e.modifiers ?? {};
-    if (!i) return false;
+    if (!i || this.typing) return false;
     if (e.key === "enter" && m.platform) { const a = liveAgent(agentSpaces(this.repo?.main).issues.get(i.key)); if (a) this.go(a.id); else if (this.repo && p) this.dispatch(i, p); return true; }
     if (m.platform || m.control || m.alt) return false;
     if (e.key === "o") { openUrl(browse(i)); return true; }
@@ -612,17 +612,19 @@ export default class SpaceIssues extends View {
   // The comment box of a Jira page: a text area and Comment (Ctrl+Enter). Kept per copy.
   makeCommentBox() {
     this.commentBox = TextareaState.new({ placeholder: "Add a comment…", value: "", rows: 4 });
-    this.commenting = false; this.commentError = "";
+    this.commenting = false; this.commentError = ""; this.typing = false;
+    // While the box has the keyboard, the page's keys (O, C, ↑ ↓) leave the keys to it.
+    this.commentBox.on("focus", () => { this.typing = true; });
+    this.commentBox.on("blur", () => { this.typing = false; });
   }
   composer(t, i) {
     const send = (cx) => this.sendComment(i, cx);
     return v_flex().id(`compose-${i.key}`).gap(6).pl(38)
-      // The page's keys (O, C, ↑ ↓) and the list's press handler must not take what is typed or clicked here.
+      // The list's press handler must not take the keyboard from the box. Only Ctrl+Enter stops here:
+      // a stopped key never reaches the box as text (this.typing keeps the page's keys out).
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_key_down((e, cx) => {
-        if (e.key === "escape") return;
-        if (e.key === "enter" && (e.modifiers?.control || e.modifiers?.platform)) send(cx);
-        cx.stop_propagation();
+        if (e.key === "enter" && (e.modifiers?.control || e.modifiers?.platform)) { send(cx); cx.stop_propagation(); }
       })
       .child(div().h(96).px(8).py(5).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(fs.meta).child(Textarea.new(this.commentBox)))
       .child(h_flex().gap(8).items_center()
@@ -663,7 +665,7 @@ export default class SpaceIssues extends View {
       if (this.onlySpace === undefined) this.onlySpace = now;
       else if (now !== this.onlySpace) { try { cx.timer.after(0, () => closeOverlay(props().overlay)); } catch { /* closes on the next change */ } }
       return pageDialog("issue-dialog", this.handle, this.pageView, { mod: "issues",
-        step: (by, cx) => this.step(by, cx), key: (e, cx) => this.pageKey(e, cx),
+        step: (by, cx) => this.step(by, cx), key: (e, cx) => this.pageKey(e, cx), typing: () => this.typing,
         width: (w, cx) => { const was = this.pageW >= PAGE_WIDE; this.pageW = w; if (was !== (w >= PAGE_WIDE)) cx.notify(this.pageView); },
       });
     }
@@ -727,6 +729,8 @@ export default class SpaceIssues extends View {
       .track_focus(this.handle)
       .on_mouse_down("left", () => { try { this.handle.focus(); } catch { /* best effort */ } })
       .on_key_down((e, cx) => {
+        // The comment box has the keyboard: only Esc is the list's.
+        if (this.typing && e.key !== "escape") return;
         // In a split Up and Down step through the issues, the page following along.
         if (this.open && inSplit && (e.key === "down" || e.key === "up")) { this.move(e.key === "down" ? 1 : -1, cx); const i = this.issues.find((x) => x.key === this.cursor); if (i) this.load(i, cx); }
         else if (this.open) { if (e.key === "escape") this.back(cx); else if (!this.pageKey(e, cx)) return; }
