@@ -6,7 +6,11 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared,
   openOverlay, readTextFile, appHome } from "herdr";
-import { stage } from "./robot.js";
+import { stage, STYLES } from "./robot.js";
+
+// The mods-hub setting "Animation": the style of the scene on each card.
+const KEY_STYLE = "agent-cards.animation";
+const animStyle = () => { const v = shared(KEY_STYLE); return STYLES.includes(v) ? v : "robot"; };
 
 // The mods-hub setting "Needs you first": the agents that need you go to the top,
 // and the other cards go to the bottom of the panel, under a line.
@@ -92,11 +96,13 @@ export default class AgentCards extends View {
     cx.timer.every(30000, (cx) => cx.notify());
     // `herdr-app do agent-cards.demo` shows one example card for each status.
     // `agent-cards.needs-you` turns "Needs you first" on or off.
+    // `agent-cards.style` shows the next animation style.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "demo") this.demo = !this.demo;
         if (c === "needs-you") setShared(KEY_NEEDS_YOU, !needsYouFirst());
+        if (c === "style") setShared(KEY_STYLE, STYLES[(STYLES.indexOf(animStyle()) + 1) % STYLES.length]);
         cx.notify();
       }
     });
@@ -290,7 +296,7 @@ export default class AgentCards extends View {
       })
       .on_click(() => a.pane && run("pane.focus", { pane: a.pane }))
       .child(h_flex().gap(10).items_center()
-        .child(stage(t, a.status))
+        .child(stage(t, a.status, animStyle()))
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(h_flex().gap(6).items_center()
             .when(Boolean(icon(a.program, 14, t.foreground)), (el) => el.child(icon(a.program, 14, t.foreground)))

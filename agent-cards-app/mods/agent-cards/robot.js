@@ -2,6 +2,8 @@
 // All motion is native (`loop`, `frames`, `spin`): no timer redraws the mod.
 
 import { div, svg } from "gpui-kit";
+import { retroStage } from "./retro.js";
+import { modernStage } from "./modern.js";
 
 export const STAGE = 64;
 
@@ -103,8 +105,17 @@ function done(t, s) {
   ];
 }
 
-// The stage: a tinted square with the scene of the status.
-export function stage(t, status, size = STAGE) {
+// The animation styles. "robot" is the first style; the others are in their own files.
+export const STYLES = ["robot", "retro", "modern"];
+
+// The stage: a tinted square with the scene of the status, in the given style.
+export function stage(t, status, style = "robot") {
+  if (style === "retro") return retroStage(t, status);
+  if (style === "modern") return modernStage(t, status);
+  return robotStage(t, status);
+}
+
+function robotStage(t, status, size = STAGE) {
   const s = { shell: t.muted };
   const scene = { working, idle, blocked, done }[status] ?? idle;
   const tint = t[status] ?? t.dim;

@@ -1,6 +1,6 @@
 {
   "app": "agent-cards-app",
-  "description": "The agents of the sidebar as cards: a small robot acts out each status (types when working, sleeps when idle, waves when it needs you, jumps when done), with sub-agents and a pin button.",
+  "description": "The agents of the sidebar as cards: a small robot acts out each status (types when working, sleeps when idle, waves when it needs you, jumps when done), with sub-agents and a pin button. Pick a robot, retro 8-bit or modern animation style.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/agent-cards-app",
   "settings": [
     {
@@ -10,6 +10,19 @@
       "default": true,
       "label": "Agent cards",
       "hint": "Show the agents of the main-dock sidebar as animated cards. Off: the sidebar shows Herdr's own Agents list."
+    },
+    {
+      "id": "animation",
+      "type": "enum",
+      "key": "agent-cards.animation",
+      "default": "robot",
+      "label": "Animation",
+      "hint": "The style of the scene on each card. Robot: the first robot. Retro: an 8-bit robot on an old screen. Modern: a soft orb with rings.",
+      "options": [
+        { "value": "robot", "label": "Robot" },
+        { "value": "retro", "label": "Retro (8-bit)" },
+        { "value": "modern", "label": "Modern" }
+      ]
     },
     {
       "id": "needsYouFirst",
