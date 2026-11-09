@@ -2,7 +2,7 @@
 // tab reads the repository (one watcher, one timer) and tells the Changes tab after every read.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, panes, focused, exec, theme, settings, props, shared, closeOverlay, nextCommand, notify } from "herdr";
+import { spaces, panes, focused, exec, theme, settings, props, shared, setShared, closeOverlay, nextCommand, notify } from "herdr";
 import { READ } from "./git.js";
 import { perform } from "./act.js";
 import { icon } from "./menu.js";
@@ -28,6 +28,9 @@ export class Client {
     this.tab = TABS.some((t) => t.id === props()?.tab) ? props().tab : "changes";
     this.typing = false; this.width = 400; this.height = 600;
     this.handle = cx.focus_handle();
+    // The Unified / Split choice of changes-split, once, so the Settings tab shows the same.
+    const old = shared("changes-split.view");
+    if (shared("git-client.view") == null && (old === "split" || old === "unified")) setShared("git-client.view", old);
     this.seenShow = shared("git-client.show")?.at;
     this.history = new History(this); this.changes = new Changes(this);
     this.changes.init(cx); this.history.init(cx);

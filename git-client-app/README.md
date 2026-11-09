@@ -16,7 +16,7 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 - **Lists:** **Conflicts** (only during a merge, a rebase, a cherry-pick or a revert), **Staged** and **Changes** (the files that are not staged, untracked ones too). Point at a file for its buttons: **Stage**, **Unstage**, **Discard** (or **Delete** for an untracked file), **Mark resolved**. The title of a list has **Stage all**, **Unstage all** and **Discard all**. Right-click a file for the same actions, **Open file** and **Copy path**. Discard and delete ask first.
 - **Diff:** a click on a file shows its diff under the lists: the diff of the index for a staged file, of the work tree for the others. The **Unified / Split** switch sets the view for every copy of the panel. **Expand** opens the diff in a wide dialog.
 - **Hunks:** a click on the `@@` row of a hunk (or a right-click on any of its lines) opens a menu: **Stage hunk**, **Unstage hunk** or **Discard hunk**. An untracked file stages as a whole.
-- **Commit box:** the message (more lines grow the box), and **Amend** (an empty box gets the last message), **Commit all** (stages every change first; not with conflicts) and **Push** (pushes after the commit). The button says what it does: `Commit 3 files`, `Amend`, `Commit all & push`.
+- **Commit box:** the message (more lines grow the box; Ctrl+Enter commits), and **Amend** (an empty box gets the last message), **Commit all** (stages every change first; not with conflicts) and **Push** (pushes after the commit). The button says what it does: `Commit 3 files`, `Amend`, `Commit all & push`.
 - **AI:** writes the message from the staged changes (all the changes with Commit all) with Claude Code or Codex. You can edit the message before you commit.
 - **Operation in progress:** a bar shows the operation and the number of files in conflict, with **Continue** (when no conflict is left) and **Abort** (asks first).
 
@@ -69,10 +69,13 @@ The mod has `"place": "none"`: it adds no panel by itself. In a layout of your o
 
 - `git` through the app's `exec`, in the repository of the panel, on its machine. The reads use `--no-optional-locks` and write nothing under `.git`.
 - Hunks: `git apply` with a patch. In a local repository the patch goes to a file under `~/.config/herdr-app/data/git-client/`, which the mod deletes at once. On another machine it goes through `sh -c` (a Unix machine).
-- **AI:** `claude -p` or `codex exec`, only when you click **AI**. The staged diff (cut to 12,000 characters), its `--stat` and the last 20 commit subjects go to that program.
+- **AI:** `claude -p` or `codex exec`, only when you click **AI**. The staged diff (cut to 6,000 characters), its `--stat` and the last 20 commit subjects go to that program.
 - **Open file:** the default app of the system, only on this computer.
 - **Continue** runs `git <operation> --continue` with `core.editor=true`: Git keeps the message that it prepared.
 - Pull is fast-forward only. Push pushes the current branch to the remote of its upstream (else `origin`).
+- The Expand dialog shows the diff only: stage hunks in the panel.
+- With **Commit all**, the AI sees the changes of tracked files, not the new untracked files.
+- A list shows its first 300 files; the "all" buttons act on every file.
 - No Branches, Stash or Submodules tab yet, no worktrees and no remotes management: they come in the next versions.
 - Tested on Windows. The `sh -c` route for another machine is tested on Windows with Git's `sh`.
 

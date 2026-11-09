@@ -18,7 +18,7 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - The lists, in a scrolling box as tall as its rows, at most 38% of the panel: section titles of 28 px (11 px, `dim`, upper case, a count, and icon buttons at the right: Unstage all; Discard all and Stage all) and file rows of 26 px: the status letter (12 px wide; `ansi2` added or untracked `?`, `ansi1` deleted or conflict `U`, `blocked` modified), the name, the folder in `dim` 11 px, and `+n` / `−n`. Under the pointer the counts give way to 22 px icon buttons (`trash` in `ansi1`, `plus`, `minus`, `check`). The open file is `selected`.
 - The diff bar, 32 px between borders: the file name, a `staged` / `unstaged` / `conflict` tag, the Unified / Split switch (24 px) and an Expand icon button.
 - The diff, the rest of the height, in the monospace font at 11 px, 20 px rows: `@@` rows on `raised` with a small pill at the right (`Stage` or `Unstage`) when the hunk can be applied; added lines `ansi2` at 9%, removed lines `ansi1` at 9%; 30 px line numbers. Split: the old file left, the new file right, each half wraps its lines.
-- The commit box, a border above it: a textarea (2 to 8 rows, `accent` border while typing), then the toggles **Amend**, **Commit all**, **Push** (13 px boxes), the **AI** button (`sparkles` icon in `accent`) and the commit button (`solid` when it can commit, else `raised`): `Commit n files`, `Amend`, `Commit all`, with ` & push`.
+- The commit box, a border above it: a textarea (2 to 8 rows, `accent` border while typing; Ctrl+Enter commits), then the toggles **Amend**, **Commit all**, **Push** (13 px boxes), the **AI** button (`sparkles` icon in `accent`) and the commit button (`solid` when it can commit, else `raised`): `Commit n files`, `Amend`, `Commit all`, with ` & push`.
 
 **History tab:** a search row of 36 px (a 26 px field with a `search` icon; with a search, the count of commits and a × button), the toolbar of Git Graph (All branches / Current, Remotes; hidden during a search), the column header (Graph, Description, Date; Author and Commit from 600 px) and the rows of 24 px, then the details pane of a commit (320 px). During a search the graph column is 18 px with no lanes.
 
@@ -55,7 +55,7 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - Stage all must never stage files in conflict: it stages the listed paths, and Commit all refuses while `git ls-files --unmerged` lists files.
 - `git merge --continue` opens an editor unless `core.editor=true` is set for the call.
 - A filtered `git log` has parents that are not in the list: draw it without lanes.
-- The prompt of the AI is one argument: keep the diff short (12,000 characters).
+- The prompt of the AI is one argument: keep the diff short (6,000 characters): a `.cmd` shim on Windows takes 8,191 characters in all.
 - A virtual list row cannot hold its own buttons.
 - `herdr-app check` does not show later async states: test in the app with `herdr-app shot`.
 

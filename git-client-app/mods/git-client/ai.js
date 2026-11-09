@@ -6,8 +6,9 @@ import { READ, messagePrompt, cleanMessage, gitError } from "./git.js";
 
 export const AI_KEY = "git-client.ai";
 const DEFAULT_MODEL = { claude: "haiku", codex: "gpt-6-luna" };
-// Characters of diff in the prompt: the whole prompt is one argument, and Windows takes about 32,000.
-const DIFF_LIMIT = 12000;
+// Characters of diff in the prompt: the whole prompt is one argument. A `.cmd` shim on Windows takes
+// 8,191 characters in all, so stay well under it (as tab-namer does).
+const DIFF_LIMIT = 6000;
 
 export function aiSettings() {
   const s = shared(AI_KEY), o = s && typeof s === "object" ? s : {};

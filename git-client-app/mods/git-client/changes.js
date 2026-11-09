@@ -10,6 +10,8 @@ import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { generateMessage } from "./ai.js";
 
 const ROW = 26, TITLE = 28;
+// Rows shown in one list: the lists are plain rows, not a virtual list.
+const SHOWN = 300;
 const OP_NAMES = { merge: "Merge", rebase: "Rebase", "cherry-pick": "Cherry-pick", revert: "Revert" };
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -40,7 +42,8 @@ export class Changes {
       this.message = this.input.value();
       if (had !== Boolean(this.message.trim())) cx.notify();
     });
-    this.input.on("submit", (_e, cx) => this.commit(cx));
+    // Ctrl+Enter (Cmd+Enter) commits; a plain Enter is a new line of the message.
+    this.input.on("submit", (e, cx) => { if (e?.secondary) this.commit(cx); });
     this.input.on("focus", (_e, cx) => { this.host.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.host.typing = false; cx.notify(); });
   }
@@ -277,7 +280,9 @@ export class Changes {
       .child(h_flex().h(TITLE).flex_none().pl(10).pr(6).gap(6).items_center().text_size(11).text_color(t.dim)
         .child(div().font_semibold().child(title.toUpperCase())).child(div().child(String(files.length))).child(div().flex_1())
         .children(actions))
-      .children(files.map((f) => this.fileRow(f, side, t)));
+      .children(files.slice(0, SHOWN).map((f) => this.fileRow(f, side, t)))
+      .when(files.length > SHOWN, (e) => e.child(div().h(ROW).flex_none().px(10).flex().items_center().text_size(11).text_color(t.dim)
+        .child(`and ${files.length - SHOWN} more (the "all" buttons act on every file)`)));
   }
 
   opBanner(t) {
@@ -342,7 +347,8 @@ export class Changes {
   render(t) {
     const conflicts = this.conflicts(), staged = this.stagedFiles(), unstaged = this.unstagedFiles(), h = this.host.history;
     const ready = Boolean(h.root);
-    const lines = (conflicts.length ? conflicts.length + 1 : 0) + staged.length + unstaged.length + 2;
+    const shown = (n) => Math.min(n, SHOWN + 1);
+    const lines = (conflicts.length ? shown(conflicts.length) + 1 : 0) + shown(staged.length) + shown(unstaged.length) + 2;
     const listHeight = Math.min(lines * ROW + 8, Math.max(TITLE * 2 + ROW * 2, (this.host.height ?? 600) * 0.38));
     const stageable = unstaged.map((f) => f.path);
     const sideLabel = this.sel?.side === "staged" ? "Unstage" : "Stage";

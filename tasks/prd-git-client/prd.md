@@ -83,7 +83,7 @@ The header under the tabs shows the branch, ahead / behind, and the buttons Fetc
 
 - Settings of its own: `git-client.ai.provider` (`auto` / `claude` / `codex`), `git-client.ai.model` (default `haiku` for Claude Code, `gpt-6-luna` for Codex, as tab-namer), `git-client.ai.format` (`repo` (default) / `conventional` / `free`), `git-client.ai.instructions` (extra text).
 - `repo`: the prompt has the subjects of the last 20 commits, and the model copies their style.
-- The input is the staged diff (all changes with Commit all): `git diff --cached --stat` plus the diff, cut to 12,000 characters (one argv, under the Windows limit of about 32,000).
+- The input is the staged diff (all changes with Commit all): `git diff --cached --stat` plus the diff, cut to 6,000 characters (one argv; a `.cmd` shim on Windows takes 8,191 characters in all).
 - The program runs on the machine of the repository (`exec … { on }`), with `claude -p --model … --no-session-persistence --tools ""` or `codex exec -m … --skip-git-repo-check --ephemeral -s read-only`.
 - The answer goes into the message field. The person can edit it before the commit.
 
