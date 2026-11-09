@@ -1,5 +1,5 @@
 // Jira Cloud: projects named in a repository, the sign-in, and the REST calls.
-// Read only, with one exception: a move (transition) that the person picks in the Move menu.
+// Read only, with two exceptions that the person makes on an issue page: a comment and a move (transition).
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
@@ -94,7 +94,22 @@ export async function issue(site, key, extra = []) {
   return page;
 }
 
-// ---- Moves (the only write of this mod) ---------------------------------------
+// ---- Writes: comments and moves (only when the person asks) ------------------
+
+// Plain text as Jira's rich text (ADF): a paragraph per block split by a blank line, a line break
+// for each other line end. Nothing in the text is read as markup.
+export function textToAdf(text) {
+  const blocks = String(text ?? "").replace(/\r\n?/g, "\n").trim().split(/\n{2,}/);
+  return { type: "doc", version: 1, content: blocks.map((b) => ({
+    type: "paragraph",
+    content: b.split("\n").flatMap((line, n) => [...(n ? [{ type: "hardBreak" }] : []), ...(line ? [{ type: "text", text: line }] : [])]),
+  })) };
+}
+// Adds a comment, written by the signed-in account.
+export async function addComment(site, key, text) {
+  if (!String(text ?? "").trim()) throw new Error("Type a comment.");
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text) });
+}
 
 // The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].
 export async function transitions(site, key) {

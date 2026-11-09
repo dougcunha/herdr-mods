@@ -1,6 +1,6 @@
 // The shown space's issues, from Jira Cloud or GitHub, grouped by priority or in backlog order
 // (the `order` setting, chosen with the cog in its header), with a page per issue and "Start agent".
-// Read only, with one exception: the Move menu of a Jira page moves the issue (a Jira transition).
+// Read only, with two exceptions on a Jira page: Comment adds a comment, and the Move menu moves the issue (a Jira transition).
 // The source: the space's link (Link space; `issues: "github"` picks GitHub, else its Jira
 // project), else `.herdr/jira.toml` in its repository, else a Jira guess (the key in the
 // branch name or recent commits, on a site another space links to), else the space's
@@ -9,9 +9,9 @@
 // Based on herdr-ranch-issues of Herdr Ranch by Jelle Slowack (MIT, see ../../LICENSE).
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
-import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched, extraFields } from "./jira.js";
+import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
+import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
+import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
@@ -121,6 +121,7 @@ export default class SpaceIssues extends View {
     // Loaded pages (the last PAGES), so opening one again is instant.
     this.pages = new Map();
     this.handle = cx.focus_handle();
+    this.makeCommentBox();
     // The open issue's page is a view of its own: a live change redraws the list only,
     // and a page that loads redraws the page only (one long render was cut off).
     this.pageView = drawn(cx, () => (this.open ? this.detail(theme()) : div()));
@@ -145,6 +146,7 @@ export default class SpaceIssues extends View {
     this.only ={ list: p.list ?? [], at: Math.max(0, (p.list ?? []).findIndex((i) => i.key === p.key)) };
     this.repo = p.repo ?? null; this.github = p.github ?? null; this.kidsMap = p.kids ?? {}; this.pageW = 900; this.pages = new Map(); this.open = null; this.page = null; this.pageError = null;
     this.handle = cx.focus_handle();
+    this.makeCommentBox();
     // Focus can't move inside a render, so right after: Up/Down then reach the dialog.
     cx.timer.after(0, () => { try { this.handle.focus(); } catch { /* the pointer still works */ } });
     this.pageView = drawn(cx, () => (this.open ? this.detail(theme()) : div()));
@@ -312,6 +314,8 @@ export default class SpaceIssues extends View {
 
   // A page from the cache shows at once and is fetched again behind it.
   load(i, cx) {
+    // Another issue: the comment box starts empty.
+    if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
     this.open = i; this.shown = i; this.page = this.pages.get(pageKey(i)) ?? null; this.pageError = null;
     cx.spawn(async (cx) => {
       try {
@@ -573,6 +577,8 @@ export default class SpaceIssues extends View {
           TextView.markdown(`extra-${i.key}-${n}`, x.md).selectable(true).on_link_click((url) => openUrl(url)))),
         ...timeline,
         ...(p && p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
+        // Jira only: a new comment, posted as the signed-in account.
+        ...(!gh && p ? [this.composer(t, i)] : []),
       ],
       side,
       footer: k.footer(keys),
@@ -601,6 +607,43 @@ export default class SpaceIssues extends View {
         if (!this.only) this.refresh(cx);
       });
     } catch { /* the 2-minute refresh catches it */ }
+  }
+
+  // The comment box of a Jira page: a text area and Comment (Ctrl+Enter). Kept per copy.
+  makeCommentBox() {
+    this.commentBox = TextareaState.new({ placeholder: "Add a comment…", value: "", rows: 4 });
+    this.commenting = false; this.commentError = "";
+  }
+  composer(t, i) {
+    const send = (cx) => this.sendComment(i, cx);
+    return v_flex().id(`compose-${i.key}`).gap(6).pl(38)
+      // The page's keys (O, C, ↑ ↓) and the list's press handler must not take what is typed or clicked here.
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_key_down((e, cx) => {
+        if (e.key === "escape") return;
+        if (e.key === "enter" && (e.modifiers?.control || e.modifiers?.platform)) send(cx);
+        cx.stop_propagation();
+      })
+      .child(div().h(96).px(8).py(5).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(fs.meta).child(Textarea.new(this.commentBox)))
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).text_size(fs.tiny).text_color(this.commentError ? t.ansi1 : t.dim)
+          .child(this.commentError || "Posted to Jira as you. A blank line starts a new paragraph."))
+        .child(button(t, "comment-send", this.commenting ? "Posting…" : "Comment", send, { kind: "primary", disabled: this.commenting })));
+  }
+  sendComment(i, cx) {
+    const text = this.commentBox.value().trim();
+    if (!text || this.commenting) return;
+    this.commenting = true; this.commentError = ""; cx.notify(this.pageView);
+    cx.spawn(async (cx) => {
+      try {
+        await addComment(i.site, i.key, text);
+        this.commentBox.set_value("");
+        notify({ title: `Comment added to ${i.key}`, level: "success", timeout: 2500 });
+        // Every copy reloads the page of this issue (followChanges), this one too.
+        setShared(CHANGED, { site: i.site, key: i.key, at: Date.now() });
+      } catch (e) { this.commentError = String(e?.message ?? e); }
+      this.commenting = false; cx.notify(this.pageView);
+    });
   }
 
   // The Move menu of a Jira issue: a popup of this mod (transition.js) under the pointer.
