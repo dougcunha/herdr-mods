@@ -35,7 +35,19 @@ export const runDir = (runId) => `${dataDir()}/automation-runs/${runId}`;
 
 export const newId = (prefix = "") => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-const script = () => ({ cmd: "", timeout: 60 });
+// kind: "none" | "file" (cmd is the path of a script) | "inline" (cmd is the script text).
+const script = () => ({ kind: "none", cmd: "", timeout: 60 });
+
+/** Only a path: one word (or one quoted text) on one line. */
+export const looksLikeFile = (cmd) => /^(?:"[^"\n]+"|'[^'\n]+'|\S+\.[a-z0-9]+)$/i.test(String(cmd ?? "").trim());
+
+/** A script with a kind. Old automations have no kind: it comes from the text. */
+function normScript(s) {
+  const x = { ...script(), ...(isObj(s) ? s : {}) };
+  if (!["none", "file", "inline"].includes(s?.kind)) x.kind = !x.cmd.trim() ? "none" : looksLikeFile(x.cmd) ? "file" : "inline";
+  if (x.kind === "none") x.cmd = "";
+  return x;
+}
 
 /** A new automation with every field. */
 export function blank() {
@@ -89,9 +101,9 @@ export function normalize(a) {
       files: { ...b.trigger.files, ...(isObj(t.files) ? t.files : {}) },
       git: { ...b.trigger.git, ...(isObj(t.git) ? t.git : {}) },
     },
-    check: { ...script(), ...(isObj(a.check) ? a.check : {}) },
-    pre: { ...script(), ...(isObj(a.pre) ? a.pre : {}) },
-    post: { ...script(), ...(isObj(a.post) ? a.post : {}) },
+    check: normScript(a.check),
+    pre: normScript(a.pre),
+    post: normScript(a.post),
   };
 }
 

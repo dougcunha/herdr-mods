@@ -1,6 +1,6 @@
 // Scripts and the headless agent. `exec` has no environment option, so each script of a run is
 // a small file in the run folder: it sets the HERDR_AUTO_* variables, goes to the folder of the
-// automation and runs the command. Windows: pwsh. Elsewhere: sh.
+// automation and runs the command. Windows: pwsh. Elsewhere: bash, or sh without bash.
 
 import { exec, hc, window } from "herdr";
 import { writeFile } from "./store.js";
@@ -30,14 +30,23 @@ function envLines(env) {
 
 const EXT_RUNNER = { py: "python", js: "node", mjs: "node" };
 
-/** The shell line for a command: a script file runs with its program, else the text runs as it is. */
-function commandLine(cmd) {
+/**
+ * The shell line for a script. kind "inline": the text runs as it is. kind "file": the text is
+ * the path of a script, which runs with its program. No kind (old data): a single word with an
+ * extension is a file.
+ */
+function commandLine(cmd, kind) {
   const text = String(cmd ?? "").trim();
+  if (kind === "inline") return text;
   const m = /^(?:"([^"]+)"|'([^']+)'|(\S+))$/.exec(text);
-  const file = m ? (m[1] ?? m[2] ?? m[3]) : null;
+  const file = kind === "file" ? (m ? (m[1] ?? m[2] ?? m[3]) : text) : m ? (m[1] ?? m[2] ?? m[3]) : null;
   const ext = file ? (/\.([a-z0-9]+)$/i.exec(file)?.[1] ?? "").toLowerCase() : "";
-  if (!file || !ext) return text;
-  if (ext === "sh" || ext === "bash") return `${isWin() ? "bash" : "sh"} ${quote(file)}`;
+  if (!file) return text;
+  if (!ext) return kind === "file" ? (isWin() ? `& ${psq(file)}` : quote(file)) : text;
+  // Not Windows: the wrapper runs in bash when bash exists, so $BASH is its path; else sh.
+  if (ext === "sh" || ext === "bash") return isWin() ? `bash ${quote(file)}` : `"\${BASH:-sh}" ${quote(file)}`;
+  // Linux and macOS often have only python3.
+  if (ext === "py" && !isWin()) return `"$(command -v python3 || echo python)" ${quote(file)}`;
   if (EXT_RUNNER[ext]) return `${EXT_RUNNER[ext]} ${quote(file)}`;
   if (ext === "ps1") return isWin() ? `& ${psq(file)}` : `pwsh -NoProfile -File ${shq(file)}`;
   return isWin() ? `& ${psq(file)}` : text;
@@ -63,15 +72,16 @@ async function scriptFile(dir, name, body, env, folder) {
   }
   const path = `${dir}/${name}.sh`;
   await writeFile(path, [envLines(env), `cd ${shq(folder)} || exit 1`, body, ""].join("\n"));
-  return ["sh", [path]];
+  // bash when it exists (inline scripts can use bash), else sh (for example Alpine).
+  return ["sh", ["-c", 'if command -v bash >/dev/null 2>&1; then exec bash "$1"; else exec sh "$1"; fi', "sh", path]];
 }
 
 /**
  * Runs a check, pre or post script. Returns { code, out }. A script that cannot start, or that
  * runs longer than its timeout (seconds, max 600), gives code -1.
  */
-export async function runScript({ dir, name, cmd, env, folder, timeout }) {
-  const [prog, args] = await scriptFile(dir, name, commandLine(cmd), env, folder);
+export async function runScript({ dir, name, cmd, kind, env, folder, timeout }) {
+  const [prog, args] = await scriptFile(dir, name, commandLine(cmd, kind), env, folder);
   const ms = Math.min(600, Math.max(1, Number(timeout) || 60)) * 1000;
   try {
     const r = await exec(prog, args, { cwd: folder, timeout: ms });

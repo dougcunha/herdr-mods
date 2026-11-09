@@ -38,7 +38,7 @@ result of the agent.
 | Timeout | Minutes. After this time the run is `timed out`. A headless agent is stopped; a tab stays open. |
 | Prompt | The first message to the agent, with variables (below). |
 | Trigger | Manual, Schedule, Agent status, Files, Git (below). Every automation also has **Run now**. |
-| Check, Pre-script, Post-script | A command or the path of a script (`.ps1`, `.sh`, `.py`, `.js`), with a timeout in seconds (max 600). |
+| Check, Pre-script, Post-script | **None**, **Script file** (the path of a `.ps1`, `.sh`, `.py` or `.js` file) or **Inline script** (PowerShell on Windows, bash elsewhere, or sh without bash; 1 or more lines), with a timeout in seconds (max 600). |
 | When it fires during a run | Skip (default), queue 1 run, or run in parallel. |
 | Notifications | Failures (default; also when an agent needs you), failures and skips, all, never. |
 | Require a result | Without a result file at the end, the run failed. |

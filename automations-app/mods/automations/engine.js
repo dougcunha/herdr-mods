@@ -315,7 +315,7 @@ export class Engine {
     // 1. Check: exit 0 runs, another code skips.
     if (a.check.cmd.trim()) {
       this.patchRunning(runId, { phase: "check" });
-      const r = await Sh.runScript({ dir, name: "check", cmd: a.check.cmd, env: vars, folder: a.folder, timeout: a.check.timeout });
+      const r = await Sh.runScript({ dir, name: "check", cmd: a.check.cmd, kind: a.check.kind, env: vars, folder: a.folder, timeout: a.check.timeout });
       await S.writeFile(`${dir}/check.out`, r.out);
       rec.check = { code: r.code, out: clip(r.out) };
       vars.check = r.out;
@@ -325,7 +325,7 @@ export class Engine {
     // 2. Pre-script: a failure cancels the run.
     if (a.pre.cmd.trim()) {
       this.patchRunning(runId, { phase: "pre" });
-      const r = await Sh.runScript({ dir, name: "pre", cmd: a.pre.cmd, env: vars, folder: a.folder, timeout: a.pre.timeout });
+      const r = await Sh.runScript({ dir, name: "pre", cmd: a.pre.cmd, kind: a.pre.kind, env: vars, folder: a.folder, timeout: a.pre.timeout });
       await S.writeFile(`${dir}/pre.out`, r.out);
       rec.pre = { code: r.code, out: clip(r.out) };
       if (r.code !== 0) return this.end(cx, runId, "failed", `The pre-script failed (exit code ${r.code}).`);
@@ -446,7 +446,7 @@ export class Engine {
         tail_file: `${dir}/tail.txt`,
         terminal: r.address ?? "",
       };
-      const p = await Sh.runScript({ dir, name: "post", cmd: a.post.cmd, env, folder: a.folder || dir, timeout: a.post.timeout });
+      const p = await Sh.runScript({ dir, name: "post", cmd: a.post.cmd, kind: a.post.kind, env, folder: a.folder || dir, timeout: a.post.timeout });
       await S.writeFile(`${dir}/post.out`, p.out);
       rec.post = { code: p.code, out: clip(p.out) };
       postOk = p.code === 0;

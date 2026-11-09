@@ -231,13 +231,24 @@ export default class Automations extends View {
       cron: inp(sc.cron, "0 9 * * 1-5"),
       glob: inp(d.trigger.files.glob, "Example: src/**/*.ts, *.md"),
       app: inp(d.trigger.agent.app, "Example: claude"),
-      check: inp(d.check.cmd, "Empty: no check. Example: git diff --quiet HEAD@{1} HEAD"),
       checkT: inp(d.check.timeout, "60"),
-      pre: inp(d.pre.cmd, "Empty: no pre-script. Example: scripts/context.ps1"),
       preT: inp(d.pre.timeout, "60"),
-      post: inp(d.post.cmd, "Empty: no post-script. Example: scripts/publish.ps1"),
       postT: inp(d.post.timeout, "60"),
     };
+    // Each script has 2 fields: the path of a file and the inline text. Its kind picks one.
+    const EXAMPLES = {
+      check: ["scripts/check.ps1", "git diff --quiet HEAD@{1} HEAD"],
+      pre: ["scripts/context.ps1", "git log -5 --oneline"],
+      post: ["scripts/publish.ps1", "Copy-Item $env:HERDR_AUTO_RESULT_FILE docs/review.md"],
+    };
+    this.scriptFields = {};
+    for (const k of ["check", "pre", "post"]) {
+      const s = d[k];
+      const [file, inline] = EXAMPLES[k];
+      const area = TextareaState.new({ value: s.kind === "inline" ? s.cmd : "", placeholder: `Example:\n${inline}`, rows: 5 });
+      area.on("change", (_e, cx) => cx.notify());
+      this.scriptFields[k] = { file: inp(s.kind === "file" ? s.cmd : "", `Example: ${file}`), inline: area };
+    }
     this.prompt = TextareaState.new({ value: d.prompt, placeholder: "Example: Review the last commit. Write the review as Markdown to {result_file}.", rows: 14 });
     this.prompt.on("change", (_e, cx) => cx.notify());
     this.view = "edit";
@@ -260,9 +271,12 @@ export default class Automations extends View {
     d.trigger.schedule.cron = v("cron");
     d.trigger.files.glob = v("glob");
     d.trigger.agent.app = v("app");
-    d.check = { cmd: v("check"), timeout: Math.min(600, num("checkT", 60)) };
-    d.pre = { cmd: v("pre"), timeout: Math.min(600, num("preT", 60)) };
-    d.post = { cmd: v("post"), timeout: Math.min(600, num("postT", 60)) };
+    for (const k of ["check", "pre", "post"]) {
+      const kind = this.draft[k].kind;
+      const sf = this.scriptFields[k];
+      const cmd = kind === "file" ? sf.file.value().trim() : kind === "inline" ? sf.inline.value().replace(/\s+$/, "") : "";
+      d[k] = { kind: cmd.trim() ? kind : "none", cmd: cmd.trim() ? cmd : "", timeout: Math.min(600, num(`${k}T`, 60)) };
+    }
     return d;
   }
 

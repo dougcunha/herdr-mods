@@ -6,7 +6,7 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { spaces } from "herdr";
 import { nextTimes, scheduleError, whenText, DAY_NAMES } from "./schedule.js";
-import { builtinCommand, headlessKey } from "./shell.js";
+import { builtinCommand, headlessKey, isWin } from "./shell.js";
 import * as U from "./ui.js";
 
 export const TABS = [
@@ -70,7 +70,7 @@ export function editView(v, t) {
   else if (tab === "agent") body = agent(v, t, d, f, fld, set, flip);
   else if (tab === "prompt") body = prompt(v, t, d, esc, flip, errs);
   else if (tab === "trigger") body = trigger(v, t, d, f, fld, set, flip, errs);
-  else if (tab === "scripts") body = scripts(v, t, d, f, fld);
+  else if (tab === "scripts") body = scripts(v, t, d, f, fld, esc, set);
   else body = options(t, d, set);
 
   const tabs = TABS.map((x) => ({ ...x, error: errs[x.key] }));
@@ -201,11 +201,34 @@ function trigger(v, t, d, f, fld, set, flip, errs) {
   return v_flex().w_full().child(cards).child(div().w_full().border_t(1).border_color(t.border)).child(rows);
 }
 
-function scripts(v, t, d, f, fld) {
-  const cmd = (k, kt) => h_flex().gap(8).w_full().items_center()
-    .child(div().flex_1().min_w(0).child(fld(f[k])))
-    .child(fld(f[kt], 64)).child(div().flex_none().text_size(11.5).text_color(t.muted).child("s"));
-  const on = (k) => Boolean(f[k].value().trim());
+const SCRIPT_KINDS = [
+  { value: "none", label: "None" },
+  { value: "file", label: "Script file", tip: "The path of a script file, from the folder of the automation." },
+  { value: "inline", label: "Inline script", tip: "The commands, written here. 1 or more lines." },
+];
+
+function scripts(v, t, d, f, fld, esc, set) {
+  const shell = isWin() ? "PowerShell" : "Bash";
+  const cmd = (k) => {
+    const kind = d[k].kind;
+    const sf = v.scriptFields[k];
+    const timeout = h_flex().gap(6).items_center().flex_none()
+      .child(div().text_size(11.5).text_color(t.muted).child("Timeout"))
+      .child(fld(f[`${k}T`], 56)).child(div().text_size(11.5).text_color(t.muted).child("s"));
+    const kinds = h_flex().w_full().gap(12).items_center().flex_wrap()
+      .child(U.segmented(t, `au-sk-${k}`, SCRIPT_KINDS, kind, set((x, val) => { x[k].kind = val; })))
+      .when(kind !== "none", (el) => el.child(div().flex_1()).child(timeout));
+    const hint = (text) => div().text_size(11).text_color(t.dim).child(text);
+    return v_flex().gap(8).w_full()
+      .child(kinds)
+      .when(kind === "file", (el) => el
+        .child(fld(sf.file))
+        .child(hint(".ps1 runs with PowerShell, .sh with bash, .py with python, .js with node. A relative path starts at the folder of the automation.")))
+      .when(kind === "inline", (el) => el
+        .child(U.area(t, sf.inline, esc).font_family(U.mono()))
+        .child(hint(`${shell} commands, 1 or more lines. They run in the folder of the automation.`)));
+  };
+  const on = (k) => d[k].kind !== "none";
   // Elements are single-use: a new arrow each time.
   const arrow = () => h_flex().w_full().pl(21).h(18).items_center().child(svg(U.icon("arrow-down")).size(12).text_color(t.dim));
   const agentStep = h_flex().w_full().gap(14).items_center().px(14).py(10).rounded(10).border_1().border_color(t.border).bg(U.tint(t.accent, "10"))
@@ -213,14 +236,14 @@ function scripts(v, t, d, f, fld) {
       .child(svg(U.icon("bot")).size(14).text_color(t.accent)))
     .child(div().text_size(12.5).font_semibold().child("The agent runs the prompt"));
   return v_flex().w_full().gap(0).py(14)
-    .child(div().pb(12).text_size(11.5).text_color(t.dim).child("A command or the path of a script (.ps1, .sh, .py, .js), run in the folder. The small field is the timeout in seconds (max 600). Scripts get the variables as HERDR_AUTO_* environment variables."))
-    .child(U.stepCard(t, 1, "Check", "Exit code 0 runs. Other codes skip the run; the output is the reason.", cmd("check", "checkT"), on("check")))
+    .child(div().pb(12).text_size(11.5).text_color(t.dim).child("For each step, choose a script file or write an inline script. The timeout is in seconds (max 600). The scripts get the variables as HERDR_AUTO_* environment variables."))
+    .child(U.stepCard(t, 1, "Check", "Exit code 0 runs. Other codes skip the run; the output is the reason.", cmd("check"), on("check")))
     .child(arrow())
-    .child(U.stepCard(t, 2, "Pre-script", "Its output goes to {pre}. A failure cancels the run.", cmd("pre", "preT"), on("pre")))
+    .child(U.stepCard(t, 2, "Pre-script", "Its output goes to {pre}. A failure cancels the run.", cmd("pre"), on("pre")))
     .child(arrow())
     .child(agentStep)
     .child(arrow())
-    .child(U.stepCard(t, 3, "Post-script", "Gets HERDR_AUTO_STATUS, HERDR_AUTO_RESULT, HERDR_AUTO_RESULT_FILE and HERDR_AUTO_OUTPUT_FILE. A failure makes the run failed.", cmd("post", "postT"), on("post")));
+    .child(U.stepCard(t, 3, "Post-script", "Gets HERDR_AUTO_STATUS, HERDR_AUTO_RESULT, HERDR_AUTO_RESULT_FILE and HERDR_AUTO_OUTPUT_FILE. A failure makes the run failed.", cmd("post"), on("post")));
 }
 
 function options(t, d, set) {
