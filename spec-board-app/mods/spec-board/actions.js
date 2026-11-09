@@ -1,7 +1,7 @@
 // What the Spec Board does on disk and in Herdr: start an agent with an SDD
 // skill, make a git worktree, copy a spec into it, and move a spec to the trash.
 
-import { spaces, panes, run, shared, home, knownAgents, readTextFile, exec } from "herdr";
+import { spaces, panes, agents, run, shared, home, knownAgents, readTextFile, exec, hc } from "herdr";
 import { git, powershell, psQuote, native, join, norm, inside, isWin } from "./data.js";
 
 // The preferences (mods-hub Settings tab, kit.json). Read on every use.
@@ -94,6 +94,28 @@ export async function launch(folder, prompt, name) {
   }
   run("space.new", { folder: native(folder), argv, task: prompt, ...(name ? { tab: name } : {}) });
   return "space";
+}
+
+/**
+ * The open session of the chosen agent that can take a message in `folder`:
+ * an agent of this computer that is idle (or done) and whose live folder is in
+ * `folder`. The most recent one first. Null when there is none.
+ */
+export function openSession(folder) {
+  const key = agentKey().toLowerCase();
+  const local = new Set(spaces().filter((s) => s.machine == null).map((s) => s.id));
+  const cwd = new Map(panes().map((p) => [p.pane, p.cwd]));
+  const hits = agents().filter((a) => (a.status === "idle" || a.status === "done") && local.has(a.space)
+    && (a.program?.key?.toLowerCase() === key || a.program?.name?.toLowerCase() === key)
+    && inside(cwd.get(a.pane), folder));
+  return hits.sort((a, b) => b.seq - a.seq)[0] ?? null;
+}
+
+/** Sends `prompt` to the open session `agent` (`hc send`) and shows its terminal. */
+export async function sendToSession(agent, prompt) {
+  const r = await hc(["send", agent.address, prompt]);
+  if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim());
+  run("agent.focus", { terminal: agent.address });
 }
 
 /** A branch name from free text: "Add login with Google" → "feat/add-login-with-google". */

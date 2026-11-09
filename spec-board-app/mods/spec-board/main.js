@@ -12,7 +12,7 @@ import {
 } from "herdr";
 import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin } from "./data.js";
 import {
-  KEY, launch, resolveSkill, promptFor, quoteArg, triageNames, flowNames, branchFrom, branchPrefix, checkBranch,
+  KEY, launch, openSession, sendToSession, resolveSkill, promptFor, quoteArg, triageNames, flowNames, branchFrom, branchPrefix, checkBranch,
   makeWorktree, worktreePath, commitState, isTracked, copySpec, trash,
 } from "./actions.js";
 import { demoSpecs } from "./demo.js";
@@ -50,6 +50,8 @@ const STR = {
     noReviews: "No code review yet.", noFile: "This spec has no {name} yet.",
     start: "Start", startWt: "Start in worktree", cont: "Continue", auto: "Continue in auto mode",
     monitored: "Continue in monitored mode", startAuto: "Start in auto mode", startMonitored: "Start in monitored mode",
+    contOpen: "Continue in open session", startOpen: "Start in open session", openTip: "Sends the prompt to {where}",
+    sent: "Prompt sent", sentBody: "{skill} for {name} in {where}",
     del: "Delete", openFolder: "Open folder", edit: "Edit", save: "Save", cancel: "Cancel", reload: "Reload",
     back: "Back", saved: "Saved", conflict: "The file changed on disk. Reload it or copy your text first.",
     level: "Level", mode: "Mode", review: "Review", next: "Next",
@@ -86,6 +88,8 @@ const STR = {
     noReviews: "Ainda sem revisão de código.", noFile: "Esta spec ainda não tem {name}.",
     start: "Iniciar", startWt: "Iniciar em worktree", cont: "Continuar", auto: "Continuar em modo auto",
     monitored: "Continuar em modo monitorado", startAuto: "Iniciar em modo auto", startMonitored: "Iniciar em modo monitorado",
+    contOpen: "Continuar na sessão aberta", startOpen: "Iniciar na sessão aberta", openTip: "Envia o prompt para {where}",
+    sent: "Prompt enviado", sentBody: "{skill} para {name} em {where}",
     del: "Apagar", openFolder: "Abrir pasta", edit: "Editar", save: "Salvar", cancel: "Cancelar", reload: "Recarregar",
     back: "Voltar", saved: "Salvo", conflict: "O arquivo mudou no disco. Recarregue ou copie o seu texto antes.",
     level: "Nível", mode: "Modo", review: "Revisão", next: "Próximo",
@@ -104,6 +108,9 @@ const STR = {
     deleted: "Movida para a Lixeira", demoNo: "Specs de exemplo: nada muda no disco.",
   },
 };
+
+/** "space / tab" of an agent session, for a toast or a tooltip. */
+const sessionName = (a) => `${a.space_name} / ${a.tab_name || a.tab_index + 1}`;
 
 const errText = (e) => String(e?.message ?? e ?? "").split(/\r?\n/).filter(Boolean).slice(-2).join(" ");
 
@@ -309,16 +316,24 @@ export default class SpecBoard extends View {
     cx.notify();
   }
 
-  /** Starts sdd-orquestrar-fluxo for `spec` in its folder. `mode`: "auto", "monitorado" or null. */
-  continueSpec(spec, mode, cx) {
+  /**
+   * Starts sdd-orquestrar-fluxo for `spec` in its folder. `mode`: "auto", "monitorado" or null.
+   * `session`: an open, idle agent session (openSession) that gets the prompt; null starts a new agent.
+   */
+  continueSpec(spec, mode, cx, session = null) {
     this.menu = null;
     if (this.demo) { this.toast(this.s("demo"), this.s("demoNo")); return; }
     cx.spawn(async (cx) => {
       try {
         const skill = await resolveSkill(flowNames(), spec.where.path);
         const args = `--prd ${spec.slug}${mode ? ` --modo ${mode}` : ""}`;
-        await launch(spec.where.path, promptFor(skill, args), spec.slug);
-        this.toast(this.s("launched"), this.s("launchedBody", { skill, name: spec.slug }), "success");
+        if (session) {
+          await sendToSession(session, promptFor(skill, args));
+          this.toast(this.s("sent"), this.s("sentBody", { skill, name: spec.slug, where: sessionName(session) }), "success");
+        } else {
+          await launch(spec.where.path, promptFor(skill, args), spec.slug);
+          this.toast(this.s("launched"), this.s("launchedBody", { skill, name: spec.slug }), "success");
+        }
         this.closeDialog();
       } catch (e) {
         this.toast(this.s("failed"), errText(e), "error");
@@ -577,7 +592,7 @@ export default class SpecBoard extends View {
       .child(svg(icon(spin ? "spinner" : name)).size(15).text_color(active || spin ? t.accent : t.muted).when(spin, (e) => e.spin(900)));
   }
 
-  btn(t, id, label, onClick, { tone = "", symbol = "", disabled = false, compact = false } = {}) {
+  btn(t, id, label, onClick, { tone = "", symbol = "", disabled = false, compact = false, tooltip = "" } = {}) {
     const color = disabled ? t.dim : tone === "danger" ? t.ansi1 : tone === "primary" ? t.accent : t.foreground;
     const solid = tone === "primary" && !disabled;
     return h_flex().id(id).h(compact ? 26 : 30).px(compact ? 9 : 12).gap(6).flex_none().items_center().rounded(8)
@@ -586,6 +601,7 @@ export default class SpecBoard extends View {
       .text_color(solid ? t.solid_foreground ?? t.accent_foreground : color)
       .border_1().border_color(solid ? t.solid ?? t.accent : tone === "danger" ? tint(t.ansi1, "55") : t.border)
       .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.85)).on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); }))
+      .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
       .when(Boolean(symbol), (e) => e.child(svg(icon(symbol)).size(13).flex_none()))
       .child(label);
   }
@@ -739,8 +755,11 @@ export default class SpecBoard extends View {
     row.child(div().flex_1())
       .child(this.iconBtn(t, "sb-folder", "external-link", this.s("openFolder"), () => this.openFolder(spec)))
       .child(this.iconBtn(t, "sb-del", "trash", this.s("del"), (cx) => this.askDelete(spec, cx)));
+    const session = this.menu === spec.slug && !this.demo ? openSession(spec.where.path) : null;
     const menu = this.menu === spec.slug
       ? h_flex().gap(6).flex_wrap()
+        .when(Boolean(session), (e) => e.child(this.btn(t, "sb-m-open", this.s(isNew ? "startOpen" : "contOpen"),
+          (cx) => this.continueSpec(spec, null, cx, session), { compact: true, symbol: "message", tooltip: session && this.s("openTip", { where: sessionName(session) }) })))
         .child(this.btn(t, "sb-m-auto", this.s(isNew ? "startAuto" : "auto"), (cx) => this.continueSpec(spec, "auto", cx), { compact: true, symbol: "play" }))
         .child(this.btn(t, "sb-m-mon", this.s(isNew ? "startMonitored" : "monitored"), (cx) => this.continueSpec(spec, "monitorado", cx), { compact: true, symbol: "play" }))
         .when(isNew, (e) => e.child(this.btn(t, "sb-m-wt-auto", `${this.s("startWt")} · auto`, (cx) => this.openWorktree(spec, null, cx, "auto"), { compact: true, symbol: "git-branch" })))
