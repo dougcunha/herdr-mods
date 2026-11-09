@@ -5,7 +5,8 @@
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 //   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
-//   "gear-menu" the menu of the gear button: Herdr's settings or Herdr Mods, a popup (the bar opens it, see openGear).
+//   "gear-menu" the menu of the gear button: Herdr's settings, Bar buttons or Herdr Mods, a popup (the bar opens it, see openGear).
+//   "buttons-menu" the editor of the order and the visibility of the panel buttons, a popup (the bar opens it, see openButtons).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
@@ -87,6 +88,23 @@ const PANELS = [
 const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") } };
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 const CLONE_W = 270; // px: the menu of the duplicate button of a card
+const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+
+// The order of the panel buttons and the buttons that the bar hides, shared with the Dock bar (the same key and the
+// same rules as in mods/tabs-dock): { order: [button id], hidden: [button id] }. A button id is the id of a panel or
+// an entry, or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json)
+// come after the others, in the order of the file. Absent: the order of the file, no button hidden.
+const KEY_BUTTONS = "kanban.barButtons";
+const buttonId = (it) => (it.members ? `group-${it.group}` : it.id);
+function barButtons() {
+  const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
+  return { order: list(v?.order), hidden: list(v?.hidden) };
+}
+// The items (anything with an `id`) in the order of `order`; the others after them, in their own order.
+function arrange(items, order) {
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return items.map((it, i) => ({ it, i, r: rank.get(it.id) ?? order.length + i })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.it);
+}
 
 // The duplicate of an agent starts a new session: these flags continue an old one, so the clone drops them
 // (with their value, when they have one). The same lists as `drop` in the agent-resume hook.
@@ -160,6 +178,8 @@ const STR = {
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
     gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+    gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
+    hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset",
     newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
@@ -201,6 +221,8 @@ const STR = {
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
     gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+    gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
+    moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar",
     newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
@@ -282,8 +304,8 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.props.part) ? this.props.part : "board";
-    if (["panel-title", "group-menu", "clone-menu", "gear-menu"].includes(this.part)) {
+    this.part = ["bar", "panel-title", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
+    if (["panel-title", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
       if (this.part === "panel-title") this.takeKeys(cx);
       return;
@@ -328,12 +350,13 @@ export default class Kanban extends View {
       // "kanban.panel-open" steps where the panels open, as the button does. "kanban.panel-<id>" opens or
       // closes the panel <id> (files, changes, or an id of dock/panels.json), as its button does.
       // "kanban.group-<id>" opens the menu of a group button (kanban.group-git). "kanban.gear" does what the
-      // gear button does.
+      // gear button does. "kanban.buttons" opens the editor of the bar buttons.
       cx.spawn(async (cx) => {
         for (;;) {
           const cmd = String(await nextCommand());
           if (cmd === "panel-open") this.stepPanelOpen();
           else if (cmd === "gear") this.openGear();
+          else if (cmd === "buttons") this.openButtons();
           else if (cmd.startsWith("group-")) this.openGroup(cmd.slice(6));
           else if (cmd.startsWith("panel-")) this.togglePanel(cmd.slice(6));
           cx.notify();
@@ -797,19 +820,65 @@ export default class Kanban extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  /** The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
-   *  Without it, it opens Herdr's settings, as before. */
+  /** The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
+   *  installed, the Herdr Mods dialog. */
   openGear() {
-    const settingsOnly = () => run("app.settings");
-    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => {
-      if (text == null) return settingsOnly();
-      openOverlay({ mod: "kanban", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + 2 * MENU_ROW,
-        props: { part: "gear-menu", lang: this.lang } });
-    }, settingsOnly);
+    const open = (hub) => openOverlay({ mod: "kanban", kind: "popup", width: MENU_W,
+      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
+    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => open(text != null), () => open(false));
+  }
+
+  /** Opens the editor of the bar buttons: one row per button of the panel group (a group button is one row), from
+   *  the last render. A popup is as tall as its content, so the height is set here. */
+  openButtons() {
+    const items = this.buttonItems ?? [];
+    if (!items.length) return;
+    openOverlay({ mod: "kanban", kind: "popup", width: EDIT_W, height: MENU_PAD * 2 + MENU_HEAD + items.length * MENU_ROW + EDIT_FOOT,
+      props: { part: "buttons-menu", lang: this.lang, items } });
+  }
+
+  /** The editor of the bar buttons: one row per button (icon, name, up, down, show or hide) in the order of the bar,
+   *  and a Reset row. It reads and writes the shared key, so both bars change at once and the popup stays open.
+   *  The same as buttonsMenu in mods/tabs-dock. */
+  buttonsMenu(t) {
+    const items = Array.isArray(this.props.items) ? this.props.items : [];
+    const prefs = barButtons(), rows = arrange(items, prefs.order), hidden = new Set(prefs.hidden);
+    const save = (next) => setShared(KEY_BUTTONS, { order: prefs.order, hidden: prefs.hidden, ...next });
+    const move = (i, step) => {
+      const list = rows.map((r) => r.id), j = i + step;
+      if (j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      save({ order: list });
+    };
+    const flip = (id) => save({ hidden: hidden.has(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id] });
+    const tool = (id, name, tip, fn, enabled = true) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
+      .tooltip(tip)
+      .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); fn(); }))
+      .child(svg(icon(name)).size(14).text_color(enabled ? t.muted : t.border));
+    const row = (it, i) => {
+      const off = hidden.has(it.id);
+      return h_flex().id(`kb-bm-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+        .text_size(13).text_color(off ? t.dim : t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
+        .child(panelGlyph(it.icon, 15, off ? t.dim : t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .child(tool(`kb-bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
+        .child(tool(`kb-bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < rows.length - 1))
+        .child(tool(`kb-bm-eye-${it.id}`, off ? "eye-off" : "eye", this.s(off ? "showButton" : "hideButton"), () => flip(it.id)));
+    };
+    const changed = prefs.order.length > 0 || prefs.hidden.length > 0;
+    return v_flex().id("kb-bm-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("buttonsTitle")))
+      .children(rows.map(row))
+      .child(h_flex().w_full().h(EDIT_FOOT).px(6).pt(6).flex_none().items_center().justify_end().border_t(1).border_color(t.border)
+        .child(h_flex().id("kb-bm-reset").h(24).px(10).flex_none().items_center().rounded(6).text_size(12)
+          .border_1().border_color(t.border).text_color(changed ? t.foreground : t.dim)
+          .when(changed, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_BUTTONS, null); }))
+          .child(this.s("resetButtons"))));
   }
 
   /** The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
-   *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. */
+   *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
+   *  for the editor ("kanban.buttons"): the bar knows the buttons. */
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
     const row = (id, symbol, label, fn) => h_flex().id(`kb-gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
@@ -820,10 +889,11 @@ export default class Kanban extends View {
     return v_flex().id("kb-gear-root").w_full().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
       .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
-      .child(row("mods", "mods", this.s("gearMods"), () => {
+      .child(row("buttons", "buttons", this.s("gearButtons"), () => run("kanban.buttons")))
+      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => {
         setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
         run("mod.open", { name: "mods-hub" });
-      }));
+      })));
   }
 
   /** Opens the menu of the duplicate button of a card at the pointer: duplicate in the same space, or in a new worktree. */
@@ -1297,12 +1367,18 @@ export default class Kanban extends View {
         : { ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
       ...live.filter((e) => e.opens === "command" && e.run !== "layout.switch").map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
     ];
-    const folded = foldGroups(items);
+    // The person's order and hidden buttons (KEY_BUTTONS) apply to the folded buttons: a group moves as one button.
+    // The group menus and the keys still reach a hidden button.
+    const prefs = barButtons(), off = new Set(prefs.hidden);
+    const folded = arrange(foldGroups(items).map((it) => ({ ...it, id: buttonId(it), entryId: it.id })), prefs.order);
     this.groups = new Map(folded.filter((it) => it.members).map((g) => [g.group, g.members]));
+    this.buttonItems = folded.map((it) => (it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon }));
+    const shownItems = folded.filter((it) => !off.has(it.id));
+    if (!folded.length) return [];
     return [
-      this.panelOpenButton(t), divider(t, true),
-      ...folded.map((it) => {
-        if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.togglePanel(it.id), it.tip, iconOnly);
+      this.panelOpenButton(t), ...(shownItems.length ? [divider(t, true)] : []),
+      ...shownItems.map((it) => {
+        if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.togglePanel(it.entryId), it.tip, iconOnly);
         const info = this.groupInfo(it.group);
         return panelButton(t, `kb-group-${it.group}`, info.icon, info.label, it.members.some((m) => m.on), () => this.openGroup(it.group),
           `${info.label}: ${it.members.map((m) => m.label).join(", ")}`, iconOnly, false, true);
@@ -1475,6 +1551,7 @@ export default class Kanban extends View {
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "clone-menu") return this.cloneMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
+    if (this.part === "buttons-menu") return this.buttonsMenu(t);
     this.syncWaiting(cx);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)

@@ -25,7 +25,8 @@ import * as fs from "fs/promises";
 // dialog. The first button of the panel group sets where: Auto, Side panel or Dialog. Auto opens a dialog when
 // the window is narrower than PANEL_NARROW px. The setting and the open dialog are shared with the Kanban bar.
 // This mod has more parts: props.part "panel-title" (the title row of a panel dialog), props.part "group-menu"
-// (the menu of a group button, a popup) and props.part "gear-menu" (the menu of the gear button, a popup).
+// (the menu of a group button, a popup), props.part "gear-menu" (the menu of the gear button, a popup) and
+// props.part "buttons-menu" (the editor of the order and the visibility of the panel buttons, a popup).
 
 const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
@@ -59,6 +60,23 @@ const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
 // The groups of panel buttons. A group that is not here uses its id as its name and the icon of its first entry.
 const GROUPS = { git: { label: "Git", icon: "mods/tabs-dock/git.svg" } };
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
+const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+
+// The order of the panel buttons and the buttons that the bar hides, shared with the Kanban bar (the same key and
+// the same rules as in mods/kanban): { order: [button id], hidden: [button id] }. A button id is the id of an entry,
+// or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json) come after
+// the others, in the order of the file. Absent: the order of the file, no button hidden.
+const KEY_BUTTONS = "kanban.barButtons";
+const buttonId = (it) => (it.members ? `group-${it.group}` : it.id);
+function barButtons() {
+  const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
+  return { order: list(v?.order), hidden: list(v?.hidden) };
+}
+// The items (anything with an `id`) in the order of `order`; the others after them, in their own order.
+function arrange(items, order) {
+  const rank = new Map(order.map((id, i) => [id, i]));
+  return items.map((it, i) => ({ it, i, r: rank.get(it.id) ?? order.length + i })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.it);
+}
 
 const STR = {
   en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
@@ -69,7 +87,9 @@ const STR = {
     opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
-    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close" },
+    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
+    gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
+    hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset" },
   pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
     newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
@@ -78,7 +98,9 @@ const STR = {
     opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
     opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
-    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar" },
+    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
+    gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
+    moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar" },
 };
 
 // A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
@@ -177,7 +199,7 @@ export default class Tabs extends View {
     // Read props once: props() in a later callback can answer for another copy.
     const p = (given && Object.keys(given).length ? given : props()) || {};
     this.props = p;
-    this.part = ["panel-title", "group-menu", "gear-menu"].includes(p.part) ? p.part : "bar";
+    this.part = ["panel-title", "group-menu", "gear-menu", "buttons-menu"].includes(p.part) ? p.part : "bar";
     if (this.part !== "bar") {
       this.overlay = p.overlay ?? props()?.overlay;
       if (this.part === "panel-title") {
@@ -303,6 +325,8 @@ export default class Tabs extends View {
     if (String(id).startsWith("group-")) return this.openGroup(String(id).slice(6));
     // "tabs-dock.gear" does what the gear button does.
     if (id === "gear") return this.openGear();
+    // "tabs-dock.buttons" opens the editor of the bar buttons, as the row of the gear menu does.
+    if (id === "buttons") return this.openButtons();
     const live = this.liveEntries();
     // A key of a panel whose mod is off does nothing.
     if (live.length < this.entries.length && this.entries.some(e => e.id === id) && !live.some(e => e.id === id)) return;
@@ -433,19 +457,64 @@ export default class Tabs extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  // The gear button. With the mods-hub installed, it opens a menu: Herdr's settings or the Herdr Mods dialog.
-  // Without it, it opens Herdr's settings, as before.
+  // The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
+  // installed, the Herdr Mods dialog.
   openGear() {
-    const settingsOnly = () => run("app.settings");
-    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => {
-      if (text == null) return settingsOnly();
-      openOverlay({ mod: "tabs-dock", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + 2 * MENU_ROW,
-        props: { part: "gear-menu", lang: this.lang } });
-    }, settingsOnly);
+    const open = (hub) => openOverlay({ mod: "tabs-dock", kind: "popup", width: MENU_W,
+      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
+    readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => open(text != null), () => open(false));
+  }
+
+  // Opens the editor of the bar buttons: one row per button of the panel group (a group button is one row), from
+  // the last render. A popup is as tall as its content, so the height is set here.
+  openButtons() {
+    const items = this.buttonItems ?? [];
+    if (!items.length) return;
+    openOverlay({ mod: "tabs-dock", kind: "popup", width: EDIT_W, height: MENU_PAD * 2 + MENU_HEAD + items.length * MENU_ROW + EDIT_FOOT,
+      props: { part: "buttons-menu", lang: this.lang, items } });
+  }
+
+  // The editor of the bar buttons: one row per button (icon, name, up, down, show or hide) in the order of the bar,
+  // and a Reset row. It reads and writes the shared key, so both bars change at once and the popup stays open.
+  buttonsMenu(t) {
+    const items = Array.isArray(this.props.items) ? this.props.items : [];
+    const prefs = barButtons(), rows = arrange(items, prefs.order), hidden = new Set(prefs.hidden);
+    const save = (next) => setShared(KEY_BUTTONS, { order: prefs.order, hidden: prefs.hidden, ...next });
+    const move = (i, step) => {
+      const ids = rows.map((r) => r.id), j = i + step;
+      if (j < 0 || j >= ids.length) return;
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      save({ order: ids });
+    };
+    const flip = (id) => save({ hidden: hidden.has(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id] });
+    const tool = (id, name, tip, fn, enabled = true) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
+      .tooltip(tip)
+      .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); fn(); }))
+      .child(svg(`mods/tabs-dock/${name}.svg`).size(14).text_color(enabled ? t.muted : t.border));
+    const row = (it, i) => {
+      const off = hidden.has(it.id);
+      return h_flex().id(`bm-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+        .text_size(13).text_color(off ? t.dim : t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
+        .child(panelGlyph(it.icon, 15, off ? t.dim : t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .child(tool(`bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
+        .child(tool(`bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < rows.length - 1))
+        .child(tool(`bm-eye-${it.id}`, off ? "eye-off" : "eye", this.s(off ? "showButton" : "hideButton"), () => flip(it.id)));
+    };
+    const changed = prefs.order.length > 0 || prefs.hidden.length > 0;
+    return v_flex().id("bm-root").w_full().p(MENU_PAD)
+      .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("buttonsTitle")))
+      .children(rows.map(row))
+      .child(h_flex().w_full().h(EDIT_FOOT).px(6).pt(6).flex_none().items_center().justify_end().border_t(1).border_color(t.border)
+        .child(h_flex().id("bm-reset").h(24).px(10).flex_none().items_center().rounded(6).text_size(12)
+          .border_1().border_color(t.border).text_color(changed ? t.foreground : t.dim)
+          .when(changed, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_BUTTONS, null); }))
+          .child(this.s("resetButtons"))));
   }
 
   // The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
-  // mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes.
+  // mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
+  // for the editor ("tabs-dock.buttons"): the bar knows the buttons.
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
     const row = (id, icon, label, fn) => h_flex().id(`gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
@@ -456,10 +525,11 @@ export default class Tabs extends View {
     return v_flex().id("gear-root").w_full().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
       .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
-      .child(row("mods", "mods", this.s("gearMods"), () => {
+      .child(row("buttons", "buttons", this.s("gearButtons"), () => run("tabs-dock.buttons")))
+      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => {
         setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
         run("mod.open", { name: "mods-hub" });
-      }));
+      })));
   }
 
   dialogToSide() {
@@ -587,6 +657,7 @@ export default class Tabs extends View {
     if (this.part === "panel-title") return this.panelTitle(t);
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
+    if (this.part === "buttons-menu") return this.buttonsMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
@@ -685,10 +756,14 @@ export default class Tabs extends View {
         : { ...e, key: `panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
       ...commands.filter(e => e.run !== "layout.switch").map(e => ({ ...e, key: `cmd-${e.id}`, on: false, tip: "" })),
     ];
-    const folded = foldGroups(items);
+    // The person's order and hidden buttons (KEY_BUTTONS) apply to the folded buttons: a group moves as one button.
+    // The group menus and the keys still reach a hidden button.
+    const prefs = barButtons(), off = new Set(prefs.hidden);
+    const folded = arrange(foldGroups(items).map(it => ({ ...it, id: buttonId(it), entryId: it.id })), prefs.order);
     this.groups = new Map(folded.filter(it => it.members).map(g => [g.group, g.members]));
-    const panelItems = folded.map(it => {
-      if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.toggle(it.id), it.tip, iconOnly);
+    this.buttonItems = folded.map(it => it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon });
+    const panelItems = folded.filter(it => !off.has(it.id)).map(it => {
+      if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.toggle(it.entryId), it.tip, iconOnly);
       const info = this.groupInfo(it.group);
       return panelButton(t, `group-${it.group}`, info.icon, info.label, it.members.some(m => m.on), () => this.openGroup(it.group),
         `${info.label}: ${it.members.map(m => m.label).join(", ")}`, iconOnly, true);
@@ -701,7 +776,7 @@ export default class Tabs extends View {
       .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(glyph);
     const win = w?.platform === "windows";
     const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
-      .when(panelItems.length > 0, el => el.child(buttonGroup(t, [opensButton, innerDivider(t), ...panelItems])))
+      .when(folded.length > 0, el => el.child(buttonGroup(t, [opensButton, ...(panelItems.length ? [innerDivider(t), ...panelItems] : [])])))
       .children(layoutSwitch)
       .when(w?.buttons, el => el.child(h_flex().flex_none().gap(2).items_center()
         .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))

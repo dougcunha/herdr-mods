@@ -1,6 +1,6 @@
 {
   "app": "kanban-app",
-  "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout.",
+  "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout. The gear menu sets the order of the panel buttons and hides the ones you do not use.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/kanban-app",
   "settings": [
     {

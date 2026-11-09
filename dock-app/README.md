@@ -97,7 +97,9 @@ A `layout.switch` entry goes to the **layout switch**, a group at the right end 
 
 The **density** button (two chevrons, left of the panel buttons) goes **Auto → Compact → Normal**. **Normal** shows the names of the panel buttons and the layout switch, **Compact** shows only their icons, and **Auto** shows their names when the bar is 2250 px wide or more. The Kanban bar has the same button and uses the same value (`shared("kanban.density")`), so a change in one bar shows in the other.
 
-The **gear** button, right of the density button, opens Herdr's settings. With the `mods-hub` mod installed, it opens a menu instead: **Herdr settings** or **Herdr Mods** (the dialog on its **Settings** tab). `tabs-dock.gear` in `keys.json` does the same.
+The **gear** button, right of the density button, opens a menu: **Herdr settings**, **Bar buttons** and, with the `mods-hub` mod installed, **Herdr Mods** (the dialog on its **Settings** tab). `tabs-dock.gear` in `keys.json` does the same.
+
+**Bar buttons** opens a list of the buttons of the panel group (Files, the Git group, the panel, tab and command entries). The top of the list is the left of the bar. Each row has ↑ and ↓ to move the button, and an eye to show or hide it. **Reset** goes back to the order of `panels.json` with all buttons shown. A hidden button still opens its panel with its key in `keys.json`, and the panels of a hidden group button stay in its menu (`tabs-dock.group-<id>`). The choice is saved in `shared("kanban.barButtons")`, and the [Kanban](../kanban-app) bar reads the same value, so both bars show the same order. A new entry of `panels.json` comes at the end. `tabs-dock.buttons` in `keys.json` opens the list.
 
 Language: English, or Portuguese with `"lang": "pt"` in the `props` of the bar block. With the `mods-hub` mod, its **Language** setting (`shared("herdr-mods.lang")`) wins over the prop.
 

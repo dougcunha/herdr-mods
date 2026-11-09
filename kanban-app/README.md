@@ -23,7 +23,7 @@ Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
 
 | Part | What it shows |
 | ---- | ------------- |
-| Top bar | Title and agent count (the count of "need you" turns amber), then six sections: **View** (switch Board / Terminals); **Filter** (search box and a funnel button for "this space only"); **Columns** (one chip per column and the hourglass button for the Waiting column); **Look** (column width − / +, density and card view, in one group); **Blocks** (Agent terminal and Shell), a **Settings** button (the gear icon, opens the Herdr settings) and **New agent**; then the right end, the same as in the [Dock](../dock-app) bar and in the same place: **Panels** (Files, Changes and your dock buttons), the **layout switch** and the window buttons. |
+| Top bar | Title and agent count (the count of "need you" turns amber), then six sections: **View** (switch Board / Terminals); **Filter** (search box and a funnel button for "this space only"); **Columns** (one chip per column and the hourglass button for the Waiting column); **Look** (column width − / +, density and card view, in one group); **Blocks** (Agent terminal and Shell), a **Settings** button (the gear icon, opens a menu: Herdr settings, Bar buttons, Herdr Mods) and **New agent**; then the right end, the same as in the [Dock](../dock-app) bar and in the same place: **Panels** (Files, Changes and your dock buttons), the **layout switch** and the window buttons. |
 | Columns | Needs you, Working, Waiting, Done, Idle, in that order by default. Each has a color, a count, 2 arrow buttons that move it and an eye button that hides it. |
 | Cards | The program icon, the space name in large bold text with the program name under it, the title, the Git branch, the folder (not when it is the space name), the age, a rename button (a pencil, when [Tab Namer](../tab-namer-app) is installed), a duplicate button, a pin and an "open in its tab" button. The title is the tab name when a person named the tab (not a number, not the program name), else the terminal title of the agent; the tooltip of a tab name shows the agent's title. A summary view shows 2 lines only. |
 | Shell under the board | Optional. A shell of its own (`kanban-shell`), in no tab. A button in the top bar shows or hides it. Drag its top edge to resize. |
@@ -85,13 +85,23 @@ Language: the mod shows English. Add `"lang": "pt"` to the `props` of both
 over the prop, in every bar of the kit, and changes the bar at once. The text
 in the search box changes after a restart.
 
-The gear button of the bar runs Herdr's settings. With the `mods-hub` mod
-installed, it opens a menu instead: **Herdr settings** or **Herdr Mods** (the
-dialog on its **Settings** tab). `kanban.gear` in `keys.json` does the same.
+The gear button of the bar opens a menu: **Herdr settings**, **Bar buttons**
+and, with the `mods-hub` mod installed, **Herdr Mods** (the dialog on its
+**Settings** tab). `kanban.gear` in `keys.json` does the same.
+
+**Bar buttons** opens a list of the buttons of the Panels group (Files, the Git
+group, your dock buttons and commands). The top of the list is the left of the
+bar. Each row has ↑ and ↓ to move the button, and an eye to show or hide it.
+**Reset** goes back to the order of `dock/panels.json` with all buttons shown.
+A hidden button still opens its panel with its key in `keys.json`, and the
+panels of a hidden group button stay in its menu (`kanban.group-<id>`). The
+choice is saved in `shared("kanban.barButtons")`, and the [Dock](../dock-app)
+bar reads the same value, so both bars show the same order. A new entry of
+`panels.json` comes at the end. `kanban.buttons` in `keys.json` opens the list.
 
 ## What it does on your machine
 
-- It reads the live data of Herdr (agents, spaces, panes). It stores 11 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width`, `kanban.order`, `kanban.density`, `kanban.cards`, `kanban.panelOpen`, `kanban.panelDialog`, `kanban.waiting` and `kanban.waiting.dismissed`.
+- It reads the live data of Herdr (agents, spaces, panes). It stores 12 values in `shared()`: `kanban.hidden`, `kanban.query`, `kanban.scope`, `kanban.width`, `kanban.order`, `kanban.density`, `kanban.cards`, `kanban.panelOpen`, `kanban.panelDialog`, `kanban.barButtons`, `kanban.waiting` and `kanban.waiting.dismissed`.
 - It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home, and watches the `dock/` folder.
 - It edits `layouts/kanban.json` with the `layout.set` command, to add or remove the side-panel blocks of `panels.json`, and to add the shell block.
 - With the Waiting column on, it reads (never writes) files in your Claude Code folders under your home folder: `sessions/*.json` (with the `status` field: `"shell"` while a background command runs) and the transcript `projects/*/<session>.jsonl` of the Claude agents that show as Done or Idle. It runs `hc get <terminal> --json` for them. It reads a transcript again only when the agent changes turn, and every 30 seconds for an agent known to wait. Nothing leaves your computer.
