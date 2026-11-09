@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { fs, icon, avatar, AGENT_STATUS } from "./links.js";
+import { fs, icon, avatar, AGENT_STATUS, button } from "./links.js";
 
 // From this width the sidebar sits beside the conversation; narrower, its sections wrap above it.
 export const PAGE_WIDE = 700;
@@ -14,18 +14,11 @@ export function kit(t) {
   const k = {};
   k.kbd = (text, on = false) => div().px(4).rounded(4).border_1().border_b_2().border_color(on ? t.foreground + "55" : t.border)
     .text_size(fs.tiny - 1).text_color(on ? t.background : t.muted).child(text);
-  // `primary`: the page's main action, filled; `hint`: its key.
-  k.button = (id, label, onClick, o = {}) => h_flex().id(id).flex_none().gap(6).items_center().px(10).py(4).rounded(6).cursor_pointer().text_size(fs.meta)
-    .when(Boolean(o.primary), (e) => e.bg(t.ansi2).text_color(t.background).font_semibold().hover((s) => s.opacity(0.9)))
-    .when(!o.primary, (e) => e.border_1().border_color(t.border).hover((s) => s.bg(t.hover)))
-    .when(Boolean(o.icon), (e) => e.child(icon(o.icon, o.primary ? t.background : t.muted, 13)))
-    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-    .on_click((_e, cx) => onClick(cx)).child(label)
-    .when(Boolean(o.hint), (e) => e.child(k.kbd(o.hint, o.primary)));
-  k.arrow = (id, glyph, onClick, enabled) => div().id(id).w(22).h(20).flex_none().flex().items_center().justify_center().rounded(5)
-    .border_1().border_color(t.border).text_size(fs.meta).text_color(enabled ? t.muted : t.border)
-    .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => onClick(cx)))
-    .child(glyph);
+  // The kit's button (links.js). `primary`: the page's main action; `hint`: its key. The press must not drag the window.
+  k.button = (id, label, onClick, o = {}) => button(t, id, label, onClick, { kind: o.primary ? "primary" : "plain", icon: o.icon, hint: o.hint })
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
+  // ↑ and ↓ of a page dialog: small buttons of the kit.
+  k.arrow = (id, glyph, onClick, enabled) => button(t, id, glyph, onClick, { small: true, disabled: !enabled });
   // A state as GitHub shows it: a filled, rounded badge with an icon.
   k.badge = (label, color, iconName) => h_flex().flex_none().gap(5).items_center().px(10).py(2).rounded_full().bg(color)
     .text_color(t.background).text_size(fs.meta).font_semibold()
@@ -64,8 +57,7 @@ export function kit(t) {
     return h_flex().id(`agent-row-${n}`).gap(6).items_center().min_w(0).text_size(fs.meta)
       .child(div().size(8).flex_none().rounded_full().bg(t[c]))
       .child(v_flex().flex_1().min_w(0).child(div().truncate().child(a.name)).child(div().text_size(fs.tiny).text_color(t[c]).child(`${label} · ${a.mode === "work" ? "agent" : a.mode}`)))
-      .child(div().id(`go-${n}`).flex_none().px(8).py(2).rounded(5).border_1().border_color(t.border).text_size(fs.tiny).cursor_pointer()
-        .hover((s) => s.bg(t.hover)).on_click(() => go(a.id)).child("Go"));
+      .child(button(t, `go-${n}`, "Go", () => go(a.id), { small: true }));
   }))) : null);
   k.footer = (keys) => h_flex().flex_none().flex_wrap().gap(14).px(14).py(6).border_t_1().border_color(t.border).bg(t.surface).text_size(fs.tiny).text_color(t.muted)
     .children(keys.map(([ks, text]) => h_flex().gap(4).items_center().children(ks.map((x) => k.kbd(x))).child(text)));

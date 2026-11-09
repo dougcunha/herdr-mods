@@ -13,7 +13,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, theme, spaces, exec, run } from "herdr";
 import { spaceRepo, linkOf, saveLink, knownSites, detectGithub, openUrl } from "./links.js";
 import { credentials, myself, findProjects, cleanSite, call, TOKEN_PAGE, storeSignIn, removeSignIn, platform, STORE, validSite, trustedSite, trustSite } from "./jira-client.js";
-import { fs } from "./links.js";
+import { fs, button as kitButton, chip as kitChip, segmented } from "./links.js";
 
 const branchKey = (branch) => /\b([A-Z][A-Z0-9]{1,9})-\d+\b/.exec(branch ?? "")?.[1] ?? "";
 const WAIT = 350; // ms of no typing before a search runs
@@ -254,18 +254,10 @@ export class LinkDialog extends View {
     const label = (text) => div().text_size(fs.tiny).text_color(t.muted).child(text);
     const hint = (text, color) => div().text_size(fs.tiny).text_color(color ?? t.dim).child(text);
     const box = (state, focused) => div().px(8).py(5).rounded(6).border_1().border_color(focused ? t.accent : t.input).bg(t.background).child(Input.new(state));
-    const button = (id, text, kind, onClick) => h_flex().id(id).flex_none().gap(6).items_center().px(12).py(5).rounded(6).text_size(fs.meta).cursor_pointer()
-      .when(kind === "primary", (e) => e.bg(t.ansi2).text_color(t.background).font_semibold())
-      .when(kind === "blue", (e) => e.bg(t.accent).text_color(t.background).font_semibold())
-      .when(kind === "link", (e) => e.px(2).text_color(t.accent))
-      .when(!kind, (e) => e.border_1().border_color(t.border).bg(t.background))
-      .hover((s) => s.opacity(0.85)).on_click((_e, cx) => onClick(cx)).child(text);
-    const chip = (id, text, on, onClick) => div().id(id).px(9).py(1).rounded_full().text_size(fs.tiny).cursor_pointer()
-      .border_1().border_color(on ? t.accent : t.border).text_color(on ? t.accent : t.muted).when(on, (e) => e.bg(t.accent + "14"))
-      .hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)).child(text);
-    const seg = (id, options, current, pick) => h_flex().flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden().text_size(fs.meta)
-      .children(options.map(([value, text], n) => div().id(`${id}-${value}`).px(10).py(3).cursor_pointer().when(n > 0, (e) => e.border_l_1().border_color(t.border))
-        .when(current === value, (e) => e.bg(t.selected).font_semibold()).hover((s) => s.bg(t.hover)).on_click((_e, cx) => pick(value, cx)).child(text)));
+    // The buttons of the kit (links.js): "primary" and "blue" are the accent button, "link" a text link.
+    const button = (id, text, kind, onClick) => kitButton(t, id, text, onClick, { kind: kind === "primary" || kind === "blue" ? "primary" : kind === "link" ? "link" : "plain" });
+    const chip = (id, text, on, onClick) => kitChip(t, id, text, on, onClick);
+    const seg = (id, options, current, pick) => segmented(id, options, current, pick, t, false);
     const section = (n, title, right, body, dim) => v_flex().rounded(8).border_1().border_color(t.border).when(Boolean(dim), (e) => e.opacity(0.55))
       .child(h_flex().gap(8).items_center().px(12).py(8).border_b_1().border_color(t.border).text_size(fs.meta).font_semibold()
         .child(div().size(18).flex_none().rounded_full().bg(t.selected).flex().items_center().justify_center().text_size(fs.tiny - 1).text_color(t.muted).child(String(n)))

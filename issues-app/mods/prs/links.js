@@ -214,8 +214,7 @@ export function pageDialog(id, handle, page, on) {
       cx.stop_propagation();
     })
     .child(page)
-    .child(div().id(`${id}-close`).absolute().top(11).right(10).size(22).flex().items_center().justify_center().rounded(6).cursor_pointer()
-      .text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground)).on_click(() => close()).child("×"));
+    .child(div().absolute().top(8).right(8).child(iconButton(t, `${id}-close`, "x", () => close(), { tooltip: "Close (Esc)" })));
 }
 
 // The list with the page under it, in Herdr's own split: Herdr draws and drags the divider
@@ -241,8 +240,7 @@ export function splitView(id, list, page, open, close) {
     // × sits in the page's top-right corner, level with its title (the page has 14px padding).
     .child(resizable_panel().visible(open).size(s.size).size_range(160).child(div().relative().size_full().min_h(0).border_t_1().border_color(t.border)
       .child(page ?? div())
-      .child(div().id(`${id}-close`).absolute().top(11).right(10).size(22).flex().items_center().justify_center().rounded(6).cursor_pointer()
-        .text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => close(cx)).child("×"))));
+      .child(div().absolute().top(8).right(8).child(iconButton(t, `${id}-close`, "x", (cx) => close(cx), { tooltip: "Close" })))));
 }
 
 // One row per setting ({ key, label, choices: [[value, text]], fallback }), then Link space.
@@ -250,9 +248,7 @@ export function splitView(id, list, page, open, close) {
 // own. `space`: false leaves out Link space and Prompts (a mod without a space link).
 export function settingsMenu(mod, settings, space = true) {
   const t = theme();
-  const choice = (id, text, on, click) => div().id(id).px(8).py(3).rounded(5).text_size(12).cursor_pointer()
-    .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.selected))
-    .hover((s) => s.bg(t.hover)).on_click(click).child(text);
+  const choice = (id, text, on, click) => chip(t, id, text, on, click);
   const row = (d) => h_flex().min_h(28).gap(4).items_center().flex_wrap()
     .child(div().w(70).flex_none().text_size(11.5).text_color(t.muted).child(d.label))
     .children(d.choices.map(([value, text]) => choice(`${d.key}-${value}`, text, (d.get ? d.get() : d.key === "page" ? pageMode(mod) : pref(mod, d.key, d.fallback)) === value, () => (d.set ? d.set(value) : setPref(mod, d.key, value)))));
@@ -297,6 +293,8 @@ const LUCIDE = {
   closed: '<circle cx="6" cy="6" r="3"/><path d="M6 9v12"/><path d="m21 3-6 6"/><path d="m21 9-6-6"/><path d="M18 11.5V15"/><circle cx="18" cy="18" r="3"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
   pending: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
   circle: '<circle cx="12" cy="12" r="10"/>',
   done: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
@@ -384,16 +382,58 @@ export async function loadAvatars(logins, url) {
   return got;
 }
 
+// The buttons of the kit (the same look as ci-dash and git-dash): every button of these mods uses them.
+// A translucent version of a theme color. Non-hex colors pass through.
+export const tint = (color, alpha = "24") => (/^#[0-9a-f]{6}$/i.test(color || "") ? color + alpha : color);
+const SPIN = "mods/workspace-chrome/spinner.svg";
+
+// A square button that holds an icon (a name of LUCIDE). `spin` shows a spinner; `tooltip` is the hover label.
+export function iconButton(t, id, name, onClick, { active = false, disabled = false, spin = false, tooltip = "", size = 28 } = {}) {
+  const color = disabled ? t.dim : active || spin ? t.accent : t.muted;
+  return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded(7)
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .when(active, (e) => e.bg(tint(t.accent, "26")))
+    .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.bg(active ? tint(t.accent, "33") : t.hover)).on_click((_e, cx) => onClick(cx)))
+    .child(spin ? svg(SPIN).size(15).flex_none().text_color(color).spin(900) : icon(name, color, 15));
+}
+
+// A text button. kind: "primary" (accent), "plain" (border) or "link" (accent text only).
+// `icon`: a LUCIDE name before the label; `hint`: a key after it; `small`: the 24px card size.
+export function button(t, id, label, onClick, { kind = "plain", icon: name = "", hint = "", disabled = false, small = false, tooltip = "" } = {}) {
+  const primary = kind === "primary" && !disabled, link = kind === "link";
+  const color = disabled ? t.dim : primary || link ? t.accent : t.muted;
+  return h_flex().id(id).h(small ? 24 : 30).px(link ? 2 : small ? 9 : 14).gap(6).flex_none().items_center().rounded(small ? 6 : 8)
+    .text_size(small ? 11 : 12).font_semibold().text_color(color)
+    .when(!link, (e) => e.border_1().border_color(primary ? t.accent : t.border).bg(primary ? tint(t.accent, "26") : t.background))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .when(!disabled, (e) => e.cursor_pointer().hover((s) => (link ? s.opacity(0.8) : s.bg(primary ? tint(t.accent, "40") : t.hover))).on_click((_e, cx) => onClick(cx)))
+    .when(Boolean(name), (e) => e.child(icon(name, color, small ? 12 : 13)))
+    .child(label)
+    .when(Boolean(hint), (e) => e.child(div().px(4).rounded(4).border_1().border_color(primary ? tint(t.accent, "66") : t.border)
+      .text_size(fs.tiny - 1).font_weight(400).text_color(primary ? t.accent : t.dim).child(hint)));
+}
+
+// A choice that can be on or off (a preset, a mode): a rounded pill.
+export function chip(t, id, label, on, onClick) {
+  return h_flex().id(id).h(26).px(10).flex_none().items_center().rounded(13).text_size(12).cursor_pointer()
+    .border_1().border_color(on ? t.accent : t.border).bg(on ? tint(t.accent, "22") : t.background)
+    .text_color(on ? t.accent : t.muted).when(on, (e) => e.font_semibold())
+    .hover((s) => s.bg(on ? tint(t.accent, "33") : t.hover)).on_click((_e, cx) => onClick(cx)).child(label);
+}
+
 // One segmented control: "All" and the filters, one picked at a time.
 // `withAll`: an "All" choice (value null) comes first.
 export function segmented(id, options, current, pick, t, withAll = true) {
   const all = withAll ? [[null, "All"], ...options] : options;
-  return h_flex().flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden().text_size(fs.meta)
-    .children(all.map(([value, label], n) => div().id(`${id}-${value ?? "all"}`).px(9).py(2).cursor_pointer()
-      .when(n < all.length - 1, (e) => e.border_r_1().border_color(t.border))
-      .when(current === value, (e) => e.bg(t.selected).font_semibold())
-      .when(current !== value, (e) => e.text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground)))
-      .on_click((_e, cx) => { pick(value, cx); cx.notify(); }).child(label)));
+  return h_flex().id(id).flex_none().self_start().h(28).rounded(8).overflow_hidden().border_1().border_color(t.border)
+    .children(all.map(([value, label], n) => {
+      const on = current === value;
+      return div().id(`${id}-${value ?? "all"}`).h_full().px(12).flex().items_center().text_size(12).cursor_pointer()
+        .when(n > 0, (e) => e.border_l(1).border_color(t.border))
+        .bg(on ? tint(t.accent, "33") : t.background).text_color(on ? t.accent : t.muted).when(on, (e) => e.font_semibold())
+        .hover((s) => s.bg(on ? tint(t.accent, "33") : t.hover))
+        .on_click((_e, cx) => { pick(value, cx); cx.notify(); }).child(label);
+    }));
 }
 
 // Text sizes from Herdr's UI font size setting (13 by default): `body` for titles, `meta`

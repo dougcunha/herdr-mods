@@ -19,7 +19,7 @@ import { adfToMarkdown } from "./adf.js";
 import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
-import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog } from "./links.js";
+import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -582,9 +582,7 @@ export default class SpaceIssues extends View {
     // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
     const t = theme(), overlay = props()?.overlay, dock = inDockDialog(), wide = this.width >= WIDE;
     const { items, total, keyW } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36 };
-    const toggle = (id, label, on, flip) => div().id(id).px(8).py(2).flex_none().rounded(6).cursor_pointer().text_size(fs.meta)
-      .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.selected))
-      .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { flip(cx); cx.notify(); }).child(label);
+    const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const unlinked = !this.loading && !this.error && !this.projects.length;
     const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open issues.");
     const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
@@ -620,13 +618,9 @@ export default class SpaceIssues extends View {
       this.filter = id;
       if (this.filter === "mentioned" && !this.mentions && !this.mentionsLoading) this.loadMentions(cx);
     }, t));
-    // Refresh (Herdr's spinner while loading) and the cog for the settings: Herdr's own icons,
-    // since svg() can't read icons from a linked mod folder.
-    const iconButton = (id, glyph, click) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => click(cx)).child(glyph);
+    // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
-    const close = div().id("close").px(6).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
-      .on_click(() => closeOverlay(overlay)).child("×");
+    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close (Esc)" });
     return v_flex().id("issues").relative().overflow_hidden().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(fs.body)
       .on_size_change((size, cx) => { this.height = size.height; this.resized(Math.round(size.width), cx); })
       .track_focus(this.handle)
@@ -652,8 +646,8 @@ export default class SpaceIssues extends View {
           .when(!dock, (e) => e.child(div().flex_none().font_semibold().child("Issues")))
           .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.dim).truncate().child(this.loading && this.issues.length ? `${source} · Refreshing…` : source))
           .when(wide, (e) => e.child(search.w(220)))
-          .child(iconButton("refresh", this.loading ? svg(SPINNER).size(14).spin(900) : "↻", (cx) => this.refresh(cx)))
-          .child(iconButton("settings", svg(COG).size(14), () => openSettings("issues")))
+          .child(iconButton(t, "refresh", "refresh", (cx) => this.refresh(cx), { spin: this.loading, tooltip: "Refresh" }))
+          .child(iconButton(t, "settings", "settings", () => openSettings("issues"), { tooltip: "Link space and prompts" }))
           .when(Boolean(overlay) && !dock, (e) => e.child(close)))
         .when(!wide, (e) => e.child(search.w_full()))
         .child(filters))

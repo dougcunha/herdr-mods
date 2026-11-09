@@ -14,7 +14,7 @@ import { call } from "./jira-client.js";
 import { kit, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
-import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics, inDockDialog } from "./links.js";
+import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -568,9 +568,7 @@ export default class PullRequests extends View {
     // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
     const t = theme(), overlay = props()?.overlay, dock = inDockDialog();
     const { items } = this.items(), wide = this.width >= WIDE;
-    const toggle = (id, label, on, flip) => div().id(id).px(8).py(2).flex_none().rounded(6).cursor_pointer().text_size(fs.meta)
-      .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.selected))
-      .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { flip(cx); cx.notify(); }).child(label);
+    const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const empty = this.error || (this.loading ? "Loading pull requests…" : this.prs.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open pull requests.");
     const filters = h_flex().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", "Mentioned"], ["review", "Review requests"], ["recent", "Recent"]], this.filter, (id, cx) => {
       this.filter = id;
@@ -595,13 +593,9 @@ export default class PullRequests extends View {
       .when(!items.length, (e) => e.child(v_flex().p(12).gap(8).items_start()
         .child(div().text_color(this.error ? t.ansi1 : t.dim).child(empty))
         .when(this.unlinked, (e) => e.child(toggle("link-empty", "Link this space", false, () => openLinkDialog("prs"))))));
-    // Refresh (Herdr's spinner while loading) and the cog for the settings: Herdr's own icons,
-    // since svg() can't read icons from a linked mod folder.
-    const iconButton = (id, glyph, click) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => click(cx)).child(glyph);
+    // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
-    const close = div().id("close").px(6).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
-      .on_click(() => closeOverlay(overlay)).child("×");
+    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close (Esc)" });
     const inSplit = asSplit("prs"), full = pageMode("prs") === "full";
     return v_flex().id("prs").relative().overflow_hidden().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(fs.body)
       .on_size_change((size, cx) => { this.height = size.height; this.resized(Math.round(size.width), cx); })
@@ -628,8 +622,8 @@ export default class PullRequests extends View {
           .when(!dock, (e) => e.child(div().flex_none().font_semibold().child("Pull requests")))
           .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.dim).truncate().child(this.loading && this.prs.length ? `${this.where?.github ?? ""} · Refreshing…` : this.where?.github ?? ""))
           .when(wide, (e) => e.child(search.w(220)))
-          .child(iconButton("refresh", this.loading ? svg(SPINNER).size(14).spin(900) : "↻", (cx) => this.refresh(cx)))
-          .child(iconButton("settings", svg(COG).size(14), () => openSettings("prs")))
+          .child(iconButton(t, "refresh", "refresh", (cx) => this.refresh(cx), { spin: this.loading, tooltip: "Refresh" }))
+          .child(iconButton(t, "settings", "settings", () => openSettings("prs"), { tooltip: "Link space and prompts" }))
           .when(Boolean(overlay) && !dock, (e) => e.child(close)))
         .when(!wide, (e) => e.child(search.w_full()))
         .child(filters))

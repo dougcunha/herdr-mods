@@ -6,7 +6,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { ago } from "./data.js";
-import { fs, icon, kindColor, liveAgent, AGENT_STATUS, imagesAsLinks, openUrl } from "./links.js";
+import { fs, icon, kindColor, liveAgent, AGENT_STATUS, imagesAsLinks, openUrl, iconButton } from "./links.js";
 import { kit, pageLayout } from "./page-kit.js";
 
 const VERDICT = { APPROVED: ["approved", "check", "ansi2"], CHANGES_REQUESTED: ["changes requested", "x", "ansi1"], COMMENTED: ["commented", "comment", "muted"], DISMISSED: ["dismissed", "x", "dim"], REQUESTED: ["requested", "pending", "ansi3"] };
@@ -152,7 +152,7 @@ export function detail(pr, t, a) {
       .child(div().font_semibold().text_color(t.foreground).child(pr.author?.login ?? "?"))
       .child(pr.state === "MERGED" ? `merged ${commits}` : `wants to merge ${commits}`).when(Boolean(pr.baseRefName), (e) => e.child("into").child(k.code(pr.baseRefName)))
       .child("from").child(k.code(pr.headRefName ?? ""))
-      .child(div().id("copy-branch").cursor_pointer().rounded(4).p(2).hover((s) => s.bg(t.hover)).on_click((_e, cx) => a.copyBranch(cx)).child(icon("copy", t.muted, 13))),
+      .child(iconButton(t, "copy-branch", "copy", (cx) => a.copyBranch(cx), { size: 24, tooltip: "Copy the branch name" })),
     tabs: k.tabs(tab, [["conversation", "Conversation", loading ? null : pr.commentCount], ["checks", "Checks", loading ? null : checks.length], ["files", "Files", loading ? null : pr.changedFiles ?? files.length]], a.pickTab),
     main: loading ? [div().p(10).text_color(a.error ? t.ansi1 : t.dim).child(a.error ?? "Loading the description, checks and conversation…")]
       : tab === "checks" ? checksTab() : tab === "files" ? filesTab() : conversationTab(),

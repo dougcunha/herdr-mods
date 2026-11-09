@@ -15,7 +15,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, home as localHome, window as appWindow } from "herdr";
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
-import { fs, icon, kindColor, avatar, spaceRepo } from "./links.js";
+import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented } from "./links.js";
 import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
@@ -42,18 +42,10 @@ async function git(cwd, args, on) {
 function parts(t) {
   const label = (text) => div().text_size(fs.tiny).text_color(t.muted).child(text);
   const hint = (text, color) => div().text_size(fs.tiny).text_color(color ?? t.dim).child(text);
-  const button = (id, text, kind, enabled, onClick) => h_flex().id(id).flex_none().gap(6).items_center().px(12).py(5).rounded(6).text_size(fs.meta)
-    .when(kind === "primary", (e) => e.bg(enabled ? t.ansi2 : t.raised).text_color(enabled ? t.background : t.dim).font_semibold())
-    .when(kind === "link", (e) => e.px(2).text_color(t.accent))
-    .when(!kind, (e) => e.border_1().border_color(t.border).bg(t.background))
-    .when(enabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.85)).on_click((_e, cx) => onClick(cx)))
-    .child(text);
-  const seg = (id, options, current, pick) => h_flex().flex_none().rounded(6).border_1().border_color(t.border).overflow_hidden().text_size(fs.meta)
-    .children(options.map(([value, text], n) => div().id(`${id}-${value}`).px(10).py(3).cursor_pointer().when(n > 0, (e) => e.border_l_1().border_color(t.border))
-      .when(current === value, (e) => e.bg(t.selected).font_semibold()).hover((s) => s.bg(t.hover)).on_click((_e, cx) => pick(value, cx)).child(text)));
-  const chip = (id, text, on, onClick) => div().id(id).px(9).py(1).rounded_full().text_size(fs.tiny).cursor_pointer()
-    .border_1().border_color(on ? t.accent : t.border).text_color(on ? t.accent : t.muted).when(on, (e) => e.bg(t.accent + "14"))
-    .hover((s) => s.bg(t.hover)).on_click((_e, cx) => onClick(cx)).child(text);
+  // The buttons of the kit (links.js).
+  const button = (id, text, kind, enabled, onClick) => kitButton(t, id, text, onClick, { kind: kind === "primary" ? "primary" : kind === "link" ? "link" : "plain", disabled: !enabled });
+  const seg = (id, options, current, pick) => segmented(id, options, current, pick, t, false);
+  const chip = (id, text, on, onClick) => kitChip(t, id, text, on, onClick);
   const header = (title, sub) => v_flex().flex_none().gap(3).px(16).pt(14).pb(12).border_b_1().border_color(t.border)
     .child(div().font_semibold().text_size(fs.title + 1).child(title)).child(sub);
   const footer = (children) => h_flex().flex_none().px(16).py(10).gap(8).items_center().border_t_1().border_color(t.border).bg(t.surface).children(children);
