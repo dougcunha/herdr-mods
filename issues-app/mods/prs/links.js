@@ -154,23 +154,34 @@ export function openPromptsDialog(mod) {
   openOverlay({ mod, kind: "dialog", width: 680, height: 620, props: { dialog: "prompts", mod, kind: mod === "prs" ? "pr" : "issue", space: space?.id ?? null } });
 }
 
-// A list's own choices, set with the cog in its header and kept in shared("mod-settings")
-// by mod: { page?, order? }.
+// A list's own choices, set in the Settings tab of mods-hub (kit.json) and kept in 1 shared key
+// each: "issues.order", "issues.page", "prs.page". Read on every render, so a change shows at once.
+// The Start agent templates (Prompts… in the cog) use the same scheme: "issues.prompts", "prs.prompts".
+export const pref = (mod, key, fallback) => shared(`${mod}.${key}`) ?? fallback;
+// Herdr Ranch kept them in shared("mod-settings")[mod]: migrateSettings moves them once.
 const PREFS = "mod-settings";
-export const pref = (mod, key, fallback) => shared(PREFS)?.[mod]?.[key] ?? fallback;
 
-// The lists were herdr-ranch-issues and herdr-ranch-prs in Herdr Ranch: their settings move over once.
+// True when this copy is the panel of a dialog of the dock (tabs-dock or kanban keep the id of that
+// dialog in shared("kanban.panelDialog")). The dialog has its own title row with the name and ×.
+export const inDockDialog = () => { const o = props()?.overlay; return Boolean(o) && shared("kanban.panelDialog")?.id === o; };
+
+// The lists were herdr-ranch-issues and herdr-ranch-prs in Herdr Ranch: their settings in
+// shared("mod-settings") (under the old or the new name) move to the kit keys once, then go.
 const OLD_NAMES = { "issues": "herdr-ranch-issues", "prs": "herdr-ranch-prs" };
+const KEYS = ["page", "order", "prompts"];
 export function migrateSettings(mod) {
   const all = shared(PREFS) ?? {}, old = OLD_NAMES[mod];
-  if (old && all[old] && !all[mod]) setShared(PREFS, { ...all, [mod]: all[old] });
+  const from = { ...(old ? all[old] : null), ...all[mod] };
+  for (const k of KEYS) if (from[k] != null && shared(`${mod}.${k}`) == null) setShared(`${mod}.${k}`, from[k]);
+  if ((old && all[old]) || all[mod]) {
+    const { [mod]: _a, ...rest } = all;
+    const left = old ? (({ [old]: _b, ...r }) => r)(rest) : rest;
+    setShared(PREFS, Object.keys(left).length ? left : null);
+  }
   const badges = shared("mod-badges");
   if (old && badges?.[old]) { const { [old]: _gone, ...rest } = badges; setShared("mod-badges", rest); }
 }
-export const setPref = (mod, key, value) => {
-  const all = shared(PREFS) ?? {};
-  setShared(PREFS, { ...all, [mod]: { ...all[mod], [key]: value } });
-};
+export const setPref = (mod, key, value) => setShared(`${mod}.${key}`, value);
 
 // The cog opens the mod itself as a popup with props.settings; its render returns settingsMenu.
 export const openSettings = (mod) => openOverlay({ mod, kind: "popup", width: 280, props: { settings: true } });

@@ -1,5 +1,27 @@
 {
   "app": "issues-app",
   "description": "The pull requests of the shown space, grouped by what each one waits for, with checks, files and an agent review. Needs gh. Based on Herdr Ranch.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
+  "settings": [
+    {
+      "id": "page",
+      "type": "enum",
+      "key": "prs.page",
+      "default": "overlay",
+      "label": "Page",
+      "hint": "Where a pull request opens. Overlay: in a dialog over the window. Split: under the list. Full: in the place of the list.",
+      "options": [
+        { "value": "overlay", "label": "Overlay" },
+        { "value": "split", "label": "Split" },
+        { "value": "full", "label": "Full" }
+      ]
+    },
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:prs",
+      "label": "Shortcut",
+      "hint": "Opens the Pull Requests window. Saved in keys.json."
+    }
+  ]
 }

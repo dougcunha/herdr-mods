@@ -2,7 +2,7 @@
 // A template comes from, first that has it: the repository's `.herdr/prompts.md` (a
 // `## <mode label>` section per mode, so a team shares them in git) once the person approved
 // that exact file (a repository shouldn't steer an agent unseen), the person's own (cog,
-// Prompts…, kept in shared("mod-settings") with the list's other settings), the defaults below.
+// Prompts…, kept in shared("<mod>.prompts")), the defaults below.
 // Source: the repository's shared/, copied into each mod.
 
 import { exec, readTextFile, shared, setShared } from "herdr";

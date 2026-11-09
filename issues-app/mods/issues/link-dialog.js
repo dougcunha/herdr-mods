@@ -14,7 +14,6 @@ import { props, closeOverlay, theme, spaces, exec, run } from "herdr";
 import { spaceRepo, linkOf, saveLink, knownSites, detectGithub, openUrl } from "./links.js";
 import { credentials, myself, findProjects, cleanSite, call, TOKEN_PAGE, storeSignIn, removeSignIn, platform, STORE, validSite, trustedSite, trustSite } from "./jira-client.js";
 import { fs } from "./links.js";
-import { linearKey, viewer as linearViewer, findTeams, connectLinear, disconnectLinear, KEY_PAGE as LINEAR_KEY_PAGE } from "./linear-client.js";
 
 const branchKey = (branch) => /\b([A-Z][A-Z0-9]{1,9})-\d+\b/.exec(branch ?? "")?.[1] ?? "";
 const WAIT = 350; // ms of no typing before a search runs
@@ -22,8 +21,6 @@ const DEFAULT_FILTER = "sprint in openSprints()";
 const GUIDE = "https://github.com/jslowack/herdr-ranch/blob/main/docs/connect-jira.md";
 // The filter presets; anything else is custom JQL.
 const norm = (jql) => (jql ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-// Linear's presets: the active cycle, every open issue, mine.
-const LINEAR_PRESETS = [["", "All open"], ["cycle", "Active cycle"], ["mine", "Assigned to me"]];
 const PRESETS = [["sprint", "Current sprint", DEFAULT_FILTER], ["open", "All open", ""], ["mine", "Assigned to me", "assignee = currentUser()"]];
 
 export class LinkDialog extends View {
@@ -40,12 +37,6 @@ export class LinkDialog extends View {
     this.token = InputState.new({ placeholder: "Paste a classic API token" });
     try { this.token.set_masked(true); } catch { /* shown as typed */ }
     this.connecting = false; this.connectError = ""; this.showForm = false; this.custom = false; this.ghLogin = null;
-    // Linear: the key's state, the team search and the chosen team and preset.
-    this.lin = { state: "checking" }; this.linKey = InputState.new({ placeholder: "lin_api_…" });
-    try { this.linKey.set_masked(true); } catch { /* shown as typed */ }
-    this.linTeam = InputState.new({ placeholder: "Search teams" }); this.teams = []; this.linChosen = null; this.linFilter = ""; this.linOpen = false; this.linForm = false; this.linError = "";
-    this.linTeam.on("change", (_e, cx) => { if (!typed("linTeam", this.linTeam)) return; this.linChosen = null; this.linOpen = true; this.debounce("linTeam", cx); });
-    this.linTeam.on("focus", (_e, cx) => { this.linOpen = true; cx.notify(); });
     this.handle = cx.focus_handle();
 
     // GitHub suggestions: your repositories once, then `gh search repos` as you type.
@@ -81,9 +72,8 @@ export class LinkDialog extends View {
       this.custom = !PRESETS.some(([, , q]) => norm(q) === norm(this.filter.value()));
       const mail = this.repo ? await exec("git", ["-C", this.repo.main, "config", "user.email"], { on: this.repo.on }).catch(() => null) : null;
       if (mail?.code === 0) this.email.set_value(mail.stdout.trim());
-      this.issues = link.issues ?? (link.jira ? "jira" : this.guess ? "jira" : "github");
-      if (link.linear?.teamId) { this.linChosen = { id: link.linear.teamId, key: link.linear.key, name: link.linear.name ?? "" }; this.set("linTeam", this.linTeam, link.linear.key); this.linFilter = link.linear.filter ?? ""; }
-      this.checkLinear(cx);
+      // A link of Herdr Ranch can say `issues: "linear"`: this kit reads only Jira and GitHub.
+      this.issues = link.issues === "github" ? "github" : link.jira || this.guess ? "jira" : "github";
       this.ghOpen = false; this.jiraOpen = false;
       this.checkSite(cx);
       cx.notify();
@@ -112,7 +102,6 @@ export class LinkDialog extends View {
       if (what === "github") this.searchGithub(cx);
       if (what === "site") this.checkSite(cx, true);
       if (what === "project") this.searchProjects(cx);
-      if (what === "linTeam") this.searchTeams(cx);
     });
   }
 
@@ -196,40 +185,6 @@ export class LinkDialog extends View {
     });
   }
 
-  // Whether a Linear key is set and works; then the first teams.
-  checkLinear(cx) {
-    this.lin = { state: "checking" }; cx.notify();
-    cx.spawn(async (cx) => {
-      try {
-        const k = await linearKey();
-        if (!k) this.lin = { state: "out" };
-        else { const me = await linearViewer(); this.lin = { state: "in", who: me?.name ?? me?.email ?? "you", from: k.from }; this.searchTeams(cx); }
-      } catch (e) { this.lin = { state: e?.status === 401 ? "refused" : "error", message: String(e?.message ?? e) }; }
-      cx.notify();
-    });
-  }
-
-  searchTeams(cx) {
-    if (this.lin.state !== "in") return;
-    const q = this.linTeam.value().trim();
-    cx.spawn(async (cx) => {
-      try { const found = await findTeams(q); if (this.linTeam.value().trim() === q) { this.teams = found.slice(0, 8); cx.notify(); } }
-      catch (e) { this.linError = String(e?.message ?? e); cx.notify(); }
-    });
-  }
-
-  connectLinear(cx) {
-    const token = this.linKey.value().trim();
-    if (!token) { this.linError = "Paste a personal API key."; cx.notify(); return; }
-    if (this.connecting) return;
-    this.connecting = true; this.linError = ""; cx.notify();
-    cx.spawn(async (cx) => {
-      try { await connectLinear(token); this.linKey.set_value(""); this.linForm = false; this.checkLinear(cx); }
-      catch (e) { this.linError = e?.status === 401 ? "Linear doesn't accept this key." : String(e?.message ?? e); }
-      this.connecting = false; cx.notify();
-    });
-  }
-
   disconnect(cx) {
     const site = cleanSite(this.site.value());
     cx.spawn(async (cx) => { await removeSignIn(site); this.showForm = true; this.checkSite(cx); });
@@ -253,14 +208,12 @@ export class LinkDialog extends View {
     if (site && !validSite(site)) { this.error = "Jira site: a host name, e.g. example.atlassian.net."; cx.notify(); return; }
     if (site) trustSite(site);
     if (key && !/^[A-Z][A-Z0-9_]+$/.test(key)) { this.error = "Pick a project from the list, or type its key."; cx.notify(); return; }
-    const ghFilter = this.ghFilter.value().trim(), fromGithub = this.issues === "github", fromLinear = this.issues === "linear";
-    if (fromLinear && !this.linChosen) { this.error = "Pick a Linear team."; cx.notify(); return; }
+    const ghFilter = this.ghFilter.value().trim(), fromGithub = this.issues === "github";
     const store = () => {
       saveLink(this.space, this.repo, {
         ...(github ? { github } : {}),
         ...(site ? { jira: { site, key, ...(filter ? { filter } : {}) } } : {}),
         ...(fromGithub ? { issues: "github" } : {}),
-        ...(fromLinear ? { issues: "linear", linear: { teamId: this.linChosen.id, key: this.linChosen.key, name: this.linChosen.name, ...(this.linFilter ? { filter: this.linFilter } : {}) } } : {}),
         ...(ghFilter ? { issuesFilter: ghFilter } : {}),
       });
       this.close();
@@ -354,28 +307,9 @@ export class LinkDialog extends View {
         .when(signedIn, (e) => e.child(button("disconnect", "Remove sign-in", null, (cx) => this.disconnect(cx))))
         .child(button("connect", this.connecting ? "Testing…" : "Connect", "blue", (cx) => this.connect(cx))));
 
-    // Linear: the key's state and a Connect form, like Jira's.
-    const L = this.lin;
-    const linStatus = L.state === "checking" ? status(t.dim, t.surface, "Checking the Linear key…")
-      : L.state === "in" ? status(t.ansi2, t.ansi2 + "1a", h_flex().gap(4).child("Connected to Linear as").child(div().font_semibold().child(L.who)),
-        h_flex().gap(6).items_center().child(hint(L.from, t.ansi2)).child(button("lin-change", this.linForm ? "Hide" : "Change", "link", (cx) => { this.linForm = !this.linForm; cx.notify(); })))
-      : L.state === "refused" ? status(t.ansi1, t.ansi1 + "14", "Linear doesn't accept the stored key: connect again.")
-      : L.state === "error" ? status(t.ansi1, t.ansi1 + "14", L.message)
-      : status(t.muted, t.surface, "No Linear key yet");
-    const linearBody = v_flex().gap(8).child(linStatus)
-      .when(L.state !== "in" || this.linForm, (e) => e.child(v_flex().gap(8).p(10).rounded(8).border_1().border_color(t.border).bg(t.surface)
-        .child(v_flex().gap(4)
-          .child(h_flex().child(div().flex_1().child(label("Personal API key"))).child(button("lin-key-page", "Create a key ↗", "link", () => openUrl(LINEAR_KEY_PAGE))))
-          .child(box(this.linKey, false)))
-        .when(Boolean(this.linError), (e) => e.child(hint(this.linError, t.ansi1)))
-        .child(hint(`Tested against Linear, then stored in ${STORE[os]}. Never in Herdr's settings.`))
-        .child(h_flex().gap(8).items_center().justify_end()
-          .when(L.state === "in", (e) => e.child(button("lin-disconnect", "Remove key", null, (cx) => cx.spawn(async (cx) => { await disconnectLinear(); this.linForm = true; this.checkLinear(cx); }))))
-          .child(button("lin-connect", this.connecting ? "Testing…" : "Connect", "blue", (cx) => this.connectLinear(cx))))));
-
     return v_flex().id("space-link").size_full().text_size(fs.body).text_color(t.foreground).bg(t.background).track_focus(this.handle)
       .on_key_down((e, cx) => {
-        if (e.key === "escape") { if (this.ghOpen || this.jiraOpen || this.linOpen) { this.ghOpen = false; this.jiraOpen = false; this.linOpen = false; cx.notify(); } else this.close(); cx.stop_propagation(); }
+        if (e.key === "escape") { if (this.ghOpen || this.jiraOpen) { this.ghOpen = false; this.jiraOpen = false; cx.notify(); } else this.close(); cx.stop_propagation(); }
         if (e.key === "enter" && (e.modifiers?.platform || e.modifiers?.control)) { this.save(cx); cx.stop_propagation(); }
       })
       .child(v_flex().flex_none().gap(3).px(16).pt(14).pb(12).border_b_1().border_color(t.border)
@@ -392,23 +326,14 @@ export class LinkDialog extends View {
           .child(this.ghSignedOut ? hint("gh is not signed in: run `gh auth login` in a terminal, then reopen this dialog.", t.ansi1)
             : h_flex().gap(6).items_center().child(div().size(8).rounded_full().bg(this.ghLogin ? t.ansi2 : t.dim))
               .child(hint(this.ghLogin ? `gh is signed in as ${this.ghLogin} · empty uses the folder's remote` : "Empty uses the folder's remote")))))
-        .child(section(2, "Issues from", seg("issues", [["jira", "Jira"], ["linear", "Linear"], ["github", "GitHub"]], this.issues, (v, cx) => { this.issues = v; cx.notify(); }),
+        .child(section(2, "Issues from", seg("issues", [["jira", "Jira"], ["github", "GitHub"]], this.issues, (v, cx) => { this.issues = v; cx.notify(); }),
           jira ? v_flex().gap(8)
             .child(v_flex().gap(4).child(label("Jira site")).child(box(this.site, false)))
             .when(Boolean(jiraStatus), (e) => e.child(jiraStatus))
             .when(Boolean(showForm), (e) => e.child(form))
-          : this.issues === "linear" ? linearBody
           : v_flex().gap(4).child(label("GitHub issue filter (optional)")).child(box(this.ghFilter, false))
             .child(hint("GitHub search, e.g. label:bug milestone:v2"))
             .when(Boolean(this.ghFilterError), (e) => e.child(hint(this.ghFilterError, t.ansi1)))))
-        .when(this.issues === "linear", (e) => e.child(section(3, "Team and filter", null, v_flex().gap(10)
-          .child(v_flex().gap(4).child(label("Team")).child(box(this.linTeam, this.linOpen))
-            .when(this.linOpen && this.teams.length > 0, (e) => e.child(suggestions("lin", this.teams.map((tm) => [tm.id, tm.key, tm.name, (cx) => {
-              this.linChosen = tm; this.linOpen = false; this.set("linTeam", this.linTeam, tm.key); this.seq.linTeam = (this.seq.linTeam ?? 0) + 1; cx.notify();
-            }]))))
-            .child(hint(this.linChosen?.name ? this.linChosen.name : this.lin.state === "in" ? "Type to search your teams." : "Connect first to search teams.")))
-          .child(v_flex().gap(4).child(label("Show"))
-            .child(h_flex().gap(6).flex_wrap().children(LINEAR_PRESETS.map(([v, text]) => chip(`lf-${v || "all"}`, text, this.linFilter === v, (cx) => { this.linFilter = v; cx.notify(); }))))), this.lin.state !== "in")))
         .when(jira, (e) => e.child(section(3, "Project and filter", null, v_flex().gap(10)
           .child(v_flex().gap(4)
             .child(label("Project"))
@@ -424,7 +349,7 @@ export class LinkDialog extends View {
             .when(Boolean(this.filterError), (e) => e.child(hint(this.filterError, t.ansi1)))), !site)))
         .when(Boolean(this.error), (e) => e.child(div().text_size(fs.meta).text_color(t.ansi1).child(this.error))))
       .child(h_flex().flex_none().px(16).py(10).gap(8).items_center().border_t_1().border_color(t.border).bg(t.surface)
-        .child(button("guide", "How to connect ↗", "link", () => openUrl(this.issues === "linear" ? "https://github.com/jslowack/herdr-ranch#connect-linear" : this.issues === "github" ? "https://github.com/jslowack/herdr-ranch#link-a-space" : GUIDE)))
+        .child(button("guide", "How to connect ↗", "link", () => openUrl(this.issues === "github" ? "https://github.com/jslowack/herdr-ranch#link-a-space" : GUIDE)))
         .child(div().flex_1())
         .child(button("cancel", "Cancel", null, () => this.close()))
         .child(button("save", this.saving ? "Checking the filter…" : "Save  ⌘↵", "primary", (cx) => this.save(cx))));

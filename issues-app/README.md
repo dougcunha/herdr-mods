@@ -4,10 +4,10 @@
 
 2 mods for the Herdr app that show the work of the shown space next to its terminals and agents:
 
-- **`issues`**: the issues of the space from Jira Cloud, GitHub or Linear. Each issue opens as a page. **Start agent** opens a coding agent on the issue in a new git worktree and space.
+- **`issues`**: the issues of the space from Jira Cloud or GitHub. Each issue opens as a page. **Start agent** opens a coding agent on the issue in a new git worktree and space.
 - **`prs`**: the pull requests of the space, grouped by what each one waits for (review requested, yours to fix, ready to merge). Each pull request opens as a page with its checks, files and a merge box. **Agent review** checks it out, builds, tests and reports.
 
-Both mods only read. They write nothing to Jira, Linear or GitHub. **Start agent** makes a local worktree and branch, and pushes nothing.
+Both mods only read. They write nothing to Jira or GitHub. **Start agent** makes a local worktree and branch, and pushes nothing.
 
 ## Credits
 
@@ -15,9 +15,12 @@ These mods are a copy of `herdr-ranch-issues` and `herdr-ranch-prs` of [Herdr Ra
 
 The changes of this kit:
 
-- The mods are called `issues` and `prs`. The settings of the cog move over from the old names once.
+- The mods are called `issues` and `prs`.
+- The settings (**Order**, **Page** and the shortcut) are in the **Settings** tab of **Herdr Mods**, not in the cog. The cog keeps **Link space…** and **Prompts…**. Your settings of Herdr Ranch move over once.
 - The kit updates the mods (**Herdr Mods**), so the update check of Herdr Ranch and its **Update** button are gone.
 - The mods are Dock panels (`dock/panels.json`), not buttons of the `mod-buttons` layout. The **Opens in** setting is gone.
+- In a dialog of the Dock, the header of the list does not repeat the name and the × of the dialog, and Esc closes the dialog also after a click in the header.
+- No Linear: the issues come from Jira Cloud or GitHub.
 - On Windows, **Connect** in **Link space** stored the token but showed "The credential store refused it". Fixed.
 - The **Mods** tab of Herdr Mods can turn each mod off.
 - The `herdr-ranch-reviews` mod is not part of the kit: it runs Unix programs only.
@@ -45,7 +48,7 @@ The setup prompt of this repository installs the mods (item `issues-app`). By ha
    "mod:prs": { "ctrl-r": "prs.refresh", "ctrl-o": "prs.browser" }
    ```
 
-**Needs:** [`gh`](https://cli.github.com) signed in, and `git`. `curl` for the avatars of the pull requests. A Jira Cloud site (`*.atlassian.net`) with a classic API token, or a Linear API key, only if you use them.
+**Needs:** [`gh`](https://cli.github.com) signed in, and `git`. `curl` for the avatars of the pull requests. A Jira Cloud site (`*.atlassian.net`) with a classic API token, only if you use Jira.
 
 ## Connect Jira
 
@@ -60,7 +63,7 @@ The token goes to the credential store of the system (Windows Credential Manager
 
 - `git` and `gh` in the folder of the space.
 - `curl` for the avatars, `powershell` (Windows), `security` (macOS) or `secret-tool` (Linux) for the token.
-- Network: your Jira site, `api.linear.app` and GitHub (through `gh`).
+- Network: your Jira site and GitHub (through `gh`).
 - Files: `~/.config/herdr-app/data/issues-app/` (icons, avatars and, for a moment, the token before it goes to the credential store).
 
 More: [RECIPE.md](RECIPE.md).

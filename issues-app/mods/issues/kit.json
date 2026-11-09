@@ -1,5 +1,39 @@
 {
   "app": "issues-app",
-  "description": "The issues of the shown space from Jira Cloud, GitHub or Linear, with a page for each issue and a button that starts an agent on it in a new worktree. Based on Herdr Ranch.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app"
+  "description": "The issues of the shown space from Jira Cloud or GitHub, with a page for each issue and a button that starts an agent on it in a new worktree. Based on Herdr Ranch.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
+  "settings": [
+    {
+      "id": "order",
+      "type": "enum",
+      "key": "issues.order",
+      "default": "priority",
+      "label": "Order",
+      "hint": "By priority: the issues in groups by priority. Backlog order: the order of the Jira backlog.",
+      "options": [
+        { "value": "priority", "label": "By priority" },
+        { "value": "backlog", "label": "Backlog order" }
+      ]
+    },
+    {
+      "id": "page",
+      "type": "enum",
+      "key": "issues.page",
+      "default": "overlay",
+      "label": "Page",
+      "hint": "Where an issue opens. Overlay: in a dialog over the window. Split: under the list. Full: in the place of the list.",
+      "options": [
+        { "value": "overlay", "label": "Overlay" },
+        { "value": "split", "label": "Split" },
+        { "value": "full", "label": "Full" }
+      ]
+    },
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:issues",
+      "label": "Shortcut",
+      "hint": "Opens the Issues window. Saved in keys.json."
+    }
+  ]
 }

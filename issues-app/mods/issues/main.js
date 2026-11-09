@@ -14,13 +14,12 @@ import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, spa
 import { fileLinks, suggestKey, search, issue, myself, watched } from "./jira.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
-import * as linear from "./linear.js";
 import { rows, haystack, words, matches, ago, hash, slug } from "./rows.js";
 import { adfToMarkdown } from "./adf.js";
 import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
-import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks } from "./links.js";
+import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -31,13 +30,11 @@ const SPINNER = "mods/workspace-chrome/spinner.svg", COG = "mods/workspace-chrom
 const WEEK = 7 * 24 * 3600 * 1000, WIDE = 720, ROOMY = 520, PAGES = 30, COMMENTS = 10, SHOWN = 300;
 const browse = (i) => i.url ?? `https://${i.site}/browse/${i.key}`;
 const isGithub = (x) => x?.provider === "github";
-const isLinear = (x) => x?.provider === "linear";
 const where = (repo, p) => ({ cwd: repo?.main, on: repo?.on, github: p.repo });
 // Jira descriptions and comments are ADF, GitHub's are Markdown already.
 const text = (body) => (typeof body === "string" ? body : adfToMarkdown(body));
-const home = (i) => (isGithub(i) ? "GitHub" : isLinear(i) ? "Linear" : "Jira");
-// The settings in the header's cog: the list's order and where a page opens.
-const ORDER = { key: "order", label: "Order", choices: [["priority", "By priority"], ["backlog", "Backlog order"]], fallback: "priority" };
+const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
+// The settings (Settings tab of Herdr Mods): the list's order (shared "issues.order") and where a page opens ("issues.page").
 const split = () => asSplit("issues");
 const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priority");
 // The list's space and every link: either changing means another project.
@@ -79,7 +76,6 @@ const short = (text) => {
 async function projects(c) {
   const gh = c.github && { provider: "github", repo: c.github, site: github.SITE, key: c.github, filter: c.link.issuesFilter };
   if (c.link.issues === "github" && gh) return { from: "link", projects: [gh] };
-  if (c.link.issues === "linear" && c.link.linear?.teamId) return { from: "link", projects: [{ provider: "linear", site: linear.SITE, ...c.link.linear }] };
   if (c.link.jira) return { from: "link", projects: [c.link.jira] };
   if (!c.repo) return { from: gh ? "repo" : null, projects: gh ? [gh] : [] };
   const file = await fileLinks(c.repo);
@@ -218,10 +214,6 @@ export default class SpaceIssues extends View {
             this.me[p.site] ??= await github.me(where(c.repo, p));
             return github.search(p, where(c.repo, p));
           }
-          if (isLinear(p)) {
-            this.me[p.site] ??= await linear.me();
-            return linear.search(p, order());
-          }
           this.me[p.site] ??= (await myself(p.site)).accountId;
           return search(p, order());
         }));
@@ -238,7 +230,7 @@ export default class SpaceIssues extends View {
         if (!current()) return;
         this.error = String(e?.message ?? e);
         // 401: no sign-in, or one Jira refuses (an expired or a scoped token).
-        this.signIn = e?.status === 401 ? e.site ?? (this.projects.some(isLinear) ? linear.SITE : this.projects[0]?.site) : null;
+        this.signIn = e?.status === 401 ? e.site ?? this.projects[0]?.site : null;
       }
       finally { if (current()) { this.loading = false; cx.notify(); } }
     });
@@ -255,7 +247,7 @@ export default class SpaceIssues extends View {
     this.mentionsLoading = true;
     cx.spawn(async (cx) => {
       try {
-        const keys = (await Promise.all(projects.map((p) => (isGithub(p) ? github.mentioned(p, where(repo, p)) : isLinear(p) ? linear.watched(p) : watched(p))))).flat();
+        const keys = (await Promise.all(projects.map((p) => (isGithub(p) ? github.mentioned(p, where(repo, p)) : watched(p))))).flat();
         if (seq === this.mentionsSeq && context === this.context) { this.mentions = new Set(keys); this.mentionsVersion++; }
       } catch (e) { if (seq === this.mentionsSeq && context === this.context) this.error = String(e?.message ?? e); }
       finally { if (seq === this.mentionsSeq) { this.mentionsLoading = false; cx.notify(); } }
@@ -316,11 +308,10 @@ export default class SpaceIssues extends View {
   async fetchPage(i) {
     // Jira names no pull requests: the space's repository is searched for the key.
     const [page, prs] = await Promise.all([
-      isGithub(i) ? github.issue(i, where(this.repo, i)) : isLinear(i) ? linear.issue(i) : issue(i.site, i.key),
+      isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key),
       !isGithub(i) && this.github ? github.prsFor(i.key, this.github, where(this.repo, { repo: this.github })).catch(() => []) : null,
     ]);
-    // Linear names its pull requests itself (GitHub attachments); else the search's.
-    if (prs && !(isLinear(i) && page.prs?.length)) page.prs = prs;
+    if (prs) page.prs = prs;
     // Converted once here, not on every render (Herdr renders on any live change): the
     // description, then comments and events in time order.
     const comments = page.fields.comment?.comments ?? [];
@@ -575,7 +566,8 @@ export default class SpaceIssues extends View {
         width: (w, cx) => { const was = this.pageW >= PAGE_WIDE; this.pageW = w; if (was !== (w >= PAGE_WIDE)) cx.notify(this.pageView); },
       });
     }
-    if (props()?.settings) return settingsMenu("issues", [ORDER, PAGE]);
+    // Order and Page are in the Settings tab of Herdr Mods (kit.json): the cog keeps Link space and Prompts.
+    if (props()?.settings) return settingsMenu("issues", []);
     // A space switch shows that space's list in this very render, and loads it right after.
     const space = this.space();
     if ((space?.id ?? null) !== this.spaceId) {
@@ -587,14 +579,15 @@ export default class SpaceIssues extends View {
       this.wasSplit = inSplit;
       if (this.open) try { cx.timer.after(0, (cx) => cx.notify(this.pageView)); } catch { /* shown on the next page change */ }
     }
-    const t = theme(), overlay = props()?.overlay, wide = this.width >= WIDE;
+    // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
+    const t = theme(), overlay = props()?.overlay, dock = inDockDialog(), wide = this.width >= WIDE;
     const { items, total, keyW } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36 };
     const toggle = (id, label, on, flip) => div().id(id).px(8).py(2).flex_none().rounded(6).cursor_pointer().text_size(fs.meta)
       .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.selected))
       .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { flip(cx); cx.notify(); }).child(label);
     const unlinked = !this.loading && !this.error && !this.projects.length;
-    const empty = this.signIn === linear.SITE ? "Linear needs an API key: connect it in Link space." : this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project, a Linear team or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.projects.some((p) => isLinear(p) && p.filter === "cycle") ? "No open issues in the active cycle. Link space can show all open ones." : this.projects.some((p) => isLinear(p) && p.filter === "mine") ? "No open issues assigned to you. Link space can show all open ones." : "No open issues.");
-    const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : isLinear(p) ? `Linear ${p.key}` : p.key)).join(", ")
+    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open issues.");
+    const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
@@ -618,11 +611,9 @@ export default class SpaceIssues extends View {
         .child(div().text_color(this.error ? t.ansi1 : t.dim).child(empty))
         .when(unlinked, (e) => e.child(toggle("link-empty", "Link this space", false, () => openLinkDialog("issues"))))
         .when(Boolean(this.signIn), (e) => e
-          .child(div().text_size(fs.meta).text_color(t.muted).child(this.signIn === linear.SITE
-            ? `Connect in Link space (a personal API key, stored in ${STORE[platform()]}), or set LINEAR_API_KEY, then Refresh.`
-            : `Connect in Link space (email and a classic API token, stored in ${STORE[platform()]}), or set JIRA_EMAIL and JIRA_API_TOKEN, then Refresh.`))
+          .child(div().text_size(fs.meta).text_color(t.muted).child(`Connect in Link space (email and a classic API token, stored in ${STORE[platform()]}), or set JIRA_EMAIL and JIRA_API_TOKEN, then Refresh.`))
           .child(h_flex().gap(6)
-            .child(toggle("token-page", this.signIn === linear.SITE ? "API keys ↗" : "API tokens ↗", false, () => openUrl(this.signIn === linear.SITE ? "https://linear.app/settings/account/security" : TOKEN_PAGE)))
+            .child(toggle("token-page", "API tokens ↗", false, () => openUrl(TOKEN_PAGE)))
             .child(toggle("sign-in-help", "Link space", false, () => openLinkDialog("issues")))))));
     const watching = this.projects.length > 0 && this.projects.every((p) => !isGithub(p));
     const filters = h_flex().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", watching ? "Watching" : "Mentioned"], ["recent", "Recent"]], this.filter, (id, cx) => {
@@ -654,14 +645,16 @@ export default class SpaceIssues extends View {
       .when(Boolean(this.open) && full, (e) => e.child(this.pageView))
       .when(!this.open || !full, (e) => e.child(this.paged(inSplit, t, v_flex().flex_1().min_h(0).w_full()
       .child(v_flex().flex_none().px(12).py(8).gap(6).border_b(1).border_color(t.border)
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        // A press here must not drag the window, but the list keeps the keyboard, so Esc still works
+        // (the search field stops its own press and keeps it).
+        .on_mouse_down("left", (_e, cx) => { try { this.handle.focus(); } catch { /* best effort */ } cx.stop_propagation(); })
         .child(h_flex().gap(8).items_center()
-          .child(div().flex_none().font_semibold().child("Issues"))
+          .when(!dock, (e) => e.child(div().flex_none().font_semibold().child("Issues")))
           .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.dim).truncate().child(this.loading && this.issues.length ? `${source} · Refreshing…` : source))
           .when(wide, (e) => e.child(search.w(220)))
           .child(iconButton("refresh", this.loading ? svg(SPINNER).size(14).spin(900) : "↻", (cx) => this.refresh(cx)))
           .child(iconButton("settings", svg(COG).size(14), () => openSettings("issues")))
-          .when(Boolean(overlay), (e) => e.child(close)))
+          .when(Boolean(overlay) && !dock, (e) => e.child(close)))
         .when(!wide, (e) => e.child(search.w_full()))
         .child(filters))
       .when(Boolean(this.error && this.issues.length), (e) => e.child(div().px(14).py(4).text_size(fs.meta).text_color(t.ansi1).child(this.error)))

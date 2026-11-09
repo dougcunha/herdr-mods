@@ -8,9 +8,9 @@
 import { exec, appHome, writeTextFile, window as appWindow, shared, setShared } from "herdr";
 
 export const TOKEN_PAGE = "https://id.atlassian.com/manage-profile/security/api-tokens";
-// One item per service and site: herdr-jira:<site>, herdr-linear:linear.app.
+// One item per site: herdr-jira:<site>.
 const service = (site, kind = "jira") => `herdr-${kind}:${site}`;
-const KIND = { jira: "Jira", linear: "Linear" };
+const KIND = { jira: "Jira" };
 export const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
 // What the store is called where the person is: shown in the dialog and the docs.
 export const STORE = { macos: "the macOS Keychain", linux: "the Secret Service (GNOME Keyring, KWallet)", windows: "the Windows Credential Manager" };
@@ -115,16 +115,10 @@ export const forget = (site) => signIns.delete(site);
 // Stores a sign-in that was tested (see `myself`). The token never goes on a command line:
 // it is written to a file in a folder only this user can open, the store's own command reads
 // it from there, and the same command deletes the file. Returns null, or what went wrong.
-// `kind` "linear": the account is "linear" and the token a personal API key (lin_api_…).
 export async function storeSignIn(site, email, token, kind = "jira") {
   if (!SITE.test(site)) return "That isn't a site name.";
-  if (kind === "linear") {
-    if (!/^[a-z]+$/.test(email)) return "That isn't an account name.";
-    if (!/^lin_api_[A-Za-z0-9]{20,100}$/.test(token)) return "That doesn't look like a Linear personal API key (lin_api_…).";
-  } else {
-    if (!EMAIL.test(email)) return "That doesn't look like an email address.";
-    if (!TOKEN.test(token)) return "That doesn't look like a classic API token.";
-  }
+  if (!EMAIL.test(email)) return "That doesn't look like an email address.";
+  if (!TOKEN.test(token)) return "That doesn't look like a classic API token.";
   const os = platform();
   const dir = `${appHome()}/data/issues-app/private`, file = `${dir}/t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const scrub = (text) => String(text ?? "").split(token).join("***").trim();

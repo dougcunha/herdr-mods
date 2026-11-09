@@ -14,7 +14,7 @@ import { call } from "./jira-client.js";
 import { kit, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
-import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics } from "./links.js";
+import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics, inDockDialog } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -551,7 +551,8 @@ export default class PullRequests extends View {
         width: (w, cx) => { const was = this.pageW >= PAGE_WIDE; this.pageW = w; if (was !== (w >= PAGE_WIDE)) cx.notify(this.pageView); },
       });
     }
-    if (props()?.settings) return settingsMenu("prs", [PAGE]);
+    // Page is in the Settings tab of Herdr Mods (kit.json): the cog keeps Link space and Prompts.
+    if (props()?.settings) return settingsMenu("prs", []);
     // A space switch shows that space's list in this very render, and loads it right after.
     const space = this.space();
     if ((space?.id ?? null) !== this.spaceId) {
@@ -564,7 +565,8 @@ export default class PullRequests extends View {
       this.wasSplit = asSplitNow;
       if (this.open != null) try { cx.timer.after(0, (cx) => cx.notify(this.pageView)); } catch { /* shown on the next page change */ }
     }
-    const t = theme(), overlay = props()?.overlay;
+    // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
+    const t = theme(), overlay = props()?.overlay, dock = inDockDialog();
     const { items } = this.items(), wide = this.width >= WIDE;
     const toggle = (id, label, on, flip) => div().id(id).px(8).py(2).flex_none().rounded(6).cursor_pointer().text_size(fs.meta)
       .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.selected))
@@ -619,14 +621,16 @@ export default class PullRequests extends View {
       .when(this.open != null && full, (e) => e.child(this.pageView))
       .when(this.open == null || !full, (e) => e.child(this.paged(inSplit, t, v_flex().flex_1().min_h(0).w_full()
       .child(v_flex().flex_none().px(12).py(8).gap(6).border_b(1).border_color(t.border)
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        // A press here must not drag the window, but the list keeps the keyboard, so Esc still works
+        // (the search field stops its own press and keeps it).
+        .on_mouse_down("left", (_e, cx) => { try { this.handle.focus(); } catch { /* best effort */ } cx.stop_propagation(); })
         .child(h_flex().gap(8).items_center()
-          .child(div().flex_none().font_semibold().child("Pull requests"))
+          .when(!dock, (e) => e.child(div().flex_none().font_semibold().child("Pull requests")))
           .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.dim).truncate().child(this.loading && this.prs.length ? `${this.where?.github ?? ""} · Refreshing…` : this.where?.github ?? ""))
           .when(wide, (e) => e.child(search.w(220)))
           .child(iconButton("refresh", this.loading ? svg(SPINNER).size(14).spin(900) : "↻", (cx) => this.refresh(cx)))
           .child(iconButton("settings", svg(COG).size(14), () => openSettings("prs")))
-          .when(Boolean(overlay), (e) => e.child(close)))
+          .when(Boolean(overlay) && !dock, (e) => e.child(close)))
         .when(!wide, (e) => e.child(search.w_full()))
         .child(filters))
       // Over a list already shown, a GitHub hiccup (5xx) is a quiet note: the list stays and the next minute retries.
