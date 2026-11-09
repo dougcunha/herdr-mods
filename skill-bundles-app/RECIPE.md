@@ -44,7 +44,7 @@ A panel that compares the agent skills of the focused project with a skill Catal
 - `manifest.js`: line parsers of `bundles.yaml` and `skills.yaml` with the regular expressions of `Read-BundlesCatalog` and `Read-ProjectManifest` (case-insensitive, `#` comments cut, quotes trimmed); the writer; the Bundle resolution; the `.gitignore` block.
 - `status.js`: the rows and states from Manifest × Catalog × probe; the groups.
 - `catalog.js`: `exec` wrappers (`npx.cmd` on Windows: `exec` does not find a `.cmd` without the extension), clone, fetch, branch check, and the probe call.
-- `probe.mjs` (Node, run with `node`): the Lock, the skill folders of `.agents/skills` and `.claude/skills` that have a `SKILL.md`, and the hash of each Catalog skill of the Lock: SHA-256 over the sorted (`localeCompare`) relative paths and bytes, without `.git` and `node_modules` (the `computeSkillFolderHash` of the `skills` CLI); a 40-hex Lock hash is compared with `git rev-parse HEAD:<folder>`.
+- `probe.mjs` (Node, run with `node`): the Lock, the skill folders of `.agents/skills` and `.claude/skills` that have a `SKILL.md`, and the hash of each Catalog skill of the Lock: SHA-256 over the sorted (`localeCompare`) relative paths and bytes, without `.git` and `node_modules` (the `computeSkillFolderHash` of the `skills` CLI). Each text file that git stores with LF (`git ls-files --eol`: `i/lf`) is hashed with the line endings that a checkout gives it: `eol=crlf` or `eol=lf` from `.gitattributes`, else CRLF when `core.autocrlf` is `true`; other files are hashed as they are. A 40-hex Lock hash is compared with `git rev-parse HEAD:<folder>`.
 - `herdr`: `focused`, `spaces`, `panes`, `exec`, `readTextFile`, `writeTextFile` (with the old text as `expected`), `shared`/`setShared`, `notify`, `openOverlay`, `closeOverlay`, `nextCommand`, `run("mod.open", { name: "mods-hub" })` (after `setShared("mods-hub", { …, tab: "settings" })`).
 - Icons: `bundles.svg` (layers), `refresh`, `settings`, `search`, `spinner`, `plus`, `back`.
 
@@ -54,6 +54,7 @@ A panel that compares the agent skills of the focused project with a skill Catal
 - The mod runtime has no SHA-256 and reads files only as UTF-8 text, so the hashes are made in Node. Do not hash text in the mod: a binary file breaks it.
 - The Lock path is lower case (`skills/x/SKILL.md`) while the Catalog folder can be `SKILLS/x`. Match folders case-insensitively, then by name.
 - The clone must use the person's own `core.autocrlf`: `npx skills` checks out with the same settings, and the hash covers the bytes. Do not force a value.
+- A file that a tool or an agent writes in the clone keeps its line endings: git converts only the files that it writes itself (checkout, pull). With `core.autocrlf=true`, a skill file written with LF is clean for `git status` but has other bytes than the CRLF copy that `npx skills` installed, and the skill shows as Outdated in every project. A `.gitattributes` does not prevent it. Hash each text file with its checkout line endings, not with the bytes on disk.
 - `writeTextFile` and `readTextFile` work outside the home folder (`D:\…`); `fs` does not.
 - A reload of the mod (a file saved) in the middle of an action leaves the job key: that is why it goes stale after 150 s without renewal.
 - `mod.open` sizes a dialog from `overlay` in `mod.json`; without it the dialog is as small as its content.
@@ -66,4 +67,5 @@ A panel that compares the agent skills of the focused project with a skill Catal
 - With a Catalog set, the clone appears in `~/.config/herdr-app/cache/skill-bundles/<owner>/<name>` and the header shows its short commit.
 - In a project without `skills.yaml`, the panel shows the Bundle picker with `core` on.
 - In a project whose Lock has a changed hash for one skill, an extra skill, a hand-written skill folder and a Source that is not installed, the summary shows 1 Outdated, 1 Missing, 1 Extra and 1 Local, and `skills.yaml` with an unknown Bundle shows the warning.
+- In a clone of the Catalog with `core.autocrlf=true`, a `SKILL.md` of an Up to date skill written again with LF only keeps the skill Up to date; one more line in it makes the skill Outdated.
 - `herdr-app do skill-bundles.sync` installs the missing and outdated skills; afterwards the summary shows them as Up to date and a toast reports the counts.

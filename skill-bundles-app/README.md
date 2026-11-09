@@ -133,4 +133,5 @@ The **Settings** tab of the Herdr Mods dialog (`mods-hub`) shows:
 - The project is the Git root of the focused terminal. A worktree is its own project, with its own skills.
 - The mod writes `skills.yaml` in the form of the scripts: comments in the file are lost.
 - **Outdated** needs the hash of the Lock. A skill that `npx skills` installed without a hash shows as Unchecked.
+- **Outdated** compares content, not line endings: a text file of the Catalog that a tool wrote with LF (or CRLF) counts as the file that a git checkout gives. A change of its text still shows as Outdated.
 - The mod does not run on a git hook. To keep the PowerShell hook (`Install-Skills.ps1 -Silent` in `post-checkout`), keep the scripts of the Catalog.
