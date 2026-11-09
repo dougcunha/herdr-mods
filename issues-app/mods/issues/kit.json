@@ -1,0 +1,5 @@
+{
+  "app": "issues-app",
+  "description": "The issues of the shown space from Jira Cloud, GitHub or Linear, with a page for each issue and a button that starts an agent on it in a new worktree. Based on Herdr Ranch.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app"
+}

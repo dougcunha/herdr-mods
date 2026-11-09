@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 33 -->
+<!-- herdr-mods-setup-version: 34 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -72,6 +72,7 @@ The items marked **Required** in "The items" are always installed: do not ask ab
 - `skill-bundles-app`: Skill Bundles, the agent skills of a project against a skill Catalog (a repository with a `bundles.yaml`). Runs `git`, `gh`, `node` and `npx skills`.
 - `tab-namer-app`: Tab Namer, F2 and a pencil on the agent cards rename the tab of an agent, with a button that asks a small AI model for a name (runs `claude` or `codex` once for each click, reads the session files of the agent; the AI button needs `agent-resume-app`). It takes the F2 key from Herdr's own tab rename.
 - `automations-app`: Automations, runs a coding agent with a prompt in a folder on a schedule, by hand, or when an agent, a file or a git branch changes, with check, pre and post scripts (runs `pwsh` or `sh`, `hc`, `git` and the agent that I choose for each automation).
+- `issues-app`: Issues & PRs, the issues of a space from Jira Cloud, GitHub or Linear and its pull requests, in 2 Dock panels, with buttons that start an agent (runs `git`, `gh`, `curl` and PowerShell on Windows; uses the network of Jira, Linear and GitHub; stores the Jira or Linear token in the credential store of the system).
 - `light-themes-app`: 5 light themes.
 - `dark-themes-app`: 6 soft dark themes.
 - `git-graph` (third-party): a Graph panel of the commits.
@@ -111,7 +112,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 16. `skill-bundles-app`: the `skill-bundles` mod, the agent skills of the focused project against a skill Catalog (a repository with a `bundles.yaml`, read by `skills.yaml` in each project). When I did not choose it, its `skills` entry and its status bar block in "Configure" are skipped too. It runs `git`, `gh` (only `gh auth status` and `gh repo clone`), `node` (its own `probe.mjs`, which reads the project's skill folders and hashes the Catalog's) and `npx skills` (which downloads skills from GitHub) in the project folder. It clones the Catalog into `~/.config/herdr-app/cache/skill-bundles/` and fetches it every 15 minutes. It reads and writes `skills.yaml`, `.gitignore` and `skills-lock.json` of the project, but only when I click an action. Do not set its shared keys: I write the Catalog (`owner/name`) in the **Settings** tab of Herdr Mods.
 17. `tab-namer-app`: the `tab-namer` mod, a dialog that renames the tab of an agent. The `kanban` and `agent-cards` mods show a pencil on each card when it is installed, and `agent-resume` clears a name that it saved when the agent starts a new session (`/clear`, `/new`). It runs `claude -p` or `codex exec` (only when I click **Generate with AI**), `hc label` and `hc read`, and reads the session files of the agents (`~/.claude/projects/`, `~/.codex/sessions/`). No other network than the call of that agent. Its key is in "Configure". Tell me that the AI button needs `agent-resume` and Claude Code or Codex.
 18. `automations-app`: the `automations` mod. Its status bar item (a block of the same mod with `"part": "status"`) is also the runner: the automations run only while the shown layout has it. Its places are in "Configure": the status bar item and the `automations` entry of `panels.json`. It runs the check, pre and post scripts that I write with `pwsh` (Windows) or `sh`, a headless agent in a background terminal (`hc run`, `hc get`, `hc rm`, `hc kill`), `hc read` and `hc label` for agents in a tab, and `git rev-parse`, `git branch` and `git log` for the git trigger. It starts the agents that I choose with my account, opens tabs and spaces (`tab.new`, `space.new`) and closes only the tab of a run, by id. It reads and writes `data/automations.json`, `data/automation-runs.json` and `data/automation-runs/`. No network of its own. Do not create automations for me.
-19. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
+19. `issues-app`: the mods `issues` and `prs`, a copy of `herdr-ranch-issues` and `herdr-ranch-prs` of Herdr Ranch (MIT). `issues` lists the issues of the shown space from Jira Cloud, GitHub or Linear; `prs` lists its pull requests. Both only read the trackers. They run `git` and `gh` in the folder of the space (and `git worktree add` when I click **Start agent** or **Agent review**), `curl` for the avatars, and `powershell` (Windows), `security` (macOS) or `secret-tool` (Linux) to store and read the token. They call my Jira site and `api.linear.app`, write `data/issues-app/`, and start the agent that I choose in a new space. Their places are the `issues` and `prs` entries of `panels.json` and their keys in "Configure". If `mods/herdr-ranch-issues/` or `mods/herdr-ranch-prs/` exists, tell me: the kit mods replace them, and I can delete them and their keys. Tell me that Jira needs a classic API token, in **Link space…** of the cog of the Issues panel.
+20. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
@@ -210,12 +212,14 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
     { "id": "quota", "label": "Quota", "icon": "mods/tokenhound/gauge.svg", "mod": "tokenhound" },
     { "id": "skills", "label": "Skills", "icon": "mods/skill-bundles/bundles.svg", "mod": "skill-bundles" },
-    { "id": "automations", "label": "Automations", "icon": "mods/automations/zap.svg", "mod": "automations" }
+    { "id": "automations", "label": "Automations", "icon": "mods/automations/zap.svg", "mod": "automations" },
+    { "id": "issues", "label": "Issues", "icon": "mods/issues/issue.svg", "mod": "issues" },
+    { "id": "prs", "label": "PRs", "icon": "mods/prs/pr.svg", "mod": "prs", "group": "git" }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 17) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 20) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
 
 ### The places of `tokenhound`
 
@@ -286,10 +290,21 @@ In the `global` section, add the keys that are missing:
 "ctrl-p": "mod.open:repo-launcher",
 "ctrl-shift-h": "mod.open:mods-hub",
 "cmd-shift-h": "mod.open:mods-hub",
-"f2": "mod.open:tab-namer"
+"f2": "mod.open:tab-namer",
+"ctrl-shift-j": "mod.open:issues",
+"cmd-shift-j": "mod.open:issues",
+"ctrl-shift-g": "mod.open:prs",
+"cmd-shift-g": "mod.open:prs"
 ```
 
-If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Exception: `f2` runs `tab.rename` in Herdr's default keys; when the `tab-namer` mod is installed and `f2` is `tab.rename` (or missing), set it to `mod.open:tab-namer` and tell me that F2 now opens the Tab Namer dialog. When `f2` has another action of mine, leave it and ask me. Add `f2` only when `tab-namer` is installed. Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, and the two `mods-hub` keys only when `mods-hub` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
+When the `issues-app` mods are installed, also add these sections, if they are missing:
+
+```json
+"mod:issues": { "ctrl-r": "issues.refresh", "ctrl-o": "issues.browser" },
+"mod:prs": { "ctrl-r": "prs.refresh", "ctrl-o": "prs.browser" }
+```
+
+If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Exception: `f2` runs `tab.rename` in Herdr's default keys; when the `tab-namer` mod is installed and `f2` is `tab.rename` (or missing), set it to `mod.open:tab-namer` and tell me that F2 now opens the Tab Namer dialog. When `f2` has another action of mine, leave it and ask me. Add `f2` only when `tab-namer` is installed, and the 4 `issues` and `prs` keys only when the `issues-app` mods are installed. Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, and the two `mods-hub` keys only when `mods-hub` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
 
 ### `~/.config/herdr-app/settings.json`
 
@@ -328,7 +343,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 11. If `spec-board` is installed, the Dock shows a **Specs** button, and with its panel open `herdr-app do spec-board.demo` shows example specs (run it again to show mine).
 12. If `tab-namer` is installed, `herdr-app do mod.open --name tab-namer` opens one dialog with the name of the focused tab. Close it with `herdr-app do overlay.close`. If `agent-resume` is installed too, the status bar of `kanban` shows `Resume on` at the left, as `main-dock` does.
 13. If `automations` is installed, the status bar of `main-dock` and `kanban` shows `automations`, the dock bar shows an **Automations** button, and within 10 s `~/.config/herdr-app/shared.json` has `"automations.leader"` with a recent `at`. `herdr-app do mod.open --name automations` opens one dialog. Close it with `herdr-app do overlay.close`.
-14. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+14. If `issues-app` is installed, the dock bar shows an **Issues** button and **PRs** in the Git menu, and `herdr-app do tabs-dock.issues` opens the Issues panel (run it again to close it).
+15. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 

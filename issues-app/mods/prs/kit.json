@@ -1,0 +1,5 @@
+{
+  "app": "issues-app",
+  "description": "The pull requests of the shown space, grouped by what each one waits for, with checks, files and an agent review. Needs gh. Based on Herdr Ranch.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app"
+}
