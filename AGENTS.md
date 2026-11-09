@@ -29,6 +29,12 @@ or a theme, increase `N` by 1 in the same commit. Keep the
 `<!-- prompt-start -->` and `<!-- prompt-end -->` markers around the prompt:
 the mod sends only the text between them to the agent.
 
+When the person asks to update the local version, edit
+`~/.config/herdr-app/data/herdr-mods-setup.json`: set `version` to the new `N`,
+`commit` to the pushed commit and `date` to now. Set `files.<mod>` of each
+changed mod to the output of `node tools/record-hashes.mjs`. Copy the changed
+mod files to `~/.config/herdr-app/mods/` first.
+
 ## Release notes: `whats-new/<N>.md`
 
 Every time you increase `N` in `SETUP-PROMPT.md`, create `whats-new/<N>.md` in
@@ -151,5 +157,7 @@ Rules:
 - Do not make a column as wide as the longest line with one shared sideways scroll: with long lines the other column goes off screen. Measure the width with `on_size_change` (divide it by `settings().zoom`) and wrap the lines. Test with long lines, not only short ones.
 - A mod pane opened with `herdr-app do pane.split --mod <mod>` has no id in `herdr-app ls` (it lists only terminals), so the shell cannot close it. To test a sidebar mod, prefer its `demo` command in a block, or tell the person to close the pane with the X of its header.
 - `agent-desktop` runs headless and cannot click. To test a mod from the shell, give it commands with `nextCommand()` and run `herdr-app do <mod>.<command>`. `kanban.panel-<id>` opens a panel.
+- `herdr-app do <mod>.<command>` answers "unknown command" when no copy of the mod is on the screen. A tab made with `tab.new --mod <mod>` does not show in the `kanban` layout, so the mod does not load there. Test in the layout that shows the mod (`main-dock` for `agent-cards`).
+- `herdr-app do` takes flags: `herdr-app do tab.close --id <tab> --confirmed true`. In PowerShell, a JSON object in quotes does not work.
 
 <!-- End claude-reflect section -->
