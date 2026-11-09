@@ -344,6 +344,6 @@ export class LinkDialog extends View {
         .child(button("guide", "How to connect ↗", "link", () => openUrl(this.issues === "github" ? "https://github.com/jslowack/herdr-ranch#link-a-space" : GUIDE)))
         .child(div().flex_1())
         .child(button("cancel", "Cancel", null, () => this.close()))
-        .child(button("save", this.saving ? "Checking the filter…" : "Save  ⌘↵", "primary", (cx) => this.save(cx))));
+        .child(button("save", this.saving ? "Checking the filter…" : "Save", "primary", (cx) => this.save(cx))));
   }
 }

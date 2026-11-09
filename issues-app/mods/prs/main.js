@@ -595,7 +595,7 @@ export default class PullRequests extends View {
         .when(this.unlinked, (e) => e.child(toggle("link-empty", "Link this space", false, () => openLinkDialog("prs"))))));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
-    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close (Esc)" });
+    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close" });
     const inSplit = asSplit("prs"), full = pageMode("prs") === "full";
     return v_flex().id("prs").relative().overflow_hidden().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(fs.body)
       .on_size_change((size, cx) => { this.height = size.height; this.resized(Math.round(size.width), cx); })

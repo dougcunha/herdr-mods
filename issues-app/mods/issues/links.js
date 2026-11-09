@@ -214,7 +214,7 @@ export function pageDialog(id, handle, page, on) {
       cx.stop_propagation();
     })
     .child(page)
-    .child(div().absolute().top(8).right(8).child(iconButton(t, `${id}-close`, "x", () => close(), { tooltip: "Close (Esc)" })));
+    .child(div().absolute().top(8).right(8).child(iconButton(t, `${id}-close`, "x", () => close(), { tooltip: "Close" })));
 }
 
 // The list with the page under it, in Herdr's own split: Herdr draws and drags the divider
@@ -398,8 +398,8 @@ export function iconButton(t, id, name, onClick, { active = false, disabled = fa
 }
 
 // A text button. kind: "primary" (accent), "plain" (border) or "link" (accent text only).
-// `icon`: a LUCIDE name before the label; `hint`: a key after it; `small`: the 24px card size.
-export function button(t, id, label, onClick, { kind = "plain", icon: name = "", hint = "", disabled = false, small = false, tooltip = "" } = {}) {
+// `icon`: a LUCIDE name before the label; `small`: the 24px card size. Buttons show no key hints.
+export function button(t, id, label, onClick, { kind = "plain", icon: name = "", disabled = false, small = false, tooltip = "" } = {}) {
   const primary = kind === "primary" && !disabled, link = kind === "link";
   const color = disabled ? t.dim : primary || link ? t.accent : t.muted;
   return h_flex().id(id).h(small ? 24 : 30).px(link ? 2 : small ? 9 : 14).gap(6).flex_none().items_center().rounded(small ? 6 : 8)
@@ -408,9 +408,7 @@ export function button(t, id, label, onClick, { kind = "plain", icon: name = "",
     .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .when(!disabled, (e) => e.cursor_pointer().hover((s) => (link ? s.opacity(0.8) : s.bg(primary ? tint(t.accent, "40") : t.hover))).on_click((_e, cx) => onClick(cx)))
     .when(Boolean(name), (e) => e.child(icon(name, color, small ? 12 : 13)))
-    .child(label)
-    .when(Boolean(hint), (e) => e.child(div().px(4).rounded(4).border_1().border_color(primary ? tint(t.accent, "66") : t.border)
-      .text_size(fs.tiny - 1).font_weight(400).text_color(primary ? t.accent : t.dim).child(hint)));
+    .child(label);
 }
 
 // A choice that can be on or off (a preset, a mode): a rounded pill.

@@ -140,11 +140,11 @@ export function detail(pr, t, a) {
   return pageLayout({
     id: "pr-detail", t, wide: a.wide, nav: a.nav,
     actions: [
-      k.button("pr-open", "Open on GitHub", a.open, { hint: "O" }),
+      k.button("pr-open", "Open on GitHub", a.open),
       ...(lead ? [
         ...(pr.state === "OPEN" && a.review && !loading ? [k.button("pr-review", "Start another", a.review)] : []),
-        k.button("pr-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => a.go(lead.id), { primary: true, icon: "bot", hint: "⌘↵" }),
-      ] : pr.state === "OPEN" && a.review && !loading ? [k.button("pr-review", "Agent review", a.review, { primary: true, icon: "bot", hint: "⌘↵" })] : []),
+        k.button("pr-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => a.go(lead.id), { primary: true, icon: "bot" }),
+      ] : pr.state === "OPEN" && a.review && !loading ? [k.button("pr-review", "Agent review", a.review, { primary: true, icon: "bot" })] : []),
     ],
     title: pr.title, key: `#${pr.number}`,
     status: h_flex().gap(6).items_center().flex_wrap().text_size(fs.meta).text_color(t.muted)

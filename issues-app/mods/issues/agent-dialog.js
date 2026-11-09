@@ -13,7 +13,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, home as localHome, window as appWindow } from "herdr";
+import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, readTextFile, home as localHome, window as appWindow } from "herdr";
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
 import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented } from "./links.js";
 import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
@@ -61,6 +61,36 @@ const OPTIONS = {
   opencode: { models: null, placeholder: "provider/model, e.g. anthropic/claude-sonnet-4", efforts: null,
     args: (m) => (m ? ["-m", m] : []) },
 };
+// What "Default" means for each agent: the model and effort of its own settings file, else what its
+// docs give when nothing is set (code.claude.com/docs/en/model-config). Read when the agent is picked.
+//   Claude Code: settings.json `model` and `effortLevel`; unset: the account's default model (Opus 5.5
+//     for Pro, Max, Team, Enterprise and the API; an organization can set another one) and the
+//     model's default effort (medium for the 5.x models, xhigh for Opus 4.7, high for the others).
+//   Codex: config.toml `model` and `model_reasoning_effort` (top level); unset: Codex's own, not documented.
+// An environment variable (ANTHROPIC_MODEL, CLAUDE_CODE_EFFORT_LEVEL) can still change them.
+const claudeEffort = (model) => (/opus-4-7|opus-4\.7/.test(model ?? "") ? "xhigh" : /-4-|4\.\d/.test(model ?? "") ? "high" : "medium");
+async function agentDefaults(key, home, on) {
+  if (!home) return null;
+  if (key === "claude") {
+    const raw = await readTextFile(`${home}/.claude/settings.json`, { on }).catch(() => null);
+    let j = {};
+    try { j = raw ? JSON.parse(raw) : {}; } catch { /* unreadable: the documented defaults */ }
+    const model = typeof j.model === "string" ? j.model : null, effort = typeof j.effortLevel === "string" ? j.effortLevel : null;
+    return {
+      model: model ?? "account default", modelFrom: model ? "~/.claude/settings.json" : "usually Opus 5.5",
+      effort: effort ?? claudeEffort(model), effortFrom: effort ? "~/.claude/settings.json" : `the default of ${model ?? "Opus 5.5"}`,
+    };
+  }
+  if (key === "codex") {
+    const raw = await readTextFile(`${home}/.codex/config.toml`, { on }).catch(() => null);
+    const top = (raw ?? "").replace(/\r\n?/g, "\n").split(/^\s*\[/m)[0];
+    const read = (k) => new RegExp(`^\\s*${k}\\s*=\\s*"([^"]*)"`, "m").exec(top)?.[1] ?? null;
+    const model = read("model"), effort = read("model_reasoning_effort");
+    return { model: model ?? "Codex's own", modelFrom: model ? "~/.codex/config.toml" : "not set", effort: effort ?? "Codex's own", effortFrom: effort ? "~/.codex/config.toml" : "not set" };
+  }
+  return null;
+}
+
 const optionsKey = (a) => `agent-opts:${a?.key ?? a?.name}`;
 const lastOptions = (a) => { try { return JSON.parse(localStorage.getItem(optionsKey(a)) ?? "null") ?? {}; } catch { return {}; } };
 const keepOptions = (a, o) => { try { localStorage.setItem(optionsKey(a), JSON.stringify(o)); } catch { /* best effort */ } };
@@ -80,6 +110,9 @@ export class AgentDialog extends View {
     this.agents = []; this.agent = null; this.busy = false; this.error = "";
     this.repoTemplates = {}; this.mine = userPrompts(p.mod);
     this.editing = false; this.edited = false; this.stay = false;
+    // Where the agent runs: "worktree" (a new branch in a new worktree, in a new space) or "space" (a new
+    // tab of an open space, on the branch that space has now). The shown space is the first choice there.
+    this.target = "worktree"; this.targetSpace = spaces().find((s) => s.active)?.id ?? null;
     this.branchState = null; this.main = null; this.base = ""; this.home = "";
     this.setBranch = p.branches?.[this.mode] ?? ""; this.typed = false;
     this.branch = InputState.new({ placeholder: "Branch", value: this.setBranch });
@@ -101,7 +134,7 @@ export class AgentDialog extends View {
         this.agents = await knownAgents({ on: p.on ?? null });
         const ready = this.agents.filter((a) => a.installed);
         this.agent = ready.find((a) => a.name === lastAgent()) ?? ready[0] ?? null;
-        this.loadOptions();
+        this.loadOptions(); this.loadDefaults(cx);
         if (!this.agent) this.error = "No installed agent found (programs.json `run` entries).";
       } catch (e) { this.error = `Cannot list agents: ${e}`; }
       cx.notify();
@@ -123,6 +156,18 @@ export class AgentDialog extends View {
   // view never gets one): a click beside the dialog goes through the root view's close().
   close() { closeOverlay(props().overlay); const m = props()?.mod; if (m) run(`${m}.focus`); }
 
+  // The agent's own defaults (agentDefaults), for the Default chips.
+  loadDefaults(cx) {
+    const a = this.agent, on = props()?.on ?? null;
+    this.defaults = null;
+    if (!a || !OPTIONS[a.key]) return;
+    cx.spawn(async (cx) => {
+      const home = this.home || await homeOf(on);
+      const d = await agentDefaults(a.key, home, on).catch(() => null);
+      if (this.agent === a) { this.defaults = d; cx.notify(); }
+    });
+  }
+
   loadOptions() {
     const o = lastOptions(this.agent);
     const opts = OPTIONS[this.agent?.key];
@@ -141,11 +186,30 @@ export class AgentDialog extends View {
     return o.args(model, o.efforts ? this.effort : null);
   }
 
+  // The open spaces an agent can start in: the ones on the item's machine, the shown one first.
+  openSpaces() {
+    const on = props()?.on ?? null;
+    return spaces().filter((s) => (s.machine ?? null) === on).sort((a, b) => Number(Boolean(b.active)) - Number(Boolean(a.active)));
+  }
+  chosenSpace() { return this.openSpaces().find((s) => s.id === this.targetSpace) ?? null; }
+  // The branch the agent works on: the typed one for a new worktree, the space's own for an open space.
+  branchNow() { return this.target === "space" ? this.chosenSpace()?.branch ?? "" : this.branch.value().trim(); }
+  pickTarget(target, cx) {
+    this.target = target;
+    if (!this.edited) this.fillPrompt();
+    cx.notify();
+  }
+  pickSpace(id, cx) {
+    this.targetSpace = id;
+    if (!this.edited) this.fillPrompt();
+    cx.notify();
+  }
+
   // The prompt of the chosen mode from its template; an edited prompt is replaced only by Reset or another mode.
   fillPrompt() {
     const [tpl, from] = template(this.mode, this.repoTemplates, this.mine);
     this.source = from;
-    const text = fill(tpl, { ...(props()?.vars ?? {}), branch: this.branch.value().trim() });
+    const text = fill(tpl, { ...(props()?.vars ?? {}), branch: this.branchNow() });
     this.quiet = text; this.prompt.set_value(text); this.edited = false;
     // A repository's prompt is shown whole, not folded, so nothing in it goes unseen.
     if (from === "repo") this.editing = true;
@@ -202,9 +266,21 @@ export class AgentDialog extends View {
   async create() {
     const p = props(), on = p.on ?? null, branch = this.branch.value().trim();
     const prompt = clean(this.prompt.value()).trim();
-    if (!branch) throw new Error("Type a branch name.");
     if (!prompt) throw new Error("Type a prompt.");
     const extra = this.extraArgs();
+    // An open space: a new tab there, in the folder of its focused pane, on its branch. Nothing is created in git.
+    if (this.target === "space") {
+      const s = this.chosenSpace();
+      if (!s) throw new Error("Pick an open space.");
+      const before = spaces().find((x) => x.active)?.id;
+      keepAgent(this.agent.name);
+      run("tab.new", { space: s.id, name: p.tabs?.[this.mode] ?? p.title, argv: [...this.agent.run, ...extra], task: prompt });
+      if (!this.stay) run("space.select", { id: s.id });
+      else if (before && before !== s.id) run("space.select", { id: before });
+      notify({ title: `Started ${this.agent.name}`, body: `${p.tabs?.[this.mode] ?? p.title ?? ""} · ${s.name}`, level: "success", timeout: 4000 });
+      return;
+    }
+    if (!branch) throw new Error("Type a branch name.");
     const main = this.main ?? await mainCheckout(p.repo, on);
     if (!main) throw new Error("Not a git repository.");
     const name = main.split("/").pop();
@@ -266,7 +342,7 @@ export class AgentDialog extends View {
       return h_flex().id(`agent-${a.name}`).gap(8).items_center().px(10).py(7).rounded(8).min_w(150)
         .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.accent + "10"))
         .when(!ok, (e) => e.opacity(0.5))
-        .when(ok, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.agent = a; this.loadOptions(); cx.notify(); }))
+        .when(ok, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.agent = a; this.loadOptions(); this.loadDefaults(cx); cx.notify(); }))
         .child(avatar(a.name, t, 24))
         .child(v_flex().child(div().text_size(fs.meta).child(a.name))
           .child(div().text_size(fs.tiny).text_color(t.dim).child(!ok ? "not installed" : a.name === lastAgent() ? "last used" : "installed")));
@@ -289,25 +365,52 @@ export class AgentDialog extends View {
         .when(Boolean(this.agent), (e) => {
           const o = OPTIONS[this.agent.key];
           if (!o) return e.child(ui.hint(`${this.agent.name} takes its model from its own settings.`));
-          return e.child(h_flex().gap(16).flex_wrap().items_start()
+          // "Default" says what it is: the agent's settings file, else its documented default.
+          const d = this.defaults;
+          const fromSettings = Boolean(d?.effortFrom.startsWith("~")), claude = this.agent.key === "claude";
+          // Claude's default effort follows the model that runs: the chosen one, else the default one.
+          const runs = this.model ?? (d?.modelFrom.startsWith("~") ? d.model : "Opus 5.5");
+          const effortNow = !d ? null : claude && !fromSettings ? claudeEffort(runs) : d.effort;
+          const modelHint = d ? `Default model: ${d.model} (${d.modelFrom})` : "Default model: the agent's own setting";
+          const effortHint = !d ? "" : `default effort: ${effortNow} (${fromSettings ? d.effortFrom : claude ? `the default of ${runs}` : d.effortFrom})`;
+          return e.child(v_flex().gap(4).child(h_flex().gap(16).flex_wrap().items_start()
             .child(v_flex().gap(4).child(ui.label("Model"))
-              .child(o.models ? h_flex().gap(6).flex_wrap().child(ui.chip("model-default", "Default", !this.model, (cx) => { this.model = null; cx.notify(); }))
+              .child(o.models ? h_flex().gap(6).flex_wrap().child(ui.chip("model-default", d ? `Default · ${d.model}` : "Default", !this.model, (cx) => { this.model = null; cx.notify(); }))
                   .children(o.models.map((m) => ui.chip(`model-${m}`, m, this.model === m, (cx) => { this.model = m; cx.notify(); })))
                 : div().w(300).px(8).py(4).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.modelText))))
             .when(Boolean(o.efforts), (e) => e.child(v_flex().gap(4).child(ui.label("Effort"))
-              .child(h_flex().gap(6).flex_wrap().child(ui.chip("effort-default", "Default", !this.effort, (cx) => { this.effort = null; cx.notify(); }))
-                .children(o.efforts.map((x) => ui.chip(`effort-${x}`, x, this.effort === x, (cx) => { this.effort = x; cx.notify(); })))))));
+              .child(h_flex().gap(6).flex_wrap().child(ui.chip("effort-default", effortNow ? `Default · ${effortNow}` : "Default", !this.effort, (cx) => { this.effort = null; cx.notify(); }))
+                .children(o.efforts.map((x) => ui.chip(`effort-${x}`, x, this.effort === x, (cx) => { this.effort = x; cx.notify(); })))))))
+            .child(ui.hint([modelHint, effortHint].filter(Boolean).join(" · "))));
         })
         .child(v_flex().gap(4).child(ui.label("Mode"))
           .child(h_flex().child(ui.seg("mode", modes, this.mode, (m, cx) => this.pickMode(m, cx))))
           .child(ui.hint(ABOUT[this.mode])))
-        .child(v_flex().gap(4)
+        // Where the agent runs. The repository is the one of the shown space (its link, else its terminal's folder).
+        // Only an issue can go to an open space: the pull request prompts check out and reset the branch
+        // of their folder (gh pr checkout, git reset --hard), which would change that space's checkout.
+        .child(v_flex().gap(4).child(ui.label("Where"))
+          .when(this.kind === "issue", (e) => e.child(h_flex().child(ui.seg("target", [["worktree", "New worktree"], ["space", "Open space · new tab"]], this.target, (v, cx) => this.pickTarget(v, cx)))))
+          .child(ui.hint(this.target === "worktree"
+            ? "A new branch in a new git worktree of the repository below, in a new space."
+            : "A new tab in an open space, in the folder of its focused pane, on the branch it has now. Nothing is created in git."))
+          .when(Boolean(this.main), (e) => e.child(h_flex().gap(6).items_center().min_w(0).text_size(fs.meta)
+            .child(div().flex_none().text_color(t.muted).child("Repository"))
+            .child(div().flex_none().font_semibold().child(this.main.split("/").pop()))
+            .child(div().min_w(0).truncate().text_color(t.dim).child(`${this.main} · on ${this.base || "HEAD"}`)))))
+        .when(this.target === "space", (e) => {
+          const list = this.openSpaces(), chosen = this.chosenSpace();
+          return e.child(v_flex().gap(4).child(ui.label("Space"))
+            .child(h_flex().gap(6).flex_wrap().children(list.map((s) => ui.chip(`space-${s.id}`, `${s.name}${s.branch ? ` · ${s.branch}` : ""}${s.active ? " (shown)" : ""}`, s.id === this.targetSpace, (cx) => this.pickSpace(s.id, cx)))))
+            .child(ui.hint(chosen ? `The agent works on ${chosen.branch ? `the branch ${chosen.branch}` : "the folder"} of ${chosen.name}.` : "Pick an open space.")));
+        })
+        .when(this.target === "worktree", (e) => e.child(v_flex().gap(4)
           .child(ui.label("Branch"))
           .child(h_flex().gap(8).items_center().px(8).py(5).rounded(6).border_1().border_color(t.input)
             .child(div().flex_1().min_w(0).font_family("Menlo").text_size(fs.meta).child(Input.new(this.branch)))
             .when(Boolean(this.branchState), (e) => e.child(div().flex_none().text_size(fs.tiny).text_color(this.branchState === "busy" || this.branchState === "invalid" ? t.ansi1 : this.branchState === "new" ? t.dim : t.ansi3)
               .child({ exists: "exists: reuses it", remote: "on origin: starts from it", busy: "in use by another worktree", invalid: "not a valid branch name" }[this.branchState] ?? (this.renamed ? `new (${this.renamed} is in use)` : "new")))))
-          .when(Boolean(this.main), (e) => e.child(ui.hint(`from ${this.base || "HEAD"} (the main checkout) · worktree ${path}`))))
+          .when(Boolean(this.main), (e) => e.child(ui.hint(`from ${this.base || "HEAD"} (the main checkout) · worktree ${path}`)))))
         .when(Boolean(p.fork), (e) => e.child(h_flex().gap(8).items_center().px(10).py(7).rounded(6).bg(t.ansi3 + "1a").text_size(fs.meta).text_color(t.foreground)
           .child(icon("alert", t.ansi3, 13))
           .child(div().flex_1().min_w(0).child("This pull request comes from a fork: the agent builds and runs its code on this machine, with your environment. Only for authors you trust."))))
@@ -324,17 +427,21 @@ export class AgentDialog extends View {
               .cursor_pointer().on_click((_e, cx) => { this.editing = true; this.prompt.focus(); cx.notify(); })
               .child(div().max_h(96).overflow_hidden().child(preview))))
         .child(v_flex().gap(3).text_size(fs.tiny).text_color(t.muted)
-          .child(`① Creates the worktree and branch ${branch || "…"}${this.branchState === "exists" ? " (the branch exists, so it is reused)" : ` from ${this.base || "HEAD"}`}; nothing is pushed.`)
-          .child(`② Opens a new space "${p.tabs?.[this.mode] ?? p.title ?? ""}" and starts ${this.agent?.name ?? "the agent"} with this prompt.`)
+          .when(this.target === "worktree", (e) => e
+            .child(`① Creates the worktree and branch ${branch || "…"}${this.branchState === "exists" ? " (the branch exists, so it is reused)" : ` from ${this.base || "HEAD"}`}; nothing is pushed.`)
+            .child(`② Opens a new space "${p.tabs?.[this.mode] ?? p.title ?? ""}" and starts ${this.agent?.name ?? "the agent"} with this prompt.`))
+          .when(this.target === "space", (e) => e
+            .child(`Opens a new tab "${p.tabs?.[this.mode] ?? p.title ?? ""}" in ${this.chosenSpace()?.name ?? "the space"} and starts ${this.agent?.name ?? "the agent"} with this prompt.`))
           .child(h_flex().id("stay").gap(6).items_center().cursor_pointer().on_click((_e, cx) => { this.stay = !this.stay; cx.notify(); })
             .child(div().size(14).rounded(3).border_1().border_color(this.stay ? t.border : t.accent).when(!this.stay, (e) => e.bg(t.accent)).flex().items_center().justify_center()
               .when(!this.stay, (e) => e.child(icon("check", t.background, 10))))
-            .child("Switch to the new space")))
+            .child(this.target === "space" ? "Switch to that space" : "Switch to the new space")))
         .when(Boolean(this.error), (e) => e.child(div().text_size(fs.meta).text_color(t.ansi1).child(this.error))))
       .child(ui.footer([
         div().flex_1().child(ui.hint("Esc cancels")),
         ui.button("cancel", "Cancel", null, true, () => this.close()),
-        ui.button("start", this.busy ? "Starting…" : `${verb}  ⌘↵`, "primary", !this.busy && Boolean(this.agent) && this.branchState !== "invalid" && this.branchState !== "busy", (cx) => this.start(cx)),
+        ui.button("start", this.busy ? "Starting…" : verb, "primary", !this.busy && Boolean(this.agent)
+          && (this.target === "space" ? Boolean(this.chosenSpace()) : this.branchState !== "invalid" && this.branchState !== "busy"), (cx) => this.start(cx)),
       ]));
   }
 }
@@ -397,7 +504,7 @@ export class PromptsDialog extends View {
         ui.button("reset", "Reset to default", null, true, (cx) => { this.text.set_value(DEFAULTS[this.mode]); delete this.mine[this.mode]; cx.notify(); }),
         div().flex_1(),
         ui.button("cancel", "Cancel", null, true, () => this.close()),
-        ui.button("save", "Save  ⌘↵", "primary", true, () => this.save()),
+        ui.button("save", "Save", "primary", true, () => this.save()),
       ]));
   }
 }

@@ -23,6 +23,15 @@ The changes of this kit:
 - No Linear: the issues come from Jira Cloud or GitHub.
 - Extra Jira fields for the prompts: see below.
 
+## Start agent
+
+The **Start agent** dialog of an issue asks where the agent runs:
+
+- **New worktree** (the default): a new branch in a new git worktree (`~/.herdr/worktrees/<repo>/<branch>`) of the repository of the shown space, in a new space.
+- **Open space · new tab**: a new tab in an open space that you pick (the shown space first), on the branch that it has now. Nothing is created in git. Pull requests always use a new worktree: their prompts check out and reset the branch.
+
+The dialog shows the repository (the main checkout of the shown space) and its branch. **Default** of Model and Effort shows what the agent uses: the `model` and `effortLevel` of `~/.claude/settings.json` (Claude Code), the `model` and `model_reasoning_effort` of `~/.codex/config.toml` (Codex), else the documented default (Claude Code: the account's model, usually Opus 5.5, with medium effort). An environment variable such as `ANTHROPIC_MODEL` can still change them.
+
 ## Extra Jira fields
 
 A Jira custom field (for example **Refinement**, with the full text of the task) can go into the Start agent prompts:

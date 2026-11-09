@@ -543,11 +543,11 @@ export default class SpaceIssues extends View {
     return pageLayout({
       id: "issue-detail", t, wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, nav,
       actions: [
-        k.button("issue-open", `Open in ${home(i)}`, () => openUrl(browse(i)), { hint: "O" }),
+        k.button("issue-open", `Open in ${home(i)}`, () => openUrl(browse(i))),
         ...(lead ? [
           ...(this.repo && p ? [k.button("issue-agent", "Start another", () => this.dispatch(i, p))] : []),
-          k.button("issue-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => this.go(lead.id), { primary: true, icon: "bot", hint: "⌘↵" }),
-        ] : this.repo && p ? [k.button("issue-agent", "Start agent", () => this.dispatch(i, p), { primary: true, icon: "bot", hint: "⌘↵" })] : []),
+          k.button("issue-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => this.go(lead.id), { primary: true, icon: "bot" }),
+        ] : this.repo && p ? [k.button("issue-agent", "Start agent", () => this.dispatch(i, p), { primary: true, icon: "bot" })] : []),
       ],
       title: f.summary, key: i.key,
       status: h_flex().gap(8).items_center().flex_wrap().child(badge)
@@ -647,7 +647,7 @@ export default class SpaceIssues extends View {
     }, t));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
-    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close (Esc)" });
+    const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close" });
     return v_flex().id("issues").relative().overflow_hidden().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(fs.body)
       .on_size_change((size, cx) => { this.height = size.height; this.resized(Math.round(size.width), cx); })
       .track_focus(this.handle)

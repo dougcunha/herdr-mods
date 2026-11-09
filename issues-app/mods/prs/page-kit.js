@@ -14,8 +14,9 @@ export function kit(t) {
   const k = {};
   k.kbd = (text, on = false) => div().px(4).rounded(4).border_1().border_b_2().border_color(on ? t.foreground + "55" : t.border)
     .text_size(fs.tiny - 1).text_color(on ? t.background : t.muted).child(text);
-  // The kit's button (links.js). `primary`: the page's main action; `hint`: its key. The press must not drag the window.
-  k.button = (id, label, onClick, o = {}) => button(t, id, label, onClick, { kind: o.primary ? "primary" : "plain", icon: o.icon, hint: o.hint })
+  // The kit's button (links.js). `primary`: the page's main action. Its key shows in the page footer, not
+  // on the button (`o.hint` is ignored). The press must not drag the window.
+  k.button = (id, label, onClick, o = {}) => button(t, id, label, onClick, { kind: o.primary ? "primary" : "plain", icon: o.icon })
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
   // ↑ and ↓ of a page dialog: small buttons of the kit.
   k.arrow = (id, glyph, onClick, enabled) => button(t, id, glyph, onClick, { small: true, disabled: !enabled });
