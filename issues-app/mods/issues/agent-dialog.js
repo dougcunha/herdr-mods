@@ -13,9 +13,9 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
-import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, readTextFile, home as localHome, window as appWindow } from "herdr";
+import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, readTextFile, shared, setShared, home as localHome, window as appWindow } from "herdr";
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
-import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented } from "./links.js";
+import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented, iconButton, programTile } from "./links.js";
 import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
@@ -91,6 +91,22 @@ async function agentDefaults(key, home, on) {
   return null;
 }
 
+// The known agents per machine, as knownAgents() gave them, kept in shared("issues.agents"):
+// { [machine or "local"]: { list, checkedAt } }. knownAgents() starts a shell, so the dialog asks only
+// when no list is kept (first open) or when the person clicks ↻, the same as the repo-launcher.
+// The repo-launcher's list (installed agents of this computer) fills an empty one at once.
+const AGENTS = "issues.agents";
+const machineKey = (on) => on ?? "local";
+function cachedAgents(on) {
+  const own = shared(AGENTS)?.[machineKey(on)];
+  if (Array.isArray(own?.list)) return own;
+  const rl = !on ? shared("repo-launcher.agents") : null;
+  return Array.isArray(rl?.list) ? { list: rl.list, checkedAt: rl.checkedAt ?? null } : null;
+}
+function keepAgents(on, list) {
+  setShared(AGENTS, { ...(shared(AGENTS) ?? {}), [machineKey(on)]: { list, checkedAt: Date.now() } });
+}
+
 const optionsKey = (a) => `agent-opts:${a?.key ?? a?.name}`;
 const lastOptions = (a) => { try { return JSON.parse(localStorage.getItem(optionsKey(a)) ?? "null") ?? {}; } catch { return {}; } };
 const keepOptions = (a, o) => { try { localStorage.setItem(optionsKey(a), JSON.stringify(o)); } catch { /* best effort */ } };
@@ -129,15 +145,11 @@ export class AgentDialog extends View {
     this.modelText = InputState.new({ placeholder: "Model (empty: the agent's own setting)" });
     this.handle = cx.focus_handle();
     this.fillPrompt();
+    // The kept list shows at once; only an empty one asks Herdr (see cachedAgents).
+    const kept = cachedAgents(p.on ?? null);
+    if (kept) this.useAgents(kept.list, cx);
+    else this.refreshAgents(cx);
     cx.spawn(async (cx) => {
-      try {
-        this.agents = await knownAgents({ on: p.on ?? null });
-        const ready = this.agents.filter((a) => a.installed);
-        this.agent = ready.find((a) => a.name === lastAgent()) ?? ready[0] ?? null;
-        this.loadOptions(); this.loadDefaults(cx);
-        if (!this.agent) this.error = "No installed agent found (programs.json `run` entries).";
-      } catch (e) { this.error = `Cannot list agents: ${e}`; }
-      cx.notify();
       try {
         this.main = await mainCheckout(p.repo, p.on ?? null);
         if (this.main) {
@@ -155,6 +167,31 @@ export class AgentDialog extends View {
   // Esc, Cancel and Start close it here; the list gets the keyboard back. Not a Herdr hook (a child
   // view never gets one): a click beside the dialog goes through the root view's close().
   close() { closeOverlay(props().overlay); const m = props()?.mod; if (m) run(`${m}.focus`); }
+
+  // Shows a list of agents: the chosen one stays when it is still installed, else the last used, else the first.
+  useAgents(list, cx) {
+    this.agents = list ?? [];
+    const ready = this.agents.filter((a) => a.installed !== false);
+    const keep = this.agent && ready.find((a) => a.name === this.agent.name);
+    this.agent = keep ?? ready.find((a) => a.name === lastAgent()) ?? ready[0] ?? null;
+    this.error = this.agent ? (this.error.startsWith("No installed agent") ? "" : this.error) : "No installed agent found (programs.json `run` entries).";
+    if (!keep) { this.loadOptions(); this.loadDefaults(cx); }
+    cx.notify();
+  }
+  // Asks Herdr for the agents (it starts a shell: a second or two) and keeps the list.
+  refreshAgents(cx) {
+    if (this.checkingAgents) return;
+    const on = props()?.on ?? null;
+    this.checkingAgents = true; cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const list = await knownAgents({ on });
+        keepAgents(on, list);
+        this.useAgents(list, cx);
+      } catch (e) { this.error = `Cannot list agents: ${e}`; }
+      this.checkingAgents = false; cx.notify();
+    });
+  }
 
   // The agent's own defaults (agentDefaults), for the Default chips.
   loadDefaults(cx) {
@@ -338,12 +375,13 @@ export class AgentDialog extends View {
     const modes = this.modes;
     const verb = this.mode === "review" || this.mode === "stack-review" ? "Start review" : "Start agent";
     const agentCard = (a) => {
-      const on = this.agent === a, ok = a.installed;
+      const on = this.agent?.name === a.name, ok = a.installed !== false;
       return h_flex().id(`agent-${a.name}`).gap(8).items_center().px(10).py(7).rounded(8).min_w(150)
         .border_1().border_color(on ? t.accent : t.border).when(on, (e) => e.bg(t.accent + "10"))
         .when(!ok, (e) => e.opacity(0.5))
         .when(ok, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.agent = a; this.loadOptions(); this.loadDefaults(cx); cx.notify(); }))
-        .child(avatar(a.name, t, 24))
+        // The icon of the provider, as Herdr's programs table and the repo-launcher show it.
+        .child(programTile(t, a, 26))
         .child(v_flex().child(div().text_size(fs.meta).child(a.name))
           .child(div().text_size(fs.tiny).text_color(t.dim).child(!ok ? "not installed" : a.name === lastAgent() ? "last used" : "installed")));
     };
@@ -359,9 +397,13 @@ export class AgentDialog extends View {
         .when(Boolean(p.key), (e) => e.child(div().flex_none().text_color(t.dim).child(p.key)))
         .child(div().min_w(0).truncate().font_semibold().child(p.title ?? ""))))
       .child(v_flex().id("dispatch-body").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(12).gap(12)
-        .child(v_flex().gap(4).child(ui.label("Agent"))
-          .child(h_flex().gap(8).flex_wrap().children(this.agents.filter((a) => a.installed).map(agentCard)))
-          .when(this.agents.some((a) => !a.installed), (e) => e.child(ui.hint(`${this.agents.filter((a) => !a.installed).length} more known agents aren't installed on this machine.`))))
+        .child(v_flex().gap(4)
+          // ↻ asks Herdr for the installed agents again (the list is kept: see cachedAgents).
+          .child(h_flex().gap(6).items_center().child(ui.label("Agent")).child(div().flex_1())
+            .child(iconButton(t, "agents-refresh", "refresh", (cx) => this.refreshAgents(cx), { spin: Boolean(this.checkingAgents), size: 24, tooltip: "Check the installed agents again" })))
+          .when(!this.agents.length && this.checkingAgents, (e) => e.child(ui.hint("Looking for the installed agents…")))
+          .child(h_flex().gap(8).flex_wrap().children(this.agents.filter((a) => a.installed !== false).map(agentCard)))
+          .when(this.agents.some((a) => a.installed === false), (e) => e.child(ui.hint(`${this.agents.filter((a) => a.installed === false).length} more known agents aren't installed on this machine.`))))
         .when(Boolean(this.agent), (e) => {
           const o = OPTIONS[this.agent.key];
           if (!o) return e.child(ui.hint(`${this.agent.name} takes its model from its own settings.`));

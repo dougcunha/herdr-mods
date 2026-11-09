@@ -9,7 +9,7 @@
 // so worktree spaces follow the repository's space.
 
 import { exec, shared, setShared, spaces, openOverlay, closeOverlay, props, theme, appHome, readTextFile, writeTextFile, settings, window as appWindow, run, notify } from "herdr";
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, v_resizable, resizable_panel, Avatar, AvatarImage, AvatarFallback } from "gpui-base";
 
 const KEY = "space-links";
@@ -409,6 +409,18 @@ export function button(t, id, label, onClick, { kind = "plain", icon: name = "",
     .when(!disabled, (e) => e.cursor_pointer().hover((s) => (link ? s.opacity(0.8) : s.bg(primary ? tint(t.accent, "40") : t.hover))).on_click((_e, cx) => onClick(cx)))
     .when(Boolean(name), (e) => e.child(icon(name, color, small ? 12 : 13)))
     .child(label);
+}
+
+// The tile of a program from knownAgents() (an agent): its icon on its tile color, as the
+// repo-launcher draws it. A program without an icon shows its first letter.
+export function programTile(t, program, size = 28) {
+  const glyph = Math.round(size * 0.56);
+  const drawn = !program?.icon
+    ? div().text_size(Math.round(size * 0.45)).font_semibold().text_color(t.foreground).child(String(program?.name ?? "?").slice(0, 1).toUpperCase())
+    : program.tint ? svg(program.icon).size(glyph).text_color(program.color ?? "#ffffff") : image(program.icon).size(glyph);
+  return h_flex().size(size).flex_none().rounded(Math.round(size * 0.28)).items_center().justify_center()
+    .bg(program?.tile ?? t.raised).border_1().border_color(tint("#ffffff", "14"))
+    .child(drawn);
 }
 
 // A choice that can be on or off (a preset, a mode): a rounded pill.
