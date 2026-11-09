@@ -209,7 +209,7 @@ export function migrateSettings(mod) {
 export const setPref = (mod, key, value) => setShared(`${mod}.${key}`, value);
 
 // The cog opens the mod itself as a popup with props.settings; its render returns settingsMenu.
-export const openSettings = (mod) => openOverlay({ mod, kind: "popup", width: 280, props: { settings: true } });
+export const openSettings = (mod) => openOverlay({ mod, kind: "popup", width: 240, props: { settings: true } });
 // "overlay" (the default): a page opens in a dialog over the window; "split": under the list,
 // in the same panel; "full": in the list's place. An unknown stored value counts as the default.
 export const PAGE = { key: "page", label: "Page", choices: [["overlay", "Overlay"], ["split", "Split"], ["full", "Full"]], fallback: "overlay" };
@@ -276,21 +276,25 @@ export function splitView(id, list, page, open, close) {
 export function settingsMenu(mod, settings, space = true) {
   const t = theme();
   const choice = (id, text, on, click) => chip(t, id, text, on, click);
-  const row = (d) => h_flex().min_h(28).gap(4).items_center().flex_wrap()
-    .child(div().w(70).flex_none().text_size(11.5).text_color(t.muted).child(d.label))
+  const row = (d) => h_flex().min_h(28).px(8).gap(4).items_center().flex_wrap()
+    .child(div().w(70).flex_none().text_size(fs.tiny).text_color(t.muted).child(d.label))
     .children(d.choices.map(([value, text]) => choice(`${d.key}-${value}`, text, (d.get ? d.get() : d.key === "page" ? pageMode(mod) : pref(mod, d.key, d.fallback)) === value, () => (d.set ? d.set(value) : setPref(mod, d.key, value)))));
+  // A row of the kit's menus (space-deck, files-md-menu): an icon, then the label.
+  const item = (id, name, label, open) => h_flex().id(id).h(28).px(8).gap(9).rounded(7).items_center().cursor_pointer()
+    .hover((s) => s.bg(t.hover))
+    .on_click(() => { closeOverlay(props().overlay); open(); })
+    .child(icon(name, t.muted, 14))
+    .child(div().flex_1().min_w(0).truncate().child(label));
+  const sep = (id) => div().id(id).mx(7).my(4).h(1).bg(t.border);
+  const items = space ? [item("link-space", "link", "Link space…", () => openLinkDialog(mod)), item("prompts", "prompt", "Prompts…", () => openPromptsDialog(mod))] : [];
+  // A divider only between two parts, never above the first one.
+  const parts = [settings.map(row), items].filter((p) => p.length);
   // The kit updates these mods (mods-hub), so the menu ends with the credit, not an Update button.
-  const version = h_flex().mt(6).pt(8).gap(6).items_center().border_t_1().border_color(t.border).text_size(11.5).text_color(t.dim)
-    .child(div().flex_1().child("Based on Herdr Ranch by Jelle Slowack"));
-  return v_flex().size_full().p(10).gap(4).text_color(t.foreground)
-    .children(settings.map(row))
-    .when(space, (e) => e.child(div().id("link-space").mt(6).pt(8).border_t_1().border_color(t.border).text_size(12).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.text_color(t.foreground))
-      .on_click(() => { closeOverlay(props().overlay); openLinkDialog(mod); }).child("Link space…"))
-    .child(div().id("prompts").text_size(12).cursor_pointer()
-      .text_color(t.muted).hover((s) => s.text_color(t.foreground))
-      .on_click(() => { closeOverlay(props().overlay); openPromptsDialog(mod); }).child("Prompts…")))
-    .child(version);
+  const credit = div().px(8).py(4).text_size(fs.tiny).text_color(t.dim).child("Based on Herdr Ranch by Jelle Slowack");
+  return v_flex().w_full().p(5).bg(t.popover).text_size(fs.meta).text_color(t.foreground)
+    .children(parts.flatMap((p, n) => (n ? [sep(`sep-${n}`), ...p] : p)))
+    .child(sep("sep-credit"))
+    .child(credit);
 }
 
 // A retained child view drawn by `draw()`. Herdr re-renders a mod's root on every live
@@ -328,6 +332,8 @@ const LUCIDE = {
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   comment: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  prompt: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   stack: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 };
