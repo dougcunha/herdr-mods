@@ -21,6 +21,16 @@ The changes of this kit:
 - The mods are Dock panels (`dock/panels.json`), not buttons of the `mod-buttons` layout. The **Opens in** setting is gone.
 - In a dialog of the Dock, the header of the list does not repeat the name and the × of the dialog, and Esc closes the dialog also after a click in the header.
 - No Linear: the issues come from Jira Cloud or GitHub.
+- Extra Jira fields for the prompts: see below.
+
+## Extra Jira fields
+
+A Jira custom field (for example **Refinement**, with the full text of the task) can go into the Start agent prompts:
+
+1. Open **Herdr Mods** → **Settings** → **Issues**.
+2. In **Extra Jira fields**, type the name or the id of each field, split by commas: `Refinement` or `customfield_10545`.
+
+Each field is a placeholder of its own in **Prompts…**: its name in lower case, with `_` for spaces and signs (`Refinement` → `{refinement}`). `{fields}` holds all of them, one `## <name>` section each, and the default prompts include it under the description. The issue page shows each field under the description.
 - On Windows, **Connect** in **Link space** stored the token but showed "The credential store refused it". Fixed.
 - The **Mods** tab of Herdr Mods can turn each mod off.
 - The `herdr-ranch-reviews` mod is not part of the kit: it runs Unix programs only.

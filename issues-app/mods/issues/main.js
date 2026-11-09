@@ -11,7 +11,8 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched } from "./jira.js";
+import { fileLinks, suggestKey, search, issue, myself, watched, extraFields } from "./jira.js";
+import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
 import { rows, haystack, words, matches, ago, hash, slug } from "./rows.js";
@@ -33,6 +34,15 @@ const isGithub = (x) => x?.provider === "github";
 const where = (repo, p) => ({ cwd: repo?.main, on: repo?.on, github: p.repo });
 // Jira descriptions and comments are ADF, GitHub's are Markdown already.
 const text = (body) => (typeof body === "string" ? body : adfToMarkdown(body));
+// The value of an extra Jira field as text: rich text (ADF) as Markdown, an option or a person by
+// its name, a list joined with commas.
+function fieldText(v) {
+  if (v == null) return "";
+  if (typeof v !== "object") return String(v);
+  if (Array.isArray(v)) return v.map(fieldText).filter(Boolean).join(", ");
+  if (v.type === "doc") return adfToMarkdown(v).trim();
+  return String(v.value ?? v.name ?? v.displayName ?? v.key ?? "");
+}
 const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
 // The settings (Settings tab of Herdr Mods): the list's order (shared "issues.order") and where a page opens ("issues.page").
 const split = () => asSplit("issues");
@@ -48,7 +58,8 @@ const place = () => (props()?.overlay ? "window" : props()?.space ? "tab" : "pan
 const lastWidth = () => { try { return Number(localStorage.getItem(`width:${place()}`)) || 0; } catch { return 0; } };
 const keepWidth = (w) => { try { localStorage.setItem(`width:${place()}`, String(w)); } catch { /* best effort */ } };
 // Pages are cached by site, repository and key: `#12` exists in every GitHub repository.
-const pageKey = (i) => `${i.site}|${i.repo ?? ""}|${i.key}`;
+// The extra fields are part of the key: a change in the setting fetches the pages again.
+const pageKey = (i) => `${i.site}|${i.repo ?? ""}|${i.key}|${extraFieldNames().join(",")}`;
 // What a space's list keeps in memory (the last SPACES spaces), so switching back shows it at once.
 const SPACES = 20;
 const KEPT = ["repo", "github", "projects", "from", "capped", "issues", "data", "hay", "saved", "meta", "version", "cache", "error", "signIn", "cursor"];
@@ -307,11 +318,20 @@ export default class SpaceIssues extends View {
 
   async fetchPage(i) {
     // Jira names no pull requests: the space's repository is searched for the key.
+    // The extra Jira fields of the setting (a name the site doesn't know, or a failed field list, is left out).
+    const wanted = extraFieldNames();
+    const defs = !isGithub(i) && wanted.length ? await extraFields(i.site, wanted).catch(() => []) : [];
     const [page, prs] = await Promise.all([
-      isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key),
+      isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key, defs.map((d) => d.id)),
       !isGithub(i) && this.github ? github.prsFor(i.key, this.github, where(this.repo, { repo: this.github })).catch(() => []) : null,
     ]);
     if (prs) page.prs = prs;
+    // { name, ph (its placeholder), text (all of it, for the prompt), md (the start, for the page) }.
+    page.extra = defs.map((d) => {
+      const value = fieldText(page.fields[d.id]);
+      delete page.fields[d.id];
+      return { name: d.name, ph: placeholderOf(d.wanted), text: value, md: value ? short(value) : "" };
+    });
     // Converted once here, not on every render (Herdr renders on any live change): the
     // description, then comments and events in time order.
     const comments = page.fields.comment?.comments ?? [];
@@ -402,6 +422,10 @@ export default class SpaceIssues extends View {
       vars: {
         key: isGithub(i) ? `${i.repo}${i.key}` : i.key, title, url: browse(i), type: f.issuetype?.name ?? "", status: f.status?.name ?? "",
         priority: f.priority?.name ?? "", labels: (f.labels ?? []).join(", "), description: text(f.description) || "(no description)", tracker: home(i),
+        // The extra fields: each by its placeholder ("none" when empty or not on this issue), and all in {fields}.
+        ...Object.fromEntries(extraFieldNames().map((n) => [placeholderOf(n), ""])),
+        ...Object.fromEntries((page.extra ?? []).map((x) => [x.ph, x.text])),
+        fields: (page.extra ?? []).filter((x) => x.text).map((x) => `## ${x.name}\n\n${x.text}`).join("\n\n"),
       },
       // A branch per mode (agent/plan-…, agent/investigate-…), so planning and then working on one issue don't collide.
       branches: { work: branch, plan: branch.replace(/^agent\//, "agent/plan-"), investigate: branch.replace(/^agent\//, "agent/investigate-") }, tabs: { work: tab, plan: `Plan ${tab}`.slice(0, 60), investigate: `Investigate ${tab}`.slice(0, 60) },
@@ -534,6 +558,9 @@ export default class SpaceIssues extends View {
       main: [
         p ? k.card(`card-desc-${i.key}`, reporter, gh ? "opened" : "reported", created ? `${ago(created)} ago` : "", TextView.markdown(`desc-${i.key}`, p.md.description || "_No description._").selectable(true).on_link_click((url) => openUrl(url)))
           : div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…"),
+        // The extra fields of the setting (Refinement…), each in a card under the description.
+        ...(p?.extra ?? []).filter((x) => x.md).map((x, n) => k.card(`card-extra-${i.key}-${n}`, x.name, "", "",
+          TextView.markdown(`extra-${i.key}-${n}`, x.md).selectable(true).on_link_click((url) => openUrl(url)))),
         ...timeline,
         ...(p && p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
       ],

@@ -53,9 +53,29 @@ export async function suggestKey(repo) {
 // ---- REST (sign-in and the client: jira-client.js) ----------------------------
 
 export { myself } from "./jira-client.js";
+
+// The fields of a site (id and name, custom ones too), read once per site and kept for the session.
+const fieldLists = new Map();
+function fieldList(site) {
+  if (!fieldLists.has(site)) fieldLists.set(site, call(site, "/rest/api/3/field").catch((e) => { fieldLists.delete(site); throw e; }));
+  return fieldLists.get(site);
+}
+// The extra fields that the person named (prompts.js extraFieldNames), found by id or by name
+// (case does not matter): [{ id, name, wanted }] in the order given. A name the site doesn't have is left out.
+export async function extraFields(site, wanted) {
+  if (!wanted.length) return [];
+  const all = await fieldList(site);
+  return wanted.map((w) => {
+    const f = all.find((x) => x.id === w) ?? all.find((x) => String(x.name ?? "").toLowerCase() === w.toLowerCase());
+    return f ? { id: f.id, name: f.name, wanted: w } : null;
+  }).filter(Boolean);
+}
+
 // With its sub-tasks and history (status, assignee and priority changes become timeline events).
-export async function issue(site, key) {
-  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks&expand=changelog`);
+// `extra`: ids of more fields to read (custom fields for the prompts); they come back in page.fields.
+export async function issue(site, key, extra = []) {
+  const ids = extra.filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
+  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
   const events = [];
   for (const h of page.changelog?.histories ?? []) for (const it of h.items ?? []) {
     const who = h.author?.displayName, at = h.created;
