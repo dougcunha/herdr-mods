@@ -425,9 +425,10 @@ export default class Kanban extends View {
 
   /** The agents with the status the board shows: a Claude Code agent that is Done or Idle while its
    *  subagents run gets "waiting" and `wait` ({ count, items }). The answer counts only for the turn
-   *  it was read in: when the agent works again it is stale and the card goes back at once. */
+   *  it was read in: when the agent works again it is stale and the card goes back at once. A hidden
+   *  Waiting column counts as off, so the card stays in Done or Idle and does not leave the board. */
   withWaiting(list) {
-    if (!this.waitingOn() || !this.tracker.waits.size) return list;
+    if (!this.waitingOn() || this.hidden().has(WAITING) || !this.tracker.waits.size) return list;
     const turns = new Map(terminals().map((x) => [x.address, x.turn]));
     const dismissed = shared(KEY_DISMISSED) ?? {};
     return list.map((a) => {
