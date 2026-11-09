@@ -80,7 +80,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 ## What it runs
 
 - `git -C <folder> rev-parse --show-toplevel` in the folder of the focused terminal, to find the project.
-- `gh auth status` once, then `gh repo clone <catalog>` (or `git clone <url>`) into `~/.config/herdr-app/cache/skill-bundles/<owner>/<name>`. Every 15 minutes (a setting): `git fetch` and `git reset --hard origin/HEAD` in that folder. The mod owns that folder.
+- `gh auth status` once, then `gh repo clone <catalog>` (or `git clone <url>`) into `~/.config/herdr-app/cache/skill-bundles/<owner>/<name>`. Every 15 minutes (a setting): `git fetch` and `git reset --hard origin/HEAD` in that folder. The mod owns that folder. With your own clone: `git fetch` and `git merge --ff-only @{u}` in your folder.
 - `node mods/skill-bundles/probe.mjs` on each read: it reads the Lock and the skill folders of the project and computes the hashes of the Catalog's skill folders, the same way as `npx skills`. It writes nothing.
 - `npx --yes skills add <repo> -s <skills> -y` and `npx --yes skills remove <skills> -y` in the project folder, only when you click an action. `npx skills` downloads the skills from GitHub.
 - It reads and writes `skills.yaml` and `.gitignore` of the project, only when you click an action.
@@ -115,7 +115,7 @@ Add this block to the `children` of `status-row`, after the `status` block:
 The **Settings** tab of the Herdr Mods dialog (`mods-hub`) shows:
 
 - **Skill Catalog:** `owner/name` of the Catalog on GitHub.
-- **Your own clone (optional):** a folder with your own clone of the Catalog. The mod reads its working tree as it is (it only runs `git fetch` there) and keeps no clone of its own. When that clone is on a branch that is not the default one, the mod installs the Catalog's skills from that branch (`owner/name#branch`) and says so under the header. It does not install while the clone has changes that are not committed or commits that are not pushed, because `npx skills` downloads from GitHub, not from your folder.
+- **Your own clone (optional):** a folder with your own clone of the Catalog. The mod keeps no clone of its own and keeps your clone up to date: each time it fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. So the hashes match what `npx skills` downloads from GitHub. When that clone is on a branch that is not the default one, the mod installs the Catalog's skills from that branch (`owner/name#branch`) and says so under the header. It does not install while the clone has changes that are not committed or commits that are not pushed, because `npx skills` downloads from GitHub, not from your folder.
 - **Clone URL (optional):** the URL for `git clone` when `gh` is not logged in. Empty: `git@github.com:<owner>/<name>.git`.
 - **Fetch the Catalog every:** 15 minutes by default.
 - **Shortcut of the Skill Bundles panel:** a key for `skill-bundles.open`. Only the status bar item listens for it.

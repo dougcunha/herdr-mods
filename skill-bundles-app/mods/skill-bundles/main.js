@@ -170,7 +170,7 @@ export default class SkillBundles extends View {
     if (force || Date.now() - (times[dir] ?? 0) > minutes * 60 * 1000) {
       setShared(KEY.fetched, { ...times, [dir]: Date.now() });
       if (force) { this.cat = { ...(previous ?? { state: "loading" }), fetching: true }; cx.notify(); }
-      fetchError = own ? await C.fetchOnly(dir) : await C.updateOwnClone(dir);
+      fetchError = own ? await C.pullOwnClone(dir) : await C.updateOwnClone(dir);
     }
     const text = await readTextFile(`${dir}/bundles.yaml`).catch(() => null);
     if (text === null) { this.cat = { state: "error", slug, error: `${dir}/bundles.yaml was not found.` }; return; }

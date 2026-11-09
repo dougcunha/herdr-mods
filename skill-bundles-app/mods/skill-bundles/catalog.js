@@ -86,10 +86,21 @@ export async function updateOwnClone(dir) {
   return r.code === 0 ? null : tail(r);
 }
 
-/** Fetches the person's own clone. It does not change the working tree. Returns null or an error. */
-export async function fetchOnly(dir) {
+/**
+ * Fetches the person's own clone and brings its branch to the remote (fast-forward only), so
+ * the hashes match what `npx skills add` installs. A clone with changes that are not committed,
+ * or a branch with no upstream, is only fetched. Returns null or an error.
+ */
+export async function pullOwnClone(dir) {
   const f = await sh("git", ["-C", dir, "fetch", "--quiet", "origin"]);
-  return f.code === 0 ? null : tail(f);
+  if (f.code !== 0) return tail(f);
+  if ((await sh("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no"])).out.trim()) return null;
+  const up = await sh("git", ["-C", dir, "rev-parse", "--abbrev-ref", "@{u}"]);
+  if (up.code !== 0) return null;
+  const behind = await sh("git", ["-C", dir, "rev-list", "--count", "HEAD..@{u}"]);
+  if (!(Number(behind.out.trim()) > 0)) return null;
+  const m = await sh("git", ["-C", dir, "merge", "--ff-only", "--quiet", "@{u}"]);
+  return m.code === 0 ? null : tail(m);
 }
 
 /** The short commit of a clone's HEAD, or "". */
