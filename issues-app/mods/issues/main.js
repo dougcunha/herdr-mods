@@ -45,6 +45,10 @@ function fieldText(v) {
   return String(v.value ?? v.name ?? v.displayName ?? v.key ?? "");
 }
 const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
+// The Details card of a page, collapsed or expanded: the last choice, the same in every copy
+// (the list, the page dialog), so shared (UI state, not a setting of the hub).
+const detailsOpen = () => shared("issues.detailsOpen") !== false;
+const keepDetails = (open) => setShared("issues.detailsOpen", open);
 // Story points without a long tail (2.5, not 2.5000001).
 const points = (n) => String(Math.round(n * 10) / 10);
 // A Jira due date ("2026-11-20") with how far it is: { text, late, soon (2 days or less) }.
@@ -584,7 +588,7 @@ export default class SpaceIssues extends View {
       m.resolution && ["Resolution", div().text_color(t.ansi2).child(m.resolution), "done"],
       created && ["Created", div().text_color(t.muted).child(`${ago(created)} ago`), "pending"],
       f.updated && ["Updated", div().text_color(t.muted).child(`${ago(f.updated)} ago`), "refresh"],
-    ])];
+    ], { open: detailsOpen(), toggle: (cx) => { keepDetails(!detailsOpen()); cx.notify(this.pageView); } })];
     const side = [
       k.agents(working, (id) => this.go(id)),
       details,

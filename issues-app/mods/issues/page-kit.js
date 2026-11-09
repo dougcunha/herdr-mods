@@ -53,9 +53,14 @@ export function kit(t) {
   // A small tag of a list (a version, a component).
   k.tag = (text, color = t.muted) => div().flex_none().px(7).py(1).rounded(5).bg(tint(color, "1f")).text_size(fs.tiny).text_color(color === t.muted ? t.foreground : color).child(text);
   // The Details card of the sidebar: rows of [label, value, icon?]; a falsy row is left out.
-  k.facts = (title, rows) => v_flex().w_full().min_w(0).rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
-    .child(div().px(12).pt(9).pb(7).text_size(fs.tiny).font_semibold().text_color(t.muted).child(title))
-    .children(rows.filter(Boolean).map(([label, value, iconName]) => h_flex().min_h(32).px(12).py(5).gap(8).items_center().border_t_1().border_color(t.border)
+  // `fold` ({ open, toggle(cx) }, optional): a click on the title collapses or expands the rows.
+  k.facts = (title, rows, fold) => v_flex().w_full().min_w(0).rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+    .child(h_flex().id(`facts-${title}`).px(12).pt(9).pb(fold && !fold.open ? 9 : 7).gap(6).items_center().text_size(fs.tiny).font_semibold().text_color(t.muted)
+      .when(Boolean(fold), (e) => e.cursor_pointer().hover((s) => s.text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => fold.toggle(cx)))
+      .child(div().flex_1().child(title))
+      .when(Boolean(fold), (e) => e.child(icon(fold.open ? "chevron-down" : "chevron-right", t.dim, 13))))
+    .children(fold && !fold.open ? [] : rows.filter(Boolean).map(([label, value, iconName]) => h_flex().min_h(32).px(12).py(5).gap(8).items_center().border_t_1().border_color(t.border)
       .child(h_flex().w(92).flex_none().gap(6).items_center().text_size(fs.tiny).text_color(t.muted)
         .child(iconName ? icon(iconName, t.dim, 12) : div().w(12).flex_none()).child(div().truncate().child(label)))
       .child(div().flex_1().min_w(0).text_size(fs.meta).child(value))));
