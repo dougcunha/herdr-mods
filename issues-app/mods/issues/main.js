@@ -21,6 +21,7 @@ import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
+import { RowMenu, ROW_ACTION } from "./row-menu.js";
 import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -45,6 +46,7 @@ function fieldText(v) {
   return String(v.value ?? v.name ?? v.displayName ?? v.key ?? "");
 }
 const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
+const keyText = (i) => (isGithub(i) ? `${i.repo}${i.key}` : i.key);
 // The Details card of a page, collapsed or expanded: the last choice, the same in every copy
 // (the list, the page dialog), so shared (UI state, not a setting of the hub).
 const detailsOpen = () => shared("issues.detailsOpen") !== false;
@@ -122,7 +124,10 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    // This copy's id: Start agent of a row's menu (row-menu.js) comes back only to the list that opened it.
+    this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.seenAction = shared(ROW_ACTION)?.at ?? 0;
     // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
@@ -526,8 +531,44 @@ export default class SpaceIssues extends View {
     if (e.key === "enter" && m.platform) { const a = liveAgent(agentSpaces(this.repo?.main).issues.get(i.key)); if (a) this.go(a.id); else if (this.repo && p) this.dispatch(i, p); return true; }
     if (m.platform || m.control || m.alt) return false;
     if (e.key === "o") { openUrl(browse(i)); return true; }
-    if (e.key === "c") { const k = isGithub(i) ? `${i.repo}${i.key}` : i.key; cx.write_to_clipboard(k); notify({ title: `Copied ${k}`, level: "success", timeout: 2000 }); return true; }
+    if (e.key === "c") { this.copyKey(i, cx); return true; }
     return false;
+  }
+
+  // The key as the tracker writes it (GitHub's with its repository: owner/repo#12), on the clipboard.
+  copyKey(i, cx) {
+    const k = keyText(i);
+    cx.write_to_clipboard(k);
+    notify({ title: `Copied ${k}`, level: "success", timeout: 2000 });
+  }
+
+  // The right-click menu of a row (row-menu.js), under the pointer.
+  rowMenu(key) {
+    const i = this.issues.find((x) => x.key === key);
+    if (!i) return;
+    openOverlay({ mod: "issues", kind: "popup", width: 220, props: {
+      dialog: "row", to: this.uid, key: i.key, site: i.site, status: i.fields.status?.name ?? "", url: browse(i),
+      copy: keyText(i), jira: !isGithub(i), agent: Boolean(this.repo),
+    } });
+  }
+  // Start agent from a row's menu: the shared ROW_ACTION names this copy (`to`). The page is
+  // fetched first when the list doesn't have it yet.
+  followRowAction(cx) {
+    const a = shared(ROW_ACTION);
+    if (!a?.at || a.at === this.seenAction || a.to !== this.uid) return;
+    this.seenAction = a.at;
+    const i = this.issues.find((x) => x.key === a.key);
+    if (!i || !this.repo) return;
+    try {
+      cx.timer.after(0, (cx) => {
+        const page = this.pages.get(pageKey(i));
+        if (page) { this.dispatch(i, page); return; }
+        cx.spawn(async () => {
+          try { this.dispatch(i, await this.fetchPage(i)); }
+          catch (e) { notify({ title: `${i.key} did not load`, body: String(e?.message ?? e).slice(0, 300), level: "error" }); }
+        });
+      });
+    } catch { /* the next render runs it */ this.seenAction = 0; }
   }
 
   // GitHub's issue page: header (position, actions, title, state badge, byline), the
@@ -627,7 +668,7 @@ export default class SpaceIssues extends View {
           k.button("issue-go", `Go to agent · ${AGENT_STATUS[lead.status]?.[0] ?? "idle"}`, () => this.go(lead.id), { primary: true, icon: "bot" }),
         ] : this.repo && p ? [k.button("issue-agent", "Start agent", () => this.dispatch(i, p), { primary: true, icon: "bot" })] : []),
       ],
-      title: f.summary, key: i.key,
+      title: f.summary, key: i.key, copy: (cx) => this.copyKey(i, cx),
       // The facts that matter at a glance, as chips under the title.
       status: h_flex().gap(6).items_center().flex_wrap().child(badge)
         .child(k.chip(kind, f.issuetype?.name ?? "Issue", kindColor(kind, t)))
@@ -724,6 +765,7 @@ export default class SpaceIssues extends View {
     if (kitOff()) return offView();
     if (this.dialog) return this.dialog;
     this.followChanges(cx);
+    this.followRowAction(cx);
     readSizes();
     if (this.open) this.watchAgents(cx, agentSpaces(this.repo?.main).issues.get(this.open.key));
     if (this.only) {
@@ -769,6 +811,8 @@ export default class SpaceIssues extends View {
       .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "issue-list-keys" : "issue-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar()
         .children(shownItems.map((i) => (i.group ? heading(i.group) : this.row(i.data, i.depth, s).id(i.key)
           .on_click((_e, cx) => { const x = issue(i.data.key); if (x) { this.handle.focus(); this.pick(x, cx); } })
+          // Right-click: Move, Open, Start agent, Copy key (row-menu.js).
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rowMenu(i.data.key); })
           .on_hover((on, cx) => {
             if (!on) { if (this.hovered === i.data.key) this.hovered = null; return; }
             this.hovered = i.data.key; const x = issue(i.data.key); if (x) this.prefetch(x, cx);

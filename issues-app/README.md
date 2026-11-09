@@ -25,6 +25,9 @@ The changes of this kit:
 
 ## The Jira issue page
 
+- **Key:** the copy button next to the key in the title copies it (`C` also does).
+- **The list:** a right-click on an issue opens a menu with **Move** (Jira only), **Open in Jira** (or GitHub), **Start agent** (when the space has a git repository) and **Copy key**.
+
 - **Under the title:** chips for the status, the type, the priority, the story points, the sprint and the due date. A high priority, the active sprint and a due date that is near or past show in color.
 - **Tabs:** **Description**, a tab for each long extra field (for example **Refinement**, see below) and **Activity** (the comments, the changes of status, assignee and priority, and the comment box).
 - **Details:** the assignee, the reporter, the priority, the story points, the sprint, the fix versions, the affected versions, the components, the labels, the due date, the parent, the short extra fields and the dates. A narrow page shows the card above the tabs. A click on **Details** collapses or expands the card; every page keeps that choice.

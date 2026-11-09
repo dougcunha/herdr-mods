@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { fs, icon, avatar, AGENT_STATUS, button, tint } from "./links.js";
+import { fs, icon, avatar, AGENT_STATUS, button, tint, iconButton } from "./links.js";
 
 // From this width the sidebar sits beside the conversation; narrower, its sections wrap above it.
 export const PAGE_WIDE = 700;
@@ -95,7 +95,10 @@ export function pageLayout(p) {
     .child(h_flex().gap(6).items_center().pr(28).child(p.nav ?? div()).child(div().flex_1()).children(p.actions))
     .child(h_flex().gap(8).items_baseline().min_w(0)
       .child(div().min_w(0).font_semibold().text_size(fs.title + 5).line_height(1.3).child(p.title))
-      .child(div().flex_none().text_size(fs.title + 3).text_color(t.dim).child(p.key)))
+      .child(div().flex_none().text_size(fs.title + 3).text_color(t.dim).child(p.key))
+      // `copy(cx)` (optional): a button that copies the key.
+      .when(Boolean(p.copy), (e) => e.child(div().flex_none().self_center().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(iconButton(t, `${p.id}-copy-key`, "copy", (cx) => p.copy(cx), { tooltip: "Copy key", size: 24 })))))
     .child(p.status);
   const main = v_flex().gap(12).children(p.main);
   // A side entry ["full", element] (the Details card) takes the whole width when the page is narrow.
