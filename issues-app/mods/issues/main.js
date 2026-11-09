@@ -1,6 +1,6 @@
 // The shown space's issues, from Jira Cloud or GitHub, grouped by priority or in backlog order
 // (the `order` setting, chosen with the cog in its header), with a page per issue and "Start agent".
-// Read only: nothing is written to Jira or GitHub.
+// Read only, with one exception: the Move menu of a Jira page moves the issue (a Jira transition).
 // The source: the space's link (Link space; `issues: "github"` picks GitHub, else its Jira
 // project), else `.herdr/jira.toml` in its repository, else a Jira guess (the key in the
 // branch name or recent commits, on a site another space links to), else the space's
@@ -20,6 +20,7 @@ import { adfToMarkdown } from "./adf.js";
 import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
+import { TransitionMenu, CHANGED } from "./transition.js";
 import { context, activeSpace, knownSites, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -104,7 +105,9 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : AgentDialog, props()); return; }
+    // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
+    this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
     this.query = ""; this.filter = null; this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
     this.width = lastWidth(); this.cache = null; this.signIn = null; this.version = 0; this.gen = 0;
@@ -134,7 +137,8 @@ export default class SpaceIssues extends View {
   // Opened as a page dialog: one issue of `p.list` (the list's issues in its order), stepped
   // with Up/Down. No list, timers or commands here: the list's copy keeps those.
   pageOnly(p, cx) {
-    this.only = { list: p.list ?? [], at: Math.max(0, (p.list ?? []).findIndex((i) => i.key === p.key)) };
+    this.seenChange = shared(CHANGED)?.at ?? 0;
+    this.only ={ list: p.list ?? [], at: Math.max(0, (p.list ?? []).findIndex((i) => i.key === p.key)) };
     this.repo = p.repo ?? null; this.github = p.github ?? null; this.kidsMap = p.kids ?? {}; this.pageW = 900; this.pages = new Map(); this.open = null; this.page = null; this.pageError = null;
     this.handle = cx.focus_handle();
     // Focus can't move inside a render, so right after: Up/Down then reach the dialog.
@@ -543,6 +547,8 @@ export default class SpaceIssues extends View {
     return pageLayout({
       id: "issue-detail", t, wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, nav,
       actions: [
+        // Jira only: the moves of its workflow (the one write of this mod).
+        ...(!gh ? [k.button("issue-move", `Move · ${f.status?.name ?? "?"}`, () => this.openMove(i, f.status?.name ?? ""), { icon: "pending" })] : []),
         k.button("issue-open", `Open in ${home(i)}`, () => openUrl(browse(i))),
         ...(lead ? [
           ...(this.repo && p ? [k.button("issue-agent", "Start another", () => this.dispatch(i, p))] : []),
@@ -578,9 +584,30 @@ export default class SpaceIssues extends View {
     try { cx.timer.after(0, (cx) => cx.notify(this.pageView)); } catch { /* shown on the next page change */ }
   }
 
+  // After a move (shared CHANGED, set by the Move menu): that issue's pages are fetched again, an open
+  // one at once, and the list (not a page dialog) refreshes.
+  followChanges(cx) {
+    const ch = shared(CHANGED);
+    if (!this.pages || !ch?.at || ch.at === this.seenChange) return;
+    this.seenChange = ch.at;
+    try {
+      cx.timer.after(0, (cx) => {
+        for (const k of [...this.pages.keys()]) if (k.split("|")[2] === ch.key) this.pages.delete(k);
+        if (this.open?.key === ch.key) this.load(this.open, cx);
+        if (!this.only) this.refresh(cx);
+      });
+    } catch { /* the 2-minute refresh catches it */ }
+  }
+
+  // The Move menu of a Jira issue: a popup of this mod (transition.js) under the pointer.
+  openMove(i, status) {
+    openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "transition", site: i.site, key: i.key, status } });
+  }
+
   render(cx) {
     if (kitOff()) return offView();
     if (this.dialog) return this.dialog;
+    this.followChanges(cx);
     readSizes();
     if (this.open) this.watchAgents(cx, agentSpaces(this.repo?.main).issues.get(this.open.key));
     if (this.only) {

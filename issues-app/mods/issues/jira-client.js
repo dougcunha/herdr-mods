@@ -1,7 +1,7 @@
 // Jira Cloud sign-in and REST, for the Link space dialog and the issues list.
 // The source is shared/jira-client.js; prs and issues keep identical copies
 // (a mod cannot import outside its folder). install.sh checks they match.
-// Read only towards Jira. The sign-in lives in the system's credential store (the macOS
+// Towards Jira: reads, and one write, a move that the person picks (jira.js moveIssue). The sign-in lives in the system's credential store (the macOS
 // Keychain, the Secret Service on Linux, the Windows Credential Manager) or in environment
 // variables; never in Herdr's shared state or settings.
 
@@ -225,7 +225,9 @@ export async function call(site, path, body, as) {
   }
   // Parsed here, not with r.json(): that one's result lives in the app, and every read of it
   // crosses over (converting one issue page took 2 s instead of 80 ms).
-  return JSON.parse(await r.text());
+  // A move (POST …/transitions) answers 204 with no body.
+  const raw = await r.text();
+  return raw ? JSON.parse(raw) : null;
 }
 
 // Whether the URL an answer came from (after any redirect Herdr followed) is on `site`. An

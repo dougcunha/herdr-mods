@@ -7,7 +7,7 @@
 - **`issues`**: the issues of the space from Jira Cloud or GitHub. Each issue opens as a page. **Start agent** opens a coding agent on the issue in a new git worktree and space.
 - **`prs`**: the pull requests of the space, grouped by what each one waits for (review requested, yours to fix, ready to merge). Each pull request opens as a page with its checks, files and a merge box. **Agent review** checks it out, builds, tests and reports.
 
-Both mods only read. They write nothing to Jira or GitHub. **Start agent** makes a local worktree and branch, and pushes nothing.
+Both mods only read, with one exception: **Move** on a Jira issue page moves the issue to another status (a Jira transition) when you pick one. They write nothing else to Jira and nothing to GitHub. **Start agent** makes a local worktree and branch, and pushes nothing.
 
 ## Credits
 

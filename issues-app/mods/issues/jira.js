@@ -1,5 +1,5 @@
 // Jira Cloud: projects named in a repository, the sign-in, and the REST calls.
-// Read only: nothing is written back to Jira.
+// Read only, with one exception: a move (transition) that the person picks in the Move menu.
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
@@ -92,6 +92,20 @@ export async function issue(site, key, extra = []) {
   }).filter(Boolean);
   delete page.changelog; delete page.fields.subtasks; delete page.fields.issuelinks;
   return page;
+}
+
+// ---- Moves (the only write of this mod) ---------------------------------------
+
+// The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].
+export async function transitions(site, key) {
+  const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`);
+  return (r?.transitions ?? []).filter((x) => x.isAvailable !== false)
+    .map((x) => ({ id: String(x.id), name: x.name, to: x.to?.name ?? x.name, category: x.to?.statusCategory?.key ?? "", screen: Boolean(x.hasScreen) }));
+}
+// Makes one move. A move whose screen asks for required fields is refused by Jira (400): do it in Jira.
+export async function moveIssue(site, key, id) {
+  if (!/^\d+$/.test(String(id))) throw new Error("That isn't a transition.");
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: String(id) } });
 }
 
 // Only what the list shows: raw issues (links with their whole target issues) make
