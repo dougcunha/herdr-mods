@@ -1,26 +1,25 @@
-// The graph itself: Git Graph's table (graph, description, date, author,
-// commit) for the focused pane's repository, or `props.folder` when opened as
-// a pane. Labels take double-clicks (checkout) and right-clicks (menus).
+// The History tab: Git Graph's table (graph, description, date, author, commit)
+// for the repository of the panel. Labels take double-clicks (checkout) and
+// right-clicks (menus). It is also the one reader of the repository: its log,
+// refs and status feed the header and the Changes tab (host.onRead).
+//
+// Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
-import { spaces, panes, focused, exec, watchFolder, readTextFile, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates } from "herdr";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
+import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates } from "herdr";
 import { layoutLanes } from "./lanes.js";
-import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withUncommitted, labelsOf, hitLabel,
+import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
-import { perform, openDialog, showChanges } from "./act.js";
+import { perform, openDialog } from "./act.js";
 import { icon } from "./menu.js";
-import { available, check, openUpdate, newer } from "./update.js";
-import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
-
-function location(folder) {
-  if (folder) return { cwd: folder, on: null };
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
-}
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
+// a newer than b, for "x.y.z" versions.
+function newer(a, b) {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+}
 // Herdr 0.1.12 zooms a list itself ("Lists in mods follow the zoom"): its row
 // heights and the lines painted in its rows are layout units there, where before
 // they were screen pixels. Asked once: the version doesn't change while running.
@@ -32,6 +31,8 @@ const GRAPH_MIN = 56;
 const COLUMNS = { graph: { width: null, min: 24, side: 1 }, date: { width: 62, min: 36, max: 240, side: -1 },
   author: { width: 120, min: 50, max: 400, side: -1 }, hash: { width: 66, min: 40, max: 200, side: -1 } };
 const withDefaults = (saved) => ({ ...Object.fromEntries(Object.entries(COLUMNS).map(([k, c]) => [k, c.width])), ...saved });
+// The column widths: git-client's own, else what git-graph saved (read once, as a first value).
+const savedColumns = () => shared("git-client.columns") ?? shared("git-graph.columns") ?? null;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad2 = (n) => String(n).padStart(2, "0");
 const laneColors = (t) => [t.ansi4, t.ansi2, t.ansi5, t.ansi3, t.ansi6, t.ansi1, t.ansi12, t.ansi10, t.ansi13, t.ansi11, t.ansi14, t.ansi9];
@@ -53,23 +54,19 @@ function stamp(seconds) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-const tilde = (path, on) => (!on && path?.startsWith(home()) ? "~" + path.slice(home().length) : path);
 const brief = (c) => ({ hash: c.hash, subject: c.subject, parents: c.parents });
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const sameFiles = (a, b) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.status === b[i].status);
-const scopeOf = ({ all, remotes }) => `${all} ${remotes}`;
+const sameFiles = (a, b) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.x === b[i].x && f.y === b[i].y);
+const scopeOf = ({ all, remotes, filterKey }) => `${all} ${remotes} ${filterKey ?? ""}`;
 // Folders kept as they were last read, and commits' details (a commit never changes).
 const SEEN = 24, DETAILS = 200;
 const keep = (map, key, value, max) => { map.delete(key); map.set(key, value); if (map.size > max) map.delete(map.keys().next().value); };
 
 // What belongs to one folder: a new folder starts from this, and leaving one keeps it.
-// workspace: the repositories under a folder that isn't one (Manygit), their
-// statuses, and the one opened from that list (its graph shows until Back).
 const folderState = () => ({
   state: "loading", root: null, on: null, cwd: null, error: null,
-  workspace: null, statuses: new Map(), opened: null, skipped: false,
   base: [], commits: [], rows: [], lanes: 1, labels: new Map(), index: new Map(), hasMore: false, limit: PAGE, files: [], ctx: null,
-  head: null, current: null, branches: [], remoteNames: [], signature: null, scope: null, moreAsked: null,
+  head: null, current: null, branches: [], remoteNames: [], branchInfo: parseBranch(""), signature: null, scope: null, moreAsked: null,
   selected: null, details: null, diff: null,
 });
 
@@ -78,88 +75,74 @@ const folderState = () => ({
 // status: false leaves the working tree unread. `git status` runs the clean
 // filters a repository's own config defines, so a folder is only read ahead
 // (warm) for its history and refs; its uncommitted row comes when it's shown.
-async function readFolder(cwd, on, { all, remotes, limit, status: withStatus = true }) {
+async function readFolder(cwd, on, { all, remotes, limit, filter = null, status: withStatus = true }) {
   const git = (args) => exec("git", [...READ, ...args], { cwd, on });
-  const [top, log, head, current, branches, remoteNames, status] = await Promise.all([
+  const [top, log, head, current, branches, remoteNames, status, found] = await Promise.all([
     // One commit past the page says whether there are more, as Git Graph asks.
-    exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1 })),
+    exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1, filter })),
     git(["rev-parse", "--verify", "-q", "HEAD"]), git(["symbolic-ref", "-q", "--short", "HEAD"]),
-    git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null]);
+    git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null,
+    // A hash typed in the search: that commit too, if it exists.
+    filter?.hash ? git(commitArgs(filter.hash)) : null]);
   if (top.code !== 0) return { state: "norepo", cwd, on };
   // A log that fails without a HEAD is a repository with no commits yet.
   if (log.code !== 0 && head.code === 0) throw new Error(log.stderr.trim());
-  const base = log.code === 0 ? parseLog(log.stdout) : [];
+  let base = log.code === 0 ? parseLog(log.stdout) : [];
+  if (found?.code === 0) {
+    const extra = parseLog(found.stdout).filter((c) => !base.some((b) => b.hash === c.hash));
+    base = [...extra, ...base];
+  }
   return {
     root: top.stdout.trim(), on, cwd, base: base.slice(0, limit), limit, hasMore: base.length > limit,
     head: head.code === 0 ? head.stdout.trim() : null, current: current.code === 0 ? current.stdout.trim() : null,
     branches: branches.stdout.split("\n").filter(Boolean).map((r) => r.replace(/^refs\/heads\//, "")),
     remoteNames: remoteNames.stdout.split("\n").filter(Boolean),
     files: status?.code === 0 ? parseStatus(status.stdout) : [],
-    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout].join("\0"), scope: scopeOf({ all, remotes }),
+    branchInfo: parseBranch(status?.code === 0 ? status.stdout : ""),
+    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout, found?.stdout ?? ""].join("\0"), scope: scopeOf({ all, remotes, filterKey: filter ? JSON.stringify(filter) : "" }),
   };
 }
 
-// A row's status: one git call (with the newest tag beside it when tags show),
-// and `git remote` only when the branch has no upstream.
-async function readRepo(path, on, tags) {
-  const [r, tag] = await Promise.all([exec("git", REPO_STATUS, { cwd: path, on }), tags ? exec("git", LATEST_TAG, { cwd: path, on }) : null]);
-  if (r.code !== 0) return { error: (r.stderr || "git status failed").trim().split("\n").pop() };
-  const st = parseRepoStatus(r.stdout);
-  if (tag?.code === 0 && tag.stdout.trim()) st.tag = tag.stdout.trim();
-  if (!st.upstream) st.hasRemote = Boolean((await exec("git", [...READ, "remote"], { cwd: path, on })).stdout.trim());
-  return st;
-}
+export class History {
+  constructor(host) { this.host = host; }
 
-// Runs fn over items, at most `limit` at a time (manygit's 8).
-async function pool(items, limit, fn) {
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => { while (next < items.length) await fn(items[next++]); }));
-}
-const depthSetting = () => depthOf(shared("git-graph.depth"));
-const tagsShown = () => shared("git-graph.tags") === true;
-
-
-export class Graph {
   init(cx) {
-    this.folder = props()?.folder ?? null;
     // A scrollbar finds its list by name: each copy (panel, pane) needs its own.
-    this.listId = `graph-rows-${Math.random().toString(36).slice(2)}`;
+    this.listId = `gc-rows-${Math.random().toString(36).slice(2)}`;
     this.diffId = `${this.listId}-diff`;
     this.all = true; this.remotes = true; this.wide = false; this.graphMax = 160; this.scale = null;
-    this.watchToken = 0; this.seenChange = shared("git-graph.changed");
-    this.cols = withDefaults(); this.drag = null;
+    this.filter = null; this.filterKey = "";
+    this.watchToken = 0; this.seenChange = shared("git-client.changed");
+    this.cols = withDefaults(savedColumns() ?? undefined); this.drag = null;
     this.seen = new Map(); this.commitDetails = new Map();
-    // Fetch all: its progress for one Manygit folder, and each repository's last failure.
-    this.fetchAll = null; this.fetchErrors = new Map();
-    // Manygit's .git watchers, one per repository, kept while it's listed (see watchRepos).
-    this.watched = new Set();
-    // Herdr's agents per machine, for a row's "New … tab" (as its + menu lists them).
-    this.agents = new Map();
     this.handle = cx.focus_handle();
+    this.search = InputState.new({ placeholder: "Search: text, hash, author:name, path:file" });
+    this.search.on("submit", (_e, cx) => this.applySearch(cx));
+    this.search.on("change", (_e, cx) => { if (!this.search.value().trim() && this.filter) this.applySearch(cx); });
+    this.search.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
+    this.search.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.reset();
     this.refresh(cx);
     cx.timer.after(1500, (cx) => this.warm(cx));
     // Remote spaces can't be watched: poll them gently. New folders get read ahead.
-    // The Manygit list re-reads too: edits in a working tree don't touch .git.
-    cx.timer.every(15000, (cx) => { if (!this.watching || this.state === "workspace") this.refresh(cx, true, true); this.warm(cx); check(); });
-    check();
+    cx.timer.every(15000, (cx) => { if (this.host.off()) return; if (!this.watching) this.refresh(cx, true); this.warm(cx); });
   }
 
-  key() { return JSON.stringify(location(this.folder)); }
+  key() { return JSON.stringify(this.host.location()); }
 
   reset() {
     Object.assign(this, folderState());
-    this.watchToken++; this.watching = null; this.picking = false;
+    this.watchToken++; this.watching = null;
   }
 
   // Leaving a folder keeps it as it was; coming back shows that at once, while refresh reads it again.
   enter(context) {
-    if (this.context && ["ready", "empty", "norepo", "workspace"].includes(this.state)) {
+    if (this.context && ["ready", "empty", "norepo"].includes(this.state)) {
       keep(this.seen, this.context, Object.fromEntries(Object.keys(folderState()).map((k) => [k, this[k]])), SEEN);
     }
     this.context = context; this.reset(); this.loading = null;
     const kept = this.seen.get(context);
-    if (kept && (kept.state === "workspace" || (kept.state === "norepo" ? !kept.warmed : kept.scope === scopeOf(this)))) {
+    if (kept && (kept.state === "norepo" ? !kept.warmed : kept.scope === scopeOf(this))) {
       Object.assign(this, kept);
       // A folder read ahead has its history but no table yet.
       if (this.root && !this.commits.length) this.build();
@@ -168,7 +151,7 @@ export class Graph {
 
   // Like manygit: read the folders open in other spaces ahead, one at a time, so switching to one shows it at once.
   warm(cx) {
-    if (this.folder || this.warming) return;
+    if (this.host.folder || this.warming || this.filter) return;
     const machineOf = new Map(spaces().flatMap((s) => s.tabs.map((tab) => [tab.id, s.machine ?? null])));
     const todo = new Map();
     for (const p of panes()) {
@@ -186,47 +169,49 @@ export class Graph {
           const scope = scopeOf(this);
           const read = await readFolder(cwd, on, { all: this.all, remotes: this.remotes, limit: PAGE, status: false }).catch(() => null);
           if (read && key !== this.context && !this.seen.has(key) && scope === scopeOf(this)) {
-            // A folder that isn't a repository may hold some: entering it searches (Manygit).
             keep(this.seen, key, { ...folderState(), state: read.state ?? "ready", ...read, warmed: read.state === "norepo" }, SEEN);
           }
         }
       } finally { this.warming = false; }
     });
   }
+
   // A load belongs to its folder: a new folder starts at once, and a slower
   // load for the old one finds itself stale and drops its result.
-  // timer: the 15 s re-read, which doesn't search a folder again that held no repositories.
-  refresh(cx, full = true, timer = false) {
-    const { cwd, on } = location(this.folder), context = this.key();
-    if (context !== this.context) { this.enter(context); full = true; }
+  // full: the history and the refs too; else only the status.
+  refresh(cx, full = true) {
+    const { cwd, on } = this.host.location(), context = this.key();
+    if (context !== this.context) { this.enter(context); full = true; this.host.onRead(cx); }
     if (!cwd) { this.state = "nofolder"; return; }
-    // A repository opened from the Manygit list loads in place of the folder.
-    const { all, remotes, limit } = this, opened = this.opened;
-    const loadKey = JSON.stringify([context, opened]);
-    if (this.loading?.key === loadKey) { this.again = this.again === "full" || full ? "full" : "status"; return; }
-    // Each load has its own id: opening a repository and coming back can't revive an older one.
+    const { all, remotes, limit, filter } = this;
+    if (this.loading?.key === context) { this.again = this.again === "full" || full ? "full" : "status"; return; }
+    // Each load has its own id: an older one can't win over a newer one.
     const id = this.loadSeq = (this.loadSeq ?? 0) + 1;
-    this.loading = { key: loadKey, id }; this.again = null;
+    this.loading = { key: context, id }; this.again = null;
     const stale = () => this.loadSeq !== id || this.key() !== context;
     cx.spawn(async (cx) => {
+      let read = false;
       try {
         if (full || !this.root) {
-          const read = await readFolder(opened ?? cwd, on, { all, remotes, limit });
+          // A search runs in the repository's top folder, so path: names a path from there.
+          const r = await readFolder(filter && this.root ? this.root : cwd, on, { all, remotes, limit, filter });
           if (stale()) return;
-          if (read.state === "norepo") {
-            if (opened) { this.state = "error"; this.error = `${tilde(opened, on)} isn't a git repository any more.`; return; }
-            await this.scan(cwd, on, stale, cx, timer); return;
-          }
-          if (!opened) this.workspace = null;
-          if (!on) this.watch(read.root, context, cx);
+          read = true;
+          if (r.state === "norepo") { this.reset(); Object.assign(this, { state: "norepo", cwd, on }); return; }
+          if (!on) this.watch(r.root, context, cx);
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
-          if (shown && read.signature === this.signature && read.scope === this.scope && sameFiles(read.files, this.files)) return;
-          Object.assign(this, read);
+          const same = shown && r.signature === this.signature && r.scope === this.scope && sameFiles(r.files, this.files);
+          this.branchInfo = r.branchInfo;
+          if (same) return;
+          Object.assign(this, r);
         } else {
           const status = await exec("git", [...READ, ...STATUS], { cwd: this.root, on: this.on });
           if (stale()) return;
-          const files = status.code === 0 ? parseStatus(status.stdout) : [];
+          read = true;
+          if (status.code !== 0) return;
+          this.branchInfo = parseBranch(status.stdout);
+          const files = parseStatus(status.stdout);
           if (sameFiles(files, this.files)) return;
           this.files = files;
         }
@@ -236,122 +221,21 @@ export class Graph {
         if (!stale()) { this.state = "error"; this.error = String(e?.message ?? e); }
       } finally {
         if (this.loading?.id === id) {
-          this.loading = null; cx.notify();
+          this.loading = null;
+          // Every read tells the Changes tab: an edit of a file that was already changed keeps the same status letters.
+          if (read || this.state === "error") this.host.onRead(cx);
+          cx.notify();
           if (this.again) this.refresh(cx, this.again === "full");
         }
       }
     });
   }
 
-  // Manygit: find the repositories under cwd, then read each one's status.
-  async scan(cwd, on, stale, cx, timer) {
-    const depth = depthSetting();
-    if (timer && this.state === "norepo" && this.cwd === cwd) return;
-    if (unsearched(cwd, on ? null : home())) { this.reset(); Object.assign(this, { state: "norepo", cwd, on, skipped: true }); return; }
-    const found = await exec("find", findArgs(cwd, depth), { on }).catch(() => ({ stdout: "" }));
-    if (stale()) return;
-    const repos = parseFound(cwd, found.stdout);
-    if (!repos.length) { this.reset(); Object.assign(this, { state: "norepo", cwd, on }); return; }
-    // The same list keeps its rows' statuses while they're read again.
-    const same = this.workspace?.root === cwd, statuses = same ? this.statuses : new Map();
-    if (!same) this.reset();
-    this.workspace = { root: cwd, depth, repos }; this.statuses = statuses; this.cwd = cwd; this.on = on; this.state = "workspace";
-    if (!on) { this.watching = "workspace"; this.watchRepos(repos, cx); }
-    cx.notify();
-    await pool(repos, 8, (repo) => this.readStatus(repo.path, on, stale, cx));
-  }
-
-  // on: the machine the list was read on, never whatever the panel shows by the time it runs.
-  async readStatus(path, on, stale, cx) {
-    if (stale()) return;
-    const st = await readRepo(path, on, tagsShown()).catch((e) => ({ error: String(e?.message ?? e) }));
-    if (stale() || !this.workspace) return;
-    if (JSON.stringify(st) !== JSON.stringify(this.statuses.get(path))) { this.statuses.set(path, st); cx.notify(); }
-  }
-
-  // A commit, checkout or fetch in any listed repository updates its row (local
-  // folders). One loop per repository, whoever asks: opening one and coming back
-  // keeps them, and the loop of a repository no longer listed ends at its next change.
-  watchRepos(repos, cx) {
-    for (const { path } of repos) {
-      if (this.watched.has(path)) continue;
-      this.watched.add(path);
-      cx.spawn(async (cx) => {
-        try {
-          for (;;) {
-            const paths = await watchFolder(`${path}/.git`), ws = this.workspace;
-            if (!ws || this.on || !ws.repos.some((r) => r.path === path)) break;
-            const root = ws.root;
-            if (paths.some((p) => isRefChange(p.replace(/\\/g, "/")) || /[/\\]index$/.test(p))) await this.readStatus(path, null, () => this.workspace?.root !== root, cx);
-          }
-        } catch {} // a worktree's .git is a file: its row updates with the list
-        this.watched.delete(path);
-      });
-    }
-  }
-
-  // Manygit's fetch: every repository with a remote, 8 at a time, each row
-  // updated as its fetch ends. It goes on in the background if you open a repository.
-  fetchEvery(cx) {
-    const ws = this.workspace;
-    if (!ws || this.fetchAll?.root === ws.root) return;
-    const repos = ws.repos.filter((r) => fetchable(this.statuses.get(r.path))), on = this.on;
-    const run = this.fetchAll = { root: ws.root, done: 0, total: repos.length, failed: 0 };
-    const stale = () => this.workspace?.root !== run.root;
-    cx.spawn(async (cx) => {
-      await pool(repos, 8, async (r) => {
-        const out = await exec("env", FETCH, { cwd: r.path, on }).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
-        if (out.code === 0) this.fetchErrors.delete(r.path);
-        else { run.failed++; this.fetchErrors.set(r.path, (out.stderr || "git fetch failed").trim().split("\n").pop()); }
-        run.done++;
-        await this.readStatus(r.path, on, stale, cx);
-        cx.notify();
-      });
-      if (this.fetchAll === run) this.fetchAll = null;
-      const repositories = (n) => `${n} ${n === 1 ? "repository" : "repositories"}`;
-      notify(run.failed ? { title: `Fetched ${run.total - run.failed} of ${repositories(run.total)}`, body: "The failed ones show git's error on their row.", level: "warning" }
-        : { title: `Fetched ${repositories(run.total)}`, level: "success", timeout: 3000 });
-      cx.notify();
-    });
-    cx.notify();
-  }
-
-  // A row's right-click: its remotes and the machine's agents are read first
-  // (one quick git call), then the menu opens at the pointer.
-  repoMenu(r, cx) {
-    const st = this.statuses.get(r.path), on = this.on, where = on ?? "";
-    cx.spawn(async (cx) => {
-      const [remotes, agents] = await Promise.all([
-        exec("git", REMOTES, { cwd: r.path, on }).then((o) => parseRemotes(o.stdout)).catch(() => []),
-        // Herdr's + menu keeps the same list: use it at once rather than wait for the shell.
-        this.agents.get(where) ?? shared("new-menu.agents")?.[where] ?? knownAgents({ on }).catch(() => []),
-      ]);
-      const installed = agents.filter((a) => a.installed);
-      this.agents.set(where, agents);
-      const web = webUrl((remotes.find((x) => x.name === "origin") ?? remotes[0])?.url ?? "");
-      const ctx = { root: r.path, on, current: st?.detached ? null : st?.branch ?? null, head: st?.head ?? null, branches: [], remotes: remotes.map((x) => x.name) };
-      const target = { kind: "repo", path: r.path, status: st, agents: installed, web };
-      openOverlay({ mod: "git-graph", kind: "popup", at: "pointer", width: 268, height: menuHeight(menuFor(target, ctx)), props: { role: "menu", target, ctx } });
-      // Ask again in the background, so a newly installed agent shows next time.
-      knownAgents({ on }).then((a) => this.agents.set(where, a)).catch(() => {});
-    });
-  }
-
-  open(path, cx) {
-    const { workspace, statuses, cwd, on } = this;
-    this.reset(); Object.assign(this, { workspace, statuses, cwd, on, opened: path, state: "loading" });
-    this.refresh(cx); cx.notify();
-  }
-
-  back(cx) {
-    const { workspace, statuses, cwd, on } = this;
-    this.reset(); Object.assign(this, { workspace, statuses, cwd, on, state: "workspace" });
-    this.refresh(cx); cx.notify();
-  }
-
   build() {
-    const commits = withUncommitted(this.base, this.files.length, this.head);
-    const { rows, width } = layoutLanes(commits);
+    // A search shows the commits it found, newest first, without lanes: their parents may not be in the list.
+    const flat = Boolean(this.filter);
+    const commits = flat ? this.base : withUncommitted(this.base, this.files.length, this.head);
+    const { rows, width } = flat ? { rows: commits.map(() => ({ lane: 0, segments: [] })), width: 1 } : layoutLanes(commits);
     this.commits = commits; this.rows = rows; this.lanes = width;
     this.labels = new Map(commits.map((c) => [c.hash, labelsOf(c, this.remotes)]));
     this.index = new Map(commits.map((c, i) => [c.hash, i]));
@@ -360,7 +244,7 @@ export class Graph {
     if (this.selected && !this.index.has(this.selected)) { this.selected = null; this.details = null; this.diff = null; }
   }
 
-  // Ref moves reload the history; other edits only the uncommitted row, at most every 1.5 s.
+  // Ref moves reload the history; other edits only the status, at most every 1.5 s.
   watch(root, context, cx) {
     if (this.watching === root) return;
     this.watching = root;
@@ -372,7 +256,7 @@ export class Graph {
           const paths = (await watchFolder(dir)).map((p) => p.replace(/\\/g, "/"));
           if (token !== this.watchToken) return;
           if (paths.some((p) => (gitDir || inGitDir(p)) && isRefChange(p))) this.refresh(cx, true);
-          else if (paths.some((p) => !gitDir && !inGitDir(p))) this.statusSoon(cx);
+          else if (paths.some((p) => (!gitDir && !inGitDir(p)) || /\/(index|MERGE_HEAD|CHERRY_PICK_HEAD|REVERT_HEAD)$|\/rebase-(merge|apply)/.test(p))) this.statusSoon(cx);
         }
       } catch { if (token === this.watchToken) this.watching = null; }
     });
@@ -397,18 +281,21 @@ export class Graph {
   setScope(all, cx) { if (this.all !== all) { this.all = all; this.limit = PAGE; this.refresh(cx); } cx.notify(); }
   setRemotes(cx) { this.remotes = !this.remotes; this.refresh(cx); cx.notify(); }
 
-  fetch(cx) {
-    if (this.fetching || !this.ctx) return;
-    this.fetching = true;
-    const ctx = this.ctx;
-    cx.spawn(async (cx) => {
-      await perform({ type: "fetch" }, {}, ctx).catch(() => {});
-      this.fetching = false; this.refresh(cx); cx.notify();
-    });
-    cx.notify();
+  applySearch(cx) {
+    const filter = parseFilter(this.search.value()), key = filter ? JSON.stringify(filter) : "";
+    if (key === this.filterKey) return;
+    this.filter = filter; this.filterKey = key; this.limit = PAGE;
+    this.selected = null; this.details = null; this.diff = null;
+    this.signature = null; this.state = "loading";
+    this.refresh(cx); cx.notify();
   }
 
-  graphWidth() { return this.cols.graph ? this.clampColumn("graph", this.cols.graph) : Math.min(Math.max(GRAPH_MIN, PAD * 2 + this.lanes * LANE), this.graphMax); }
+  clearSearch(cx) { this.search.set_value(""); this.applySearch(cx); }
+
+  graphWidth() {
+    if (this.filter) return 18;
+    return this.cols.graph ? this.clampColumn("graph", this.cols.graph) : Math.min(Math.max(GRAPH_MIN, PAD * 2 + this.lanes * LANE), this.graphMax);
+  }
   trailing() { return this.wide ? ["date", "author", "hash"] : ["date"]; }
 
   clampColumn(key, w) {
@@ -437,7 +324,7 @@ export class Graph {
     cx.notify();
   }
 
-  saveColumns() { this.seenCols = JSON.stringify(this.cols); setShared("git-graph.columns", this.cols); }
+  saveColumns() { this.seenCols = JSON.stringify(this.cols); setShared("git-client.columns", this.cols); }
   // Where the description column ends: labels past it are clipped, so not clickable.
   labelLimit() {
     if (!this.width) return Infinity;
@@ -467,6 +354,8 @@ export class Graph {
       if (hit) this.checkout(hit.part, cx);
       return;
     }
+    // The uncommitted row: its files are in the Changes tab.
+    if (commit.uncommitted) { this.host.setTab("changes", cx); return; }
     this.pick(commit, cx);
   }
 
@@ -486,11 +375,11 @@ export class Graph {
     if (e.bounds?.height) this.scale = e.bounds.height / this.rowH();
     const x = (e.local_position?.x ?? 0) / this.unit();
     const hit = commit.uncommitted ? null : hitLabel(this.labels.get(key), x, this.graphWidth(), this.labelLimit());
-    const target = commit.uncommitted ? { kind: "uncommitted", commit: brief(commit), staged: this.files.some((f) => f.staged) }
+    const target = commit.uncommitted ? { kind: "uncommitted", commit: brief(commit) }
       : hit && hit.part.kind !== "head" ? { kind: hit.part.kind, name: hit.part.name, commit: brief(commit) }
       : { kind: "commit", commit: brief(commit) };
     const items = menuFor(target, this.ctx);
-    openOverlay({ mod: "git-graph", kind: "popup", at: "pointer", width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
+    openOverlay({ mod: "git-client", kind: "popup", at: "pointer", width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
   }
 
   pick(commit, cx) {
@@ -551,6 +440,16 @@ export class Graph {
     cx.notify();
   }
 
+  // Esc: closes a diff, then the details, then clears the search. False: nothing to close.
+  escape(cx) {
+    if (this.diff) this.diff = null;
+    else if (this.selected) { this.selected = null; this.details = null; }
+    else if (this.filter) this.clearSearch(cx);
+    else return false;
+    cx.notify();
+    return true;
+  }
+
   // ---- drawing
 
   graphCell(row, commit, colors, t, width) {
@@ -606,145 +505,45 @@ export class Graph {
         .child(div().w(this.cols.hash).flex_none().font_family(mono).text_size(11).text_color(t.dim).child(commit.uncommitted ? "*" : commit.hash.slice(0, 8))));
   }
 
-  iconButton(id, glyph, tip, active, action, t) {
-    return h_flex().id(id).h(24).px(6).gap(5).flex_none().items_center().rounded(6).text_size(11.5).cursor_pointer()
-      .text_color(active ? t.foreground : t.muted).when(active, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action)
-      .child(svg(icon(glyph)).size(13).flex_none()).when(Boolean(tip), (e) => e.child(tip));
-  }
-
-  header(t) {
-    const ready = this.state === "ready" || this.state === "empty", ws = this.workspace;
-    const where = this.current ?? (this.head ? `detached at ${this.head.slice(0, 8)}` : null);
-    // Opened from the Manygit list: "‹ Manygit" goes back to it, the repository's name
-    // drops the same rows down over the graph to switch to another.
-    const repo = ws && this.opened ? ws.repos.find((r) => r.path === this.opened) : null;
-    const settingsShown = this.state === "workspace" || (this.state === "norepo" && !this.skipped);
-    return h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-      .when(!repo, (e) => e.child(div().text_size(13).font_semibold().child(ws ? "Manygit" : "Git")))
-      .when(Boolean(repo), (e) => e
-        .child(h_flex().id("graph-back").h(24).pl(2).pr(6).gap(3).flex_none().items_center().rounded(6).cursor_pointer()
-          .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.back(cx))
-          .child(svg(icon("back")).size(14).flex_none().text_color(t.muted)).child(div().text_size(13).font_semibold().child("Manygit")))
-        .child(h_flex().id("graph-repository").h(22).px(7).gap(5).min_w(0).items_center().rounded(6).cursor_pointer()
-          .bg(this.picking ? t.selected : t.raised).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.togglePicker(cx))
-          .child(svg(icon("folder")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(repo.name))))
-      .when(ready && Boolean(where), (e) => e.child(h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
-        .child(svg(icon(this.current ? "branch" : "commit")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(where))))
-      .when(this.state === "workspace", (e) => e.child(div().flex_none().text_size(11.5).text_color(t.dim).child(count(ws.repos.length, "repo"))))
-      .child(div().flex_1())
-      // A newer release: a dot, and the update window on click.
-      .when(Boolean(available()), (e) => e.child(h_flex().id("graph-update").h(24).px(7).gap(5).flex_none().items_center().rounded(6).text_size(11.5)
-        .cursor_pointer().text_color(t.accent).hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .on_click(() => openUpdate()).child(div().size(6).rounded(3).bg(t.accent)).child("Update Graph")))
-      .when(ready && this.remoteNames?.length > 0, (e) => e.child(this.iconButton("graph-fetch", "fetch", this.fetching ? "Fetching…" : null, false, (_e, cx) => this.fetch(cx), t)))
-      .when(this.state === "workspace", (e) => {
-        const run = this.fetchAll?.root === ws.root ? this.fetchAll : null;
-        return e.child(this.iconButton("graph-fetch-all", "fetch", run ? `Fetching ${run.done}/${run.total}…` : "Fetch all", Boolean(run), (_e, cx) => this.fetchEvery(cx), t));
-      })
-      .when(this.state !== "nofolder", (e) => e.child(this.iconButton("graph-refresh", "refresh", null, false, (_e, cx) => this.refresh(cx), t)))
-      .when(settingsShown, (e) => e.child(this.iconButton("graph-settings", "settings", null, false, () => this.openSettings(), t)));
-  }
-
-  openSettings() {
-    openOverlay({ mod: "git-graph", kind: "popup", at: "pointer", width: 240, height: 92, props: { role: "settings" } });
-  }
-
-  // Manygit's repository pane: grouped by folder, each row its branch, uncommitted
-  // changes and how it stands against its upstream. A click opens its graph.
-  repoRows(t) {
-    const repos = this.workspace.repos, grouped = repos.some((r) => r.group);
-    const rows = [];
-    let height = 8;
-    repos.forEach((r, i) => {
-      if (grouped && r.group !== repos[i - 1]?.group) {
-        rows.push(div().h(26).flex_none().px(14).pt(9).text_size(11).text_color(t.dim).truncate().child(r.group ? `${r.group}/` : "./"));
-        height += 26;
-      }
-      rows.push(this.repoRow(r, i, grouped, t));
-      height += 34;
-    });
-    return { rows, height };
-  }
-
-  workspaceList(t) {
-    return v_flex().id(`${this.listId}-repos`).flex_1().min_h(0).py(4).overflow_y_scrollbar().children(this.repoRows(t).rows);
-  }
-
-  // The dropdown under the header while a repository is open: at most 260px, scrolling.
-  picker(t) {
-    const { rows, height } = this.repoRows(t);
-    return v_flex().id(`${this.listId}-picker`).h(Math.min(height, 260)).flex_none().py(4).overflow_y_scrollbar()
-      .bg(t.raised).border_b(1).border_color(t.border).children(rows);
-  }
-
-  // Opening it reads every row again, since the list stopped watching while the graph showed.
-  togglePicker(cx) {
-    this.picking = !this.picking;
-    if (this.picking) {
-      const { repos, root } = this.workspace, on = this.on;
-      cx.spawn((cx) => pool(repos, 8, (r) => this.readStatus(r.path, on, () => this.workspace?.root !== root, cx)));
-    }
-    cx.notify();
-  }
-
-  // The name with its status right after it, the branch on the right (as PR #2's
-  // picker). Under a folder heading the row steps in, to read as inside it.
-  repoRow(r, i, indent, t) {
-    const st = this.statuses.get(r.path), fetchError = this.fetchErrors.get(r.path), sync = syncOf(st, fetchError), here = r.path === this.opened;
-    // ↑ and ↓ as Herdr's Spaces list draws them (ansi2, ansi1); in sync shows nothing.
-    const counts = ["ahead", "behind", "diverged"].includes(sync.kind) && !fetchError;
-    const color = { loading: t.dim, error: t.ansi1, unpushed: t.ansi1, gone: t.ansi1, local: t.dim }[sync.kind];
-    const label = counts || sync.kind === "ok" ? null : fetchError ? sync.text : { unpushed: "not pushed", error: "error" }[sync.kind] ?? sync.text;
-    // A failure (reading it, or its last fetch) shows git's words where the branch goes.
-    const problem = st?.error ?? fetchError;
-    const branch = st && !problem ? (st.detached ? "detached" : st.branch) : null, tag = !problem && tagsShown() && st?.tag;
-    return h_flex().id(`graph-repo-${i}`).h(34).flex_none().pl(indent ? 28 : 14).pr(14).gap(10).items_center().cursor_pointer()
-      .when(here, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { if (here) { this.picking = false; cx.notify(); } else this.open(r.path, cx); })
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (st && !st.error) this.repoMenu(r, cx); })
-      .child(div().min_w(0).truncate().text_size(11.5).text_color(here ? t.accent : t.foreground).child(r.name))
-      .child(h_flex().flex_none().gap(5).items_center().text_size(11.5)
-        .when(st?.dirty > 0, (e) => e.child(h_flex().mr(2).gap(4).items_center().text_color(t.blocked)
-          .child(div().size(6).rounded(3).bg(t.blocked)).child(String(st.dirty))))
-        .when(counts && st.ahead > 0, (e) => e.child(div().text_color(t.ansi2).child(`\u2191${st.ahead}`)))
-        .when(counts && st.behind > 0, (e) => e.child(div().text_color(t.ansi1).child(`\u2193${st.behind}`)))
-        .when(Boolean(label), (e) => e.child(div().text_color(color).child(label))))
-      .child(div().flex_1())
-      // The newest tag, just before the branch (Show tags).
-      .when(Boolean(tag), (e) => e.child(h_flex().flex_none().max_w(120).gap(4).items_center().text_color(t.dim)
-        .child(svg(icon("tag")).size(11).flex_none()).child(div().min_w(0).truncate().text_size(11).child(tag))))
-      .when(Boolean(branch), (e) => e.child(h_flex().flex_none().max_w(200).gap(5).items_center().text_color(t.muted)
-        .child(svg(icon("branch")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11).child(branch))))
-      .when(Boolean(problem), (e) => e.child(div().flex_none().max_w(200).truncate().text_size(11).text_color(t.ansi1).child(problem)));
-  }
-
-
   toolbar(t) {
     const segment = (id, text, on, action) => div().id(id).h(22).px(9).flex().items_center().rounded(5).text_size(11.5).cursor_pointer()
       .bg(on ? t.raised : t.background).text_color(on ? t.foreground : t.muted).when(on, (e) => e.border_1().border_color(t.border))
       .hover((s) => s.text_color(t.foreground)).on_click(action).child(text);
     return h_flex().h(34).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
       .child(h_flex().p(2).gap(2).rounded(7).bg(t.background).border_1().border_color(t.border)
-        .child(segment("graph-all", "All branches", this.all, (_e, cx) => this.setScope(true, cx)))
-        .child(segment("graph-current", "Current", !this.all, (_e, cx) => this.setScope(false, cx))))
-      .child(h_flex().id("graph-remotes").h(24).px(6).gap(6).items_center().rounded(6).cursor_pointer().text_size(11.5).text_color(t.muted)
+        .child(segment("gc-all", "All branches", this.all, (_e, cx) => this.setScope(true, cx)))
+        .child(segment("gc-current", "Current", !this.all, (_e, cx) => this.setScope(false, cx))))
+      .child(h_flex().id("gc-remotes").h(24).px(6).gap(6).items_center().rounded(6).cursor_pointer().text_size(11.5).text_color(t.muted)
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.setRemotes(cx))
         .child(div().size(13).rounded(3).border_1().border_color(this.remotes ? t.accent : t.input).when(this.remotes, (e) => e.bg(t.accent)).flex().items_center().justify_center()
           .when(this.remotes, (e) => e.child(svg(icon("check")).size(10).text_color(t.accent_foreground))))
         .child("Remotes"));
   }
 
+  searchBar(t) {
+    return h_flex().h(36).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
+      .child(h_flex().id("gc-search").flex_1().min_w(0).h(26).px(8).gap(6).items_center().rounded(7).border_1()
+        .border_color(this.typing ? t.accent : t.border).bg(t.background).cursor_text()
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(svg(icon("search")).size(12).flex_none().text_color(t.dim))
+        .child(Input.new(this.search).flex_1().min_w(0).h_full().text_size(12).text_color(t.foreground)))
+      .when(Boolean(this.filter), (e) => e
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(this.state === "ready" ? count(this.commits.length, "commit") + (this.hasMore ? "+" : "") : ""))
+        .child(h_flex().id("gc-search-clear").size(24).flex_none().items_center().justify_center().rounded(6).cursor_pointer().text_color(t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.clearSearch(cx))
+          .child(svg(icon("x")).size(12))));
+  }
+
   columns(t, width) {
     const head = (text, w) => div().when(w !== undefined, (e) => e.w(w).flex_none()).truncate().child(text);
     const titles = { date: "Date", author: "Author", hash: "Commit" };
     // Handles stand in for the rows' gaps, 1px wider each side.
-    const handle = (key) => div().id(`graph-col-${key}`).w(LABEL.GAP + 2).mx(-1).h_full().flex_none().flex().justify_center().cursor_col_resize()
+    const handle = (key) => div().id(`gc-col-${key}`).w(LABEL.GAP + 2).mx(-1).h_full().flex_none().flex().justify_center().cursor_col_resize()
       .on_mouse_down("left", (e, cx) => this.startDrag(key, e, cx))
       .child(div().w(1).h_full().when(this.drag?.key === key, (e) => e.bg(t.accent)))
       .hover((s) => s.bg(t.border));
     return h_flex().h(24).flex_none().pr(10).items_center().border_b(1).border_color(t.border).text_size(11).text_color(t.dim)
-      .child(head("Graph", width).pl(PAD)).child(handle("graph")).child(div().flex_1().min_w(0).child("Description"))
+      .child(head(this.filter ? "" : "Graph", width).pl(PAD)).when(!this.filter, (e) => e.child(handle("graph"))).child(div().flex_1().min_w(0).child("Description"))
       .children(this.trailing().flatMap((k) => [handle(k), head(titles[k], this.cols[k]).when(k === "date", (e) => e.text_right())]));
   }
 
@@ -761,7 +560,7 @@ export class Graph {
           }
           return Array.from({ length: range.end - range.start }, (_x, k) => range.start + k).map((i) => i < this.commits.length
             ? this.row(i, t, colors, mono, width)
-            : div().id("graph-more").h(this.rowH()).flex_none().px(14).flex().items_center().text_color(t.accent).hover((s) => s.bg(t.hover))
+            : div().id("gc-more").h(this.rowH()).flex_none().px(14).flex().items_center().text_color(t.accent).hover((s) => s.bg(t.hover))
               .child(this.loading ? "Loading more commits…" : `Load ${PAGE} more commits`));
         })
         // Rows of a virtual list can't hold their own handlers: the list reports the row's key.
@@ -775,12 +574,12 @@ export class Graph {
     const commit = this.commits[this.index.get(this.selected)], d = this.details;
     if (!commit) return div();
     const top = h_flex().h(32).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5);
-    const close = div().id("graph-details-close").px(6).py(1).rounded(4).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
+    const close = div().id("gc-details-close").px(6).py(1).rounded(4).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_click((_e, cx) => { this.selected = null; this.details = null; this.diff = null; cx.notify(); }).child("×");
     if (this.diff) {
       const rows = this.diff.rows;
       return v_flex().flex_none().h(320).border_t(1).border_color(t.border)
-        .child(top.child(div().id("graph-diff-back").px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .child(top.child(div().id("gc-diff-back").px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
             .on_click((_e, cx) => { this.diff = null; cx.notify(); }).child("← Files"))
           .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(this.diff.path)).child(close))
         .child(div().flex_1().min_h(0).relative().font_family(mono).text_size(11)
@@ -790,26 +589,23 @@ export class Graph {
                 (range) => rows.slice(range.start, range.end).map((r) => this.diffRow(r, t))).size_full())))
             .child(Scrollbar.vertical(this.diffId).viewport_from_layout().absolute().inset_0())));
     }
-    const title = commit.uncommitted ? "Uncommitted changes" : `Commit ${commit.hash.slice(0, 8)}`;
-    const body = v_flex().id("graph-details").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(10).gap(4);
+    const title = `Commit ${commit.hash.slice(0, 8)}`;
+    const body = v_flex().id("gc-details").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(10).gap(4);
     const pane = (content) => v_flex().flex_none().h(320).border_t(1).border_color(t.border)
-      .child(top.child(div().flex_1().text_color(t.muted).child(title))
-        .when(Boolean(commit.uncommitted), (e) => e.child(div().id("graph-open-changes").px(6).py(1).rounded(4).text_color(t.accent).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click(() => showChanges()).child("Open Changes")))
-        .child(close))
+      .child(top.child(div().flex_1().text_color(t.muted).child(title)).child(close))
       .child(content);
     if (d?.error) return pane(body.child(div().text_color(t.ansi1).child(d.error)));
     const meta = (k, v, color) => h_flex().gap(8).text_size(11.5).child(div().w(64).flex_none().text_color(t.dim).child(k)).child(div().min_w(0).truncate().text_color(color ?? t.muted).child(v));
     // The history already has the header: it shows at once, and what git adds lands below it.
-    const head = commit.uncommitted ? body : body
+    const head = body
       .child(div().font_semibold().child(commit.subject))
       .child(meta("Commit", commit.hash, t.accent).font_family(mono))
       .child(meta("Parents", commit.parents.map((p) => p.slice(0, 8)).join(", ") || "none"))
       .child(meta("Author", `${commit.author} <${commit.email}>`))
       .child(meta("Date", `${stamp(commit.time)} · ${ago(commit.time)}`));
-    if (!d) return pane(head.child(div().pt(8).text_size(11.5).text_color(t.dim).child(commit.uncommitted ? "Loading…" : "Loading files…")));
+    if (!d) return pane(head.child(div().pt(8).text_size(11.5).text_color(t.dim).child("Loading files…")));
     const add = d.files.reduce((n, f) => n + f.add, 0), del = d.files.reduce((n, f) => n + f.del, 0);
-    const lines = commit.uncommitted ? "" : d.message.split("\n").slice(1).join("\n").trim();
+    const lines = d.message.split("\n").slice(1).join("\n").trim();
     return pane(head
       .when(Boolean(d.committer && d.committer !== d.author), (el) => el.child(meta("Committer", d.committer)))
       .when(Boolean(lines), (el) => el.child(v_flex().pt(6).children(lines.split("\n").map((line) => div().text_color(t.muted).child(line || " ")))))
@@ -837,10 +633,10 @@ export class Graph {
   }
 
   empty(t) {
-    const s = this.state, where = tilde(this.cwd, this.on);
+    const s = this.state;
     const [glyph, title, body] = s === "nofolder" ? ["folder", "No folder", "Focus a terminal to see the history of the repository it's in."]
-      : s === "norepo" && this.skipped ? ["folder", "Not a git repository", `${where ?? "This folder"} isn't a repository, and is too big to search for them. Focus a terminal in a repository, or in a folder that holds some.`]
-      : s === "norepo" ? ["folder", "Not a git repository", `${where ?? "This folder"} isn't inside a git repository, and holds none within ${count(depthSetting(), "level")}. Focus a terminal in one, or search deeper in settings.`]
+      : s === "norepo" ? ["folder", "Not a git repository", "Focus a terminal in a git repository."]
+      : s === "empty" && this.filter ? ["search", "No commits found", "Change the search, or clear it."]
       : s === "empty" ? ["commit", "No commits yet", "Make the first commit and it shows up here."]
       : s === "error" ? ["graph", "Can't read the history", this.error]
       : ["graph", "Loading history…", ""];
@@ -851,40 +647,30 @@ export class Graph {
       .when(Boolean(body), (e) => e.child(div().max_w(280).text_center().text_size(12).text_color(t.muted).child(body)));
   }
 
-  render(cx) {
+  // Called on every render of the host, also while another tab shows: shared changes reach the reader.
+  sync(cx) {
     if (this.key() !== this.context) this.refresh(cx);
-    const changed = shared("git-graph.changed");
-    const savedCols = shared("git-graph.columns"), seen = JSON.stringify(savedCols ?? null);
-    if (!this.drag && seen !== this.seenCols) { this.seenCols = seen; this.cols = withDefaults(savedCols); }
-    const fetched = shared("git-graph.fetched");
-    if (fetched?.at !== this.seenFetched) { this.seenFetched = fetched?.at; if (fetched?.root) this.fetchErrors.delete(fetched.root); }
-    // After an action (here, or from a Manygit row's menu) the graph or the list reads again.
-    if (changed !== this.seenChange) { this.seenChange = changed; if (this.root || this.state === "workspace") this.refresh(cx); }
-    // New settings: a depth searches again, tags read every row again.
-    const setting = `${depthSetting()} ${tagsShown()}`;
-    if (setting !== this.seenSetting) { const first = this.seenSetting === undefined; this.seenSetting = setting; if (!first && !this.opened) this.refresh(cx); }
+    const changed = shared("git-client.changed");
+    if (changed !== this.seenChange) { this.seenChange = changed; if (this.root) this.refresh(cx); }
+    const savedCols = savedColumns(), seen = JSON.stringify(savedCols ?? null);
+    if (!this.drag && seen !== this.seenCols) { this.seenCols = seen; this.cols = withDefaults(savedCols ?? undefined); }
+  }
+
+  render(cx) {
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
-    return v_flex().id("git-graph").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
-      .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
+    const repo = ready || this.state === "empty";
+    return v_flex().id("gc-history").flex_1().min_h(0).w_full()
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
       .on_hover((hovered, cx) => { if (!hovered) this.endDrag(cx); })
-      .on_key_down((e, cx) => {
-        if (e.key !== "escape" || !(this.selected || this.opened)) return;
-        // Esc closes the dropdown, a diff, then the details, then goes back to the Manygit list.
-        if (this.picking) this.picking = false; else if (this.diff) this.diff = null; else if (this.selected) { this.selected = null; this.details = null; } else this.back(cx);
-        cx.stop_propagation(); cx.notify();
-      })
       .on_size_change((size, cx) => {
         const width = size.width / this.unit(), wide = width >= 600, graphMax = Math.max(60, Math.round(width * 0.4));
         this.width = width;
         if (wide !== this.wide || graphMax !== this.graphMax) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
       })
-      .child(this.header(t))
-      .when(this.state === "workspace", (e) => e.child(this.workspaceList(t)))
-      .when(Boolean(this.picking && this.workspace && this.opened), (e) => e.child(this.picker(t)))
-      .when(ready, (e) => e.child(this.toolbar(t)).child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
+      .when(repo || Boolean(this.filter), (e) => e.child(this.searchBar(t)).when(!this.filter, (el) => el.child(this.toolbar(t))))
+      .when(ready, (e) => e.child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
         .when(Boolean(this.selected), (el) => el.child(this.detailsPane(t, mono))))
-      .when(!ready && this.state !== "workspace", (e) => e.child(this.empty(t)));
+      .when(!ready, (e) => e.child(this.empty(t)));
   }
 }

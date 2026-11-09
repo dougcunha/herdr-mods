@@ -41,7 +41,7 @@ const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
 // as in mods/tabs-dock. The bar shows no button of an entry whose mod is off, hides the blocks of an off mod in its
 // layout, and shows Herdr's own mod in a block of an off replacement mod (ORIGINALS). It undoes only what it did.
 const KEY_OFF = "herdr-mods.disabled";
-const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "changes-split": "changes" };
+const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "git-client": "changes" };
 const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(v) ? v.filter((n) => typeof n === "string") : []); };
 // The mod of a panels.json entry: its `mod`, the mod of a "<mod>.<command>" or of a mod.open command.
 const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);

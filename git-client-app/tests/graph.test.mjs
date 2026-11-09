@@ -1,10 +1,9 @@
 // Tests the mod's git logic against real throwaway repos (a bare "remote"
 // included): parsing, labels and where they sit, lanes, menus, validation,
 // and every action the menus run. Run: node tests/graph.test.mjs
-import * as G from "../mods/git-graph/git.js";
-import { layoutLanes } from "../mods/git-graph/lanes.js";
-import * as R from "../mods/git-graph/repos.js";
-import { executeAction } from "../mods/git-graph/execute.js";
+import * as G from "../mods/git-client/git.js";
+import { layoutLanes } from "../mods/git-client/lanes.js";
+import { executeAction } from "../mods/git-client/execute.js";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync, symlinkSync } from "node:fs";
@@ -81,9 +80,21 @@ const headRow = lanes.rows[withU.indexOf(withU.find((c) => c.hash === tip.hash))
 assert.ok(headRow.segments.some((s) => s[5] && s[3] === 0.5), "the dashed line ends at HEAD");
 assert.ok(headRow.segments.filter((s) => s[1] === 0.5).every((s) => !s[5]), "HEAD's own lines are solid");
 assert.equal(G.withUncommitted(commits, 0, tip.hash), commits);
-assert.deepEqual(G.parseStatus(" M a.txt\0?? b.txt\0D  c.txt\0UU d.txt\0"), [
-  { path: "a.txt", status: "M", untracked: false, staged: false }, { path: "b.txt", status: "A", untracked: true, staged: false },
-  { path: "c.txt", status: "D", untracked: false, staged: true }, { path: "d.txt", status: "U", untracked: false, staged: false }]);
+assert.deepEqual(G.parseStatus("## main...origin/main [ahead 1]\0 M a.txt\0?? b.txt\0D  c.txt\0UU d.txt\0MM e.txt\0").map((f) => [f.path, f.status, f.untracked, f.staged, f.unstaged, f.conflict]), [
+  ["a.txt", "M", false, false, true, false], ["b.txt", "A", true, false, true, false],
+  ["c.txt", "D", false, true, false, false], ["d.txt", "U", false, false, false, true], ["e.txt", "M", false, true, true, false]]);
+assert.deepEqual(G.parseBranch("## main...origin/main [ahead 1, behind 2]\0 M a\0"), { branch: "main", upstream: "origin/main", ahead: 1, behind: 2, gone: false, detached: false, unborn: false });
+assert.deepEqual(G.parseBranch("## fix...origin/fix [gone]\0"), { branch: "fix", upstream: "origin/fix", ahead: 0, behind: 0, gone: true, detached: false, unborn: false });
+assert.equal(G.parseBranch("## local\0").upstream, null);
+assert.equal(G.parseBranch("## HEAD (no branch)\0").detached, true);
+assert.deepEqual([G.parseBranch("## No commits yet on main\0").unborn, G.parseBranch("## No commits yet on main\0").branch], [true, "main"]);
+// The search field.
+assert.equal(G.parseFilter("  "), null);
+assert.deepEqual(G.parseFilter('fix login author:ana path:"src/a b.js"'), { text: "fix login", author: "ana", path: "src/a b.js", hash: null });
+assert.equal(G.parseFilter("1a2b3c").hash, "1a2b3c");
+assert.deepEqual(G.logArgs({ all: false, remotes: false, limit: 5, filter: G.parseFilter("--output=x path:-p") }).slice(-3), ["--format=%H%x00%P%x00%an%x00%ae%x00%at%x00%D%x00%s", "--", ":(top,literal)-p"], "a path stays a path");
+assert.ok(G.logArgs({ all: false, remotes: false, limit: 5, filter: G.parseFilter("--output=x") }).includes("--grep=--output=x"), "text stays the value of --grep");
+assert.throws(() => G.commitArgs("--all"), /hash/);
 // The graph reads everything from the pane's folder at once: from a subfolder,
 // status still names paths from the root and the log is the whole history.
 {
@@ -230,7 +241,7 @@ sh(repo, "stash", "pop", "-q");
 ok(run({ type: "resetUncommitted" }, { mode: "hard" }));
 assert.equal(git(repo, ["status", "--porcelain"]).stdout, "?? new.txt\n", "hard reset keeps untracked files");
 // Commit: staging everything (untracked too), or only what's staged.
-assert.deepEqual(labelsIn(G.menuFor({ kind: "uncommitted" }, ctxOf())), ["Commit…", "Stash uncommitted changes…", "Reset uncommitted changes…", "Show in Changes panel"]);
+assert.deepEqual(labelsIn(G.menuFor({ kind: "uncommitted" }, ctxOf())), ["Show in Changes", "Stash uncommitted changes…", "Reset uncommitted changes…"]);
 assert.match(G.validate({ type: "commit" }, { message: "  ", all: true }, ctxOf()), /empty/);
 assert.throws(() => G.commandsFor({ type: "commit" }, { message: "" }), /Empty commit message/);
 writeFileSync(join(repo, "three.txt"), "committed"); writeFileSync(join(repo, "new.txt"), "new");
@@ -239,7 +250,7 @@ assert.equal(git(repo, ["log", "-1", "--format=%s"]).stdout.trim(), "--amend: a 
 assert.equal(git(repo, ["status", "--porcelain"]).stdout, "", "everything, untracked included, committed");
 writeFileSync(join(repo, "a.txt"), "a"); writeFileSync(join(repo, "b.txt"), "b"); sh(repo, "add", "a.txt");
 assert.deepEqual(G.parseStatus(git(repo, [...G.READ, ...G.STATUS]).stdout).map((f) => [f.path, f.staged]), [["a.txt", true], ["b.txt", false]]);
-assert.equal(G.initialValues(G.menuFor({ kind: "uncommitted", staged: true }, ctxOf())[0].action, ctxOf()).all, false, "something staged: commit just that by default");
+assert.equal(G.initialValues({ type: "commit", staged: true }, ctxOf()).all, false, "something staged: commit just that by default");
 assert.equal(G.initialValues({ type: "commit", staged: false }, ctxOf()).all, true, "nothing staged: stage everything by default");
 ok(run({ type: "commit" }, { message: "only staged", all: false }));
 assert.equal(git(repo, ["show", "--name-only", "--format=", "HEAD"]).stdout, "a.txt\n", "without staging, only the index");
@@ -322,98 +333,8 @@ assert.throws(() => G.fileArgs({ hash: "--output=unexpected", parents: [] }), /i
 assert.throws(() => G.diffArgs({ hash: tip.hash, parents: ["--bad"] }, "file"), /identity/);
 console.log("untrusted history ok");
 rmSync(base, { recursive: true, force: true });
-// ---- Manygit: finding repositories under a folder, and one status call each
-{
-  const ws = mkdtempSync(join(tmpdir(), "herdr-manygit-"));
-  const mk = (rel) => { const d = join(ws, rel); mkdirSync(d, { recursive: true }); sh(d, "init", "-q", "-b", "main"); return d; };
-  const a = mk("a"); mk("b"); mk("group/c"); mk("node_modules/pruned"); mk(".hidden/pruned"); mk("one/two/three/deep");
-  mkdirSync(join(ws, "plain/folder"), { recursive: true });
-  const found = (depth) => R.parseFound(ws, spawnSync("find", R.findArgs(ws, depth), { encoding: "utf8" }).stdout);
-  assert.deepEqual(found(3).map((r) => [r.group, r.name]), [["", "a"], ["", "b"], ["group", "c"]], "pruned, hidden and too-deep folders are skipped");
-  assert.deepEqual(found(4).map((r) => r.name), ["a", "b", "c", "deep"], "a deeper search finds more");
-  assert.deepEqual(found(1).map((r) => r.name), ["a", "b"]);
-  // A folder reached through a symlink (macOS's /tmp, a symlinked checkout) is searched too.
-  const link = `${ws}-link`; symlinkSync(ws, link);
-  assert.deepEqual(R.parseFound(link, spawnSync("find", R.findArgs(link, 3), { encoding: "utf8" }).stdout).map((r) => r.name), ["a", "b", "c"], "symlinked folder");
-  rmSync(link);
-  // Not searched: a home, anything above one, and another machine's usual homes.
-  for (const [dir, home, skip] of [["/", "/Users/me", true], ["/Users", "/Users/me", true], ["/Users/me/", "/Users/me", true],
-    ["/Users/me/code", "/Users/me", false], ["/home/dev", null, true], ["/root", null, true], ["/mnt/data/dev-vera", null, false], ["/home/dev/work", null, false]]) {
-    assert.equal(R.unsearched(dir, home), skip, `unsearched ${dir}`);
-  }
-  assert.equal(R.depthOf(9), R.DEPTH.default); assert.equal(R.depthOf(2), 2); assert.equal(R.depthOf(undefined), 3);
-  assert.deepEqual(R.parseFound("/w", "/w/x/.git\n/elsewhere/y/.git\nfind: /w/locked: Permission denied\n").map((r) => r.name), ["x"], "only paths under the folder");
-
-  // A clone with a bare remote: ahead, behind, both, dirty, no upstream, no remote, detached.
-  const bare = join(ws, "remote.git"); sh(ws, "init", "-q", "--bare", "-b", "main", bare);
-  const status = (dir) => R.parseRepoStatus(git(dir, R.REPO_STATUS).stdout);
-  commit(a, "a1"); sh(a, "remote", "add", "origin", bare); sh(a, "push", "-q", "-u", "origin", "main");
-  assert.deepEqual(status(a), { branch: "main", detached: false, head: git(a, ["rev-parse", "HEAD"]).stdout.trim(), upstream: "origin/main", gone: false, ahead: 0, behind: 0, dirty: 0, staged: 0 });
-  assert.equal(R.parseRepoStatus("# branch.oid (initial)\0# branch.head main\0").head, null, "no commits yet");
-  assert.deepEqual(R.syncOf({ ...status(a), hasRemote: true }), { kind: "ok", text: "✓" });
-  commit(a, "a2"); writeFileSync(join(a, "a1.txt"), "edited"); writeFileSync(join(a, "untracked.txt"), "x");
-  assert.deepEqual([status(a).ahead, status(a).dirty, status(a).staged], [1, 2, 0], "ahead by one, two files changed, none staged");
-  sh(a, "add", "a1.txt"); assert.equal(status(a).staged, 1, "one staged"); sh(a, "reset", "-q");
-  assert.equal(R.syncOf(status(a)).text, "↑1");
-  sh(a, "reset", "-q", "--hard", "HEAD~1"); sh(a, "commit", "-q", "--allow-empty", "-m", "other"); sh(a, "fetch", "-q");
-  const other = mkdtempSync(join(tmpdir(), "herdr-manygit-clone-")); sh(other, "clone", "-q", bare, "c"); commit(join(other, "c"), "theirs"); sh(join(other, "c"), "push", "-q");
-  sh(a, "fetch", "-q");
-  assert.deepEqual([status(a).ahead, status(a).behind], [1, 1]); assert.equal(R.syncOf(status(a)).kind, "diverged");
-  sh(a, "checkout", "-qb", "local-only");
-  assert.equal(status(a).upstream, null); assert.equal(R.syncOf({ ...status(a), hasRemote: true }).kind, "unpushed");
-  assert.equal(R.syncOf({ ...R.parseRepoStatus(""), hasRemote: false }).kind, "local");
-  assert.equal(git(a, R.LATEST_TAG).stdout, "", "no tags yet");
-  sh(a, "tag", "v1.0"); assert.equal(git(a, R.LATEST_TAG).stdout.trim(), "v1.0", "the newest tag");
-  sh(a, "checkout", "-q", "--detach"); assert.equal(status(a).detached, true);
-  assert.equal(R.syncOf({ ...status(a), hasRemote: true }).kind, "ok", "detached isn't \"not pushed\"");
-  // Fetch all's command: prompts off, through env, and a row behind after someone else pushed.
-  sh(join(ws, "b"), "remote", "add", "origin", join(ws, "gone.git"));
-  const fetchOut = spawnSync("env", R.FETCH, { cwd: join(ws, "b"), encoding: "utf8", env });
-  assert.ok(fetchOut.status !== 0 && fetchOut.stderr.trim(), "an unreachable remote fails with git's words for the row");
-  assert.equal(R.syncOf({ ...status(a), hasRemote: true }, "fatal: unable to access").text, "fetch failed");
-  assert.equal(R.fetchable({ upstream: null, hasRemote: false }), false, "a local-only repository isn't fetched");
-  assert.equal(R.fetchable(undefined), true); assert.equal(R.fetchable({ upstream: "origin/main" }), true);
-  sh(a, "checkout", "-q", "main"); commit(join(other, "c"), "more"); sh(join(other, "c"), "push", "-q");
-  assert.equal(spawnSync("env", R.FETCH, { cwd: a, encoding: "utf8", env }).status, 0);
-  assert.equal(status(a).behind, 2, "the fetch brought the new commit");
-  // A row's menu: Herdr's tabs first, then what its ↑/↓ asks for first.
-  const remotes = R.parseRemotes(git(a, R.REMOTES).stdout);
-  assert.deepEqual(remotes, [{ name: "origin", url: bare }]);
-  assert.equal(R.webUrl("git@github.com:rabeeh-ta/manygit.git"), "https://github.com/rabeeh-ta/manygit");
-  assert.equal(R.webUrl("ssh://git@gitlab.com/group/sub/repo.git"), "https://gitlab.com/group/sub/repo");
-  assert.equal(R.webUrl("https://user:token@github.com/o/r.git"), "https://github.com/o/r", "credentials never reach the browser");
-  assert.equal(R.webUrl(bare), null); assert.equal(R.webUrl("file:///srv/r.git"), null);
-  assert.equal(R.webUrl("https://user:p@ss@host.com/o/r"), "https://host.com/o/r", "a password with @ is dropped whole");
-  assert.equal(R.webUrl("ssh://git@host.example:2222/o/r.git"), "https://host.example/o/r", "the ssh port isn't the web's");
-  assert.equal(R.webUrl("https://git.example.com:3000/o/r"), "https://git.example.com:3000/o/r");
-  for (const u of ["../sibling", "github-work:o/r", "C:\\repos\\x"]) assert.equal(R.webUrl(u), null, `no page for ${u}`);
-  const rowCtx = (st) => ({ root: a, on: null, current: st.branch, head: st.head, branches: [], remotes: ["origin"] });
-  const rowMenu = (st, agents = []) => G.menuFor({ kind: "repo", path: a, status: st, agents, web: "https://github.com/o/r" }, rowCtx(st)).filter((i) => !i.separator).map((i) => i.label);
-  const claude = { name: "Claude Code", icon: "icons/claude.svg", tint: false, run: ["claude"] };
-  assert.deepEqual(rowMenu({ ...status(a), behind: 4, ahead: 0, dirty: 0 }, [claude]).slice(0, 4), ["New Claude Code tab", "New terminal tab", "Pull…", "Fetch"], "behind: Pull comes first");
-  assert.equal(rowMenu({ ...status(a), ahead: 2, behind: 0 })[1], "Push…", "ahead: Push comes first");
-  assert.equal(rowMenu({ ...status(a), upstream: null, hasRemote: true })[1], "Push and set upstream…");
-  assert.ok(rowMenu({ ...status(a), dirty: 3 }).includes("Commit…") && !rowMenu({ ...status(a), dirty: 0 }).includes("Commit…"), "change actions only with changes");
-  assert.ok(rowMenu(status(a)).includes("Open on github.com") && rowMenu(status(a)).includes("Copy path"));
-  // Pull fast-forwards, run as the row's menu runs it: through executeAction, with a ctx built from the row's status.
-  sh(a, "checkout", "-q", "main"); sh(a, "reset", "-q", "--hard", "origin/main"); sh(a, "reset", "-q", "--hard", "HEAD~1");
-  const behindSt = status(a); assert.equal(behindSt.behind, 1);
-  const run = (cmd, args, o) => Promise.resolve(spawnSync(cmd, args, { cwd: o.cwd, env, encoding: "utf8" })).then((r) => ({ code: r.status, stdout: r.stdout, stderr: r.stderr }));
-  const pullCtx = { root: a, on: null, current: behindSt.branch, head: behindSt.head, branches: [], remotes: ["origin"] };
-  const moved = { ...pullCtx, head: "0".repeat(40) };
-  assert.equal((await executeAction({ type: "pull", upstream: "origin/main" }, {}, moved, run)).stale, true, "a row whose HEAD moved is refused");
-  assert.equal((await executeAction({ type: "pull", upstream: "origin/main" }, {}, pullCtx, run)).ok, true);
-  assert.equal(status(a).behind, 0, "pulled");
-  // An upstream deleted on the remote: git names it but counts nothing. Not "in sync", and no Pull.
-  sh(a, "checkout", "-qb", "doomed"); sh(a, "push", "-q", "-u", "origin", "doomed"); sh(a, "push", "-q", "origin", "--delete", "doomed"); sh(a, "fetch", "-q", "--prune");
-  assert.equal(status(a).gone, true); assert.equal(R.syncOf({ ...status(a), hasRemote: true }).kind, "gone");
-  assert.ok(!rowMenu({ ...status(a), hasRemote: true }).includes("Pull…"), "no Pull from a gone upstream");
-  sh(a, "checkout", "-q", "main");
-  assert.equal(R.syncOf(undefined).kind, "loading"); assert.equal(R.syncOf({ error: "dubious ownership" }).kind, "error");
-  rmSync(ws, { recursive: true, force: true }); rmSync(other, { recursive: true, force: true });
-  console.log("manygit ok");
-}
 
 // Keep the original CI entry point running the action-context regressions too.
 await import("./action-context.test.mjs");
+await import("./changes.test.mjs");
 console.log("all tests passed");

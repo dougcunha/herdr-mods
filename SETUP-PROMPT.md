@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 36 -->
+<!-- herdr-mods-setup-version: 37 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -75,7 +75,6 @@ The items marked **Required** in "The items" are always installed: do not ask ab
 - `issues-app`: Issues & PRs, the issues of a space from Jira Cloud or GitHub and its pull requests, in 2 Dock panels, with buttons that start an agent (runs `git`, `gh`, `curl` and PowerShell on Windows; uses the network of Jira and GitHub; stores the Jira token in the credential store of the system).
 - `light-themes-app`: 5 light themes.
 - `dark-themes-app`: 6 soft dark themes.
-- `git-graph` (third-party): a Graph panel of the commits.
 - `markdown-reader` (third-party): opens Markdown files from the Files panel.
 - `insights` (third-party): a dashboard of the agent sessions (uses Node).
 
@@ -93,12 +92,13 @@ An item that I do not choose is skipped (rule 12). Keep my answer for "Record th
 
 For each item, read the `README.md` and the `RECIPE.md` of its folder before you copy anything. A mod copies as a whole folder (`<app>/mods/<name>/` to `~/.config/herdr-app/mods/<name>/`), a layout as a file (`<app>/layouts/<name>.json` and its `.svg`, if any, to `~/.config/herdr-app/layouts/`).
 
-1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. Install `agent-cards` (item 13) before `tabs-dock` and the layout: the layout's `agents` block shows it, and the tab bar switches that block to `agent-cards` unless the setting **Agent cards** of Herdr Mods is off (`shared("agent-cards.enabled")` is `false`). Do not set that key yourself. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `changes-split` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
+1. `dock-app`: the `main-dock` layout and the mods `tabs-dock`, `files-md` and `files-md-menu`. Install `agent-cards` (item 13) before `tabs-dock` and the layout: the layout's `agents` block shows it, and the tab bar switches that block to `agent-cards` unless the setting **Agent cards** of Herdr Mods is off (`shared("agent-cards.enabled")` is `false`). Do not set that key yourself. The `files-md` mod shows Markdown rendered and code with syntax colors in its own panel, with an icon for each file type, and opens images in `image-viewer`, so install that one as well. Its Changes panel is the `git-client` mod (item 5). Its right-click menu runs `powershell`, `explorer`, `open` or `xdg-open` on the file you choose, and shows "Open in Markdown Reader" when `markdown-reader` is installed.
 2. `ci-dash-app`: the `ci-dash` mod.
 3. `git-dash-app`: the `git-dash` mod. It keeps a list of base folders in `shared("git-dash.roots")`. On its first start it fills the list from the folder that I chose before, else from the `root` prop of its `panels.json` entry. Do not edit `shared.json` for it.
 4. `image-viewer-app`: the `image-viewer` mod.
-5. `changes-app`: the `changes-split` mod, Herdr's Changes panel with a Unified / Split switch. The `main-dock` and `kanban` layouts use it, so install it BEFORE you install or update those layouts. It runs `git` only, the same as Herdr's Changes panel.
-6. `kanban-app`: the `kanban` layout and the `kanban` mod. Its Changes panel is the `changes-split` mod (item 5).
+5. `git-client-app`: the `git-client` mod, the **Git** panel: Changes (stage files and hunks, commit, amend, an AI commit message) and History (the commit graph of Git Graph for Herdr, MIT, with its actions), with fetch, pull and push. The `main-dock` and `kanban` layouts use it in their `changes` block, so install it BEFORE you install or update those layouts. It runs `git` (also `git apply` with a patch file under `~/.config/herdr-app/data/git-client/`, and `sh -c` for a repository on another machine), and `claude -p` or `codex exec` only when I click **AI** in the commit box (it sends the staged diff to that agent). It opens a file with the default app of the system only when I pick **Open file**.
+    **Move from `changes-split` and `git-graph`.** Before version 37 the Changes panel was the `changes-split` mod (folder `changes-app`) and the Graph panel was the third-party `git-graph` mod. `git-client` replaces both. If `mods/changes-split/` or `mods/git-graph/` exists: back them up (rule 11) and install `git-client`. Then, in `layouts/main-dock.json`, `layouts/kanban.json` and every other layout of mine in `layouts/`, change `content.mod` of each block with `"mod": "changes-split"` to `"git-client"` (keep its id, size and place), and remove the block with the id `graph` from the stack `panel-body` (the bars added it for the Graph panel). Remove the `graph` entry from `dock/panels.json`. In `keys.json`, change the actions `changes-split.split`, `changes-split.unified` and `changes-split.toggle` to `git-client.split`, `git-client.unified` and `git-client.toggle`. Delete the folders `mods/changes-split/` and `mods/git-graph/` last. If my `changes-split` folder has files that equal no version of the repository (rule 3; look in the history of `changes-app/mods/changes-split/`), or my `git-graph` folder has changes other than the kit's Esc patch, show me the difference and ask before you delete it. In the record, remove `changes-split` from `items` and `files`, and remove `git-graph` from `third` and from `declined`. The new mod reads `shared("changes-split.view")` and `shared("git-graph.columns")` once by itself: do not copy them.
+6. `kanban-app`: the `kanban` layout and the `kanban` mod. Its Changes panel is the `git-client` mod (item 5).
 7. `agent-resume-app`: the `agent-resume` mod, with its `hooks/` folder. Then follow the "Install" section of its `README.md`: put its block in the `main-dock` layout (step 2), and also at the left end of the `status-row` of `layouts/kanban.json` when the `kanban` layout is installed (the same block, if no block with the id `agent-resume` is there: the mod runs only in the shown layout), and connect each agent that is installed on this machine (step 3: Claude Code, Antigravity, OpenCode; Codex needs nothing). Tell me which agents you connected.
 8. `repo-launcher-app`: the mods `repo-launcher` and `repo-launcher-status`. Put the `repo-launcher-status` block in the status row of the `main-dock` and `kanban` layouts, after the `status` block (see "A status bar item" in its `README.md`). It runs PowerShell (or `sh` and `find`) to find repositories, lists my home folder and reads `.claude.json` and Codex's `auth.json` only to show the e-mail of each account. Merge its `keys.json` in "Configure".
 9. `light-themes-app`: the 5 light themes. Copy each file of `light-themes-app/themes/` to `~/.config/herdr-app/themes/`. If a file with the same name exists, leave it and tell me. Do not change `appearance` or `theme` for these themes. This folder has no `RECIPE.md`, because the files contain only colors.
@@ -117,9 +117,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 
 Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
-1. `git-graph`: https://github.com/rabeeh-ta/herdr-git-graph
-2. `markdown-reader` (and `markdown-reader-pane`, if the repository has it): https://github.com/kissmikijr/herdr-markdown-reader
-3. `insights`: https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights (a folder inside a larger repository: copy only that folder).
+1. `markdown-reader` (and `markdown-reader-pane`, if the repository has it): https://github.com/kissmikijr/herdr-markdown-reader
+2. `insights`: https://github.com/GaganSD/coding-agent-toolkit/tree/main/herdr-insights (a folder inside a larger repository: copy only that folder).
 
 The `insights` mod uses Node. The file `mods/insights/runtime.json` holds the path of `node`. Find the path of `node` on this machine (`where node` or `which node`) and write it in that file. If the file exists and the path still works, leave it.
 
@@ -148,22 +147,6 @@ The `insights` mod uses Node. The file `mods/insights/runtime.json` holds the pa
 
 Then run `herdr-app check` on `~/.config/herdr-app/mods/insights`. If the code of the mod changed and one of these places is not there (no `toolbarMode`, no `insights-root`, no `showSettings`), do not guess: leave the file as it was and tell me.
 
-**Esc patch for `git-graph`.** The same rule for the Graph panel, in `mods/git-graph/graph.js`, with the same times (after you install or update the mod, and on every run when the file does not contain `herdr-mods patch`):
-
-1. Add `closeOverlay` to the names of the `import { … } from "herdr";` line, if it is not there. After that line, add the same `herdrModsDialog` lines as in step 1 of the `insights` patch.
-2. In `render(cx)` of the `Graph` class, on the root element (`v_flex().id("git-graph")…`), after `.track_focus(this.handle)`, add:
-   ```js
-   // herdr-mods patch: in a dialog, a click on the graph gives it the keyboard, so Esc works.
-   .on_mouse_down("left", () => { if (herdrModsDialog()) this.handle.focus(); })
-   ```
-3. In the `.on_key_down((e, cx) => {` of that root element, before its first line, add:
-   ```js
-   // herdr-mods patch: Esc with nothing to close closes the dialog of the dock.
-   if (e.key === "escape" && !(this.selected || this.opened) && herdrModsDialog()) { closeOverlay(herdrModsDialog()); cx.stop_propagation(); return; }
-   ```
-
-Then run `herdr-app check` on `~/.config/herdr-app/mods/git-graph`. If `id("git-graph")`, `track_focus(this.handle)` or the `escape` line with `this.selected || this.opened` is not there, leave the file as it was and tell me.
-
 On an update, install a third-party mod only if it is missing. Do not update one that is installed unless I ask: tell me that I can ask. The **Mods** tab of the `mods-hub` dialog shows when GitHub has a newer version of one.
 
 ### Update a third-party mod
@@ -175,7 +158,7 @@ Do this when I ask for it, also when the `mods-hub` dialog starts you with "Do o
 3. Find the version that is installed and my changes: run `node tools/record-third-party.mjs --name <name> --clone <clone>` from the clone of this repository (herdr-mods). It prints the commit that the installed folder equals best, and `differs`: the files that are not as in that commit. A file in `differs` that has the comment `herdr-mods patch` is a patch of this kit, not mine: drop it, the patch goes back on in step 6. Any other file in `differs` is mine: show me its difference with that commit, and ask before you replace it (as in "Update an installed item", step 2).
 4. Read the commits of the mod folder since that version (`git log --oneline <commit>..HEAD -- <mod folder>`) and the new `README.md` and `RECIPE.md`. Tell me what changed and what the new version runs (programs, network). If the mod's own installer needs a step that this prompt does not do, tell me and ask.
 5. Copy the mod folder of the clone to `~/.config/herdr-app/mods/<name>/`. Keep the files that exist only here (rule 10, and `runtime.json` of `insights`). Ask before you delete a file that the repository deleted.
-6. Apply the Esc patch of the mod again, if it has one (`insights`, `git-graph`, above). Run `herdr-app check` on the folder.
+6. Apply the Esc patch of the mod again, if it has one (`insights`, above). Run `herdr-app check` on the folder.
 7. Record the new version: `node tools/record-third-party.mjs --name <name> --clone <clone> --write`. It writes `third.<name>` in `data/herdr-mods-setup.json` and keeps the rest of that file.
 8. Report: the old and the new commit, what changed, the files that you kept, and where the backup is.
 
@@ -191,7 +174,7 @@ Use this for every mod folder, theme and hook file that already exists.
 4. **Files that exist only on this machine, in a mod folder:** keep them. They may be mine. If the repository deleted such a file (`git log --diff-filter=D`), tell me and ask.
 5. Copy the files in the order of rule 5, then run `herdr-app check` on the folder.
 
-Layouts (`main-dock.json`, `kanban.json`) are never replaced as a whole: Herdr and the dock write panel blocks into them, and I edit them. For a layout, the baseline is the baseline of the mods of the same app folder (`tabs-dock` for `main-dock`, `kanban` for `kanban`). Run `git diff <baseline> HEAD -- <layout file>` in the clone. No difference: do nothing. A difference: apply only those changes to my file (read `layout()` or the file, then use `layout.set` or edit it), keep my other edits and the blocks that the dock added, and run the "Configure" steps again. If you cannot tell the baseline, show me the difference between my file and the repository's and ask. A layout that points a block to a mod (for example `"mod": "changes-split"`) needs that mod installed first.
+Layouts (`main-dock.json`, `kanban.json`) are never replaced as a whole: Herdr and the dock write panel blocks into them, and I edit them. For a layout, the baseline is the baseline of the mods of the same app folder (`tabs-dock` for `main-dock`, `kanban` for `kanban`). Run `git diff <baseline> HEAD -- <layout file>` in the clone. No difference: do nothing. A difference: apply only those changes to my file (read `layout()` or the file, then use `layout.set` or edit it), keep my other edits and the blocks that the dock added, and run the "Configure" steps again. If you cannot tell the baseline, show me the difference between my file and the repository's and ask. A layout that points a block to a mod (for example `"mod": "git-client"`) needs that mod installed first.
 
 ## Configure
 
@@ -205,7 +188,6 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 {
   "panels": [
     { "id": "ci", "label": "CI", "icon": "mods/tabs-dock/ci.svg", "mod": "ci-dash" },
-    { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
     { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
     { "id": "specs", "label": "Specs", "icon": "mods/spec-board/specs.svg", "mod": "spec-board" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
@@ -219,7 +201,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 2 exceptions: if the `graph` or `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show them in the Git menu with Changes. If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 20) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 3 exceptions: if the `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show it in the Git menu with Changes. Remove the `graph` entry (item 5: the Git panel has the graph now). If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 20) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
 
 ### The places of `tokenhound`
 
@@ -320,11 +302,11 @@ On an update, do not change a key that is in the file: these are my own choices 
 
 ## Activate the panels
 
-The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to their layout by themselves, the first time their bar shows. Remember which layout is shown now (`herdr-app status`). Do this:
+The `tabs-dock` mod and the `kanban` mod add the CI and Pending panels to their layout by themselves, the first time their bar shows. Remember which layout is shown now (`herdr-app status`). Do this:
 
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.
-3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `graph`, `quota`, and `insights` if it is a panel).
+3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `quota`, and `insights` if it is a panel).
 4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, the status bar item of `skill-bundles`, if that mod is installed, and the status bar item of `automations`, if that mod is installed.
 5. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
 
@@ -334,7 +316,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 2. Every mod that you installed or updated passed `herdr-app check`.
 3. The layouts `main-dock` and `kanban` show up with `ctrl-shift-l`.
 4. The `main-dock` status bar shows `Resume on · <n> sessions` at the left.
-5. The Changes panel of `main-dock` and `kanban` shows the `Unified` and `Split` buttons in its header.
+5. The Changes panel of `main-dock` and `kanban` shows the **Changes** and **History** tabs of `git-client`, and no layout names `changes-split` or `git-graph`.
 6. `~/.config/herdr-app/themes/` has the 5 files of `light-themes-app` and the 6 files of `dark-themes-app`, and each one is valid JSON.
 7. A second run of "Configure" would change nothing.
 8. If `tokenhound` is installed and TokenHound runs, the status bar of `main-dock` and `kanban` shows one agent icon and one percent for each provider, and `herdr-app do tokenhound.open` opens one dialog with `Live` in its header. Close the dialog with `herdr-app do overlay.close`.
@@ -350,7 +332,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI, Pending and Graph panels to
 
 When all the checks pass, write `~/.config/herdr-app/data/herdr-mods-setup.json`: `repo` (the URL), `commit` (the one from the clone), `version` (the number in the first line of `SETUP-PROMPT.md` in the clone, `<!-- herdr-mods-setup-version: N -->`, as a number), `date`, `items`, with the name of each item that is installed and the folder of the repository that it came from (`mods-hub`, not `mods-update`), `declined` (the names of the optional items from "Choose the optional items" that are not installed: the ones that I did not choose now, and the ones of the old record that I was not asked about again; an item that I chose now leaves the list), and `files`. For `files`, run `node tools/record-hashes.mjs` in the clone. It prints `{ "<mod>": { "<file>": "<hash>" } }` for every mod of the repository. Keep only the mods that are installed and that came from the repository (also a mod where I kept my own file: the `mods-hub` dialog then shows that file as changed). Replace the file if it exists. Do not write it if something failed: the next run then starts from the older record.
 
-Then record the third-party mods, so that the `mods-hub` dialog can tell when GitHub has a newer version: for each one that is installed (`git-graph`, `markdown-reader`, `markdown-reader-pane`, `insights`), clone its repository with `git clone --filter=blob:none <repository>` (once for the 2 Markdown Reader mods), and run `node tools/record-third-party.mjs --name <name> --clone <clone> --write` in the clone of this repository. Run it after the Esc patches. It finds the commit that the installed folder equals best and writes `third.<name>` into the record, with the other fields kept. If it fails for a mod, tell me in the report and go on.
+Then record the third-party mods, so that the `mods-hub` dialog can tell when GitHub has a newer version: for each one that is installed (`markdown-reader`, `markdown-reader-pane`, `insights`), clone its repository with `git clone --filter=blob:none <repository>` (once for the 2 Markdown Reader mods), and run `node tools/record-third-party.mjs --name <name> --clone <clone> --write` in the clone of this repository. Run it after the Esc patches. It finds the commit that the installed folder equals best and writes `third.<name>` into the record, with the other fields kept. If it fails for a mod, tell me in the report and go on.
 
 ## Final report
 

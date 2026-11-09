@@ -58,7 +58,7 @@ export class Dialog {
       .border_color(primary ? (danger ? t.ansi1 : t.solid) : t.input).bg(primary ? (danger ? t.ansi1 : t.solid) : t.raised)
       .text_color(primary ? (danger ? t.background : t.solid_foreground) : t.foreground).text_size(12.5).font_medium().cursor_pointer()
       .hover((st) => st.opacity(0.88)).on_click(action).child(text);
-    return v_flex().id("git-graph-dialog").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
+    return v_flex().id("git-client-dialog").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);
         else if (e.key === "enter" && this.focusedInput < 0) this.confirm(cx);

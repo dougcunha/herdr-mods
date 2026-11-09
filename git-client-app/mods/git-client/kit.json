@@ -1,0 +1,66 @@
+{
+  "app": "git-client-app",
+  "description": "A Git client in one panel: stage files and hunks, commit (amend, commit all, push, an AI message), resolve an operation in progress, and the commit graph with its actions and a search. Fetch, pull and push in its bar.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-client-app",
+  "credit": { "text": "Based on Git Graph for Herdr by rabeeh-ta (MIT license).", "url": "https://github.com/rabeeh-ta/herdr-git-graph" },
+  "settings": [
+    {
+      "id": "view",
+      "type": "enum",
+      "key": "git-client.view",
+      "default": "unified",
+      "label": "Diff view",
+      "hint": "Unified: removed and added lines one under the other. Split: the old file on the left and the new file on the right.",
+      "options": [
+        { "value": "unified", "label": "Unified" },
+        { "value": "split", "label": "Split" }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "enum",
+      "key": "git-client.ai",
+      "path": "provider",
+      "default": "auto",
+      "label": "AI program",
+      "hint": "The program that writes the commit message. Auto: Claude Code when it is installed, else Codex. It runs on the machine of the repository.",
+      "options": [
+        { "value": "auto", "label": "Auto" },
+        { "value": "claude", "label": "Claude Code" },
+        { "value": "codex", "label": "Codex" }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "key": "git-client.ai",
+      "path": "model",
+      "placeholder": "haiku / gpt-6-luna",
+      "label": "AI model",
+      "hint": "Empty: haiku for Claude Code, gpt-6-luna for Codex."
+    },
+    {
+      "id": "format",
+      "type": "enum",
+      "key": "git-client.ai",
+      "path": "format",
+      "default": "repo",
+      "label": "Message format",
+      "hint": "Same as the repository: the model copies the style of the last 20 commit subjects. Conventional Commits: type(scope): subject. Free: a short subject and a body.",
+      "options": [
+        { "value": "repo", "label": "Same as the repository" },
+        { "value": "conventional", "label": "Conventional Commits" },
+        { "value": "free", "label": "Free" }
+      ]
+    },
+    {
+      "id": "instructions",
+      "type": "text",
+      "key": "git-client.ai",
+      "path": "instructions",
+      "placeholder": "Write in English. Mention the ticket key.",
+      "label": "Extra instructions",
+      "hint": "Text added to the request to the model, for every message."
+    }
+  ]
+}

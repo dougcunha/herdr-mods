@@ -134,7 +134,7 @@
                       "id": "changes",
                       "type": "block",
                       "content": {
-                        "mod": "changes-split"
+                        "mod": "git-client"
                       }
                     }
                   ],

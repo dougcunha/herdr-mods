@@ -124,7 +124,7 @@ Rules:
 
 - Write the tagline in English: a short call of 3 to 5 words about what the
   person gets (`GitHub Actions in a panel`), not a description of the code.
-- Use the name that the gallery shows (`Changes Split`, not `changes-app`).
+- Use the name that the gallery shows (`Git`, not `git-client-app`).
 - Keep `preview-src.png` and `preview.json` in the repository, so that a change
   of the template can render all images again.
 - Do the same when a mod changes how it looks: take a new `preview-src.png`

@@ -1,6 +1,6 @@
 {
   "app": "dock-app",
-  "description": "The tab bar of the main-dock layout, with buttons that show or hide the side panels (Changes, CI, Pending, Graph and more) from dock/panels.json. The gear menu sets the order of the buttons and hides the ones you do not use.",
+  "description": "The tab bar of the main-dock layout, with buttons that show or hide the side panels (Changes, CI, Pending, PRs and more) from dock/panels.json. The gear menu sets the order of the buttons and hides the ones you do not use.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app",
   "settings": [
     {

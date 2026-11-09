@@ -16,15 +16,15 @@ Copy and paste this prompt to your LLM agent:
 
 `Read ~/.config/herdr-app/AGENTS.md, then add this layout: https://github.com/dougcunha/herdr-mods/tree/main/dock-app`
 
-To add a button later, for example the [Git Graph](https://github.com/rabeeh-ta/herdr-git-graph) mod:
+To add a button later, for example the [CI Dash](../ci-dash-app) mod:
 
-`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/rabeeh-ta/herdr-git-graph and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
+`Read ~/.config/herdr-app/AGENTS.md, then add this mod: https://github.com/dougcunha/herdr-mods/tree/main/ci-dash-app and add it to the dock: the "main-dock" layout reads ~/.config/herdr-app/dock/panels.json`
 
 ## What it adds
 
 | Part | What it is |
 | ---- | ---------- |
-| `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes (the [Changes Split](../changes-app) mod, with a Unified / Split switch). |
+| `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes (the [Git](../git-client-app) mod: changes, hunks, commit and the commit graph). |
 | `mods/tabs-dock/` | Herdr's tab bar plus the dock: it reads `dock/panels.json`, draws the buttons and adds the panels to the layout. |
 | `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12) with a right-click menu, rendered Markdown and syntax highlighting. See [The Files panel](#the-files-panel). |
 | `mods/files-md-menu/` | The popup of that right-click menu. `files-md` needs it. |
@@ -71,7 +71,7 @@ The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod 
 ```json
 {
   "panels": [
-    { "id": "graph", "label": "Graph", "icon": "mods/tabs-dock/graph.svg", "mod": "git-graph", "group": "git" },
+    { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" }
   ]
 }
@@ -89,7 +89,7 @@ The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod 
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
 | `group` | Optional. The entries with the same group share one button. `"git"` puts the entry under the **Git** button, with Changes. |
 
-**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Graph and Pending the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Graph, Pending) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
+**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Pending and PRs the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Pending, PRs) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
 
 The bar has its own icons for the panels, from [Lucide](https://lucide.dev) (ISC license): `mods/tabs-dock/files.svg`, `changes.svg`, `git.svg`, `graph.svg`, `repos.svg` and `ci.svg`. Use them in `panels.json` for a set of icons that match.
 
@@ -119,7 +119,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 ## Limits
 
 - `files-md` needs the `files-md-menu` mod (the right-click menu). The `image-viewer` mod ([this repository](../image-viewer-app)) is optional: only the menu item "Open in Image Viewer" uses it. To show an image, `files-md` copies it to `data/files-md/` in the Herdr home and deletes the copy when you open another file or close the panel. The `markdown-reader` mod (third party) is optional: only the menu item "Open in Markdown Reader" uses it. To go back to Herdr's own Files panel, point the `files` block of `layouts/main-dock.json` to the mod `files`.
-- The Changes panel is the `changes-split` mod ([this repository](../changes-app)). Install it before the layout, or the panel stays empty. To go back to Herdr's own Changes panel, point the `changes` block of `layouts/main-dock.json` to the mod `changes`.
+- The Changes panel is the `git-client` mod ([this repository](../git-client-app)). Install it before the layout, or the panel stays empty. To go back to Herdr's own Changes panel, point the `changes` block of `layouts/main-dock.json` to the mod `changes`.
 - The right-click menu, the Explorer and default app items and the clipboard items were not clicked in a real session: the checks were `herdr-app check`, a screenshot of the menu popup, and the Markdown and highlighting views in the app. Test them on your machine. Tested only on Windows; the macOS and Linux commands are written, not run. The scripts of the edit items were run on Windows (PowerShell and Git's `sh`) outside the app.
 - The `agents` block shows the `agent-cards` mod ([this repository](../agent-cards-app)). Install it before the layout, or turn **Agent cards** off in Herdr Mods.
 - It works only on a personal layout, so it comes with its own copy of `main`.

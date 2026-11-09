@@ -1,6 +1,6 @@
 // Turns kit mods off and on. The list of off mods is the shared key "herdr-mods.disabled" (mod folder names).
 // The bars of the kit (tabs-dock, kanban) read it: they show no button of an off mod, hide its blocks in their
-// layout and show Herdr's own mod in place of an off replacement mod (files-md, changes-split, space-deck). Each
+// layout and show Herdr's own mod in place of an off replacement mod (files-md, git-client, space-deck). Each
 // kit mod reads it too: while it is off, it draws nothing, closes its dialog and skips its timed work.
 // Nothing is deleted: a mod that is on again shows its blocks and buttons again.
 

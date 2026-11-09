@@ -7,7 +7,6 @@
 // ignore: files that the setup writes for this machine; they are not compared.
 
 export const THIRD_PARTY = {
-  "git-graph": { repo: "rabeeh-ta/herdr-git-graph", path: "mods/git-graph" },
   "markdown-reader": { repo: "kissmikijr/herdr-markdown-reader", path: "mods/markdown-reader" },
   "markdown-reader-pane": { repo: "kissmikijr/herdr-markdown-reader", path: "mods/markdown-reader-pane" },
   insights: { repo: "GaganSD/coding-agent-toolkit", path: "herdr-insights/mods/insights", home: "herdr-insights", ignore: ["runtime.json"] },

@@ -29,7 +29,7 @@ The dialog has 4 tabs. When an update is available and you did not see its notes
 The mods of `~/.config/herdr-app/mods/`, with chips that show 1 kind at a time:
 
 - **Kit:** the mods of this repository. A mod is from the kit when its folder has a `kit.json`, or when the setup record lists it.
-- **Third-party:** `git-graph`, `markdown-reader`, `markdown-reader-pane` and `insights`, which the setup prompt installs.
+- **Third-party:** `markdown-reader`, `markdown-reader-pane` and `insights`, which the setup prompt installs.
 - **Manual:** any other mod that you installed.
 - **Herdr:** the mods that Herdr installs and updates (`installed.json`).
 
@@ -48,7 +48,7 @@ Each kit mod has an on/off switch at the right of its row. A mod that is off has
 
 - The list of off mods is the shared key `herdr-mods.disabled` (mod folder names).
 - The bars of the `main-dock` (`tabs-dock`) and `kanban` layouts show no button of a `dock/panels.json` entry whose mod is off. They hide the blocks of an off mod in their layout (`"hidden": true`): the sidebar section and the status bar item of `tokenhound`, the status bar items of `skill-bundles`, `repo-launcher-status` and `agent-resume`, and the side panels. A side panel or a panel dialog that shows the mod closes.
-- A replacement mod gives its block back to Herdr's own mod while it is off: `space-deck` → `spaces`, `files-md` → `files`, `changes-split` → `changes`.
+- A replacement mod gives its block back to Herdr's own mod while it is off: `space-deck` → `spaces`, `files-md` → `files`, `git-client` → `changes`.
 - Each kit mod draws nothing while it is off, closes its dialog (a key that opens it does nothing) and skips its timed work. A block that is hidden before it shows never starts, so after a restart an off mod does no work at all.
 - Buttons of other mods follow too: the pencil of the Kanban and agent cards (`tab-namer`), the + of `space-deck` (`repo-launcher`) and **Open in Image Viewer** of `files-md` (`image-viewer`).
 - A part of another mod has no switch: it goes on and off with that mod (`"partOf"` in its `kit.json`). `repo-launcher-status` goes with `repo-launcher`, and `files-md-menu` with `files-md`.
@@ -74,7 +74,7 @@ The settings of the kit mods in one place. At the left: **Kit** (the settings of
 
 - **Kit:** the language of the Kanban, Dock and Git Dash bars (or **Each layout decides**: the `lang` prop of each layout), and the shortcut of Herdr Mods.
 - **agent-resume:** Auto resume, Shell wait, Toast, Agents without a hook.
-- **changes-split:** Unified or Split.
+- **git-client:** the diff view (Unified or Split) and the AI commit message (program, model, format, extra instructions).
 - **git-dash:** the repository folders and Fetch on refresh.
 - **kanban:** button density, cards, the Waiting column, column width, where panels open.
 - **Repo Launcher:** Reuse open space, Open there as, the shortcut, and a button that opens the launcher for its folders, agent arguments and accounts.
