@@ -45,12 +45,14 @@ function checkoutEol(clone) {
   for (const line of list.split("\0")) {
     const tab = line.indexOf("\t");
     if (tab < 0) continue;
-    const [index, , attr = ""] = line.slice(0, tab).trim().split(/\s+/);
+    // "i/lf w/crlf attr/text=auto eol=crlf": the attributes can be more than 1 word.
+    const [index, , ...rest] = line.slice(0, tab).trim().split(/\s+/);
     if (index !== "i/lf") continue;
+    const attrs = rest.join(" ").replace(/^attr\//, "").split(" ");
     const path = slashed(line.slice(tab + 1)).toLowerCase();
-    if (/\beol=crlf\b/.test(attr)) out.set(path, "crlf");
-    else if (/\beol=lf\b/.test(attr)) out.set(path, "lf");
-    else if (/\b-text\b/.test(attr) || /\btext=?false\b/.test(attr)) continue;
+    if (attrs.includes("eol=crlf")) out.set(path, "crlf");
+    else if (attrs.includes("eol=lf")) out.set(path, "lf");
+    else if (attrs.includes("-text")) continue;
     else if (autocrlf === "true") out.set(path, "crlf");
   }
   return out;
