@@ -2,6 +2,7 @@
   "app": "issues-app",
   "description": "The issues of the shown space from Jira Cloud or GitHub, with a page for each issue, comments and a Move menu for its Jira status and a button that starts an agent on it. Based on Herdr Ranch.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
+  "credit": { "text": "Based on Herdr Ranch by Jelle Slowack (MIT license).", "url": "https://github.com/jslowack/herdr-ranch" },
   "settings": [
     {
       "id": "order",

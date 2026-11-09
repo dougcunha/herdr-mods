@@ -357,8 +357,8 @@ export default class ModsUpdate extends View {
     const kit = (this.mods ?? []).filter((m) => m.origin === "kit" && m.settings.length);
     const own = kit.find((m) => m.name === KIT_SECTION);
     return [
-      ...(own ? [{ id: KIT_SECTION, label: "Kit", fields: own.settings }] : []),
-      ...kit.filter((m) => m.name !== KIT_SECTION).map((m) => ({ id: m.name, label: m.title || m.name, fields: m.settings })),
+      ...(own ? [{ id: KIT_SECTION, label: "Kit", fields: own.settings, credit: own.credit }] : []),
+      ...kit.filter((m) => m.name !== KIT_SECTION).map((m) => ({ id: m.name, label: m.title || m.name, fields: m.settings, credit: m.credit })),
     ];
   }
 
@@ -744,7 +744,12 @@ export default class ModsUpdate extends View {
           .child(div().truncate().child(s.label));
       }));
     const body = v_flex().id(`mh-fields-${shown.id}`).flex_1().min_w(0).h_full().px(14).pb(10).overflow_y_scrollbar()
-      .children(shown.fields.map((f, i) => this.fieldRow(t, shown.id, f, i)));
+      .children(shown.fields.map((f, i) => this.fieldRow(t, shown.id, f, i)))
+      // The credit of kit.json: the work that the mod is based on, with a link to it.
+      .when(Boolean(shown.credit), (el) => el.child(h_flex().w_full().flex_none().pt(10).gap(8).items_center().text_size(11.5).text_color(t.dim)
+        .child(div().flex_1().min_w(0).child(shown.credit.text))
+        .when(Boolean(shown.credit.url), (r) => r.child(div().id(`mh-credit-${shown.id}`).flex_none().cursor_pointer().text_color(t.accent)
+          .hover((s) => s.opacity(0.8)).on_click(() => openUrl(shown.credit.url)).child("Open ↗")))));
     return frame.child(nav).child(body);
   }
 

@@ -63,6 +63,11 @@ changes what it does.
 (`repo-launcher-status` → `repo-launcher`). The **Mods** tab shows no switch
 for a part: it goes on and off with that mod.
 
+`credit` (optional) names the work that the mod is based on:
+`{ "text": "Based on … by …", "url": "https://…" }`. The **Settings** tab
+shows it at the end of the section of the mod, with a link to `url`. Put the
+credit here, not in a menu of the mod.
+
 `settings` (optional) lists the preferences that the **Settings** tab of
 `mods-hub` shows. The field types and their keys are in
 `mods-hub-app/mods/mods-hub/fields.js`. Rules:

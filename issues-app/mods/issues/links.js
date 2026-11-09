@@ -289,12 +289,9 @@ export function settingsMenu(mod, settings, space = true) {
   const items = space ? [item("link-space", "link", "Link space…", () => openLinkDialog(mod)), item("prompts", "prompt", "Prompts…", () => openPromptsDialog(mod))] : [];
   // A divider only between two parts, never above the first one.
   const parts = [settings.map(row), items].filter((p) => p.length);
-  // The kit updates these mods (mods-hub), so the menu ends with the credit, not an Update button.
-  const credit = div().px(8).py(4).text_size(fs.tiny).text_color(t.dim).child("Based on Herdr Ranch by Jelle Slowack");
+  // The kit updates these mods (mods-hub), so no Update button; the credit is in their Settings section (kit.json).
   return v_flex().w_full().p(5).bg(t.popover).text_size(fs.meta).text_color(t.foreground)
-    .children(parts.flatMap((p, n) => (n ? [sep(`sep-${n}`), ...p] : p)))
-    .child(sep("sep-credit"))
-    .child(credit);
+    .children(parts.flatMap((p, n) => (n ? [sep(`sep-${n}`), ...p] : p)));
 }
 
 // A retained child view drawn by `draw()`. Herdr re-renders a mod's root on every live
