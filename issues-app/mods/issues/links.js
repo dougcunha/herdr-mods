@@ -329,6 +329,14 @@ const LUCIDE = {
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   comment: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
+  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  version: '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7"/>',
+  component: '<rect width="7" height="7" x="14" y="3" rx="1"/><path d="M10 21V8a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H3"/>',
+  sprint: '<line x1="10" x2="14" y1="2" y2="2"/><line x1="12" x2="15" y1="14" y2="11"/><circle cx="12" cy="14" r="8"/>',
+  points: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  user: '<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  tag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   prompt: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   stack: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
@@ -381,9 +389,10 @@ export function avatar(name, t, size = 18) {
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   const c = t[TINTS[h % TINTS.length]] ?? t.accent;
   const tinted = base.bg(c + "2e").text_color(c).child(initials(name));
-  if (!pics.has(name)) return tinted;
+  const file = pics.has(name) ? name : named.get(name);
+  if (!file) return tinted;
   return Avatar.new().size(size).flex_none().rounded_full().overflow_hidden()
-    .image(AvatarImage.new(`${AVATARS}/${name}.png`).size_full().rounded_full())
+    .image(AvatarImage.new(`${AVATARS}/${file}.png`).size_full().rounded_full())
     .fallback(AvatarFallback.new().size_full().rounded_full().child(tinted));
 }
 
@@ -406,6 +415,30 @@ export async function loadAvatars(logins, url) {
     for (let l; (l = todo.shift()) !== undefined;) {
       const r = await exec("curl", ["-fsSL", "--create-dirs", "-o", `${appHome()}/${AVATARS}/${l}.png`, `https://github.com/${l}.png?size=64`]).catch(() => null);
       if (r?.code === 0) { pics.add(l); got = true; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(AT_ONCE, todo.length) }, next));
+  return got;
+}
+
+// Jira pictures: `people` [{ name (the display name that avatar() gets), id (accountId), url }].
+// Only the public hosts of Atlassian's avatars and Gravatar: no sign-in is sent. A file per
+// account (jira-<id>.png), asked once per session; a failure keeps the initials. True when one arrived.
+const named = new Map(), askedIds = new Set();
+const PUBLIC_PIC = /^https:\/\/(secure\.gravatar\.com|[a-z0-9.-]+\.atl-paas\.net)\//;
+export async function loadPeople(people) {
+  const todo = [];
+  for (const p of people ?? []) {
+    const file = `jira-${String(p?.id ?? "").replace(/[^A-Za-z0-9-]/g, "_")}`;
+    if (!p?.name || !p.id || !PUBLIC_PIC.test(p.url ?? "")) continue;
+    if (askedIds.has(file)) { if (!named.has(p.name) && pics.has(file)) named.set(p.name, file); continue; }
+    askedIds.add(file); todo.push({ ...p, file });
+  }
+  let got = false;
+  const next = async () => {
+    for (let p; (p = todo.shift()) !== undefined;) {
+      const r = await exec("curl", ["-fsSL", "--create-dirs", "-o", `${appHome()}/${AVATARS}/${p.file}.png`, p.url]).catch(() => null);
+      if (r?.code === 0) { pics.add(p.file); named.set(p.name, p.file); got = true; }
     }
   };
   await Promise.all(Array.from({ length: Math.min(AT_ONCE, todo.length) }, next));

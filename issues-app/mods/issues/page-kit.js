@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { fs, icon, avatar, AGENT_STATUS, button } from "./links.js";
+import { fs, icon, avatar, AGENT_STATUS, button, tint } from "./links.js";
 
 // From this width the sidebar sits beside the conversation; narrower, its sections wrap above it.
 export const PAGE_WIDE = 700;
@@ -45,9 +45,25 @@ export function kit(t) {
     .child(div().w(8).h(8).rounded(4).flex_none().bg(color ?? t.border))
     .child(avatar(who, t, 16)).child(div().font_semibold().text_color(t.foreground).child(who ?? "?"))
     .child(div().min_w(0).truncate().child(text)).child(div().flex_none().text_color(t.dim).child(at));
+  // A fact under the title (priority, points, sprint): a tinted pill with an icon. `strong`: filled in its color.
+  k.chip = (iconName, text, color = t.muted, strong = false) => h_flex().flex_none().gap(5).items_center().h(22).px(8).rounded_full()
+    .border_1().border_color(tint(color, strong ? "99" : "55")).bg(tint(color, strong ? "33" : "14"))
+    .text_size(fs.meta).text_color(strong ? color : t.foreground).when(strong, (e) => e.font_semibold())
+    .when(Boolean(iconName), (e) => e.child(icon(iconName, color, 12))).child(text);
+  // A small tag of a list (a version, a component).
+  k.tag = (text, color = t.muted) => div().flex_none().px(7).py(1).rounded(5).bg(tint(color, "1f")).text_size(fs.tiny).text_color(color === t.muted ? t.foreground : color).child(text);
+  // The Details card of the sidebar: rows of [label, value, icon?]; a falsy row is left out.
+  k.facts = (title, rows) => v_flex().w_full().min_w(0).rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+    .child(div().px(12).pt(9).pb(7).text_size(fs.tiny).font_semibold().text_color(t.muted).child(title))
+    .children(rows.filter(Boolean).map(([label, value, iconName]) => h_flex().min_h(32).px(12).py(5).gap(8).items_center().border_t_1().border_color(t.border)
+      .child(h_flex().w(92).flex_none().gap(6).items_center().text_size(fs.tiny).text_color(t.muted)
+        .child(iconName ? icon(iconName, t.dim, 12) : div().w(12).flex_none()).child(div().truncate().child(label)))
+      .child(div().flex_1().min_w(0).text_size(fs.meta).child(value))));
+  // A block of text (the description, a refinement): a rounded panel.
+  k.panel = (id, body) => div().id(id).w_full().px(16).py(14).rounded(10).border_1().border_color(t.border).child(body);
   k.tabs = (current, list, pick) => h_flex().flex_none().gap(2).px(14).border_b_1().border_color(t.border).text_size(fs.meta)
     .children(list.map(([id, label, count]) => h_flex().id(`tab-${id}`).gap(6).items_center().px(10).py(7).cursor_pointer()
-      .border_b_2().border_color(id === current ? t.ansi1 : t.background)
+      .border_b_2().border_color(id === current ? t.accent : t.background)
       .text_color(id === current ? t.foreground : t.muted).when(id === current, (e) => e.font_semibold())
       .hover((s) => s.text_color(t.foreground)).on_click((_e, cx) => pick(id, cx))
       .child(label).when(count != null, (e) => e.child(div().px(6).rounded_full().bg(t.selected).text_size(fs.tiny).text_color(t.muted).child(String(count))))));
@@ -77,14 +93,18 @@ export function pageLayout(p) {
       .child(div().flex_none().text_size(fs.title + 3).text_color(t.dim).child(p.key)))
     .child(p.status);
   const main = v_flex().gap(12).children(p.main);
+  // A side entry ["full", element] (the Details card) takes the whole width when the page is narrow.
+  const isFull = (s) => Array.isArray(s) && s[0] === "full";
   const side = p.side.filter(Boolean);
+  const full = side.filter(isFull).map((s) => s[1]), small = side.filter((s) => !isFull(s));
   const body = p.wide
     ? h_flex().flex_1().min_h(0).items_start()
       .child(v_flex().id(`${p.id}-main`).flex_1().min_w(0).h_full().overflow_y_scrollbar().px(16).py(14).child(main))
-      .child(v_flex().id(`${p.id}-side`).w(230).flex_none().h_full().overflow_y_scrollbar().px(14).py(12).gap(14).border_l_1().border_color(t.border).children(side))
+      .child(v_flex().id(`${p.id}-side`).w(260).flex_none().h_full().overflow_y_scrollbar().px(14).py(12).gap(14).border_l_1().border_color(t.border).children(side.map((s) => (isFull(s) ? s[1] : s))))
     : v_flex().id(`${p.id}-main`).flex_1().min_h(0).overflow_y_scrollbar().px(16).py(14).gap(14)
-      .when(side.length > 0, (e) => e.child(h_flex().flex_wrap().gap_x(20).gap_y(12).pb(12).border_b_1().border_color(t.border)
-        .children(side.map((s) => div().w(190).child(s)))))
+      .children(full)
+      .when(small.length > 0, (e) => e.child(h_flex().flex_wrap().gap_x(20).gap_y(12).pb(12).border_b_1().border_color(t.border)
+        .children(small.map((s) => div().w(190).child(s)))))
       .child(main);
   return v_flex().id(p.id).size_full().min_h(0).bg(t.background)
     .child(header).when(Boolean(p.tabs), (e) => e.child(p.tabs)).child(body)

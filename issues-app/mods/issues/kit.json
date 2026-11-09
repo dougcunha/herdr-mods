@@ -66,7 +66,7 @@
       "default": "",
       "label": "Extra Jira fields",
       "placeholder": "Refinement, customfield_10545",
-      "hint": "Jira fields for the Start agent prompts, by name or id, split by commas. Each one is a placeholder ({refinement}) and {fields} holds all of them. The issue page shows them under the description."
+      "hint": "Jira fields for the Start agent prompts, by name or id, split by commas. Each one is a placeholder ({refinement}) and {fields} holds all of them. On the issue page a long field gets a tab, a short one a row of Details."
     },
     {
       "id": "key",

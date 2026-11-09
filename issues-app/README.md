@@ -23,6 +23,15 @@ The changes of this kit:
 - No Linear: the issues come from Jira Cloud or GitHub.
 - Extra Jira fields for the prompts: see below.
 
+## The Jira issue page
+
+- **Under the title:** chips for the status, the type, the priority, the story points, the sprint and the due date. A high priority, the active sprint and a due date that is near or past show in color.
+- **Tabs:** **Description**, a tab for each long extra field (for example **Refinement**, see below) and **Activity** (the comments, the changes of status, assignee and priority, and the comment box).
+- **Details:** the assignee, the reporter, the priority, the story points, the sprint, the fix versions, the affected versions, the components, the labels, the due date, the parent, the short extra fields and the dates. A narrow page shows the card above the tabs.
+- **Pictures:** the people show with their Jira picture, in the list too. The mod downloads only the public pictures (Atlassian's avatar host and Gravatar) to `~/.config/herdr-app/data/issues-app/avatars/`, and sends no sign-in for them. A person without a picture shows their initials.
+
+The mod finds the Sprint and the story points fields (`Story Points` or `Story point estimate`) in the field list of the site; you set nothing.
+
 ## Default Jira project
 
 A space shows the issues of, first that has one: its own link (**Link space…**), the link of another space of its repository, the repository's `.herdr/jira.toml`, the **default project**, a Jira key in its branch, its GitHub repository.
@@ -50,7 +59,7 @@ A Jira custom field (for example **Refinement**, with the full text of the task)
 1. Open **Herdr Mods** → **Settings** → **Issues**.
 2. In **Extra Jira fields**, type the name or the id of each field, split by commas: `Refinement` or `customfield_10545`.
 
-Each field is a placeholder of its own in **Prompts…**: its name in lower case, with `_` for spaces and signs (`Refinement` → `{refinement}`). `{fields}` holds all of them, one `## <name>` section each, and the default prompts include it under the description. The issue page shows each field under the description.
+Each field is a placeholder of its own in **Prompts…**: its name in lower case, with `_` for spaces and signs (`Refinement` → `{refinement}`). `{fields}` holds all of them, one `## <name>` section each, and the default prompts include it under the description. On the issue page, a long field (more than 80 characters or more than 1 line) gets a tab of its own; a short one is a row of the Details card.
 - On Windows, **Connect** in **Link space** stored the token but showed "The credential store refused it". Fixed.
 - The **Mods** tab of Herdr Mods can turn each mod off.
 - The `herdr-ranch-reviews` mod is not part of the kit: it runs Unix programs only.
@@ -92,8 +101,8 @@ The token goes to the credential store of the system (Windows Credential Manager
 ## What it runs
 
 - `git` and `gh` in the folder of the space.
-- `curl` for the avatars, `powershell` (Windows), `security` (macOS) or `secret-tool` (Linux) for the token.
-- Network: your Jira site and GitHub (through `gh`).
+- `curl` for the avatars (GitHub, and the public Jira pictures), `powershell` (Windows), `security` (macOS) or `secret-tool` (Linux) for the token.
+- Network: your Jira site, GitHub (through `gh`), and the hosts of the Jira pictures (`*.atl-paas.net`, `secure.gravatar.com`).
 - Files: `~/.config/herdr-app/data/issues-app/` (icons, avatars and, for a moment, the token before it goes to the credential store).
 
 More: [RECIPE.md](RECIPE.md).

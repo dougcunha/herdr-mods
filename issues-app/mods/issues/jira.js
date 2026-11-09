@@ -71,11 +71,37 @@ export async function extraFields(site, wanted) {
   }).filter(Boolean);
 }
 
+// The custom fields that every page shows, found in the site's field list (their ids differ per
+// site): the Sprint field (Jira Software) and the story points ("Story Points", "Story point estimate").
+export async function metaFields(site) {
+  const all = await fieldList(site);
+  const sprint = all.find((f) => f.schema?.custom === "com.pyxis.greenhopper.jira:gh-sprint") ?? all.find((f) => /^sprint$/i.test(String(f.name ?? "")));
+  const points = all.filter((f) => /^story ?points?( estimate)?$|^story point estimate$/i.test(String(f.name ?? "").trim())).map((f) => f.id);
+  return { sprint: sprint?.id ?? null, points };
+}
+// The sprint of a Sprint value (a list of sprints; an old site sends strings "…[name=X,state=ACTIVE,…]"):
+// the active one, else the next one, else the last. { name, state: "active" | "future" | "closed" }.
+export function sprintOf(v) {
+  const list = (Array.isArray(v) ? v : v ? [v] : []).map((s) => {
+    if (s && typeof s === "object") return { name: String(s.name ?? ""), state: String(s.state ?? "").toLowerCase() };
+    const m = /name=([^,\]]*)/.exec(String(s)), st = /state=([^,\]]*)/.exec(String(s));
+    return m ? { name: m[1], state: (st?.[1] ?? "").toLowerCase() } : null;
+  }).filter((s) => s?.name);
+  return list.find((s) => s.state === "active") ?? list.find((s) => s.state === "future") ?? list.at(-1) ?? null;
+}
+
 // With its sub-tasks and history (status, assignee and priority changes become timeline events).
-// `extra`: ids of more fields to read (custom fields for the prompts); they come back in page.fields.
+// `extra`: ids of more fields to read (custom fields for the prompts and the page); they come back in page.fields.
 export async function issue(site, key, extra = []) {
-  const ids = extra.filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
-  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
+  const ids = [...new Set(extra)].filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
+  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks,fixVersions,versions,components,duedate,resolution${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
+  // The people that the page shows, with their pictures (links.js loadPeople).
+  const people = new Map();
+  const seen = (u) => { if (u?.displayName && !people.has(u.displayName)) people.set(u.displayName, { name: u.displayName, id: u.accountId ?? "", url: u.avatarUrls?.["48x48"] ?? "" }); };
+  seen(page.fields.assignee); seen(page.fields.reporter);
+  for (const c of page.fields.comment?.comments ?? []) seen(c.author);
+  for (const h of page.changelog?.histories ?? []) seen(h.author);
+  page.people = [...people.values()];
   const events = [];
   for (const h of page.changelog?.histories ?? []) for (const it of h.items ?? []) {
     const who = h.author?.displayName, at = h.created;
@@ -138,7 +164,7 @@ function slim(i, site) {
       status: f.status && { name: f.status.name, statusCategory: { key: f.status.statusCategory?.key } },
       priority: f.priority && { name: f.priority.name },
       issuetype: f.issuetype && { name: f.issuetype.name },
-      assignee: f.assignee && { displayName: f.assignee.displayName, accountId: f.assignee.accountId },
+      assignee: f.assignee && { displayName: f.assignee.displayName, accountId: f.assignee.accountId, pic: f.assignee.avatarUrls?.["48x48"] ?? "" },
       parent: f.parent && { key: f.parent.key },
     },
   };

@@ -11,7 +11,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment } from "./jira.js";
+import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, metaFields, sprintOf } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
@@ -21,7 +21,7 @@ import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
-import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button } from "./links.js";
+import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -45,6 +45,15 @@ function fieldText(v) {
   return String(v.value ?? v.name ?? v.displayName ?? v.key ?? "");
 }
 const home = (i) => (isGithub(i) ? "GitHub" : "Jira");
+// Story points without a long tail (2.5, not 2.5000001).
+const points = (n) => String(Math.round(n * 10) / 10);
+// A Jira due date ("2026-11-20") with how far it is: { text, late, soon (2 days or less) }.
+function dueText(d) {
+  const at = Date.parse(`${d}T23:59:59`);
+  if (Number.isNaN(at)) return { text: String(d), late: false, soon: false };
+  const days = Math.floor((at - Date.now()) / 86400000);
+  return { text: `${d} · ${days < 0 ? `${-days}d late` : days === 0 ? "today" : `in ${days}d`}`, late: days < 0, soon: days >= 0 && days <= 2 };
+}
 // The settings (Settings tab of Herdr Mods): the list's order (shared "issues.order") and where a page opens ("issues.page").
 const split = () => asSplit("issues");
 const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priority");
@@ -247,6 +256,8 @@ export default class SpaceIssues extends View {
           remember(`${space.id}:${order()}`, { repo: this.repo, issues: this.issues, projects: this.projects, from: this.from, capped: this.capped });
         }
         if (this.filter === "mentioned") this.loadMentions(cx);
+        // The pictures of the assignees (Jira; GitHub's come with the page), after the list shows.
+        this.people = this.issues.map((x) => x.fields.assignee).filter((a) => a?.pic).map((a) => ({ name: a.displayName, id: a.accountId, url: a.pic }));
       } catch (e) {
         if (!current()) return;
         this.error = String(e?.message ?? e);
@@ -254,6 +265,7 @@ export default class SpaceIssues extends View {
         this.signIn = e?.status === 401 ? e.site ?? this.projects[0]?.site : null;
       }
       finally { if (current()) { this.loading = false; cx.notify(); } }
+      if (current() && this.people?.length && await loadPeople(this.people)) cx.notify();
     });
   }
 
@@ -318,12 +330,15 @@ export default class SpaceIssues extends View {
     if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
     this.open = i; this.shown = i; this.page = this.pages.get(pageKey(i)) ?? null; this.pageError = null;
     cx.spawn(async (cx) => {
+      let page = null;
       try {
-        const page = await this.fetchPage(i);
+        page = await this.fetchPage(i);
         if (this.open === i) { this.page = page; this.pageError = null; }
       }
       catch (e) { if (this.open === i && !this.page) this.pageError = String(e?.message ?? e); }
       cx.notify(this.pageView);
+      // The pictures of the people on the page (Jira), then the page again with them.
+      if (page?.people?.length && await loadPeople(page.people)) cx.notify(this.pageView);
     });
     cx.notify(this.pageView); cx.notify();
   }
@@ -333,11 +348,25 @@ export default class SpaceIssues extends View {
     // The extra Jira fields of the setting (a name the site doesn't know, or a failed field list, is left out).
     const wanted = extraFieldNames();
     const defs = !isGithub(i) && wanted.length ? await extraFields(i.site, wanted).catch(() => []) : [];
+    // Sprint and story points: custom fields whose ids the site's field list gives.
+    const mf = isGithub(i) ? { sprint: null, points: [] } : await metaFields(i.site).catch(() => ({ sprint: null, points: [] }));
     const [page, prs] = await Promise.all([
-      isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key, defs.map((d) => d.id)),
+      isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key, [...defs.map((d) => d.id), ...(mf.sprint ? [mf.sprint] : []), ...mf.points]),
       !isGithub(i) && this.github ? github.prsFor(i.key, this.github, where(this.repo, { repo: this.github })).catch(() => []) : null,
     ]);
     if (prs) page.prs = prs;
+    // What the Details card and the chips under the title show (Jira; GitHub has none of it).
+    const pf = page.fields;
+    const points = mf.points.map((id) => pf[id]).find((v) => typeof v === "number");
+    page.meta = isGithub(i) ? {} : {
+      points: points ?? null,
+      sprint: mf.sprint ? sprintOf(pf[mf.sprint]) : null,
+      versions: (pf.fixVersions ?? []).map((v) => ({ name: v.name, released: Boolean(v.released) })),
+      affects: (pf.versions ?? []).map((v) => v.name),
+      components: (pf.components ?? []).map((c) => c.name),
+      due: pf.duedate ?? null,
+      resolution: pf.resolution?.name ?? null,
+    };
     // { name, ph (its placeholder), text (all of it, for the prompt), md (the start, for the page) }.
     page.extra = defs.map((d) => {
       const value = fieldText(page.fields[d.id]);
@@ -513,21 +542,52 @@ export default class SpaceIssues extends View {
         .child(k.arrow("next", "↓", (cx) => this.step(1, cx), this.only.at < this.only.list.length - 1))
         .child(`${this.only.at + 1} of ${this.only.list.length}`)
       : full ? k.button("issue-back", "← Back", () => run("issues.back")) : null;
+    const m = p?.meta ?? {};
+    const md = (id, body) => TextView.markdown(id, body).selectable(true).on_link_click((url) => openUrl(url));
     const timeline = p ? p.timeline.map((x, n) => (x.md != null
-      ? k.card(`c-${i.key}-${n}`, x.who, "commented", `${ago(x.at)} ago`, TextView.markdown(`comment-${i.key}-${n}`, x.md).selectable(true).on_link_click((url) => openUrl(url)))
+      ? k.card(`c-${i.key}-${n}`, x.who, "commented", `${ago(x.at)} ago`, md(`comment-${i.key}-${n}`, x.md))
       : k.event(`e-${i.key}-${n}`, x.who, x.text, `${ago(x.at)} ago`, x.color && t[x.color]))) : [];
     const sub = p?.sub?.length ? p.sub : this.kids(i.key);
     const prs = p?.prs ?? [];
     const prIcon = (s) => (s === "MERGED" ? "merged" : s === "CLOSED" ? "closed" : s === "DRAFT" ? "draft" : "pr");
     const working = agentSpaces(this.repo?.main).issues.get(i.key) ?? [], lead = liveAgent(working);
+    // The extra fields of the setting: a long text (Refinement) gets a tab, a short value a row of Details.
+    const extras = (p?.extra ?? []).filter((x) => x.md);
+    const long = extras.filter((x) => x.text.length > 80 || x.text.includes("\n")), brief = extras.filter((x) => !long.includes(x));
+    const tabList = [["desc", "Description"], ...long.map((x) => [`x-${x.ph}`, x.name]), ["activity", "Activity", p ? p.md.count : null]];
+    // The picked tab stays while the issues change; an issue without it shows its description.
+    const tab = tabList.some(([id]) => id === this.pageTab) ? this.pageTab : "desc";
+    const pickTab = (id, cx) => { this.pageTab = id; this.typing = false; cx.notify(this.pageView); };
+    // What matters most gets a color: a high priority, the active sprint, a due date that is near or past.
+    const prio = f.priority?.name ?? "", urgent = /highest|blocker|critical|urgent|high|major/i.test(prio);
+    const prioColor = /highest|blocker|critical|urgent/i.test(prio) ? t.ansi1 : urgent ? t.ansi3 : /low|minor|trivial/i.test(prio) ? t.ansi4 : t.muted;
+    const sprintColor = (s) => (s.state === "active" ? t.ansi2 : s.state === "future" ? t.accent : t.dim);
+    const due = m.due ? dueText(m.due) : null, dueColor = due?.late ? t.ansi1 : due?.soon ? t.ansi3 : t.muted;
+    const tags = (list, color) => h_flex().flex_wrap().gap(4).children(list.map((x) => k.tag(x, color)));
+    const details = ["full", k.facts("Details", [
+      ["Assignee", f.assignee ? k.person(f.assignee.displayName) : div().text_color(t.dim).child("Unassigned"), "user"],
+      reporter && [gh ? "Author" : "Reporter", k.person(reporter), "user"],
+      prio && ["Priority", div().text_color(urgent ? prioColor : t.foreground).when(urgent, (e) => e.font_semibold()).child(prio), "flag"],
+      !gh && ["Story points", m.points != null
+        ? h_flex().gap(5).items_baseline().child(div().text_size(fs.title + 3).font_bold().text_color(t.accent).child(points(m.points))).child(div().text_size(fs.tiny).text_color(t.dim).child(m.points === 1 ? "point" : "points"))
+        : div().text_color(t.dim).child(p ? "Not estimated" : "…"), "points"],
+      m.sprint && ["Sprint", h_flex().gap(6).items_center().min_w(0).child(div().size(7).flex_none().rounded_full().bg(sprintColor(m.sprint)))
+        .child(div().min_w(0).truncate().child(m.sprint.name)), "sprint"],
+      m.versions?.length && ["Fix versions", h_flex().flex_wrap().gap(4).children(m.versions.map((v) => k.tag(v.name, v.released ? t.ansi2 : t.accent))), "version"],
+      m.affects?.length && ["Affects", tags(m.affects, t.muted), "version"],
+      m.components?.length && ["Components", tags(m.components, t.ansi5), "component"],
+      f.labels?.length && ["Labels", h_flex().flex_wrap().gap(4).children(f.labels.map((l) => k.label(l))), "tag"],
+      due && ["Due", div().text_color(due.late || due.soon ? dueColor : t.foreground).child(due.text), "calendar"],
+      f.parent?.key && ["Parent", div().text_color(t.muted).child(f.parent.key), "epic"],
+      f.milestone && ["Milestone", div().child(f.milestone), "flag"],
+      ...brief.map((x) => [x.name, div().child(x.text)]),
+      m.resolution && ["Resolution", div().text_color(t.ansi2).child(m.resolution), "done"],
+      created && ["Created", div().text_color(t.muted).child(`${ago(created)} ago`), "pending"],
+      f.updated && ["Updated", div().text_color(t.muted).child(`${ago(f.updated)} ago`), "refresh"],
+    ])];
     const side = [
       k.agents(working, (id) => this.go(id)),
-      k.section("Assignee", f.assignee ? k.person(f.assignee.displayName) : div().text_size(fs.meta).text_color(t.dim).child("Nobody")),
-      reporter && k.section(gh ? "Author" : "Reporter", k.person(reporter)),
-      f.priority?.name && k.section("Priority", div().text_size(fs.meta).child(f.priority.name)),
-      f.labels?.length > 0 && k.section("Labels", h_flex().flex_wrap().gap(4).children(f.labels.map((l) => k.label(l)))),
-      f.parent?.key && k.section("Parent", div().text_size(fs.meta).text_color(t.muted).child(f.parent.key)),
-      f.milestone && k.section("Milestone", div().text_size(fs.meta).child(f.milestone)),
+      details,
       sub.length > 0 && k.section("Sub-tasks", v_flex().gap(4).children(sub.map((x) => h_flex().gap(6).items_center().text_size(fs.meta).min_w(0)
           .child(icon(x.done ? "done" : "circle", x.done ? t.ansi2 : t.dim, 13))
           .child(div().flex_none().text_color(t.dim).child(x.key))
@@ -564,22 +624,25 @@ export default class SpaceIssues extends View {
         ] : this.repo && p ? [k.button("issue-agent", "Start agent", () => this.dispatch(i, p), { primary: true, icon: "bot" })] : []),
       ],
       title: f.summary, key: i.key,
-      status: h_flex().gap(8).items_center().flex_wrap().child(badge)
-        .child(h_flex().gap(4).items_center().text_size(fs.meta).text_color(kindColor(kind, t)).child(icon(kind, kindColor(kind, t), 13)).child(div().text_color(t.foreground).child(f.issuetype?.name ?? "Issue")))
-        .when(Boolean(reporter), (e) => e.child(h_flex().gap(4).text_size(fs.meta).text_color(t.muted)
-          .child(div().font_semibold().text_color(t.foreground).child(reporter))
-          .child(`${gh ? "opened" : "reported"} this${created ? ` ${ago(created)} ago` : ""}${p ? ` · ${p.md.count} comment${p.md.count === 1 ? "" : "s"}` : ""}`))),
-      main: [
-        p ? k.card(`card-desc-${i.key}`, reporter, gh ? "opened" : "reported", created ? `${ago(created)} ago` : "", TextView.markdown(`desc-${i.key}`, p.md.description || "_No description._").selectable(true).on_link_click((url) => openUrl(url)))
-          : div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…"),
-        // The extra fields of the setting (Refinement…), each in a card under the description.
-        ...(p?.extra ?? []).filter((x) => x.md).map((x, n) => k.card(`card-extra-${i.key}-${n}`, x.name, "", "",
-          TextView.markdown(`extra-${i.key}-${n}`, x.md).selectable(true).on_link_click((url) => openUrl(url)))),
-        ...timeline,
-        ...(p && p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
-        // Jira only: a new comment, posted as the signed-in account.
-        ...(!gh && p ? [this.composer(t, i)] : []),
-      ],
+      // The facts that matter at a glance, as chips under the title.
+      status: h_flex().gap(6).items_center().flex_wrap().child(badge)
+        .child(k.chip(kind, f.issuetype?.name ?? "Issue", kindColor(kind, t)))
+        .when(Boolean(prio), (e) => e.child(k.chip("flag", prio, prioColor, urgent)))
+        .when(m.points != null, (e) => e.child(k.chip("points", `${points(m.points)} pts`, t.accent, true)))
+        .when(Boolean(m.sprint), (e) => e.child(k.chip("sprint", m.sprint.name, sprintColor(m.sprint), m.sprint.state === "active")))
+        .when(Boolean(due), (e) => e.child(k.chip("calendar", due.text, dueColor, due.late)))
+        .when(Boolean(reporter), (e) => e.child(div().pl(2).text_size(fs.meta).text_color(t.dim)
+          .child(`${reporter} ${gh ? "opened" : "reported"} this${created ? ` ${ago(created)} ago` : ""}`))),
+      tabs: k.tabs(tab, tabList, pickTab),
+      main: !p ? [div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…")]
+        : tab === "activity" ? [
+          ...(timeline.length ? timeline : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments yet.")]),
+          ...(p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
+          // Jira only: a new comment, posted as the signed-in account.
+          ...(!gh ? [this.composer(t, i)] : []),
+        ]
+        : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => k.panel(`panel-${i.key}-${x.ph}`, md(`extra-${i.key}-${x.ph}`, x.md)))
+        : [k.panel(`panel-${i.key}-desc`, md(`desc-${i.key}`, p.md.description || "_No description._"))],
       side,
       footer: k.footer(keys),
     });
