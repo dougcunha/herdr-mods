@@ -113,7 +113,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 
 - It reads `dock/panels.json` and the folder list of `mods/` in the Herdr home.
 - It edits `layouts/main-dock.json` with the `layout.set` command, to add or remove panel blocks, and to switch the `agents` block between the agent cards and Herdr's own list.
-- The tab bar runs no program. The Files panel runs `git` and `powershell` or `sh` to list folders and mark changed files, as Herdr's own Files panel does. The filter runs `git ls-files`, or `powershell` or `sh` (`find`), once to list the files, and again when the files change. Only a click on a right-click menu item runs more: `powershell`, `sh`, `explorer`, `open` or `xdg-open`, on the file you chose. The edit items change files on disk: New, Paste, Duplicate, Rename and Delete.
+- The tab bar runs no program. The Files panel runs `powershell` or `sh` to list folders. It does not mark changed files: the Changes panel shows them. The filter runs `git ls-files`, or `powershell` or `sh` (`find`), once to list the files, and again when the files change. Only a click on a right-click menu item runs more: `powershell`, `sh`, `explorer`, `open` or `xdg-open`, on the file you chose. The edit items change files on disk: New, Paste, Duplicate, Rename and Delete.
 - It uses no network.
 
 ## Limits
