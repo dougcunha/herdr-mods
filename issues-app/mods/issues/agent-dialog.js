@@ -17,6 +17,7 @@ import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, rea
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
 import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented, iconButton, programTile } from "./links.js";
 import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
+import { worktrees, maybeWorktrees } from "./core.js";
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -320,58 +321,18 @@ export class AgentDialog extends View {
     if (!branch) throw new Error("Type a branch name.");
     const main = this.main ?? await mainCheckout(p.repo, on);
     if (!main) throw new Error("Not a git repository.");
-    const name = main.split("/").pop();
-    const home = this.home || await homeOf(on);
-    if (!home) throw new Error("Cannot find the home folder on that machine.");
-    // Checked here, not only through branchState: ⌘↵ inside checkBranch's 250 ms wait, or before
-    // the repository loaded, would otherwise skip these.
-    if (!(await git(main, ["check-ref-format", "--branch", branch], on)).ok) throw new Error(`"${branch}" isn't a valid branch name.`);
-    // Same place as Herdr's own worktree mod, so its sidebar nests the space under the repo.
-    const path = `${home}/.herdr/worktrees/${name}/${slug(branch)}`;
-    const exists = (await git(main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], on)).ok;
-    const remote = !exists && (await git(main, ["show-ref", "--verify", "--quiet", `refs/remotes/origin/${branch}`], on)).ok;
-    if (exists) {
-      const used = (await git(main, ["worktree", "list", "--porcelain"], on)).out.split("\n").filter((l) => l.startsWith("branch refs/heads/")).map((l) => l.slice(18));
-      if (used.includes(branch)) throw new Error(`${branch} is checked out in another worktree: pick another name.`);
-    }
-    // An existing branch is reused; one only on origin starts from there, tracking it.
-    const add = exists ? ["worktree", "add", path, branch] : remote ? ["worktree", "add", "--track", "-b", branch, path, `origin/${branch}`] : ["worktree", "add", "-b", branch, path, "HEAD"];
-    // Windows: the worktree folder is deeper than the main checkout, so a long file name can pass MAX_PATH
-    // (260). Turn on long paths for the repository (worktrees share its config) unless the person set it.
-    if (!(await git(main, ["config", "--get", "core.longpaths"], on)).out) await git(main, ["config", "core.longpaths", "true"], on);
-    const r = await git(main, add, on);
-    if (!r.ok) {
-      // A failed checkout leaves a registered worktree and a new branch: remove them, so a retry starts clean.
-      await git(main, ["worktree", "remove", "--force", path], on);
-      await git(main, ["worktree", "prune"], on);
-      if (!exists) await git(main, ["branch", "-D", branch], on);
-      throw new Error(r.err || "git worktree add failed.");
-    }
-    const copied = await this.copyIncludes(main, path, on);
-    const before = spaces().find((s) => s.active)?.id;
+    // PowerMods Core makes the worktree in the central folder, copies the files, runs the setup in a
+    // "setup" tab of the new space, and then starts the agent (see powermods-core-app).
+    const tab = p.tabs?.[this.mode] ?? p.title;
+    const r = await worktrees().create({
+      repo: main, branch, on, name: cut(tab ?? branch, 40), select: !this.stay,
+      agent: { argv: [...this.agent.run, ...extra], task: prompt, tab },
+    });
     keepAgent(this.agent.name);
-    run("space.new", { name: cut(p.tabs?.[this.mode] ?? p.title ?? branch, 40), folder: path, machine: on, tab: p.tabs?.[this.mode] ?? p.title, argv: [...this.agent.run, ...extra], task: prompt });
-    if (this.stay && before) run("space.select", { id: before });
-    notify({ title: `Started ${this.agent.name}`, body: `${p.tabs?.[this.mode] ?? branch}${copied ? ` · ${copied} file${copied > 1 ? "s" : ""} from .worktreeinclude` : ""}`, level: "success", timeout: 4000 });
-  }
-
-  // `.worktreeinclude` in the main checkout lists gitignored files a worktree needs to run
-  // (.env, config/local.json, globs too; the same format as the Worktree include mod). The ones
-  // that exist are copied into the new worktree; nothing there is overwritten. Returns how many.
-  async copyIncludes(main, path, on) {
-    // -z: names come NUL-separated and unquoted, so spaces, newlines and non-ASCII names survive.
-    // exec, not git(): git() trims, which would cut a leading space off the first name.
-    const list = await exec("git", ["ls-files", "-z", "--others", "--ignored", "--exclude-from=.worktreeinclude"], { cwd: main, on }).catch(() => null);
-    if (list?.code !== 0 || !list.stdout) return 0;
-    let n = 0;
-    for (const file of list.stdout.split("\0").filter(Boolean).slice(0, 200)) {
-      if (file.includes("..")) continue;
-      const r = await (on || platform() !== "windows"
-        ? exec("sh", ["-c", 'mkdir -p "$(dirname "$2")" && [ ! -e "$2" ] && cp -p "$1" "$2"', "sh", `${main}/${file}`, `${path}/${file}`], { on })
-        : exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `$s='${`${main}/${file}`.replace(/'/g, "''")}'; $d='${`${path}/${file}`.replace(/'/g, "''")}'; if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Force -Path (Split-Path -Parent $d) | Out-Null; Copy-Item -LiteralPath $s -Destination $d }`])).catch(() => null);
-      if (r?.code === 0) n++;
-    }
-    return n;
+    const copied = r.copied ? ` · ${r.copied} file${r.copied > 1 ? "s" : ""} copied` : "";
+    notify(r.setup === "running"
+      ? { title: `Setting up ${branch}`, body: `${tab ?? branch}${copied} · ${this.agent.name} starts after the setup`, level: "info", timeout: 5000 }
+      : { title: `Started ${this.agent.name}`, body: `${tab ?? branch}${copied}`, level: "success", timeout: 4000 });
   }
 
   render(cx) {
@@ -395,7 +356,7 @@ export class AgentDialog extends View {
           .child(div().text_size(fs.tiny).text_color(t.dim).child(!ok ? "not installed" : a.name === lastAgent() ? "last used" : "installed")));
     };
     const preview = this.prompt.value().split("\n").slice(0, 5).join("\n");
-    const path = this.main ? `${this.home ? "~" : ""}/.herdr/worktrees/${this.main.split("/").pop()}/${slug(branch || "…")}` : "";
+    const path = this.main ? maybeWorktrees()?.preview({ repo: this.main, branch: branch || "…" }) ?? "(PowerMods Core is not running)" : "";
     return v_flex().id("dispatch").size_full().text_size(fs.body).text_color(t.foreground).bg(t.background).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.key === "escape") { this.close(); cx.stop_propagation(); }
@@ -480,7 +441,8 @@ export class AgentDialog extends View {
         .child(v_flex().gap(3).text_size(fs.tiny).text_color(t.muted)
           .when(this.target === "worktree", (e) => e
             .child(`① Creates the worktree and branch ${branch || "…"}${this.branchState === "exists" ? " (the branch exists, so it is reused)" : ` from ${this.base || "HEAD"}`}; nothing is pushed.`)
-            .child(`② Opens a new space "${p.tabs?.[this.mode] ?? p.title ?? ""}" and starts ${this.agent?.name ?? "the agent"} with this prompt.`))
+            .child(`② Opens a new space "${p.tabs?.[this.mode] ?? p.title ?? ""}", copies the files and runs the setup of PowerMods Core.`)
+            .child(`③ Starts ${this.agent?.name ?? "the agent"} with this prompt when the setup ends well.`))
           .when(this.target === "space", (e) => e
             .child(`Opens a new tab "${p.tabs?.[this.mode] ?? p.title ?? ""}" in ${this.chosenSpace()?.name ?? "the space"} and starts ${this.agent?.name ?? "the agent"} with this prompt.`))
           .child(h_flex().id("stay").gap(6).items_center().cursor_pointer().on_click((_e, cx) => { this.stay = !this.stay; cx.notify(); })

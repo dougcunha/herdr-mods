@@ -10,12 +10,13 @@ import {
   theme, settings, props, shared, setShared, spaces, panes, focused, run, notify, nextCommand,
   watchFolder, closeOverlay, exec,
 } from "herdr";
-import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin, useMachine, machine, readText } from "./data.js";
+import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin, useMachine, machine, readText, git as gitIn } from "./data.js";
 import { machineInfo, writeFileOn } from "./remote.js";
 import {
   KEY, launch, openSession, sendToSession, resolveSkill, promptFor, quoteArg, triageNames, flowNames, branchFrom, branchPrefix, checkBranch,
-  makeWorktree, worktreePath, commitState, isTracked, copySpec, trash,
+  agentArgv, commitState, isTracked, copySpec, trash,
 } from "./actions.js";
+import { worktrees, maybeWorktrees } from "./core.js";
 import { demoSpecs } from "./demo.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -58,7 +59,7 @@ const STR = {
     level: "Level", mode: "Mode", review: "Review", next: "Next",
     newTitle: "New spec", newHint: "Describe the request. The agent runs {skill} with it, then the SDD flow.",
     newPlaceholder: "What do you want to build or change?", startHere: "Start here", startInWt: "Start in a worktree…",
-    wtTitle: "Start in a new worktree", branch: "Branch", wtWhere: "Folder: {path}",
+    wtTitle: "Start in a new worktree", branch: "Branch", wtWhere: "Folder: {path}", noCore: "(PowerMods Core is not running)",
     wtCreate: "Create worktree and start", copyQ: "Copy the spec folder into the worktree",
     notCommitted: "The folder of this spec is not in the last commit ({state}). A new worktree does not have it.",
     st_untracked: "not tracked", st_changed: "changed", checking: "Checking git…",
@@ -67,7 +68,7 @@ const STR = {
     delTracked: "Git tracks files of this folder: git shows the delete as a change.",
     delOthers: "The copies in other worktrees stay.", delBtn: "Move to Recycle Bin",
     delRemoteUnix: "On {machine}, the folder goes to the trash only when gio works there. Else it is deleted for good.",
-    launched: "Agent started", launchedBody: "{skill} for {name}", wtMade: "Worktree created",
+    launched: "Agent started", launchedBody: "{skill} for {name}", wtMade: "Worktree created: the agent starts after the setup",
     failed: "Spec Board", badBranch: "That is not a valid branch name.", emptyRequest: "Write the request first.",
     deleted: "Moved to the Recycle Bin", demoNo: "Example specs: nothing changes on disk.",
   },
@@ -97,7 +98,7 @@ const STR = {
     level: "Nível", mode: "Modo", review: "Revisão", next: "Próximo",
     newTitle: "Nova spec", newHint: "Descreva o pedido. O agente executa {skill} com ele e depois o fluxo SDD.",
     newPlaceholder: "O que você quer construir ou mudar?", startHere: "Iniciar aqui", startInWt: "Iniciar em worktree…",
-    wtTitle: "Iniciar num worktree novo", branch: "Branch", wtWhere: "Pasta: {path}",
+    wtTitle: "Iniciar num worktree novo", branch: "Branch", wtWhere: "Pasta: {path}", noCore: "(o PowerMods Core não está ativo)",
     wtCreate: "Criar worktree e iniciar", copyQ: "Copiar a pasta da spec para o worktree",
     notCommitted: "A pasta desta spec não está no último commit ({state}). Um worktree novo não tem a pasta.",
     st_untracked: "fora do git", st_changed: "com mudanças", checking: "Conferindo o git…",
@@ -106,7 +107,7 @@ const STR = {
     delTracked: "O git controla arquivos desta pasta: o git mostra a remoção como mudança.",
     delOthers: "As cópias em outros worktrees ficam.", delBtn: "Mover para a Lixeira",
     delRemoteUnix: "Em {machine}, a pasta vai para a lixeira só quando o gio funciona lá. Senão, ela é apagada para sempre.",
-    launched: "Agente iniciado", launchedBody: "{skill} para {name}", wtMade: "Worktree criado",
+    launched: "Agente iniciado", launchedBody: "{skill} para {name}", wtMade: "Worktree criado: o agente inicia depois do setup",
     failed: "Spec Board", badBranch: "Este nome de branch não é válido.", emptyRequest: "Escreva o pedido antes.",
     deleted: "Movida para a Lixeira", demoNo: "Specs de exemplo: nada muda no disco.",
   },
@@ -428,19 +429,21 @@ export default class SpecBoard extends View {
       try {
         const from = sh.spec?.where.path ?? this.repo.root;
         try { await checkBranch(from, branch); } catch { throw new Error(this.s("badBranch")); }
-        const path = await makeWorktree(from, this.repo.name, branch);
-        this.toast(this.s("wtMade"), path, "success");
+        // PowerMods Core makes the worktree (its folder, its setup) and starts the agent after the setup.
+        // A new branch starts from the commit of the checkout that holds the spec.
+        const spec = sh.spec, copy = Boolean(spec && sh.commit !== "committed" && sh.copy);
+        const base = (await gitIn(from, ["rev-parse", "HEAD"]).catch(() => "")).trim() || undefined;
         let skill;
-        let prompt;
-        if (sh.spec) {
-          if (sh.commit !== "committed" && sh.copy) await copySpec(sh.spec, path);
-          skill = await resolveSkill(flowNames(), path);
-          prompt = promptFor(skill, `--prd ${sh.spec.slug}${sh.mode ? ` --modo ${sh.mode}` : ""}`);
-        } else {
-          skill = await resolveSkill(triageNames(), path);
-          prompt = promptFor(skill, `--prompt ${quoteArg(sh.request)}`);
-        }
-        await launch(path, prompt, sh.spec?.slug);
+        const made = await worktrees().create({
+          repo: from, branch, base, on: machine(), name: spec?.slug,
+          prepare: copy ? async ({ path }) => { await copySpec(spec, path); } : undefined,
+          agent: async ({ path }) => {
+            skill = await resolveSkill(spec ? flowNames() : triageNames(), path);
+            const task = spec ? promptFor(skill, `--prd ${spec.slug}${sh.mode ? ` --modo ${sh.mode}` : ""}`) : promptFor(skill, `--prompt ${quoteArg(sh.request)}`);
+            return { argv: await agentArgv(), task, tab: spec?.slug };
+          },
+        });
+        this.toast(this.s("wtMade"), made.path, "success");
         this.sheet = null;
         this.toast(this.s("launched"), this.s("launchedBody", { skill, name: sh.spec?.slug ?? branch }), "success");
         this.refresh(cx);
@@ -954,7 +957,7 @@ export default class SpecBoard extends View {
 
     if (sh.kind === "worktree") {
       const branch = sh.state.value().trim();
-      const where = this.repo ? worktreePath(this.repo.name, branch || "…") : "";
+      const where = this.repo ? maybeWorktrees()?.preview({ repo: this.repo.root, branch: branch || "…" }) ?? this.s("noCore") : "";
       const needCopy = sh.spec && sh.commit && sh.commit !== "committed" && sh.commit !== "checking";
       return box.child(title(this.s("wtTitle")))
         .child(hint(sh.spec ? sh.spec.slug : sh.request))

@@ -669,7 +669,7 @@ export default class ModsUpdate extends View {
       .when(Boolean(m.description), (el) => el.child(div().pb(2).text_size(12).text_color(t.muted).child(m.description)))
       .when(switchable && !on, (el) => el.child(line("State", "Off. Its buttons and blocks are hidden and it does no work. Turn it on with the switch.", t.ansi3)))
       .when(Boolean(m.partOf), (el) => el.child(line("State", `Part of ${m.partOf}: it goes on and off with it${owner ? (isOn(owner) ? " (on now)." : " (off now).") : "."}`)))
-      .when(m.origin === "kit" && !switchable && !m.partOf, (el) => el.child(line("State", "Always on: it draws a bar of the layouts or this dialog.", t.dim)))
+      .when(m.origin === "kit" && !switchable && !m.partOf, (el) => el.child(line("State", m.required ? "Always on: other mods of the kit need it." : "Always on: it draws a bar of the layouts or this dialog.", t.dim)))
       .when(m.origin === "kit", (el) => {
         if (ch === undefined) return el.child(line("Files", "Checking…", t.dim));
         if (ch === null) return el.child(line("Files", "No hashes in the setup record for this mod.", t.dim));

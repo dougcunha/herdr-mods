@@ -7,6 +7,9 @@
 
 import { worktreePath, submoduleFolder } from "./refs.js";
 
+// The folder of a new worktree as PowerMods Core says it (its API is on globalThis: see core.js).
+const coreFolder = (root, branch) => globalThis.powermods?.worktree?.preview?.({ repo: root ?? "repo", branch }) ?? "(PowerMods Core is not running)";
+
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor
 // cookie), so the folder watch never wakes for the panel's own reads.
 export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
@@ -451,10 +454,10 @@ export function dialogFor(action, ctx) {
     case "renameRemote": return { title: "Rename remote", detail: `Rename ${a.name}. Its remote branches get the new name too.`, inputs: [{ id: "name", label: "New name", value: a.name }], confirm: "Rename" };
     case "setRemoteUrl": return { title: "Change URL", detail: `The URL of ${a.name}.`, inputs: [{ id: "url", label: "URL", value: a.url ?? "" }], confirm: "Save" };
     case "removeRemote": return { title: "Remove remote", detail: `Remove ${a.name}, and its remote branches from this repository? Nothing changes on the server.`, confirm: "Remove", danger: true };
-    case "addWorktree": return { title: "New worktree", detail: `A second checkout of the repository in its own folder. Empty folder: ${worktreePath(ctx.root ?? "repo", "<branch>")}.`,
+    case "addWorktree": return { title: "New worktree", detail: `A second checkout of the repository in its own folder, in a new space, made by PowerMods Core with its setup. An existing branch is used, else a new one from HEAD. Empty folder: ${coreFolder(ctx.root, "<branch>")}.`,
       inputs: [{ id: "name", label: "Branch", value: "" }, { id: "path", label: "Folder (optional)", value: "", optional: true, text: true }],
-      checks: [{ id: "newBranch", label: "Create the branch (from HEAD)", value: true }, { id: "open", label: "Open it in a new space", value: true }], confirm: "Create" };
-    case "removeWorktree": return { title: "Remove worktree", detail: `Delete the folder ${a.path}? The branch${a.branch ? ` ${a.branch}` : ""} stays.`,
+      checks: [{ id: "open", label: "Switch to the new space", value: true }], confirm: "Create" };
+    case "removeWorktree": return { title: "Remove worktree", detail: `Delete the folder ${a.path}? A space that works only there closes. The branch${a.branch ? ` ${a.branch}` : ""} stays.`,
       checks: [{ id: "force", label: "Force, even with changes or untracked files", value: false }], confirm: "Remove", danger: true };
     case "submoduleAdd": return { title: "Add submodule", detail: "Clone a repository into a folder of this one and record its commit.",
       inputs: [{ id: "url", label: "URL", value: "" }, { id: "path", label: "Folder (optional: the name of the repository)", value: "", optional: true, text: true },

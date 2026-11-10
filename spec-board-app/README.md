@@ -33,7 +33,7 @@ The detail has the status, the phase with names, the progress, the level, the mo
 - **Read and edit.** The markdown shows rendered. **Edit** opens an editor; **Save** writes the file only if nobody changed it since you opened it. If an agent changed it, the panel says so, and **Reload** reads it again.
 - **New spec** (+ in the header). Write the request, then **Start here** or **Start in a worktree…**. The agent starts with `/sdd-triar --prompt "<request>"`.
 - **Start** (a spec that is not started) and **Continue** (a spec with a checkpoint). The agent starts with `/sdd-orquestrar-fluxo --prd <name>` in the folder of the spec: a new tab of the space that works there, else a new space. The arrow next to the button adds `--modo auto` or `--modo monitorado`. When an open session of the agent is idle in the folder of the spec, the arrow also shows **Continue in open session** (or **Start in open session**): the prompt goes to that session (`hc send`) and its terminal comes to the front. The button itself always starts a new agent.
-- **Start in worktree** (a spec that is not started). You edit the branch (`feat/<name>`). The panel runs `git worktree add` into `<worktree folder>/<repository>/<branch>` and starts the agent there in a new space. If the folder of the spec is not in the last commit, the panel says so and offers to copy the folder into the worktree (on by default). The original stays.
+- **Start in worktree** (a spec that is not started). You edit the branch (`feat/<name>`). [PowerMods Core](../powermods-core-app/README.md) makes the worktree in `<worktree folder>/<repository>/<branch>` (the folder of its settings, `~/.herdr/worktrees` by default; slashes of the branch become `-`), runs its setup in a new space, and then the agent starts there. If the folder of the spec is not in the last commit, the panel says so and offers to copy the folder into the worktree (on by default). The original stays.
 - **Delete** (trash icon). The folder goes to the Recycle Bin after a confirmation. A spec that is not done, and a folder that git tracks, show a warning.
 - **Open folder** opens the folder of the spec in the file manager.
 
@@ -61,12 +61,13 @@ In PowerMods → **Settings** → **Spec Board**:
 | Prompt (`{skill}`, `{args}`) | `/{skill} {args}` |
 | New spec skill (names, separated by commas) | `sdd-triar` |
 | Flow skill (names, separated by commas) | `sdd-orquestrar-fluxo` |
-| Worktree folder | `~/.herdr/worktrees` (the folder of Herdr's own worktrees) |
 | Branch prefix | `feat/` |
 | Order | Urgency, grouped |
 | Show done specs | Off |
 
 For each skill, the panel uses the first name of the list that is installed in `<repository>/.claude/skills`, `<repository>/.agents/skills`, `~/.claude/skills`, `~/.agents/skills` or `~/.codex/skills`. With none, it uses the first name. So a repository with English skill names works when you add them to the list (`sdd-triar, sdd-triage`).
+
+The worktree folder is a setting of PowerMods Core (**Settings** → **powermods-core**). The old setting of this panel (`spec-board.worktreeRoot`) still applies until the core has its own value.
 
 ## Add it to the Dock
 

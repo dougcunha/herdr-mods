@@ -23,9 +23,9 @@ export function offList() {
   return Array.isArray(v) ? v.filter((n) => typeof n === "string") : [];
 }
 
-/** True when the Mods tab shows a switch for mod `m` (a row of scanMods). */
+/** True when the Mods tab shows a switch for mod `m` (a row of scanMods). A required mod (kit.json) has none. */
 export function canTurnOff(m) {
-  return m.origin === "kit" && !FIXED.has(m.name) && !m.partOf;
+  return m.origin === "kit" && !FIXED.has(m.name) && !m.partOf && !m.required;
 }
 
 /** True when mod `m` is on. */

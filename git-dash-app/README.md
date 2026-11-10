@@ -98,7 +98,7 @@ git push origin --delete feat --force-with-lease=refs/heads/feat:<sha>
 git branch -D feat
 ```
 
-`git worktree remove` refuses a worktree with staged, modified or new files: then the branch stays here and on the remote. When Git knows the worktree but its folder is gone, `git worktree prune` runs instead. It cleans every worktree of the repository whose folder is gone. After the remove, the card of the worktree goes away and a notification tells the result.
+[PowerMods Core](../powermods-core-app/README.md) runs the `git worktree remove` step (the kit removes worktrees in 1 place), so its item must be in the status row of the shown layout. `git worktree remove` refuses a worktree with staged, modified or new files: then the branch stays here and on the remote. When Git knows the worktree but its folder is gone, `git worktree prune` runs instead. It cleans every worktree of the repository whose folder is gone. After the remove, the card of the worktree goes away and a notification tells the result.
 
 The panel does not offer the remove, and shows the reason, when:
 

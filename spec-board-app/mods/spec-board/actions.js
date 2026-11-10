@@ -10,7 +10,6 @@ export const KEY = {
   prompt: "spec-board.prompt",
   triage: "spec-board.triageSkills",
   flow: "spec-board.flowSkills",
-  worktreeRoot: "spec-board.worktreeRoot",
   branchPrefix: "spec-board.branchPrefix",
   sort: "spec-board.sort",
   showDone: "spec-board.showDone",
@@ -24,14 +23,6 @@ export const promptTemplate = () => text(KEY.prompt, "/{skill} {args}");
 export const branchPrefix = () => {
   const v = shared(KEY.branchPrefix);
   return typeof v === "string" ? v.trim() : "feat/";
-};
-// The setting is a folder of this computer. On another machine, only a value that starts
-// with `~` applies (the home folder there); else the default folder of that machine.
-export const worktreeRoot = () => {
-  const fallback = join(homeDir(), ".herdr/worktrees");
-  const v = text(KEY.worktreeRoot, fallback);
-  const tilde = /^~(?=[\\/]|$)/;
-  return norm((machine() && !tilde.test(v) ? fallback : v).replace(tilde, homeDir()));
 };
 const names = (key, fallback) => text(key, fallback).split(/[\s,;]+/).filter(Boolean);
 export const triageNames = () => names(KEY.triage, "sdd-triar");
@@ -139,20 +130,6 @@ export function branchFrom(textOrSlug, words = 4) {
 export async function checkBranch(repoPath, branch) {
   if (!branch.trim()) throw new Error("empty");
   await git(repoPath, ["check-ref-format", "--branch", branch.trim()]);
-}
-
-/** Where a new worktree of `repoName` for `branch` goes. */
-export const worktreePath = (repoName, branch) => join(worktreeRoot(), repoName, branch);
-
-/**
- * Makes a worktree for `branch` from the checkout at `from`: a new branch
- * from its HEAD, or the branch that already exists. Returns its path.
- */
-export async function makeWorktree(from, repoName, branch) {
-  const path = worktreePath(repoName, branch);
-  const exists = await git(from, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`]).then(() => true, () => false);
-  await git(from, exists ? ["worktree", "add", native(path), branch] : ["worktree", "add", "-b", branch, native(path)]);
-  return path;
 }
 
 /**

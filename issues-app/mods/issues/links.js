@@ -11,6 +11,7 @@
 import { exec, shared, setShared, spaces, openOverlay, closeOverlay, props, theme, appHome, readTextFile, writeTextFile, settings, window as appWindow, run, notify } from "herdr";
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, v_resizable, resizable_panel, Avatar, AvatarImage, AvatarFallback } from "gpui-base";
+import { maybeWorktrees } from "./core.js";
 
 const KEY = "space-links";
 
@@ -122,8 +123,8 @@ export function openUrl(url) {
 // Spaces Start agent made, found by their branch (or worktree folder): agent/<KEY>-…,
 // agent/issue-<n>-… for issues, agent/review-<n>-…, agent/fix-<n>-…, agent/checks-<n>-… for
 // pull requests. Read on each render: spaces() is a plain list and cheap.
-// Only spaces in this repository's worktree folder count (`~/.herdr/worktrees/<repo>/…`, where
-// Start agent puts them), so #12 of another repository isn't shown here.
+// Only spaces in this repository's worktree folder count (`<central folder>/<repo>/…` of PowerMods Core,
+// where Start agent puts them, or `~/.herdr/worktrees/<repo>/…`), so #12 of another repository isn't shown here.
 // Returns { issues: Map(key → [agent]), prs: Map(number → [agent]) }, agent = { id, status, mode, name }.
 // agent/<KEY>-…, agent/plan-<KEY>-…, agent/investigate-issue-12-…, agent/review-531-… (a "-2" suffix
 // for a second start on the same item keeps matching).
@@ -132,11 +133,18 @@ export function agentSpaces(repoMain) {
   const issues = new Map(), prs = new Map();
   const name = (repoMain ?? "").split(/[/\\]/).filter(Boolean).pop();
   if (!name) return { issues, prs };
-  for (const sp of spaces()) {
-    const parts = (sp.folder ?? "").split(/[/\\]/).filter(Boolean);
+  // PowerMods Core knows the central folder of worktrees (a setting); without the core, ~/.herdr/worktrees.
+  const wt = maybeWorktrees();
+  const locate = (folder, on) => {
+    if (wt) return wt.locate(folder, on);
+    const parts = String(folder ?? "").split(/[/\\]/).filter(Boolean);
     const at = parts.lastIndexOf("worktrees");
-    if (at < 1 || parts[at - 1] !== ".herdr" || parts[at + 1] !== name) continue;
-    const m = AGENT_BRANCH.exec(sp.branch ?? "") ?? AGENT_BRANCH.exec(parts[at + 2] ?? "");
+    return at >= 1 && parts[at - 1] === ".herdr" && parts.length > at + 2 ? { repo: parts[at + 1], leaf: parts.slice(at + 2).join("/") } : null;
+  };
+  for (const sp of spaces()) {
+    const hit = locate(sp.folder ?? "", sp.machine ?? null);
+    if (!hit || hit.repo !== name) continue;
+    const m = AGENT_BRANCH.exec(sp.branch ?? "") ?? AGENT_BRANCH.exec(hit.leaf.split("/")[0] ?? "");
     if (!m) continue;
     // `live`: an agent runs in it now (Herdr reports a status); a space left open after it stopped isn't.
     const a = { id: sp.id, status: sp.status ?? "stopped", live: sp.status != null, mode: m[1] ?? m[3] ?? "work", name: sp.name, folder: sp.folder };

@@ -40,15 +40,6 @@
       "hint": "Names of the skill that starts and continues a spec, separated by commas. The first installed one wins."
     },
     {
-      "id": "worktreeRoot",
-      "type": "text",
-      "key": "spec-board.worktreeRoot",
-      "default": "",
-      "placeholder": "~/.herdr/worktrees",
-      "label": "Worktree folder",
-      "hint": "Where Start in worktree makes the checkout: <folder>/<repository>/<branch>. Empty: ~/.herdr/worktrees, the folder of Herdr's own worktrees."
-    },
-    {
       "id": "branchPrefix",
       "type": "text",
       "key": "spec-board.branchPrefix",

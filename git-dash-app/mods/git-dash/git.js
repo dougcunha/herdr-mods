@@ -1,6 +1,7 @@
 // Git side of the Git Dash mod: finds repositories under a folder and reads
 // their pending work. Port of git-pendencias.py.
 import { exec, home } from "herdr";
+import { worktrees } from "./core.js";
 
 // A mod may read files only inside the Herdr home, so the folder search runs
 // as a program (`exec`): PowerShell on Windows, `find` and `sh` elsewhere.
@@ -477,12 +478,24 @@ export const show = (step) => ["git", ...step.map((a) => (/[\s"]/.test(a) ? JSON
 export async function runSteps(repo, steps) {
   let out = "";
   for (const [i, step] of steps.entries()) {
-    const res = await exec("git", ["-c", "core.quotepath=false", ...step], { cwd: repo })
-      .catch((e) => ({ code: -1, stdout: "", stderr: String(e?.message || e) }));
+    // A worktree remove goes through PowerMods Core (see core.js): the one place that removes worktrees.
+    const res = step[0] === "worktree" && step[1] === "remove" ? await removeViaCore(repo, step[2])
+      : await exec("git", ["-c", "core.quotepath=false", ...step], { cwd: repo })
+        .catch((e) => ({ code: -1, stdout: "", stderr: String(e?.message || e) }));
     out = `${res.stdout}\n${res.stderr}`.trim();
     if (res.code !== 0) return { ok: false, out: out || `${show(step)}: exit ${res.code}`, failed: step, done: i };
   }
   return { ok: true, out, done: steps.length };
+}
+
+/** `git worktree remove <path>` by PowerMods Core, as an exec result. The panel blocks a folder in use, so no space closes. */
+async function removeViaCore(repo, path) {
+  try {
+    await worktrees().remove({ repo, path, closeSpace: false });
+    return { code: 0, stdout: "", stderr: "" };
+  } catch (e) {
+    return { code: 1, stdout: "", stderr: String(e?.message || e) };
+  }
 }
 
 /** The worktree folders in `removes` whose `worktree remove` step is among the first `done` steps. */

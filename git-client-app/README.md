@@ -37,7 +37,7 @@ A filter field at the top finds branches and tags by name. Each section opens an
 - **Remote:** the remote branches, by remote. Menu: Checkout (a tracking branch), Merge, Delete on the remote, Copy name.
 - **Tags:** Delete, Push, Copy name. **+** makes a tag at HEAD (a message makes an annotated tag).
 - **Remotes:** each remote and its URL. Menu: Fetch, Rename, Change URL, Remove, Copy URL. **+** adds a remote.
-- **Worktrees:** each worktree, its branch, its folder, its number of changed files and the badges `main`, `here`, `locked` and `gone`. Menu: Open in a space (the space that shows that folder, else a new space), Lock or Unlock, Remove (asks; Force only when you tick it), Copy path. **+** makes a worktree: a new or an existing branch, in `<repo>-<branch>` next to the repository unless you type a folder, and opens it in a new space. **×** prunes the worktrees whose folder is gone.
+- **Worktrees:** each worktree, its branch, its folder, its number of changed files and the badges `main`, `here`, `locked` and `gone`. Menu: Open in a space (the space that shows that folder, else a new space), Lock or Unlock, Remove (asks; Force only when you tick it), Copy path. **+** makes a worktree through [PowerMods Core](../powermods-core-app/README.md): an existing branch, else a new one from HEAD, in the worktree folder of the core (`~/.herdr/worktrees/<repo>/<branch>` by default) unless you type a folder, with the setup of the core, in a new space. Remove also goes through the core: it closes a space that works only in that folder. **×** prunes the worktrees whose folder is gone.
 
 ### Stash
 
@@ -95,7 +95,7 @@ The mod has `"place": "none"`: it adds no panel by itself. In a layout of your o
 - **Open file:** the default app of the system, only on this computer.
 - **Continue** runs `git <operation> --continue` with `core.editor=true`: Git keeps the message that it prepared.
 - Push pushes the current branch to the remote of its upstream (else `origin`).
-- Branches runs one `for-each-ref`, `remote -v`, `worktree list` and a `status` in each worktree (the first 20), when the tab shows. **New worktree** makes a folder next to the repository and **Open in a space** opens a Herdr space there.
+- Branches runs one `for-each-ref`, `remote -v`, `worktree list` and a `status` in each worktree (the first 20), when the tab shows. **New worktree** and **Remove** call PowerMods Core (its folder, its setup commands, a new space). **Open in a space** opens a Herdr space there.
 - Stash shows the untracked files of a stash with git 2.32 or newer.
 - The Expand dialog shows the diff only: stage hunks in the panel.
 - With **Commit all**, the AI sees the changes of tracked files, not the new untracked files.

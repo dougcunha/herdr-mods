@@ -1,0 +1,33 @@
+{
+  "app": "powermods-core-app",
+  "description": "Shared services for the mods of the kit. It makes the git worktrees of Issues, PRs, Spec Board and the Git panel: 1 folder for all of them, and 1 setup (files to copy, commands to run) for each new one.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/powermods-core-app",
+  "required": true,
+  "settings": [
+    {
+      "id": "worktreeRoot",
+      "type": "text",
+      "key": "powermods-core.worktreeRoot",
+      "label": "Worktree folder",
+      "placeholder": "~/.herdr/worktrees",
+      "hint": "Every new worktree goes to <folder>/<repository>/<branch>. Empty: ~/.herdr/worktrees, the folder of Herdr's own worktrees (the Herdr sidebar then shows the space under its repository). On another machine, only a value that starts with ~ applies."
+    },
+    {
+      "id": "filesFolder",
+      "type": "text",
+      "key": "powermods-core.filesFolder",
+      "label": "Files for every worktree",
+      "placeholder": "~/.herdr/worktree-files",
+      "hint": "Every file in this folder goes into each new worktree of this computer, with the same relative path. A file that exists in the worktree stays."
+    },
+    {
+      "id": "setup",
+      "type": "action",
+      "label": "Setup commands",
+      "command": "mod.open",
+      "args": { "name": "powermods-core" },
+      "button": "Edit…",
+      "hint": "Commands that run in every new worktree (for example npx to install plugins), before the commands of the repository."
+    }
+  ]
+}

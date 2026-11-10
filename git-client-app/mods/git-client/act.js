@@ -1,8 +1,9 @@
 import * as fs from "fs/promises";
 import { exec, notify, setShared, openOverlay, appHome, run, panes, spaces } from "herdr";
 import { dialogFor, dialogHeight, doneText } from "./git.js";
-import { worktreePath, samePath } from "./refs.js";
+import { samePath } from "./refs.js";
 import { executeAction } from "./execute.js";
+import { worktrees } from "./core.js";
 
 // Hunk patches of a local repository go through a file under the app's data folder.
 const io = {
@@ -20,16 +21,13 @@ const io = {
 // copy of the panel reads the repository again after, whether or not its folder watch saw the change.
 export async function perform(action, values, ctx, { toast = true, quiet = false } = {}) {
   try {
+    if (action.type === "addWorktree" || action.type === "removeWorktree") return await viaCore(action, values, ctx, { quiet });
     const result = await executeAction(action, values, ctx, exec, io);
     if (!result.ok) {
       if (toast) notify({ title: "Couldn't do that", body: result.message, level: "error" });
       return result;
     }
     if (!quiet) notify({ title: doneText(action, values), level: "success", timeout: 3000 });
-    if (action.type === "addWorktree" && values.open) {
-      const name = String(values.name ?? "").trim();
-      openWorktree(String(values.path ?? "").trim() || worktreePath(ctx.root, name), ctx.on, name);
-    }
     return { ok: true };
   } catch (e) {
     const message = String(e?.message ?? e);
@@ -38,6 +36,21 @@ export async function perform(action, values, ctx, { toast = true, quiet = false
   } finally {
     setShared("git-client.changed", Date.now());
   }
+}
+
+// New and Remove worktree go through PowerMods Core: its folder (Settings), its setup (files to copy, commands
+// in a "setup" tab), a new space. Remove also closes the spaces that work only in that folder.
+async function viaCore(action, values, ctx, { quiet }) {
+  const wt = worktrees();
+  if (action.type === "removeWorktree") {
+    await wt.remove({ repo: ctx.root, path: action.path, on: ctx.on ?? null, force: Boolean(values.force), branch: action.branch });
+    if (!quiet) notify({ title: doneText(action, values), level: "success", timeout: 3000 });
+    return { ok: true };
+  }
+  const name = String(values.name ?? "").trim();
+  const r = await wt.create({ repo: ctx.root, branch: name, on: ctx.on ?? null, path: String(values.path ?? "").trim() || undefined, select: values.open !== false, name });
+  if (!quiet) notify({ title: r.setup === "running" ? `Setting up the worktree of ${name}` : doneText(action, values), body: r.path, level: "success", timeout: 3000 });
+  return { ok: true };
 }
 
 // Opens the action's dialog; false when it has none and should run at once.
