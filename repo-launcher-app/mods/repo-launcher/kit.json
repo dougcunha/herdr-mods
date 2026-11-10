@@ -19,7 +19,7 @@
       "path": "reuseMode",
       "default": "tab",
       "label": "Open there as",
-      "hint": "Used only when Reuse open space is on.",
+      "hint": "Used when the choice opens in an open space.",
       "options": [
         {
           "value": "tab",

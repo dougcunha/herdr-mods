@@ -9,6 +9,7 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Recent.** The 5 repositories that you opened last come next.
 - **Open space indicator.** A pill on the row names the space that works in the repository, in the color of that space. A spinner shows that an agent works there; a red dot shows that an agent needs you.
 - **Reuse open space.** A switch in the header (`Ctrl+E`). When it is on and the repository has an open space, the choice opens there: in a **new tab**, in a **split to the right**, or the launcher **goes to the space** (a terminal choice only; an agent gets a new tab). When it is off, or the repository has no open space, the choice opens in a new space.
+- **Pick the space.** The **Space** row of the choices shows **New space** and every open space of the repository's machine (the spaces that work in the repository come first). Click one, or press `Tab` (`Shift+Tab` goes back), to open the choice there. The default is the space that **Reuse open space** picks. **Go to space** works only in a space of the repository; in an other space, the choice opens in a new tab.
 - **Accounts.** The launcher finds `~/.claude`, `~/.claude-*`, `~/.codex` and `~/.codex-*` and shows the e-mail of each account. You can add other account folders in the settings.
 - **Agent arguments.** Extra arguments per agent, for example `--dangerously-skip-permissions` for Claude Code or `--yolo` for Codex.
 - **Cached list.** The launcher reads the root folders only when you add or remove one, or click Refresh (`Ctrl+R`). It never reads the disk when the popup opens.
@@ -89,6 +90,7 @@ It needs the `repo-launcher` mod (it uses its icon and opens it).
 | List | `Ctrl+R` | Read the root folders again |
 | List | `Ctrl+M` | Show all repositories, this computer only, or one machine only |
 | Choices | `1` to `9`, or `↑` `↓` and `Enter` | Open that choice |
+| Choices | `Tab`, `Shift+Tab` | Pick the space: a new space or an open space |
 | Choices | `Backspace` or `←` | Go back to the list |
 | Everywhere | `Esc` | Close the launcher |
 

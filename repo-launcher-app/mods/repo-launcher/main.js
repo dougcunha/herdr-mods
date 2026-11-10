@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, run, settings as appSettings, shared, machines } from "herdr";
+import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, spaces, run, settings as appSettings, shared, machines } from "herdr";
 import { matchRepo } from "./fuzzy.js";
 import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, machineInfo, placeId, ACCOUNT_AGENTS } from "./scan.js";
 import { agentArgv, open, spacesFor } from "./launch.js";
@@ -393,9 +393,45 @@ export default class RepoLauncher extends View {
   // ---------------------------------------------------------------------------
   // Actions
 
+  /**
+   * Where a choice can open: a new space, or an open space of the
+   * repository's machine. The spaces that work in the repository come first,
+   * then the shown space, then the others in sidebar order.
+   */
+  targets() {
+    const repo = this.repo;
+    if (!repo) return [];
+    const machine = repo.machine ?? null;
+    const own = spacesFor(repo.path, machine);
+    const ownIds = new Set(own.map((s) => s.id));
+    const others = spaces()
+      .filter((s) => (s.machine ?? null) === machine && !ownIds.has(s.id))
+      .sort((a, b) => (Number(b.active) - Number(a.active)) || (a.index - b.index));
+    return [
+      { value: "new", label: "New space" },
+      ...own.map((s) => ({ value: s.id, label: s.name, space: s, own: true })),
+      ...others.map((s) => ({ value: s.id, label: s.name, space: s, own: false })),
+    ];
+  }
+
+  /** The chosen target; without a choice, the one that "Reuse open space" picks. */
+  target(list = this.targets()) {
+    if (this.pickedTarget && list.some((x) => x.value === this.pickedTarget)) return this.pickedTarget;
+    const own = list.find((x) => x.own);
+    return settings().reuse && own ? own.value : "new";
+  }
+
+  setReuse(on, cx) {
+    updateSettings({ reuse: on });
+    // The switch picks the space again.
+    this.pickedTarget = null;
+    cx.notify();
+  }
+
   choose(repo, cx) {
     if (!repo) return;
     this.repo = repo;
+    this.pickedTarget = null;
     this.checkRemoteAgents(repo.machine, cx);
     this.view = "actions";
     this.actionAt = 0;
@@ -494,7 +530,7 @@ export default class RepoLauncher extends View {
       let result;
       try {
         const machine = repo.machine ?? null;
-        result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode, machine, windows: machine ? infoOf(machine).windows : isWindows() });
+        result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode, machine, windows: machine ? infoOf(machine).windows : isWindows(), target: this.target() });
       } catch (e) {
         this.close();
         notify({ title: `Could not open ${repo.name}`, body: String(e?.message ?? e), level: "error" });
@@ -518,6 +554,7 @@ export default class RepoLauncher extends View {
 
   quickTerminal(repo, cx) {
     this.repo = repo;
+    this.pickedTarget = null;
     this.launch(this.actions()[0], cx);
   }
 
@@ -595,10 +632,14 @@ export default class RepoLauncher extends View {
       } else if (/^[1-9]$/.test(k) && !ctrl && !m.alt) {
         const a = actions[Number(k) - 1];
         if (a) this.launch(a, cx);
+      } else if (k === "tab") {
+        const list = this.targets();
+        const i = list.findIndex((x) => x.value === this.target(list));
+        this.pickedTarget = list[(i + (m.shift ? list.length - 1 : 1)) % list.length].value;
       } else if (ctrl && k === "s") {
         toggleFavorite(repoId(this.repo));
       } else if (ctrl && k === "e") {
-        updateSettings((s) => ({ reuse: !s.reuse }));
+        return this.setReuse(!settings().reuse, cx);
       } else return;
       cx.stop_propagation();
       cx.notify();
@@ -659,15 +700,9 @@ export default class RepoLauncher extends View {
       .cursor_pointer().hover((s) => s.bg(t.hover))
       .tooltip("When the repository has an open space, open there (Ctrl+E)")
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => {
-        updateSettings({ reuse: !on });
-        cx.notify();
-      })
+      .on_click((_e, cx) => this.setReuse(!on, cx))
       .child(div().text_size(12).text_color(on ? t.foreground : t.muted).child("Reuse open space"))
-      .child(toggle(t, "rl-reuse-toggle", on, (cx) => {
-        updateSettings({ reuse: !on });
-        cx.notify();
-      }));
+      .child(toggle(t, "rl-reuse-toggle", on, (cx) => this.setReuse(!on, cx)));
   }
 
   header(t, title, subtitle, { leading, trailing = [] }) {
@@ -874,7 +909,9 @@ export default class RepoLauncher extends View {
     const actions = this.actions();
     if (this.actionAt >= actions.length) this.actionAt = 0;
     const open = spacesFor(repo.path, repo.machine ?? null);
-    const target = s.reuse ? open[0] : null;
+    const targets = this.targets();
+    const picked = targets.find((x) => x.value === this.target(targets));
+    const target = picked?.space ?? null;
     const fav = isFavorite(repoId(repo));
     const color = open.length ? spaceColor(t, open[0]) : repoColor(repo.name);
 
@@ -889,13 +926,17 @@ export default class RepoLauncher extends View {
     });
 
     // Where the choice opens.
+    // "Go to space" needs a space that works in the repository.
+    const mode = s.reuseMode === "go" && !picked?.own ? "tab" : s.reuseMode;
     const where = target
-      ? (s.reuseMode === "go"
+      ? (mode === "go"
         ? [`Terminal goes to the space `, target.name, `. An agent opens in a new tab there.`]
-        : [`Opens in the space `, target.name, ` ${MODE_TEXT[s.reuseMode]}.`])
+        : [`Opens in the space `, target.name, ` ${MODE_TEXT[mode]}.`])
       : repo.machine
-        ? ["Opens in a new space on ", repo.machine, open.length ? " (reuse is off)." : "."]
-        : [open.length ? "Opens in a new space (reuse is off)." : "Opens in a new space.", "", ""];
+        ? ["Opens in a new space on ", repo.machine, "."]
+        : ["Opens in a new space.", "", ""];
+    const chips = h_flex().flex_1().min_w(0).flex_wrap().gap(6)
+      .children(targets.map((x) => this.targetChip(t, x, x.value === picked?.value)));
     const banner = v_flex().mx(16).mt(14).p(12).gap(10).flex_none().rounded(11)
       .bg(target ? tint(spaceColor(t, target) ?? t.accent, "14") : t.raised)
       .border_1().border_color(target ? tint(spaceColor(t, target) ?? t.accent, "40") : t.border)
@@ -906,8 +947,11 @@ export default class RepoLauncher extends View {
           .when(Boolean(where[1]), (e) => e.child(div().flex_none().font_semibold().text_color(t.foreground).child(where[1])))
           .child(div().truncate().child(where[2])))
         .child(this.reuseSwitch(t)))
-      .when(s.reuse && open.length > 0, (e) => e.child(h_flex().gap(10).items_center()
-        .child(div().text_size(11.5).text_color(t.dim).child("In the open space:"))
+      .child(h_flex().gap(10).items_start()
+        .child(div().w(64).flex_none().pt(4).text_size(11.5).text_color(t.dim).child("Space:"))
+        .child(chips))
+      .when(Boolean(target), (e) => e.child(h_flex().gap(10).items_center()
+        .child(div().w(64).flex_none().text_size(11.5).text_color(t.dim).child("Open as:"))
         .child(segmented(t, "rl-mode", MODES, s.reuseMode, (v, cx) => { updateSettings({ reuseMode: v }); cx.notify(); }))));
 
     const sizes = actions.map(() => ACTION_H);
@@ -922,6 +966,7 @@ export default class RepoLauncher extends View {
       .child(hint(t, ["↑", "↓"], "move"))
       .child(hint(t, ["↵"], "open"))
       .child(hint(t, ["1–9"], "pick"))
+      .child(hint(t, ["Tab"], "space"))
       .child(hint(t, [prettyKeys("ctrl-e")], "reuse"))
       .child(div().flex_1())
       .child(hint(t, ["⌫"], "back"))
@@ -932,6 +977,28 @@ export default class RepoLauncher extends View {
       .child(banner)
       .child(listEl)
       .child(footer);
+  }
+
+  /** A choice of the space picker. `x`: an entry of targets(). */
+  targetChip(t, x, on) {
+    const color = x.space ? spaceColor(t, x.space) ?? t.accent : t.accent;
+    return h_flex().id(`rl-target-${x.value}`).h(24).px(9).gap(6).flex_none().items_center().rounded(12)
+      .cursor_pointer().text_size(11.5)
+      .bg(on ? tint(color, "2a") : t.raised)
+      .border_1().border_color(on ? tint(color, "99") : t.border)
+      .text_color(on ? t.foreground : t.muted)
+      .when(!on, (e) => e.hover((s) => s.text_color(t.foreground)))
+      .tooltip(x.space ? (x.own ? "This space works in the repository (Tab)" : "Open in this space (Tab)") : "Open in a new space (Tab)")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => {
+        this.pickedTarget = x.value;
+        cx.notify();
+      })
+      .child(x.space
+        ? div().size(7).flex_none().rounded(4).bg(color)
+        : svg(icon("plus")).size(11).flex_none().text_color(on ? t.accent : t.muted))
+      .child(div().max_w(130).truncate().when(on, (e) => e.font_semibold()).child(x.label))
+      .when(Boolean(x.own), (e) => e.child(svg(icon("repo")).size(10).flex_none().text_color(t.dim)));
   }
 
   actionRow(t, a, index) {

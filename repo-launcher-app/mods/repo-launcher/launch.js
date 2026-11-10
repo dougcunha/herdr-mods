@@ -101,10 +101,15 @@ export function spacesFor(repoPath, machine = null, allSpaces = spaces(), allPan
  * focused pane) or "go" (only show the space; an agent still gets a tab).
  * `machine`: the machine of the repository (null: this computer), and
  * `windows`: that machine runs Windows.
+ * `target`: "new" (a new space) or the id of an open space of that machine.
+ * Without it, `reuse` picks the space.
  */
-export function open(repoPath, { argv = null, name = undefined, reuse = true, mode = "tab", machine = null, windows = isWindows() } = {}) {
+export function open(repoPath, { argv = null, name = undefined, reuse = true, mode = "tab", machine = null, windows = isWindows(), target = null } = {}) {
   const folder = windows ? repoPath.replace(/\//g, "\\") : repoPath;
-  const space = reuse ? spacesFor(repoPath, machine)[0] : null;
+  const own = spacesFor(repoPath, machine);
+  const space = target === "new" ? null
+    : target ? spaces().find((s) => s.id === target) ?? null
+    : reuse ? own[0] : null;
   const withArgv = (args) => (argv ? { ...args, argv } : args);
 
   if (!space) {
@@ -114,7 +119,8 @@ export function open(repoPath, { argv = null, name = undefined, reuse = true, mo
   // Some layouts (a board of agents, say) show the focused pane, not the
   // selected space, so the space is shown by focusing one of its panes.
   const pane = paneOf(space, repoPath);
-  if (mode === "go" && !argv) {
+  // "Go to space" needs a terminal that works in the repository already.
+  if (mode === "go" && !argv && own.some((s) => s.id === space.id)) {
     run("space.select", { id: space.id });
     if (pane) run("pane.focus", { pane: pane.pane });
     return { created: false };
