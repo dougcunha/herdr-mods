@@ -14,7 +14,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, spaces, run, settings as appSettings, shared, machines } from "herdr";
 import { matchRepo } from "./fuzzy.js";
 import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, machineInfo, placeId, ACCOUNT_AGENTS } from "./scan.js";
-import { agentArgv, open, spacesFor } from "./launch.js";
+import { agentArgv, open, openFree, spacesFor } from "./launch.js";
 import {
   settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened, lastOpened,
   boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut, agentCache, setAgentCache,
@@ -278,6 +278,13 @@ export default class RepoLauncher extends View {
       for (const r of items) rows.push({ kind: "repo", ...r });
     };
 
+    const free = this.freeRows(q);
+    const addFree = () => {
+      if (!free.length) return;
+      rows.push({ kind: "head", title: "No repository", count: free.length, symbol: "terminal" });
+      rows.push(...free);
+    };
+
     if (q) {
       const hits = [];
       for (const repo of repos) {
@@ -290,8 +297,10 @@ export default class RepoLauncher extends View {
       }
       hits.sort((a, b) => b.score - a.score || a.repo.name.localeCompare(b.repo.name));
       add("Results", hits, { symbol: "search" });
+      addFree();
       return rows;
     }
+    addFree();
 
     const entry = (repo) => ({
       repo,
@@ -318,8 +327,29 @@ export default class RepoLauncher extends View {
     return rows;
   }
 
+  /**
+   * The rows that open a terminal or an agent outside a repository, like
+   * Herdr's own New menu: in the shown space, or in a new space. Their
+   * `repo` is a stand-in with `free: true` and no path.
+   */
+  freeRows(q) {
+    const active = spaces().find((s) => s.active);
+    const machine = active?.machine ?? null;
+    const items = [
+      { key: "terminal", title: "Terminal", detail: active ? `A new tab in the space ${active.name}` : "A new tab in the shown space", pick: null },
+      { key: "space", title: "New space", detail: machine ? `A new space on ${machine}` : "A new space with a shell", pick: "new" },
+    ];
+    const out = [];
+    for (const it of items) {
+      const match = q ? matchRepo(q, it.title, it.detail) : null;
+      if (q && !match) continue;
+      out.push({ kind: "free", ...it, match, repo: { free: true, key: it.key, name: it.title, path: "", machine, pick: it.pick } });
+    }
+    return out;
+  }
+
   selectable(rows = this.rows()) {
-    return rows.filter((r) => r.kind === "repo");
+    return rows.filter((r) => r.kind === "repo" || r.kind === "free");
   }
 
   selectedRepo() {
@@ -363,7 +393,7 @@ export default class RepoLauncher extends View {
 
   /** The choices of the actions view. */
   actions() {
-    const out = [{ id: "terminal", title: "Terminal", subtitle: "A shell in the repository", program: { icon: "icons/shell.svg", tint: true, color: theme().foreground, tile: theme().raised } }];
+    const out = [{ id: "terminal", title: "Terminal", subtitle: this.repo?.free ? "A shell" : "A shell in the repository", program: { icon: "icons/shell.svg", tint: true, color: theme().foreground, tile: theme().raised } }];
     const args = settings().args;
     const machine = this.repo?.machine ?? null;
     for (const agent of this.agentsOn(machine)) {
@@ -402,7 +432,7 @@ export default class RepoLauncher extends View {
     const repo = this.repo;
     if (!repo) return [];
     const machine = repo.machine ?? null;
-    const own = spacesFor(repo.path, machine);
+    const own = repo.free ? [] : spacesFor(repo.path, machine);
     const ownIds = new Set(own.map((s) => s.id));
     const others = spaces()
       .filter((s) => (s.machine ?? null) === machine && !ownIds.has(s.id))
@@ -417,6 +447,8 @@ export default class RepoLauncher extends View {
   /** The chosen target; without a choice, the one that "Reuse open space" picks. */
   target(list = this.targets()) {
     if (this.pickedTarget && list.some((x) => x.value === this.pickedTarget)) return this.pickedTarget;
+    // Without a repository, the shown space, like Herdr's New menu.
+    if (this.repo?.free) return list.find((x) => x.space?.active)?.value ?? "new";
     const own = list.find((x) => x.own);
     return settings().reuse && own ? own.value : "new";
   }
@@ -431,7 +463,7 @@ export default class RepoLauncher extends View {
   choose(repo, cx) {
     if (!repo) return;
     this.repo = repo;
-    this.pickedTarget = null;
+    this.pickedTarget = repo.pick ?? null;
     this.checkRemoteAgents(repo.machine, cx);
     this.view = "actions";
     this.actionAt = 0;
@@ -530,13 +562,14 @@ export default class RepoLauncher extends View {
       let result;
       try {
         const machine = repo.machine ?? null;
-        result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode, machine, windows: machine ? infoOf(machine).windows : isWindows(), target: this.target() });
+        if (repo.free) result = openFree({ argv, name, target: this.target(), mode: s.reuseMode, machine });
+        else result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode, machine, windows: machine ? infoOf(machine).windows : isWindows(), target: this.target() });
       } catch (e) {
         this.close();
         notify({ title: `Could not open ${repo.name}`, body: String(e?.message ?? e), level: "error" });
         return;
       }
-      markOpened(repoId(repo));
+      if (!repo.free) markOpened(repoId(repo));
       if (!result?.created) return this.close();
       // Focus the new terminal, so every layout shows it (a layout can
       // follow the focused pane rather than the selected space). The popup
@@ -554,7 +587,7 @@ export default class RepoLauncher extends View {
 
   quickTerminal(repo, cx) {
     this.repo = repo;
-    this.pickedTarget = null;
+    this.pickedTarget = repo.pick ?? null;
     this.launch(this.actions()[0], cx);
   }
 
@@ -637,8 +670,8 @@ export default class RepoLauncher extends View {
         const i = list.findIndex((x) => x.value === this.target(list));
         this.pickedTarget = list[(i + (m.shift ? list.length - 1 : 1)) % list.length].value;
       } else if (ctrl && k === "s") {
-        toggleFavorite(repoId(this.repo));
-      } else if (ctrl && k === "e") {
+        if (!this.repo.free) toggleFavorite(repoId(this.repo));
+      } else if (ctrl && k === "e" && !this.repo.free) {
         return this.setReuse(!settings().reuse, cx);
       } else return;
       cx.stop_propagation();
@@ -659,7 +692,7 @@ export default class RepoLauncher extends View {
       this.follow = true;
     } else if (ctrl && k === "s") {
       const repo = this.selectedRepo();
-      if (repo) toggleFavorite(repoId(repo));
+      if (repo && !repo.free) toggleFavorite(repoId(repo));
     } else if (ctrl && k === "e") {
       updateSettings((s) => ({ reuse: !s.reuse }));
     } else if (ctrl && k === "r") {
@@ -774,11 +807,12 @@ export default class RepoLauncher extends View {
       content = this.emptyState(t, "search", `No repository matches “${this.filter.trim()}”`, "Try fewer letters, or Refresh if the repository is new.");
     } else {
       const sizes = rows.map((r) => (r.kind === "head" ? HEAD_H : ROW_H));
-      const selRow = rows.findIndex((r) => r.kind === "repo" && r.repo === sel);
+      const selRow = rows.findIndex((r) => r.kind !== "head" && r.repo === sel);
       // Show the section title above the first row of a section too.
       const focusRow = selRow > 0 && rows[selRow - 1].kind === "head" ? [selRow - 1, selRow] : [selRow, selRow];
       content = this.scrollList(t, "list", rows, sizes, LIST_MAX, focusRow, (r) => (r.kind === "head"
         ? sectionTitle(t, r.title, { symbol: r.symbol, color: r.color, count: r.count })
+        : r.kind === "free" ? this.freeRow(t, r, r.repo === sel)
         : this.repoRow(t, r, r.repo === sel)));
     }
 
@@ -863,6 +897,27 @@ export default class RepoLauncher extends View {
     return pill(t, `${space.name}${more}`, { color, dot: color, max: 130 });
   }
 
+  /** A row of the "No repository" section. */
+  freeRow(t, r, selected) {
+    return h_flex().id(`rl-free-${r.key}`).h(ROW_H).px(8).flex_none()
+      .child(h_flex().size_full().px(10).gap(12).items_center().rounded(10).cursor_pointer()
+        .border_1().border_color(selected ? tint(t.accent, "80") : "#00000000")
+        .bg(selected ? tint(t.accent, "1c") : "#00000000")
+        .when(!selected, (e) => e.hover((s) => s.bg(t.hover)))
+        .on_click((_e, cx) => {
+          this.at = Math.max(0, this.selectable().findIndex((x) => x.kind === "free" && x.key === r.key));
+          this.choose(r.repo, cx);
+        })
+        .child(r.key === "space"
+          ? h_flex().size(32).flex_none().rounded(9).items_center().justify_center().bg(t.raised).border_1().border_color(t.border)
+            .child(svg(icon("plus")).size(16).text_color(t.foreground))
+          : programTile(t, { icon: "icons/shell.svg", tint: true, color: t.foreground, tile: t.raised }, 32))
+        .child(v_flex().flex_1().min_w(0).gap(2)
+          .child(highlighted(r.title, r.match?.name, { color: t.foreground, hit: t.accent, size: 13.5, bold: true }))
+          .child(div().text_size(11).text_color(t.dim).truncate().child(r.detail)))
+        .when(selected, (e) => e.child(kbd(t, "↵"))));
+  }
+
   repoRow(t, r, selected) {
     const { repo, parent, match, fav } = r;
     const open = spacesFor(repo.path, repo.machine ?? null);
@@ -908,18 +963,21 @@ export default class RepoLauncher extends View {
     const s = settings();
     const actions = this.actions();
     if (this.actionAt >= actions.length) this.actionAt = 0;
-    const open = spacesFor(repo.path, repo.machine ?? null);
+    const free = Boolean(repo.free);
+    const open = free ? [] : spacesFor(repo.path, repo.machine ?? null);
     const targets = this.targets();
     const picked = targets.find((x) => x.value === this.target(targets));
     const target = picked?.space ?? null;
-    const fav = isFavorite(repoId(repo));
+    const fav = !free && isFavorite(repoId(repo));
     const color = open.length ? spaceColor(t, open[0]) : repoColor(repo.name);
 
-    const head = this.header(t, repo.name, repo.machine ? placeLabel(repoId(repo)) : displayPath(repo.path), {
+    const head = this.header(t, free ? "No repository" : repo.name,
+      free ? (repo.machine ? `A terminal or an agent on ${repo.machine}` : "A terminal or an agent")
+        : repo.machine ? placeLabel(repoId(repo)) : displayPath(repo.path), {
       leading: h_flex().gap(8).items_center()
         .child(iconButton(t, "rl-back", "back", (cx) => this.back(cx), { tooltip: "Back (Esc)" }))
-        .child(letterTile(repo.name, color, 34)),
-      trailing: [
+        .child(free ? programTile(t, { icon: "icons/shell.svg", tint: true, color: t.foreground, tile: t.raised }, 34) : letterTile(repo.name, color, 34)),
+      trailing: free ? [] : [
         iconButton(t, "rl-fav", fav ? "star-fill" : "star", (cx) => { toggleFavorite(repoId(repo)); cx.notify(); },
           { tooltip: fav ? "Remove from favorites (Ctrl+S)" : "Add to favorites (Ctrl+S)", color: fav ? GOLD : null }),
       ],
@@ -946,13 +1004,13 @@ export default class RepoLauncher extends View {
           .child(div().flex_none().child(where[0]))
           .when(Boolean(where[1]), (e) => e.child(div().flex_none().font_semibold().text_color(t.foreground).child(where[1])))
           .child(div().truncate().child(where[2])))
-        .child(this.reuseSwitch(t)))
+        .when(!free, (e) => e.child(this.reuseSwitch(t))))
       .child(h_flex().gap(10).items_start()
         .child(div().w(64).flex_none().pt(4).text_size(11.5).text_color(t.dim).child("Space:"))
         .child(chips))
       .when(Boolean(target), (e) => e.child(h_flex().gap(10).items_center()
         .child(div().w(64).flex_none().text_size(11.5).text_color(t.dim).child("Open as:"))
-        .child(segmented(t, "rl-mode", MODES, s.reuseMode, (v, cx) => { updateSettings({ reuseMode: v }); cx.notify(); }))));
+        .child(segmented(t, "rl-mode", free ? MODES.filter((x) => x.value !== "go") : MODES, free ? mode : s.reuseMode, (v, cx) => { updateSettings({ reuseMode: v }); cx.notify(); }))));
 
     const sizes = actions.map(() => ACTION_H);
     const listEl = div().mt(10).mb(8).w_full().flex_none()
@@ -967,7 +1025,7 @@ export default class RepoLauncher extends View {
       .child(hint(t, ["↵"], "open"))
       .child(hint(t, ["1–9"], "pick"))
       .child(hint(t, ["Tab"], "space"))
-      .child(hint(t, [prettyKeys("ctrl-e")], "reuse"))
+      .when(!free, (e) => e.child(hint(t, [prettyKeys("ctrl-e")], "reuse")))
       .child(div().flex_1())
       .child(hint(t, ["⌫"], "back"))
       .child(hint(t, ["Esc"], "close"));

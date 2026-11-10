@@ -137,6 +137,30 @@ export function open(repoPath, { argv = null, name = undefined, reuse = true, mo
 }
 
 /**
+ * Opens `argv` (null: a shell) outside a repository, like Herdr's New menu.
+ * `target`: "new" (a new space on `machine`) or the id of an open space.
+ * `mode`: "split" splits the space's focused pane to the right; any other
+ * mode opens a new tab. No folder: Herdr picks the start folder.
+ */
+export function openFree({ argv = null, name = undefined, target = "new", mode = "tab", machine = null } = {}) {
+  const withArgv = (args) => (argv ? { ...args, argv } : args);
+  const space = target === "new" ? null : spaces().find((s) => s.id === target) ?? null;
+  if (!space) {
+    run("space.new", withArgv({ ...(machine ? { machine } : {}), ...(name ? { tab: name } : {}) }));
+    return { created: true };
+  }
+  run("space.select", { id: space.id });
+  const pane = mode === "split" ? paneOf(space, null) : null;
+  if (pane) {
+    run("pane.focus", { pane: pane.pane });
+    run("terminal.open", withArgv({ place: "right" }));
+    return { created: true };
+  }
+  run("tab.new", withArgv({ space: space.id, ...(name ? { name } : {}) }));
+  return { created: true };
+}
+
+/**
  * The terminal pane of `space` to show or split: the focused one in the
  * shown tab when it works in the repository, else one that works there,
  * else any terminal pane of the space.
@@ -145,7 +169,7 @@ export function paneOf(space, repoPath, allPanes = panes()) {
   const tabIds = new Set(space.tabs.map((t) => t.id));
   const activeTab = space.tabs.find((t) => t.active)?.id;
   const mine = allPanes.filter((p) => p.terminal && tabIds.has(p.tab));
-  const inRepo = mine.filter((p) => isInside(p.cwd, repoPath));
+  const inRepo = repoPath ? mine.filter((p) => isInside(p.cwd, repoPath)) : [];
   return inRepo.find((p) => p.tab === activeTab && p.focused)
     ?? inRepo.find((p) => p.tab === activeTab)
     ?? inRepo[0]

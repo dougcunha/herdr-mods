@@ -9,6 +9,7 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Recent.** The 5 repositories that you opened last come next.
 - **Open space indicator.** A pill on the row names the space that works in the repository, in the color of that space. A spinner shows that an agent works there; a red dot shows that an agent needs you.
 - **Reuse open space.** A switch in the header (`Ctrl+E`). When it is on and the repository has an open space, the choice opens there: in a **new tab**, in a **split to the right**, or the launcher **goes to the space** (a terminal choice only; an agent gets a new tab). When it is off, or the repository has no open space, the choice opens in a new space.
+- **No repository.** The **No repository** section at the top of the list has **Terminal** and **New space**, like Herdr's own New menu. `Ctrl+Enter` opens a shell at once: **Terminal** adds a tab to the shown space, **New space** makes a new space. `Enter` shows the choices (a terminal or an agent) with the **Space** row, so you can pick an other open space. The search finds these rows too (`term`, `space`).
 - **Pick the space.** The **Space** row of the choices shows **New space** and every open space of the repository's machine (the spaces that work in the repository come first). Click one, or press `Tab` (`Shift+Tab` goes back), to open the choice there. The default is the space that **Reuse open space** picks. **Go to space** works only in a space of the repository; in an other space, the choice opens in a new tab.
 - **Accounts.** The launcher finds `~/.claude`, `~/.claude-*`, `~/.codex` and `~/.codex-*` and shows the e-mail of each account. You can add other account folders in the settings.
 - **Agent arguments.** Extra arguments per agent, for example `--dangerously-skip-permissions` for Claude Code or `--yolo` for Codex.
@@ -84,7 +85,7 @@ It needs the `repo-launcher` mod (it uses its icon and opens it).
 | --- | --- | --- |
 | List | `↑` `↓`, `PgUp` `PgDn` | Move the selection |
 | List | `Enter` | Show the choices for the repository |
-| List | `Ctrl+Enter` | Open a terminal in the repository at once |
+| List | `Ctrl+Enter` | Open a terminal in the repository at once (on a **No repository** row: in the shown space or in a new space) |
 | List | `Ctrl+S` | Add or remove the favorite |
 | List | `Ctrl+E` | Turn "Reuse open space" on or off |
 | List | `Ctrl+R` | Read the root folders again |
