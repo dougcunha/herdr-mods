@@ -9,7 +9,7 @@
 // The clone uses the person's own git settings (core.autocrlf): `npx skills` downloads with the
 // same settings, so the folder hashes match the Lock.
 
-import { exec, appHome, window, readTextFile } from "herdr";
+import { exec, appHome, window, readTextFile, writeTextFile } from "herdr";
 
 const isWindows = () => window()?.platform === "windows";
 const slash = (p) => String(p ?? "").replace(/\\/g, "/");
@@ -33,8 +33,15 @@ export function tail(r, lines = 6) {
   return text.split(/\r?\n/).filter((l) => l.trim()).slice(-lines).join("\n");
 }
 
-/** `npx` is `npx.cmd` on Windows; exec does not find a .cmd without its extension. */
-export const npx = (args, cwd) => sh(isWindows() ? "npx.cmd" : "npx", ["--yes", ...args], { cwd });
+/** exec options on the machine `on` (null: this computer). */
+const at = (on, opts = {}) => (on ? { ...opts, on } : opts);
+
+/**
+ * `npx` is `npx.cmd` on Windows; exec does not find a .cmd without its extension.
+ * `host`: { on, windows } of the project's machine (null: this computer).
+ */
+export const npx = (args, cwd, host = null) =>
+  sh((host ? host.windows : isWindows()) ? "npx.cmd" : "npx", ["--yes", ...args], at(host?.on, { cwd, timeout: 300000 }));
 
 /** The folder of this mod (the node helper is in it). */
 export const modDir = () => `${slash(appHome())}/mods/skill-bundles`;
@@ -49,10 +56,11 @@ export function repoSlug(value) {
 /** Where the mod keeps its own clone of a Catalog. */
 export const ownCloneDir = (slug) => `${slash(appHome())}/cache/skill-bundles/${slug}`;
 
-/** The git root of a folder, or null. */
-export async function gitRoot(folder) {
+/** The git root of a folder on the machine `on` (null: this computer), or null. */
+export async function gitRoot(folder, on = null) {
   if (!folder) return null;
-  const r = await sh("git", ["-C", folder, "rev-parse", "--show-toplevel"]);
+  const r = await sh("git", ["-C", folder, "rev-parse", "--show-toplevel"], at(on));
+  if (r.code === -1 && on) throw new Error(r.err || `${on} cannot be reached`);
   return r.code === 0 ? slash(r.out.trim()) : null;
 }
 
@@ -145,9 +153,9 @@ export const CLONE_FIXES = {
   reset: (current) => [["reset", "--hard", "--quiet", `refs/remotes/origin/${current}`]],
 };
 
-/** Deletes a folder (or a link to a folder) and all in it, with node. Returns null or an error. */
-export async function removeFolder(path) {
-  const r = await sh("node", ["-e", "require('fs').rmSync(process.argv[1], { recursive: true, force: true })", path]);
+/** Deletes a folder (or a link to a folder) and all in it, with node, on the machine `on`. Returns null or an error. */
+export async function removeFolder(path, on = null) {
+  const r = await sh("node", ["-e", "require('fs').rmSync(process.argv[1], { recursive: true, force: true })", path], at(on));
   return r.code === 0 ? null : tail(r) || `could not delete ${path}`;
 }
 
@@ -160,13 +168,30 @@ export async function fixClone(dir, fix, current) {
   return null;
 }
 
-/** Runs the node helper (probe.mjs) for a project. Returns its JSON, or { error }. */
-export async function probe(project, clone, catalogRepo) {
-  const r = await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project, clone, catalogRepo })]);
+const parse = (r) => {
   if (r.code !== 0) return { error: tail(r) || "node failed" };
   try {
     return JSON.parse(r.out);
   } catch (e) {
     return { error: `probe.mjs: ${e}` };
   }
+};
+
+/**
+ * Runs the node helper (probe.mjs) for a project. Returns its JSON, or { error }.
+ * `on`: the project's machine. The helper runs there for the Lock and the skill folders
+ * (node must be installed there), and here for the hashes of the Catalog clone.
+ */
+export async function probe(project, clone, catalogRepo, on = null) {
+  if (!on) return parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project, clone, catalogRepo })]));
+  const code = await readTextFile(`${modDir()}/probe.mjs`);
+  if (!code) return { error: "probe.mjs was not found" };
+  const there = parse(await sh("node", ["--input-type=module", "-e", code, JSON.stringify({ project })], { on, timeout: 60000 }));
+  if (there.error || !clone || !Object.keys(there.lock ?? {}).length) return there;
+  // The Lock goes to the helper here in a file: a command line on Windows is short.
+  const lockFile = `${slash(appHome())}/cache/skill-bundles/remote-lock.json`;
+  const old = await readTextFile(lockFile).catch(() => null);
+  await writeTextFile(lockFile, JSON.stringify(there.lock), old);
+  const here = parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project: null, clone, catalogRepo, lockFile })]));
+  return here.error ? { ...there, error: here.error } : { ...there, hashes: here.hashes };
 }

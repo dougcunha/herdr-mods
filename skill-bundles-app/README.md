@@ -143,7 +143,7 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 
 ## Limits
 
-- Local spaces only. A space on another machine shows `Local spaces only`.
+- A space on another machine (`hc machine ls`) works too: the mod reads the project there, writes `skills.yaml` there and runs `npx skills` there. That machine needs `git` and `node`. The Catalog clone stays on this computer, and the hashes are made here. The header shows `<project> · <machine>`.
 - The project is the Git root of the focused terminal. A worktree is its own project, with its own skills.
 - The mod writes `skills.yaml` in the form of the scripts: comments in the file are lost.
 - **Outdated** needs the hash of the Lock. A skill that `npx skills` installed without a hash shows as Unchecked.

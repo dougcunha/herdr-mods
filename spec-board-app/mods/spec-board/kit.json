@@ -1,6 +1,6 @@
 {
   "app": "spec-board-app",
-  "description": "The SDD specs (tasks/prd-*) of the shown repository and its worktrees, with status, phase and task progress. Read and edit the markdown, delete old specs, and start or continue a spec with the SDD skills, here or in a new worktree.",
+  "description": "The SDD specs (tasks/prd-*) of the shown repository and its worktrees, with status, phase and task progress. Read and edit the markdown, delete old specs, and start or continue a spec with the SDD skills, here or in a new worktree. Works in spaces on other machines too.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/spec-board-app",
   "settings": [
     {

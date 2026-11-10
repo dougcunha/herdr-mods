@@ -1,8 +1,12 @@
 // The Node helper of the skill-bundles mod. The mod runs it with `node probe.mjs <json>`.
 // The mod runtime has no SHA-256 and reads files only as text, so the hashes are made here.
 //
-// Input (argv[2], JSON): { project, clone, catalogRepo }
+// Input (the last argument, JSON): { project, clone, catalogRepo, lockFile }
+//   For a project on another machine, the mod runs this code there with
+//   `node --input-type=module -e <code> <json>` (project only), then here with
+//   `lockFile` (the Lock that it read there) and the clone.
 // Output (stdout, JSON):
+//   platform    process.platform of the machine that ran it
 //   lock        the "skills" object of <project>/skills-lock.json ({} when there is none)
 //   lockError   the reason when the Lock is not valid JSON, else null
 //   dirs        the skill folders of the project (.agents/skills, .claude/skills) with a SKILL.md
@@ -110,18 +114,22 @@ async function skillFolders(root, depth, out = [], dir = root) {
 const sameRepo = (a, b) => String(a ?? "").split("#")[0].toLowerCase() === String(b ?? "").split("#")[0].toLowerCase();
 
 async function main() {
-  const { project, clone, catalogRepo } = JSON.parse(process.argv[2] ?? "{}");
-  const result = { lock: {}, lockError: null, dirs: [], hashes: {} };
+  const { project, clone, catalogRepo, lockFile } = JSON.parse(process.argv[process.argv.length - 1] ?? "{}");
+  const result = { platform: process.platform, lock: {}, lockError: null, dirs: [], hashes: {} };
 
-  try {
-    const text = await readFile(join(project, "skills-lock.json"), "utf8");
-    result.lock = JSON.parse(text).skills ?? {};
-  } catch (e) {
-    if (e.code !== "ENOENT") result.lockError = String(e.message ?? e);
+  if (lockFile) {
+    result.lock = JSON.parse(await readFile(lockFile, "utf8")) ?? {};
+  } else if (project) {
+    try {
+      const text = await readFile(join(project, "skills-lock.json"), "utf8");
+      result.lock = JSON.parse(text).skills ?? {};
+    } catch (e) {
+      if (e.code !== "ENOENT") result.lockError = String(e.message ?? e);
+    }
   }
 
   const names = new Set();
-  for (const sub of [[".agents", "skills"], [".claude", "skills"]]) {
+  for (const sub of project ? [[".agents", "skills"], [".claude", "skills"]] : []) {
     const dir = join(project, ...sub);
     let entries = [];
     try { entries = await readdir(dir, { withFileTypes: true }); } catch {}

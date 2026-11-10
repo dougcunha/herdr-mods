@@ -287,7 +287,6 @@ function body(t, m, s) {
   if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), button(t, "sb-open-settings", str.openSettings, () => m.a.settings())] });
   const p = m.proj;
   if (c.state !== "ready" || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
-  if (p.state === "remote") return message(t, m, str.remote, fill(str.remoteHint, { machine: p.machine }));
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
   if (!p.manifest) {

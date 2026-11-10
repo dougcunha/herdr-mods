@@ -3,7 +3,26 @@
 
 import { exec, home, readTextFile } from "herdr";
 
-export const isWin = () => /^[A-Za-z]:[\\/]/.test(home());
+// The machine of the shown space: null is this computer, else a name of `hc machine ls`.
+// Every program and every file read of the board runs there (see useMachine).
+let ON = null;
+let INFO = null; // { windows, home } of that machine (remote.js machineInfo)
+
+/** Sets the machine that the board reads and changes. */
+export function useMachine(on, info) {
+  ON = on || null;
+  INFO = on ? info ?? null : null;
+}
+/** The machine of the board: null is this computer. */
+export const machine = () => ON;
+
+export const isWin = () => (INFO ? INFO.windows : /^[A-Za-z]:[\\/]/.test(home()));
+/** The home folder of the machine of the board. */
+export const homeDir = () => norm(INFO ? INFO.home : home());
+/** exec on the machine of the board. */
+export const run = (cmd, args, opts = {}) => exec(cmd, args, ON ? { ...opts, on: ON } : opts);
+/** readTextFile on the machine of the board. */
+export const readText = (path) => (ON ? readTextFile(path, { on: ON }) : readTextFile(path));
 /** A path with forward slashes and no trailing slash (a drive root keeps it). */
 export const norm = (p) => String(p || "").trim().replace(/\\/g, "/").replace(/([^:/])\/+$/, "$1");
 /** Paths in one form, to compare them. */
@@ -26,14 +45,14 @@ export const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
 /** Runs a PowerShell command (Windows PowerShell is always there) and returns stdout. */
 export async function powershell(command, cwd) {
-  const r = await exec("powershell", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], cwd ? { cwd } : {});
+  const r = await run("powershell", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], cwd ? { cwd } : {});
   if (r.code !== 0) throw new Error((r.stderr || r.stdout || `exit ${r.code}`).trim());
   return r.stdout;
 }
 
 /** Runs git in `cwd`. Rejects with git's message when it fails. */
 export async function git(cwd, args) {
-  const r = await exec("git", ["-C", native(cwd), ...args]);
+  const r = await run("git", ["-C", native(cwd), ...args]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout || `git exit ${r.code}`).trim());
   return r.stdout;
 }
@@ -90,7 +109,7 @@ export async function listFiles(dir) {
       return { rel: rel.replace(/\\/g, "/"), time: Number(ms) || 0 };
     });
   }
-  const r = await exec("sh", ["-c", 'cd "$1" 2>/dev/null || exit 0; find . -maxdepth 4 -type f', "sh", dir]);
+  const r = await run("sh", ["-c", 'cd "$1" 2>/dev/null || exit 0; find . -maxdepth 4 -type f', "sh", dir]);
   return r.stdout.split(/\n/).filter(Boolean).map((l) => ({ rel: l.replace(/^\.\//, ""), time: 0 }));
 }
 
@@ -200,7 +219,7 @@ function specsOf(where, files) {
 async function readCheckpoint(spec) {
   if (!spec.docs.checkpoint) return undefined;
   try {
-    const text = await readTextFile(join(spec.path, spec.docs.checkpoint));
+    const text = await readText(join(spec.path, spec.docs.checkpoint));
     if (text == null) return undefined;
     const cp = JSON.parse(text);
     return cp && typeof cp === "object" ? cp : null;
@@ -212,7 +231,7 @@ async function readCheckpoint(spec) {
 /** The titles of the tasks from the list of tasks.md: `- [T01 — Title](task_01.md)`. */
 async function readTitles(spec) {
   if (!spec.docs.tasks) return {};
-  const text = await readTextFile(join(spec.path, spec.docs.tasks)).catch(() => null);
+  const text = await readText(join(spec.path, spec.docs.tasks)).catch(() => null);
   const titles = {};
   for (const m of String(text ?? "").matchAll(/\[([^\]]+)\]\((?:done\/)?(task_\d+\.md)\)/gi)) {
     titles[m[2].toLowerCase()] = m[1].replace(/^T\d+\s*[—–-]\s*/, "").trim();

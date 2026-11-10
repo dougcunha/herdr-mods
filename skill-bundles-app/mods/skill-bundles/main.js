@@ -13,8 +13,9 @@
 
 import { View, div } from "gpui-kit";
 import { InputState } from "gpui-base";
-import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
+import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
 import * as C from "./catalog.js";
+import { writeFileOn } from "./remote.js";
 import { parseCatalog, parseManifest, formatManifest, resolveManifest, sameRepo, withSource, withoutSource, withGitignoreBlock, orderBundles } from "./manifest.js";
 import { buildRows, groupRows, pending } from "./status.js";
 import { STR, fill } from "./text.js";
@@ -192,23 +193,26 @@ export default class SkillBundles extends View {
   }
 
   /**
-   * this.proj: { state: "none" } | { state: "remote", machine } | { state: "ready", root, name,
+   * this.proj: { state: "none" } | { state: "ready", root, name, machine, host,
    * manifestText, manifest, probe, rows, groups, counts, unknown } | { state: "error", error }
+   * `machine`: the project's machine (null: this computer). Its files and `npx skills` are read
+   * and run there; the Catalog clone stays on this computer. `host`: { on, windows } for npx.
    */
   async loadProject() {
     const loc = location();
-    if (loc.machine) { this.proj = { state: "remote", machine: loc.machine }; return; }
-    const root = await C.gitRoot(loc.cwd);
+    const on = loc.machine;
+    const root = await C.gitRoot(loc.cwd, on);
     if (!root) { this.proj = { state: "none" }; return; }
-    const manifestText = await readTextFile(`${root}/skills.yaml`).catch(() => null);
+    const manifestText = await (on ? readTextFile(`${root}/skills.yaml`, { on }) : readTextFile(`${root}/skills.yaml`)).catch(() => null);
     const manifest = manifestText === null ? null : parseManifest(manifestText);
     const catalog = this.cat.state === "ready" ? this.cat.catalog : null;
-    const probe = await C.probe(root, catalog ? this.cat.dir : null, catalog?.repo ?? null);
+    const probe = await C.probe(root, catalog ? this.cat.dir : null, catalog?.repo ?? null, on);
+    const host = on ? { on, windows: probe.platform ? probe.platform === "win32" : /^[A-Za-z]:/.test(root) } : null;
     const { rows, unknown, counts } = buildRows({ manifest, catalog, probe: probe.error ? null : probe });
     // Another project: the Bundle choice and the mode of the old one do not apply.
-    if (this.proj.root !== root) { this.pick = new Set(); this.mode = "list"; this.error = null; }
+    if (this.proj.root !== root || this.proj.machine !== on) { this.pick = new Set(); this.mode = "list"; this.error = null; }
     this.proj = {
-      state: "ready", root, name: baseName(root), manifestText, manifest, probe,
+      state: "ready", root, name: on ? `${baseName(root)} · ${on}` : baseName(root), machine: on, host, manifestText, manifest, probe,
       rows, groups: groupRows(rows, manifest), counts, unknown,
     };
   }
@@ -367,21 +371,21 @@ export default class SkillBundles extends View {
     });
   }
 
-  /** `npx skills add` for each repository: [{ repo, skills }]. */
-  async install(root, groups) {
+  /** `npx skills add` for each repository: [{ repo, skills }], in project `p` (on its machine). */
+  async install(p, groups) {
     const blocked = this.installBlock();
     if (blocked) throw new Error(blocked);
     for (const g of groups) {
       if (!g.skills.length) continue;
       setShared(KEY.job, { ...(shared(KEY.job) ?? {}), label: fill(this.str.busyInstall, { n: g.skills.length }), at: Date.now() });
-      const r = await C.npx(["skills", "add", this.pkg(g.repo), "-s", ...g.skills, "-y"], root);
+      const r = await C.npx(["skills", "add", this.pkg(g.repo), "-s", ...g.skills, "-y"], p.root, p.host);
       if (r.code !== 0) throw new Error(C.tail(r) || `npx skills add ${g.repo}`);
     }
   }
 
-  async uninstall(root, names) {
+  async uninstall(p, names) {
     if (!names.length) return;
-    const r = await C.npx(["skills", "remove", ...names, "-y"], root);
+    const r = await C.npx(["skills", "remove", ...names, "-y"], p.root, p.host);
     if (r.code !== 0) throw new Error(C.tail(r) || "npx skills remove");
   }
 
@@ -397,7 +401,7 @@ export default class SkillBundles extends View {
   }
 
   async writeManifest(project, manifest) {
-    await writeTextFile(`${project.root}/skills.yaml`, formatManifest(manifest), project.manifestText);
+    await writeFileOn(project.machine, `${project.root}/skills.yaml`, formatManifest(manifest), project.manifestText);
   }
 
   /**
@@ -413,15 +417,15 @@ export default class SkillBundles extends View {
     }
     if (!byRepo.size) return;
     const groups = [...byRepo].map(([repo, skills]) => ({ repo, skills }));
-    this.act(cx, this.str.syncAll, async (p) => this.install(p.root, groups));
+    this.act(cx, this.str.syncAll, async (p) => this.install(p, groups));
   }
 
   installOne(cx, row) {
-    this.act(cx, fill(this.str.busyInstall, { n: 1 }), async (p) => this.install(p.root, [{ repo: row.repo, skills: [row.name] }]));
+    this.act(cx, fill(this.str.busyInstall, { n: 1 }), async (p) => this.install(p, [{ repo: row.repo, skills: [row.name] }]));
   }
 
   removeExtra(cx, row) {
-    this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => this.uninstall(p.root, [row.name]));
+    this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => this.uninstall(p, [row.name]));
   }
 
   /**
@@ -433,7 +437,7 @@ export default class SkillBundles extends View {
     if (this.job() || !this.armed(cx, `local:${row.name}`)) return;
     this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => {
       for (const sub of [".agents/skills", ".claude/skills"]) {
-        const error = await C.removeFolder(`${p.root}/${sub}/${row.name}`);
+        const error = await C.removeFolder(`${p.root}/${sub}/${row.name}`, p.machine);
         if (error) throw new Error(error);
       }
     }, fill(this.str.localRemoved, { name: row.name }));
@@ -455,7 +459,7 @@ export default class SkillBundles extends View {
     this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => {
       const next = withoutSource(p.manifest, row.name);
       await this.writeManifest(p, next);
-      if (!this.required(next).names.has(row.name)) await this.uninstall(p.root, [row.name]);
+      if (!this.required(next).names.has(row.name)) await this.uninstall(p, [row.name]);
     });
   }
 
@@ -467,9 +471,9 @@ export default class SkillBundles extends View {
       const before = this.required(p.manifest).names;
       const after = this.required(next);
       await this.writeManifest(p, next);
-      await this.install(p.root, after.groups);
+      await this.install(p, after.groups);
       const installed = new Set(Object.keys(p.probe?.lock ?? {}));
-      await this.uninstall(p.root, [...before].filter((n) => !after.names.has(n) && installed.has(n)));
+      await this.uninstall(p, [...before].filter((n) => !after.names.has(n) && installed.has(n)));
     });
   }
 
@@ -478,11 +482,12 @@ export default class SkillBundles extends View {
     const bundles = orderBundles([...this.pick]);
     this.act(cx, this.str.busyWrite, async (p) => {
       const manifest = { bundles, sources: [] };
-      await writeTextFile(`${p.root}/skills.yaml`, formatManifest(manifest), null);
-      const gitignore = await readTextFile(`${p.root}/.gitignore`).catch(() => null);
+      await writeFileOn(p.machine, `${p.root}/skills.yaml`, formatManifest(manifest), null);
+      const path = `${p.root}/.gitignore`;
+      const gitignore = await (p.machine ? readTextFile(path, { on: p.machine }) : readTextFile(path)).catch(() => null);
       const next = withGitignoreBlock(gitignore);
-      if (next !== null) await writeTextFile(`${p.root}/.gitignore`, next, gitignore);
-      await this.install(p.root, this.required(manifest).groups);
+      if (next !== null) await writeFileOn(p.machine, path, next, gitignore);
+      await this.install(p, this.required(manifest).groups);
     });
   }
 
@@ -491,7 +496,7 @@ export default class SkillBundles extends View {
     const persist = this.persist;
     const repo = this.cat.catalog.repo;
     this.act(cx, fill(this.str.busyInstall, { n: 1 }), async (p) => {
-      await this.install(p.root, [{ repo, skills: [name] }]);
+      await this.install(p, [{ repo, skills: [name] }]);
       if (persist) await this.writeManifest(p, withSource(p.manifest, repo, [name]));
     });
   }

@@ -8,9 +8,10 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, EditorState, Editor, TextView } from "gpui-base";
 import {
   theme, settings, props, shared, setShared, spaces, panes, focused, run, notify, nextCommand,
-  readTextFile, writeTextFile, watchFolder, closeOverlay, exec,
+  watchFolder, closeOverlay, exec,
 } from "herdr";
-import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin } from "./data.js";
+import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin, useMachine, machine, readText } from "./data.js";
+import { machineInfo, writeFileOn } from "./remote.js";
 import {
   KEY, launch, openSession, sendToSession, resolveSkill, promptFor, quoteArg, triageNames, flowNames, branchFrom, branchPrefix, checkBranch,
   makeWorktree, worktreePath, commitState, isTracked, copySpec, trash,
@@ -34,7 +35,7 @@ const STR = {
   en: {
     title: "Specs", refresh: "Refresh", newSpec: "New spec", sort: "Sort", search: "Search specs…",
     showDone: "Show done", noRepo: "Open a terminal in a repository to see its specs.",
-    remote: "Spec Board reads specs of this computer only.",
+    onMachine: "{repo} · on {machine}",
     noTasks: "No SDD specs here. A spec is a folder tasks/prd-<name>/ of the repository.",
     noMatch: "No spec matches.", loading: "Reading specs…", demo: "Example specs",
     sortGroup: "Urgency, grouped", sortUrgency: "Urgency", sortName: "Name",
@@ -72,7 +73,7 @@ const STR = {
   pt: {
     title: "Specs", refresh: "Atualizar", newSpec: "Nova spec", sort: "Ordenar", search: "Buscar specs…",
     showDone: "Mostrar concluídas", noRepo: "Abra um terminal num repositório para ver as specs dele.",
-    remote: "O Spec Board lê só specs deste computador.",
+    onMachine: "{repo} · em {machine}",
     noTasks: "Não há specs SDD aqui. Uma spec é uma pasta tasks/prd-<nome>/ do repositório.",
     noMatch: "Nenhuma spec corresponde.", loading: "Lendo as specs…", demo: "Specs de exemplo",
     sortGroup: "Urgência, em grupos", sortUrgency: "Urgência", sortName: "Nome",
@@ -128,8 +129,11 @@ function location() {
     const tab = space.tabs.find((t) => t.active)?.id;
     pane = all.find((p) => p.tab === tab && p.terminal && p.cwd) ?? null;
   }
-  return { cwd: pane?.cwd || f?.cwd || space?.folder || null, remote: space?.machine != null };
+  return { cwd: pane?.cwd || f?.cwd || space?.folder || null, machine: space?.machine ?? null };
 }
+
+/** How often the board reads a space on another machine again: watchFolder works only here. */
+const REMOTE_POLL_MS = 15000;
 
 export default class SpecBoard extends View {
   init(given, cx) {
@@ -157,7 +161,8 @@ export default class SpecBoard extends View {
     this.search = InputState.new({ placeholder: this.s("search") });
     this.search.on("change", (_e, cx) => cx.notify());
     cx.timer.every(1500, (cx) => kitOff() || this.follow(cx));
-    cx.timer.every(30000, (cx) => kitOff() || this.refresh(cx));
+    cx.timer.every(30000, (cx) => kitOff() || this.machine || this.refresh(cx));
+    cx.timer.every(REMOTE_POLL_MS, (cx) => kitOff() || !this.machine || this.demo || this.refresh(cx, true));
     this.follow(cx);
     cx.spawn(async (cx) => {
       for (;;) {
@@ -191,11 +196,14 @@ export default class SpecBoard extends View {
   /** Rescans when the shown space moves to another folder. */
   follow(cx) {
     const loc = location();
-    const key = `${loc.remote}|${loc.cwd ?? ""}`;
+    const key = `${loc.machine ?? ""}|${loc.cwd ?? ""}`;
     if (key === this.loc) return;
     this.loc = key;
-    this.remote = loc.remote;
+    this.machine = loc.machine;
     this.cwd = loc.cwd;
+    this.texts.clear();
+    this.times.clear();
+    if (loc.machine) { this.watched = new Set(); this.watchGen++; }
     this.repo = null;
     this.specs = [];
     this.sel = null;
@@ -205,8 +213,9 @@ export default class SpecBoard extends View {
     this.refresh(cx);
   }
 
-  refresh(cx) {
-    if (this.loading) { this.again = true; return; }
+  /** Reads the specs again. `poll`: the timer of a space on another machine (files read again too). */
+  refresh(cx, poll = false) {
+    if (this.loading) { if (!poll) this.again = true; return; }
     if (this.demo) {
       this.repo = this.demo.repo;
       this.specs = this.demo.specs;
@@ -214,20 +223,30 @@ export default class SpecBoard extends View {
       cx.notify();
       return;
     }
-    if (!this.cwd || this.remote) { cx.notify(); return; }
+    if (!this.cwd) { cx.notify(); return; }
     this.loading = true;
-    this.error = "";
+    if (!poll) this.error = "";
     cx.notify();
     const cwd = this.cwd;
+    const on = this.machine;
     cx.spawn(async (cx) => {
       try {
+        // Every read and program of the board runs on the machine of the shown space.
+        useMachine(on, on ? await machineInfo(on) : null);
         const repo = await findRepo(cwd);
         const { specs, tasksDirs } = await scan(repo);
-        if (cwd !== this.cwd) return;
+        if (cwd !== this.cwd || on !== this.machine) return;
         this.repo = repo;
         this.specs = specs;
-        this.forgetChanged(specs);
-        this.watch(tasksDirs, cx);
+        this.error = "";
+        if (on) {
+          // No watch on another machine: a poll reads the files of the cache again.
+          await Promise.all([...this.texts.keys()].filter((k) => this.edit?.path !== k && this.texts.get(k) !== undefined)
+            .map(async (k) => { this.texts.set(k, await readText(k).catch(() => null)); }));
+        } else {
+          this.forgetChanged(specs);
+          this.watch(tasksDirs, cx);
+        }
       } catch (e) {
         this.error = errText(e);
       } finally {
@@ -282,7 +301,7 @@ export default class SpecBoard extends View {
     if (this.demo) return null;
     this.texts.set(path, undefined);
     cx.spawn(async (cx) => {
-      const t = await readTextFile(path).catch(() => null);
+      const t = await readText(path).catch(() => null);
       this.texts.set(path, t);
       const spec = this.specs.find((s) => path.startsWith(s.path + "/"));
       this.times.set(path, spec?.time ?? 0);
@@ -465,7 +484,7 @@ export default class SpecBoard extends View {
   }
 
   openFolder(spec) {
-    if (this.demo) return;
+    if (this.demo || this.machine) return;
     if (isWin()) exec("explorer", [native(spec.path)]).catch(() => {});
     else exec("sh", ["-c", 'open "$1" 2>/dev/null || xdg-open "$1"', "sh", spec.path]).catch(() => {});
   }
@@ -491,7 +510,7 @@ export default class SpecBoard extends View {
     }
     cx.spawn(async (cx) => {
       try {
-        await writeTextFile(native(ed.path), value, ed.original);
+        await writeFileOn(machine(), native(ed.path), value, ed.original);
         this.texts.set(ed.path, value);
         this.edit = null;
         this.toast(this.s("saved"), ed.path.split("/").slice(-2).join("/"), "success");
@@ -609,7 +628,7 @@ export default class SpecBoard extends View {
   // ---- list ------------------------------------------------------------------
 
   header(t) {
-    const sub = this.demo ? this.s("demo") : this.repo ? this.repo.name : "";
+    const sub = this.demo ? this.s("demo") : !this.repo ? "" : this.machine ? this.s("onMachine", { repo: this.repo.name, machine: this.machine }) : this.repo.name;
     return h_flex().h(46).flex_none().px(12).gap(8).items_center().border_b_1().border_color(t.border)
       .child(div().size(26).flex_none().flex().items_center().justify_center().rounded(7).bg(tint(t.accent, "22"))
         .child(svg(icon("specs")).size(15).text_color(t.accent)))
@@ -699,8 +718,7 @@ export default class SpecBoard extends View {
 
   list(t) {
     let body;
-    if (this.remote && !this.demo) body = this.message(t, this.s("remote"));
-    else if (!this.cwd && !this.demo) body = this.message(t, this.s("noRepo"));
+    if (!this.cwd && !this.demo) body = this.message(t, this.s("noRepo"));
     else if (this.error) body = this.message(t, this.error);
     else if (!this.repo && this.loading) body = this.message(t, this.s("loading"));
     else if (!this.specs.length) body = this.message(t, this.loading ? this.s("loading") : this.s("noTasks"));
@@ -753,7 +771,7 @@ export default class SpecBoard extends View {
         .child(svg(icon("chevron-down")).size(13).text_color(t.muted)));
     }
     row.child(div().flex_1())
-      .child(this.iconBtn(t, "sb-folder", "external-link", this.s("openFolder"), () => this.openFolder(spec)))
+      .when(!this.machine, (e) => e.child(this.iconBtn(t, "sb-folder", "external-link", this.s("openFolder"), () => this.openFolder(spec))))
       .child(this.iconBtn(t, "sb-del", "trash", this.s("del"), (cx) => this.askDelete(spec, cx)));
     const session = this.menu === spec.slug && !this.demo ? openSession(spec.where.path) : null;
     const menu = this.menu === spec.slug

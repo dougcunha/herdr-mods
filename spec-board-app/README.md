@@ -84,6 +84,6 @@ Add this entry to `~/.config/herdr-app/dock/panels.json`:
 
 ## Notes
 
-- Only specs of this computer: a space on another machine shows a message.
+- A space on another machine (`hc machine ls`) works too. Git, the file list, the reads, the worktrees, the copy and the delete run on that machine, and a new agent starts in a space there. The header shows `<repo> · on <machine>`. Differences: there is no folder watch (the board reads again every 15 s), there is no **Open folder** button, and **Save** needs `node` on that machine. A worktree folder in the settings applies there only when it starts with `~`.
 - Icons: [Lucide](https://lucide.dev) (ISC license).
 - Checked with `herdr-app check`, with screenshots of the demo (list, groups, detail, tasks, reviews, editor, mode menu and the 3 sheets) in the side panel and in the dialog, and with a test repository with a worktree: the list, the copy that wins, the folder watch, the commit check and the copy and Recycle Bin commands. Typing in the editor, Save, and a real start of an agent were not tested in a real session.

@@ -1,8 +1,8 @@
 // What the Spec Board does on disk and in Herdr: start an agent with an SDD
 // skill, make a git worktree, copy a spec into it, and move a spec to the trash.
 
-import { spaces, panes, agents, run, shared, home, knownAgents, readTextFile, exec, hc } from "herdr";
-import { git, powershell, psQuote, native, join, norm, inside, isWin } from "./data.js";
+import { spaces, panes, agents, run, shared, knownAgents, hc } from "herdr";
+import { git, powershell, psQuote, native, join, norm, inside, isWin, homeDir, machine, readText, run as runOn } from "./data.js";
 
 // The preferences (mods-hub Settings tab, kit.json). Read on every use.
 export const KEY = {
@@ -25,7 +25,14 @@ export const branchPrefix = () => {
   const v = shared(KEY.branchPrefix);
   return typeof v === "string" ? v.trim() : "feat/";
 };
-export const worktreeRoot = () => norm(text(KEY.worktreeRoot, join(home(), ".herdr/worktrees")).replace(/^~(?=[\\/]|$)/, home()));
+// The setting is a folder of this computer. On another machine, only a value that starts
+// with `~` applies (the home folder there); else the default folder of that machine.
+export const worktreeRoot = () => {
+  const fallback = join(homeDir(), ".herdr/worktrees");
+  const v = text(KEY.worktreeRoot, fallback);
+  const tilde = /^~(?=[\\/]|$)/;
+  return norm((machine() && !tilde.test(v) ? fallback : v).replace(tilde, homeDir()));
+};
 const names = (key, fallback) => text(key, fallback).split(/[\s,;]+/).filter(Boolean);
 export const triageNames = () => names(KEY.triage, "sdd-triar");
 export const flowNames = () => names(KEY.flow, "sdd-orquestrar-fluxo");
@@ -38,11 +45,11 @@ export const flowNames = () => names(KEY.flow, "sdd-orquestrar-fluxo");
 export async function resolveSkill(candidates, repoRoot) {
   const dirs = [
     join(repoRoot, ".claude/skills"), join(repoRoot, ".agents/skills"),
-    join(home(), ".claude/skills"), join(home(), ".agents/skills"), join(home(), ".codex/skills"),
+    join(homeDir(), ".claude/skills"), join(homeDir(), ".agents/skills"), join(homeDir(), ".codex/skills"),
   ];
   for (const name of candidates) {
     for (const dir of dirs) {
-      const found = await readTextFile(join(dir, name, "SKILL.md")).catch(() => null);
+      const found = await readText(join(dir, name, "SKILL.md")).catch(() => null);
       if (found != null) return name;
     }
   }
@@ -60,20 +67,23 @@ export const quoteArg = (s) => `"${String(s).replace(/\s+/g, " ").trim().replace
 /** The argv of the chosen agent: its `run` from knownAgents(), else its key as a program. */
 export async function agentArgv() {
   const key = agentKey();
-  const list = await knownAgents().catch(() => []);
+  const list = await knownAgents(machine() ? { on: machine() } : undefined).catch(() => []);
   const a = list.find((x) => x.key === key) ?? list.find((x) => x.name?.toLowerCase() === key.toLowerCase());
   return a?.run?.length ? a.run : [key];
 }
 
+/** True when space `s` is on the machine of the board. */
+const onBoardMachine = (s) => (s.machine ?? null) === machine();
+
 /**
- * The open space of this computer that works in `folder`: a space with a
- * terminal whose live folder is in it, the shown space first.
+ * The open space on the machine of the board that works in `folder`: a space
+ * with a terminal whose live folder is in it, the shown space first.
  */
 export function spaceFor(folder) {
   const tabs = new Map();
   for (const p of panes()) if (p.terminal && inside(p.cwd, folder)) tabs.set(p.tab, (tabs.get(p.tab) ?? 0) + 1);
   const hits = spaces()
-    .filter((s) => s.machine == null)
+    .filter(onBoardMachine)
     .map((s) => ({ s, n: s.tabs.reduce((sum, t) => sum + (tabs.get(t.id) ?? 0), 0) }))
     .filter((x) => x.n > 0)
     .sort((a, b) => (Number(b.s.active) - Number(a.s.active)) || (b.n - a.n));
@@ -92,18 +102,18 @@ export async function launch(folder, prompt, name) {
     run("tab.new", { space: space.id, folder: native(folder), argv, task: prompt, ...(name ? { name } : {}) });
     return "tab";
   }
-  run("space.new", { folder: native(folder), argv, task: prompt, ...(name ? { tab: name } : {}) });
+  run("space.new", { folder: native(folder), argv, task: prompt, machine: machine() ?? "", ...(name ? { tab: name } : {}) });
   return "space";
 }
 
 /**
  * The open session of the chosen agent that can take a message in `folder`:
- * an agent of this computer that is idle (or done) and whose live folder is in
- * `folder`. The most recent one first. Null when there is none.
+ * an agent on the machine of the board that is idle (or done) and whose live
+ * folder is in `folder`. The most recent one first. Null when there is none.
  */
 export function openSession(folder) {
   const key = agentKey().toLowerCase();
-  const local = new Set(spaces().filter((s) => s.machine == null).map((s) => s.id));
+  const local = new Set(spaces().filter(onBoardMachine).map((s) => s.id));
   const cwd = new Map(panes().map((p) => [p.pane, p.cwd]));
   const hits = agents().filter((a) => (a.status === "idle" || a.status === "done") && local.has(a.space)
     && (a.program?.key?.toLowerCase() === key || a.program?.name?.toLowerCase() === key)
@@ -170,7 +180,7 @@ export async function copySpec(spec, to) {
       + `Copy-Item -LiteralPath ${psQuote(native(spec.path))} -Destination $d -Recurse -Force`);
     return dest;
   }
-  const r = await exec("sh", ["-c", 'mkdir -p "$(dirname "$2")" && cp -R "$1" "$2"', "sh", spec.path, dest]);
+  const r = await runOn("sh", ["-c", 'mkdir -p "$(dirname "$2")" && cp -R "$1" "$2"', "sh", spec.path, dest]);
   if (r.code !== 0) throw new Error((r.stderr || `exit ${r.code}`).trim());
   return dest;
 }
@@ -182,6 +192,6 @@ export async function trash(path) {
       + `[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(${psQuote(native(path))}, 'OnlyErrorDialogs', 'SendToRecycleBin')`);
     return;
   }
-  const r = await exec("sh", ["-c", 'gio trash "$1" 2>/dev/null || rm -rf "$1"', "sh", path]);
+  const r = await runOn("sh", ["-c", 'gio trash "$1" 2>/dev/null || rm -rf "$1"', "sh", path]);
   if (r.code !== 0) throw new Error((r.stderr || `exit ${r.code}`).trim());
 }
