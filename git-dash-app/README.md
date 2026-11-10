@@ -59,6 +59,7 @@ herdr-app do tab.new --name Pending --mod git-dash --props '{"root":"D:/Projetos
 | **Publish to origin** | `git push -u origin <branch>`, when the branch has commits and no upstream. |
 | **Terminal** | Opens a terminal tab in the repository, in the current space, and runs `git status`. |
 | **New space** | Opens the repository in a new space and runs `git status`. |
+| **Git** | Opens the repository in the Git panel (the `git-client` mod). A terminal of the repository gets the focus. With no terminal there, a new tab opens in the current space, or a new space when there is no space. Then the Changes panel of the bar opens. The button shows only while `git-client` is on. |
 | **Delete** (merged branch) | Deletes one merged branch: on its remote too when the remote copy exists, then the local branch. |
 | **Remove worktree** (merged branch of a linked worktree) | Removes the worktree folder, then deletes the branch: on its remote too when the remote copy exists, then the local branch. |
 | **Delete all N** | Deletes all merged branches of the repository that can be deleted now, and removes their worktrees. |

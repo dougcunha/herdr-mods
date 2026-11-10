@@ -2,7 +2,7 @@
 // one or more base folders. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder, run, panes, notify, home, nextCommand, closeOverlay } from "herdr";
+import { theme, props, shared, setShared, pickFolder, run, panes, spaces, layout, openOverlay, notify, home, nextCommand, closeOverlay } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
 
@@ -10,6 +10,17 @@ import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smal
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-dash"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+// The Git button opens the git-client mod: it shows only while that kit mod is on.
+const gitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-client"); };
+/** The first node of a layout tree with the id `id`, and its parent. */
+const findNode = (node, id, parent = null) => {
+  if (!node) return null;
+  if (node.id === id) return { node, parent };
+  for (const c of node.children ?? []) { const hit = findNode(c, id, node); if (hit) return hit; }
+  return null;
+};
+/** True when a block of the tree shows the mod `mod`. */
+const hasMod = (node, mod) => Boolean(node) && (node.content?.mod === mod || (node.children ?? []).some((c) => hasMod(c, mod)));
 
 // The base folders: one list for every copy of the panel, with forward slashes.
 const KEY_ROOTS = "git-dash.roots";
@@ -72,6 +83,7 @@ const STR = {
     openTab: "Terminal", openSpace: "New space", retryTab: "Run in terminal",
     openTabTip: "Open a terminal tab in this repository, in the current space, and run git status.",
     openSpaceTip: "Open this repository in a new space and run git status.",
+    openGit: "Git", openGitTip: "Open this repository in the Git panel. A terminal of the repository gets the focus; with no terminal there, a new tab opens in the current space (or a new space, when there is no space).",
     confirmRun: "Run this command?", confirmRunN: "Run these commands?", run: "Run", cancel: "Cancel", running: "Running…",
     commitPh: "Commit message (Enter to commit)", noMsg: "Type a commit message.",
     mode_staged: "Staged only", mode_tracked: "Tracked files", mode_all: "All, with new files",
@@ -121,6 +133,7 @@ const STR = {
     openTab: "Terminal", openSpace: "Novo space", retryTab: "Rodar no terminal",
     openTabTip: "Abre uma aba de terminal neste repositório, no space atual, e roda git status.",
     openSpaceTip: "Abre este repositório em um novo space e roda git status.",
+    openGit: "Git", openGitTip: "Abre este repositório no painel Git. Um terminal do repositório recebe o foco; sem terminal lá, uma nova aba abre no space atual (ou um novo space, quando não há space).",
     confirmRun: "Rodar este comando?", confirmRunN: "Rodar estes comandos?", run: "Rodar", cancel: "Cancelar", running: "Rodando…",
     commitPh: "Mensagem do commit (Enter faz o commit)", noMsg: "Digite uma mensagem de commit.",
     mode_staged: "Só staged", mode_tracked: "Arquivos rastreados", mode_all: "Tudo, com arquivos novos",
@@ -420,6 +433,62 @@ export default class GitDash extends View {
     for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
   }
 
+  /** Opens the repository in the Git panel (the git-client mod). The panel follows the focused terminal, so a
+   *  terminal of the repository gets the focus first: one that works there now (the current space first), else a
+   *  new tab in the current space, else a new space. Then the Changes panel of the bar opens. */
+  openGit(r, cx) {
+    const dir = samePath(r.path);
+    // A terminal in a nested repository of the list shows that repository, not this one.
+    const nested = [...this.repos.keys()].map(samePath).filter((k) => k !== dir && k.startsWith(`${dir}/`));
+    const inRepo = (cwd) => {
+      const c = samePath(cwd);
+      return (c === dir || c.startsWith(`${dir}/`)) && !nested.some((k) => c === k || c.startsWith(`${k}/`));
+    };
+    const local = (spaces() ?? []).filter((s) => s.machine == null);
+    const spaceOf = (tab) => local.find((s) => s.tabs.some((t) => t.id === tab));
+    const hits = (panes() ?? []).filter((p) => p.terminal && p.cwd && inRepo(p.cwd) && spaceOf(p.tab));
+    const pane = hits.find((p) => spaceOf(p.tab).active) ?? hits[0];
+    const showPanel = () => this.showGitPanel(r.path);
+    if (pane) {
+      run("space.select", { id: spaceOf(pane.tab).id });
+      run("pane.focus", { pane: pane.pane });
+      return showPanel();
+    }
+    const folder = /^[A-Za-z]:[\\/]/.test(r.path) ? r.path.replace(/\//g, "\\") : r.path;
+    const name = base(r.path);
+    const before = new Set((panes() ?? []).map((p) => p.terminal).filter(Boolean));
+    const current = local.find((s) => s.active);
+    if (current) run("tab.new", { name, space: current.id, folder });
+    else run("space.new", { name, folder });
+    // The new terminal starts a moment later: focus it, so a layout that follows the focused pane shows it.
+    let tries = 0;
+    const focusNew = (cx) => {
+      const fresh = (panes() ?? []).find((p) => p.terminal && !before.has(p.terminal));
+      if (fresh) { run("pane.focus", { terminal: fresh.terminal }); showPanel(); return; }
+      if (++tries < 20) cx.timer.after(100, focusNew); else showPanel();
+    };
+    cx.timer.after(50, focusNew);
+    for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
+  }
+
+  /** Shows the Changes panel (git-client) of the bar of the shown layout. A layout with no such panel gets a dialog. */
+  showGitPanel(path) {
+    const root = layout();
+    const body = findNode(root, "panel-body");
+    const changes = (body?.node.children ?? []).find((c) => c.id === "changes" && !c.hidden);
+    const bar = hasMod(root, "kanban") ? "kanban.panel-changes" : hasMod(root, "tabs-dock") ? "tabs-dock.changes" : null;
+    if (changes && bar) {
+      // The Changes panel shows in the side panel now: leave it (the bar command closes a panel that shows).
+      const panel = findNode(root, "panel")?.node ?? body.node; // the same rule as the bars
+      const dialog = shared("kanban.panelDialog");
+      if (!dialog?.id && panel && !panel.hidden && body.node.active === "changes") return;
+      return run(bar);
+    }
+    const own = this.props.overlay;
+    if (own) closeOverlay(own);
+    openOverlay({ mod: "git-client", props: { folder: path }, kind: "dialog", width: 0.82, height: 0.85 });
+  }
+
   /** True when a terminal of Herdr works inside `dir` (Windows cannot remove that folder). */
   inUse(dir) {
     const d = samePath(dir);
@@ -585,7 +654,9 @@ export default class GitDash extends View {
           .child(smallButton(t, key("gd-tab"), this.s("openTab"), (cx) => this.openTerminal(r, "tab", cx),
             { symbol: "terminal", tooltip: this.s("openTabTip") }))
           .child(smallButton(t, key("gd-space"), this.s("openSpace"), (cx) => this.openTerminal(r, "space", cx),
-            { tooltip: this.s("openSpaceTip") })))
+            { tooltip: this.s("openSpaceTip") }))
+          .when(!gitOff(), (e) => e.child(smallButton(t, key("gd-git"), this.s("openGit"), (cx) => this.openGit(r, cx),
+            { symbol: "branch", tooltip: this.s("openGitTip") }))))
         .when(fx.merged.length > 0, (e) => e.child(this.mergedList(r, fx, t, key)));
     }
 
