@@ -48,7 +48,7 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - **Resolve with agent** reads `git name-rev --name-only` of `MERGE_HEAD` (`CHERRY_PICK_HEAD`, `REVERT_HEAD`, `REBASE_HEAD`) for the prompt, then opens the dialog. The agents come from `shared("git-client.agents")[machine]`, else the lists of issues and repo-launcher, else `knownAgents({ on })`. **Start agent**: `tab.new { space, folder: root, name: "Resolve <op>", argv: agent.run, task: prompt }`, and `shared("git-client.lastAgent")`.
 - **File history** / **Blame** set `shared("git-client.show")` = `{ file, mode, at }`; the panel shows the file view until Back, Esc, a tab click or another repository.
 - **Open in the client** sets `shared("git-client.show")` = `{ sub: { cwd, on, name }, at }`: the panel pushes it on a stack and reads that folder; **Back** pops it. The signal is handled before the read of the render, and `reload()` of the tabs never calls `cx.notify()` in a render.
-- When the mod is off in Herdr Mods (`herdr-mods.disabled`), it draws nothing, closes its dialog and skips its timers.
+- When the mod is off in PowerMods (`herdr-mods.disabled`), it draws nothing, closes its dialog and skips its timers.
 
 ## Built from
 

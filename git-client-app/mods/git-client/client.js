@@ -27,7 +27,7 @@ const TABS = [
   { id: "stash", label: "Stash", icon: "stash" },
   { id: "submodules", label: "Submodules", icon: "package" },
 ];
-// Preferences of the Settings tab of Herdr Mods.
+// Preferences of the Settings tab of PowerMods.
 const pullMode = () => (["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config");
 const prune = () => shared("git-client.prune") !== false;
 const NARROW = 420;

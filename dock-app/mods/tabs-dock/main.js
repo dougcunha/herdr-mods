@@ -79,7 +79,7 @@ function arrange(items, order) {
 }
 
 const STR = {
-  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
     newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
     density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
     densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
@@ -90,7 +90,7 @@ const STR = {
     toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
     gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
     hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset" },
-  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
     newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
     densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
@@ -458,7 +458,7 @@ export default class Tabs extends View {
   }
 
   // The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
-  // installed, the Herdr Mods dialog.
+  // installed, the PowerMods dialog.
   openGear() {
     const open = (hub) => openOverlay({ mod: "tabs-dock", kind: "popup", width: MENU_W,
       height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
@@ -512,7 +512,7 @@ export default class Tabs extends View {
           .child(this.s("resetButtons"))));
   }
 
-  // The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+  // The menu of the gear button. "PowerMods" opens the dialog on its Settings tab (the tab that the
   // mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
   // for the editor ("tabs-dock.buttons"): the bar knows the buttons.
   gearMenu(t) {

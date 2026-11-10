@@ -1,6 +1,6 @@
 // The AI commit message: asks a small model (Claude Code or Codex) for a message from the staged diff.
 // The call runs on the machine of the repository. Settings: shared("git-client.ai"), set in the
-// Settings tab of Herdr Mods (kit.json).
+// Settings tab of PowerMods (kit.json).
 import { exec, knownAgents, shared } from "herdr";
 import { READ, messagePrompt, cleanMessage, gitError } from "./git.js";
 

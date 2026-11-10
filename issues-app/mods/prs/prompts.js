@@ -20,7 +20,7 @@ export const PLACEHOLDERS = {
 };
 
 // Extra Jira fields for the prompts (custom fields such as "Refinement"), set in the Settings tab of
-// Herdr Mods: shared("issues.extraFields"), names or ids (customfield_10545) split by commas or lines.
+// PowerMods: shared("issues.extraFields"), names or ids (customfield_10545) split by commas or lines.
 // Each one is a placeholder of its own ({refinement}); {fields} holds all of them, one section each.
 const EXTRA = "issues.extraFields", MAX_EXTRA = 10;
 export function extraFieldNames() {

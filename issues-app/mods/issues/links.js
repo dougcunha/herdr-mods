@@ -54,7 +54,7 @@ export function linkSource(space, repo) {
 
 // The default Jira project of every space without a link: shared("issues.defaultJira")
 // { site, key, filter? }, set in Link space ("Save for: every space without a link") or in the Settings
-// tab of Herdr Mods. Used after a space's link and the repository's .herdr/jira.toml, before a guess.
+// tab of PowerMods. Used after a space's link and the repository's .herdr/jira.toml, before a guess.
 export const DEFAULT_JIRA = "issues.defaultJira";
 export function defaultJira() {
   const d = shared(DEFAULT_JIRA);

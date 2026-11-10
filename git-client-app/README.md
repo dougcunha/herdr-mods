@@ -49,7 +49,7 @@ Each submodule with its folder, its commit, its description and branch, the numb
 
 ## Settings
 
-In the **Settings** tab of Herdr Mods:
+In the **Settings** tab of PowerMods:
 
 - **Diff view:** Unified or Split (`shared("git-client.view")`).
 - **Pull:** Git config (what `pull.rebase` and `pull.ff` say; the default), Fast-forward only, Rebase or Merge.

@@ -1,6 +1,6 @@
-# Herdr Mods (mods-hub)
+# PowerMods (mods-hub)
 
-The central dialog of this kit. A status bar item tells you when this repository has a new version of its mods. A click opens the **Herdr Mods** dialog: the installed mods, the release notes, and an agent that updates the kit.
+The central dialog of this kit. A status bar item tells you when this repository has a new version of its mods. A click opens the **PowerMods** dialog: the installed mods, the release notes, and an agent that updates the kit.
 
 Before version 5 of the setup, this mod was `mods-update`. The setup prompt moves an installed `mods-update` to `mods-hub` (see "Move from mods-update").
 
@@ -20,7 +20,7 @@ No preview of the dialog ships with this recipe: a real screenshot shows the mod
 
 Open it with a click on the status bar item, with `ctrl-shift-h` (`cmd-shift-h` on macOS; the setup adds the key only when it is free), or with `mod.open:mods-hub` in the palette.
 
-The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **Herdr Mods**. **Herdr Mods** opens the dialog on its **Settings** tab.
+The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **PowerMods**. **PowerMods** opens the dialog on its **Settings** tab.
 
 The dialog has 4 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
 
@@ -72,7 +72,7 @@ The status item shows `↑N` in the accent color next to `mods vN` when N third-
 
 The settings of the kit mods in one place. At the left: **Kit** (the settings of the whole kit), then 1 row per installed kit mod with settings. At the right: the settings of the chosen row. A change is saved at once, and the mod shows it at once. The dialog opens on the last row that you chose.
 
-- **Kit:** the language of the Kanban, Dock and Git Dash bars (or **Each layout decides**: the `lang` prop of each layout), and the shortcut of Herdr Mods.
+- **Kit:** the language of the Kanban, Dock and Git Dash bars (or **Each layout decides**: the `lang` prop of each layout), and the shortcut of PowerMods.
 - **agent-resume:** Auto resume, Shell wait, Toast, Agents without a hook.
 - **git-client:** the diff view (Unified or Split) and the AI commit message (program, model, format, extra instructions).
 - **git-dash:** the repository folders and Fetch on refresh.

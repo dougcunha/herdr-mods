@@ -5,7 +5,7 @@
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 //   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
-//   "gear-menu" the menu of the gear button: Herdr's settings, Bar buttons or Herdr Mods, a popup (the bar opens it, see openGear).
+//   "gear-menu" the menu of the gear button: Herdr's settings, Bar buttons or PowerMods, a popup (the bar opens it, see openGear).
 //   "buttons-menu" the editor of the order and the visibility of the panel buttons, a popup (the bar opens it, see openButtons).
 // The parts share their state through shared(): hidden columns, search text, scope.
 import { View, div, svg, image } from "gpui-kit";
@@ -177,7 +177,7 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "Herdr Mods",
+    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
     gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
     hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset",
     newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
@@ -220,7 +220,7 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "Herdr Mods",
+    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
     gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
     moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar",
     newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
@@ -822,7 +822,7 @@ export default class Kanban extends View {
   }
 
   /** The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
-   *  installed, the Herdr Mods dialog. */
+   *  installed, the PowerMods dialog. */
   openGear() {
     const open = (hub) => openOverlay({ mod: "kanban", kind: "popup", width: MENU_W,
       height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
@@ -877,7 +877,7 @@ export default class Kanban extends View {
           .child(this.s("resetButtons"))));
   }
 
-  /** The menu of the gear button. "Herdr Mods" opens the dialog on its Settings tab (the tab that the
+  /** The menu of the gear button. "PowerMods" opens the dialog on its Settings tab (the tab that the
    *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
    *  for the editor ("kanban.buttons"): the bar knows the buttons. */
   gearMenu(t) {

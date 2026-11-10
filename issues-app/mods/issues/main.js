@@ -61,7 +61,7 @@ function dueText(d) {
   const days = Math.floor((at - Date.now()) / 86400000);
   return { text: `${d} · ${days < 0 ? `${-days}d late` : days === 0 ? "today" : `in ${days}d`}`, late: days < 0, soon: days >= 0 && days <= 2 };
 }
-// The settings (Settings tab of Herdr Mods): the list's order (shared "issues.order") and where a page opens ("issues.page").
+// The settings (Settings tab of PowerMods): the list's order (shared "issues.order") and where a page opens ("issues.page").
 const split = () => asSplit("issues");
 const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priority");
 // The list's space and every link: either changing means another project.
@@ -101,7 +101,7 @@ const short = (text) => {
 };
 
 // Where the space's projects come from, in order; `from` says which: the space's link (or its
-// repository's), the repository's .herdr/jira.toml, the default project (Link space or Herdr Mods),
+// repository's), the repository's .herdr/jira.toml, the default project (Link space or PowerMods),
 // a guess from the branch, the GitHub repository.
 async function projects(c) {
   const gh = c.github && { provider: "github", repo: c.github, site: github.SITE, key: c.github, filter: c.link.issuesFilter };
@@ -779,7 +779,7 @@ export default class SpaceIssues extends View {
         width: (w, cx) => { const was = this.pageW >= PAGE_WIDE; this.pageW = w; if (was !== (w >= PAGE_WIDE)) cx.notify(this.pageView); },
       });
     }
-    // Order and Page are in the Settings tab of Herdr Mods (kit.json): the cog keeps Link space and Prompts.
+    // Order and Page are in the Settings tab of PowerMods (kit.json): the cog keeps Link space and Prompts.
     if (props()?.settings) return settingsMenu("issues", []);
     // A space switch shows that space's list in this very render, and loads it right after.
     const space = this.space();

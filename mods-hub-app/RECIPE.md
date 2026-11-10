@@ -1,6 +1,6 @@
-# Herdr Mods (mods-hub)
+# PowerMods (mods-hub)
 
-A status bar item and a dialog for the Herdr app. The item compares the version of `SETUP-PROMPT.md` on GitHub with the version of the last run of that prompt on this computer. When GitHub is newer, it shows an **Update mods** button. The dialog, **Herdr Mods**, has 4 tabs: **Mods** (the installed mods, where they come from, errors and local changes), **Settings** (the settings of the kit mods, from the `settings` of their `kit.json`), **What's new** (the release notes) and **Update** (the person chooses an agent, and the mod starts that agent with the prompt). Before version 5 of the setup, the mod was `mods-update`.
+A status bar item and a dialog for the Herdr app. The item compares the version of `SETUP-PROMPT.md` on GitHub with the version of the last run of that prompt on this computer. When GitHub is newer, it shows an **Update mods** button. The dialog, **PowerMods**, has 4 tabs: **Mods** (the installed mods, where they come from, errors and local changes), **Settings** (the settings of the kit mods, from the `settings` of their `kit.json`), **What's new** (the release notes) and **Update** (the person chooses an agent, and the mod starts that agent with the prompt). Before version 5 of the setup, the mod was `mods-update`.
 
 ## What you see
 
@@ -8,13 +8,13 @@ A status bar item and a dialog for the Herdr app. The item compares the version 
 
 - **Update available:** a button, 20 px tall, 8 px side padding, radius 5, `accent` text on an `accent` fill with alpha `24`, semibold. It holds `update.svg` (12 px, a circle with an up arrow) and `Update mods`. On hover the fill is `accent` and the text `accent_foreground`. Tooltip: `Version <N> of the Herdr mods is available (your last setup run: <M or "none recorded">). Click to choose an agent.`
 - **No update:** `check.svg` (12 px) and `mods v<M>` in `dim` (only `mods` when no run is recorded). While a check runs, the icon is `refresh.svg`. Hover: `hover` fill, `foreground` text. Tooltip: the setup version, or `Could not check GitHub: <error>`.
-- A click on either opens the dialog (`mod.open {name: "mods-hub"}`). The tooltip of the dim item ends with `Click to open Herdr Mods.`
+- A click on either opens the dialog (`mod.open {name: "mods-hub"}`). The tooltip of the dim item ends with `Click to open PowerMods.`
 
 **Toast**, once for each new version: title `Herdr mods update`, body `Version <N> is available. Click to update.`, level `info`, icon `update.svg`, 15 s, action `mod.open {name: "mods-hub"}`.
 
 **Dialog** (`kind: "dialog"`, 640 px wide, as tall as its content, `popover` fill, 18 px padding, 12 px gap, 13 px text):
 
-1. Title row: `hub.svg` (18 px, 3 squares and a plus; `accent` when an update is available, else `muted`) and `Herdr Mods` (15 px, semibold).
+1. Title row: `hub.svg` (18 px, 3 squares and a plus; `accent` when an update is available, else `muted`) and `PowerMods` (15 px, semibold).
 2. Status line: `Version <N> is available. Your last setup run: <version M | none recorded>.` in `foreground`; `You skipped version <N>. …` or `You have the newest version (<N>).` in `muted`; `Checking GitHub…` or `Could not check GitHub: <error>` in `blocked`.
 3. Tab row, 1 px `border` at the bottom: `Mods`, `Settings`, `What's new` and `Update`. A tab is 28 px tall, 12 px side padding, 12.5 px text. The shown tab has `foreground` semibold text and a 2 px `accent` bottom border; the others have `muted` text and a `popover` bottom border. The first tab: `What's new` when an update is available and `newsSeen` is not that version (the dialog then saves `newsSeen`); else the last tab that the person clicked (`tab`); else `Mods`. A click on a tab saves it in `tab`.
 4. **Mods tab:**
@@ -57,7 +57,7 @@ A status bar item and a dialog for the Herdr app. The item compares the version 
 
 ## Built from
 
-- `mod.json`: `{ "place": "none", "title": "Herdr Mods", "overlay": { "kind": "dialog", "width": 640 } }`. Create it **before** `main.js`.
+- `mod.json`: `{ "place": "none", "title": "PowerMods", "overlay": { "kind": "dialog", "width": 640 } }`. Create it **before** `main.js`.
 - `kit.json`: `{ app, description, readme }`. Every mod of this repository has one.
 - `setup.js`: the constants (`MOD` = `mods-hub`, `notesUrl(n)`, `readmeUrl(app)`, `MAX_NOTES` = 10), `parseSetup(text)`, `download()`, `downloadNotes(n)` (text, or null on 404), `downloadReadme(app)`, `noteVersions(local, remote)`, `readRecord()`, `installedVersion()`, `writePrompt(prompt)`, `state()`, `setState(patch)` and `updateAvailable(local)`. It imports `appHome`, `readTextFile`, `writeTextFile`, `shared`, `setShared` from `herdr`.
 - `mods.js`: `modsDir()`, `scanMods(record)`, `checkChanges(name, recorded)` (it skips the `ignore` files of a third-party mod), `latestCommit(name)`, `checkThird(names, force)`, `installedThird()`, `thirdStatus(name, record)` and `compareUrl(name, record)`. It imports `appHome`, `readTextFile` from `herdr`, `fs/promises`, `hash.js`, `third.js` and `state`/`setState` of `setup.js`.
@@ -95,7 +95,7 @@ A status bar item and a dialog for the Herdr app. The item compares the version 
 - The Mods tab shows the counts of the 4 kinds. With a record that has `files`, the kit mods are green. After 1 character is added to an installed kit file, that row shows `1 changed` in yellow when the dialog opens again.
 - After the dialog showed What's new for version N, the next opening shows the last clicked tab, or Mods.
 - With `tab: "settings"` and `section: "kanban"` in the shared state, the dialog opens on the kanban fields with the values of `shared()`. After `herdr-mods.lang` is set to `en` from another mod, the Kit section shows English chosen, and the Kanban bar shows English at once.
-- `kanban.gear` and `tabs-dock.gear` open the gear menu with **Herdr settings** and **Herdr Mods**.
+- `kanban.gear` and `tabs-dock.gear` open the gear menu with **Herdr settings** and **PowerMods**.
 - With the block in the status row and a GitHub version newer than the record, the status bar shows **Update mods** and 1 toast appears. A second check does not post a second toast.
 - A click opens the dialog with the installed agents. **Skip version N** changes the item to `mods v<M>`.
 - A click on an agent writes `data/herdr-mods-setup-prompt.md` (it starts with `You will install, or update, my Herdr app mods.` and has no code fence and no marker) and opens the `Mods update` space with the agent and the 1-line task.

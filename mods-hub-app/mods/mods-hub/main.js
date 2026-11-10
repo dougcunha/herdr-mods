@@ -1,4 +1,4 @@
-// Herdr Mods (mods-hub): the central dialog of the Herdr mods of
+// PowerMods (mods-hub): the central dialog of the Herdr mods of
 // https://github.com/dougcunha/herdr-mods.
 //
 // In the status row of a layout, it compares the version of SETUP-PROMPT.md
@@ -78,7 +78,7 @@ export default class ModsUpdate extends View {
           const mods = await scanMods(await readRecord()).catch(() => []);
           const m = mods.find((x) => x.name === turn[2]);
           if (m && canTurnOff(m)) setOn(m, turn[1] === "on", mods);
-          else notify({ title: "Herdr Mods", body: `${turn[2]} is not a kit mod that can be turned off.`, level: "error" });
+          else notify({ title: "PowerMods", body: `${turn[2]} is not a kit mod that can be turned off.`, level: "error" });
         }
       }
     });
@@ -482,7 +482,7 @@ export default class ModsUpdate extends View {
     }
     const third = this.thirdUpdates();
     const thirdTip = third.length ? ` Third-party updates: ${third.join(", ")} (Mods tab).` : "";
-    const tip = (s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to open Herdr Mods.`) + thirdTip;
+    const tip = (s.error ? `Could not check GitHub: ${s.error}` : `Herdr mods: setup version ${local || "none recorded"}. Click to open PowerMods.`) + thirdTip;
     return bar.child(button.text_color(t.dim)
       .hover((st) => st.bg(t.hover).text_color(t.foreground))
       .tooltip(tip)
@@ -551,7 +551,7 @@ export default class ModsUpdate extends View {
       .on_key_down((e, cx) => this.onKey(e, cx))
       .child(h_flex().gap(8).items_center()
         .child(svg(icon("hub")).size(18).text_color(update ? t.accent : t.muted))
-        .child(div().text_size(15).font_semibold().child("Herdr Mods")))
+        .child(div().text_size(15).font_semibold().child("PowerMods")))
       .child(div().text_color(statusColor).child(status))
       .child(tabs)
       .when(tab === "mods", (el) => el.child(this.readme ? this.renderReadme(t) : this.renderMods(t)))

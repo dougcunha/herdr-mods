@@ -62,7 +62,7 @@ In `main-dock.json`, add this block to the `children` of `sidebar-lists`, after 
 
 ## Settings
 
-The **Settings** tab of the Herdr Mods dialog (`mods-hub`) shows:
+The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 
 - **Status bar value:** `Session` (the default) or `Session · week`.
 - **Hidden providers:** provider ids to leave out of every place, separated by commas (`gemini, claude-pessoal`). The ids are in the `providerId` field of `hud.json`. The eye button of a provider (in the sidebar section on hover, and on each card of the panel) adds its id here. The panel lists the hidden providers at the bottom; click one to show it again.

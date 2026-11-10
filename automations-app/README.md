@@ -151,7 +151,7 @@ review and save it:
    { "id": "automations", "label": "Automations", "icon": "mods/automations/zap.svg", "mod": "automations" }
    ```
 
-4. Optional: a key. In the **Settings** tab of Herdr Mods, or in `keys.json`:
+4. Optional: a key. In the **Settings** tab of PowerMods, or in `keys.json`:
    `"ctrl-shift-a": "mod.open:automations"`.
 
 ## Files and commands

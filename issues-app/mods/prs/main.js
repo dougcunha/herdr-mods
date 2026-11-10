@@ -38,7 +38,7 @@ const keepWidth = (w) => { try { localStorage.setItem(`width:${place()}`, String
 const contextKey = (space) => `${space?.id}|${JSON.stringify(shared("space-links") ?? {})}`;
 // What a space's list keeps in memory (the last SPACES spaces), so switching back shows it at once.
 const SPACES = 20;
-// Hide merged (a chip next to the filters, and a setting of Herdr Mods): merged pull requests leave the list.
+// Hide merged (a chip next to the filters, and a setting of PowerMods): merged pull requests leave the list.
 const HIDE_MERGED = "prs.hideMerged";
 const hideMerged = () => shared(HIDE_MERGED) === true;
 // The Details card of a page, collapsed or expanded: the same in every copy (UI state).
@@ -602,7 +602,7 @@ export default class PullRequests extends View {
         width: (w, cx) => { const was = this.pageW >= PAGE_WIDE; this.pageW = w; if (was !== (w >= PAGE_WIDE)) cx.notify(this.pageView); },
       });
     }
-    // Page is in the Settings tab of Herdr Mods (kit.json): the cog keeps Link space and Prompts.
+    // Page is in the Settings tab of PowerMods (kit.json): the cog keeps Link space and Prompts.
     if (props()?.settings) return settingsMenu("prs", []);
     // A space switch shows that space's list in this very render, and loads it right after.
     const space = this.space();

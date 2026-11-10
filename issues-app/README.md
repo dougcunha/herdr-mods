@@ -16,8 +16,8 @@ These mods are a copy of `herdr-ranch-issues` and `herdr-ranch-prs` of [Herdr Ra
 The changes of this kit:
 
 - The mods are called `issues` and `prs`.
-- The settings (**Order**, **Page** and the shortcut) are in the **Settings** tab of **Herdr Mods**, not in the cog. The cog keeps **Link space…** and **Prompts…**. Your settings of Herdr Ranch move over once.
-- The kit updates the mods (**Herdr Mods**), so the update check of Herdr Ranch and its **Update** button are gone.
+- The settings (**Order**, **Page** and the shortcut) are in the **Settings** tab of **PowerMods**, not in the cog. The cog keeps **Link space…** and **Prompts…**. Your settings of Herdr Ranch move over once.
+- The kit updates the mods (**PowerMods**), so the update check of Herdr Ranch and its **Update** button are gone.
 - The mods are Dock panels (`dock/panels.json`), not buttons of the `mod-buttons` layout. The **Opens in** setting is gone.
 - In a dialog of the Dock, the header of the list does not repeat the name and the × of the dialog, and Esc closes the dialog also after a click in the header.
 - No Linear: the issues come from Jira Cloud or GitHub.
@@ -40,7 +40,7 @@ The mod finds the Sprint and the story points fields (`Story Points` or `Story p
 - **Under the title:** the state, and for an open pull request chips for the review (approved, changes requested, review required), the checks (failing, running, passed), the merge state (conflicts, behind the base, ready to merge) and the size (+/−). A copy button copies `owner/repo#number`.
 - **Tabs:** **Description**, **Conversation** (comments, reviews, events and the merge box), **Checks** and **Files**. Keys 1 to 4.
 - **Details:** the author, the reviewers with their verdict, the assignees, the labels, the branches (with a copy button), the changes, the commits and the dates. A click on **Details** collapses or expands it.
-- **The list:** a right-click on a pull request opens a menu with **Open on GitHub**, **Agent review** (an open pull request, when the space has a git repository), **Copy number** and **Copy branch**. The **Hide merged** chip next to the filters leaves the merged pull requests out; it is also a setting in Herdr Mods → Settings → Pull Requests.
+- **The list:** a right-click on a pull request opens a menu with **Open on GitHub**, **Agent review** (an open pull request, when the space has a git repository), **Copy number** and **Copy branch**. The **Hide merged** chip next to the filters leaves the merged pull requests out; it is also a setting in PowerMods → Settings → Pull Requests.
 
 ## Default Jira project
 
@@ -49,7 +49,7 @@ A space shows the issues of, first that has one: its own link (**Link space…**
 Set the default project once for all the spaces that have no link of their own:
 
 - In **Link space…**, pick the project and, under **Use it for**, **Every space without a link (default)**. Or:
-- In **Herdr Mods** → **Settings** → **Issues**: **Default Jira site**, **Default Jira project** and **Default JQL filter**.
+- In **PowerMods** → **Settings** → **Issues**: **Default Jira site**, **Default Jira project** and **Default JQL filter**.
 
 A space that needs another project gets a link of its own: **Link space…** → **Only <space>**. The list header shows `(default)` when a space follows the default.
 
@@ -66,12 +66,12 @@ The dialog shows the repository (the main checkout of the shown space) and its b
 
 A Jira custom field (for example **Refinement**, with the full text of the task) can go into the Start agent prompts:
 
-1. Open **Herdr Mods** → **Settings** → **Issues**.
+1. Open **PowerMods** → **Settings** → **Issues**.
 2. In **Extra Jira fields**, type the name or the id of each field, split by commas: `Refinement` or `customfield_10545`.
 
 Each field is a placeholder of its own in **Prompts…**: its name in lower case, with `_` for spaces and signs (`Refinement` → `{refinement}`). `{fields}` holds all of them, one `## <name>` section each, and the default prompts include it under the description. On the issue page, a long field (more than 80 characters or more than 1 line) gets a tab of its own; a short one is a row of the Details card.
 - On Windows, **Connect** in **Link space** stored the token but showed "The credential store refused it". Fixed.
-- The **Mods** tab of Herdr Mods can turn each mod off.
+- The **Mods** tab of PowerMods can turn each mod off.
 - The `herdr-ranch-reviews` mod is not part of the kit: it runs Unix programs only.
 
 ## Install

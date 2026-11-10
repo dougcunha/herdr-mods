@@ -1,6 +1,6 @@
 {
   "app": "mods-hub-app",
-  "description": "Herdr Mods: the installed mods, the release notes and the update of this kit, in one dialog. A switch turns each kit mod off and on, and it tells you when a third-party mod has a newer version on GitHub.",
+  "description": "PowerMods: the installed mods, the release notes and the update of this kit, in one dialog. A switch turns each kit mod off and on, and it tells you when a third-party mod has a newer version on GitHub.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/mods-hub-app",
   "settings": [
     {
@@ -29,8 +29,8 @@
       "id": "hub-key",
       "type": "key",
       "action": "mod.open:mods-hub",
-      "label": "Shortcut of Herdr Mods",
-      "hint": "Saved in keys.json. A new key removes the other keys of Herdr Mods, also the macOS key."
+      "label": "Shortcut of PowerMods",
+      "hint": "Saved in keys.json. A new key removes the other keys of PowerMods, also the macOS key."
     }
   ]
 }
