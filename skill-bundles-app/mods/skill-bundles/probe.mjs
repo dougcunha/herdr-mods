@@ -14,16 +14,22 @@
 //   hashes      { skill: hash | null } for each Lock entry of the Catalog: the hash of its
 //               folder in the clone, made in the same way as the Lock hash (null: not found)
 //
-// The hash is the one of computeSkillFolderHash in the `skills` CLI: SHA-256 of each file's
-// path (relative, with "/") and bytes, sorted with localeCompare, without .git and
-// node_modules. A Lock hash of 40 hex digits is a git tree hash: compare with
-// `git rev-parse HEAD:<folder>`.
+// The hash is the one of computeSkillFolderHash in the `skills` CLI. The CLI has 2 versions of
+// it, and a Lock can have a hash of each version. The helper makes the hash of the current
+// version first, and the hash of the old version only when the first one is not the Lock hash.
 //
-// Line endings: `npx skills` installs through git, so a text file gets the line endings of a
-// git checkout (CRLF with core.autocrlf=true). A file of the clone that a tool wrote with other
-// line endings is clean for git but has other bytes, and would show as outdated. So the hash
-// reads each text file of the clone with the line endings that a checkout would give it
-// (see checkoutEol).
+// Current version (skills 1.8 and later, hashV2): for each file, SHA-256 of its path (relative,
+// with "/"), "\0", its length, "\0" and its bytes with CRLF changed to LF (not for a file with a
+// 0 byte). The paths are sorted by their UTF-8 bytes. The hash skips metadata.json files and
+// the .git, __pycache__ and __pypackages__ folders.
+//
+// Old version (hashV1): SHA-256 of each file's path and bytes, sorted with localeCompare,
+// without .git and node_modules. `npx skills` installs through git, so a text file gets the
+// line endings of a git checkout (CRLF with core.autocrlf=true). A file of the clone that a
+// tool wrote with other line endings is clean for git but has other bytes. So hashV1 reads each
+// text file of the clone with the line endings that a checkout would give it (see checkoutEol).
+//
+// A Lock hash of 40 hex digits is a git tree hash: compare with `git rev-parse HEAD:<folder>`.
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -83,8 +89,45 @@ async function collect(base, dir, out) {
   }));
 }
 
-/** The hash of a skill folder. With `eol` and `clone`, text files get their checkout line endings. */
-async function folderHash(dir, clone, eol) {
+const SKIP_V2_DIRS = new Set([".git", "__pycache__", "__pypackages__"]);
+
+async function collectV2(base, dir, out) {
+  const entries = await readdir(dir, { withFileTypes: true });
+  await Promise.all(entries.map(async (e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) {
+      if (!SKIP_V2_DIRS.has(e.name)) await collectV2(base, full, out);
+    } else if (e.isFile() && e.name !== "metadata.json") {
+      out.push({ rel: slashed(relative(base, full)), content: await readFile(full) });
+    }
+  }));
+}
+
+/** CRLF to LF, as the `skills` CLI does. A file with a 0 byte stays as it is. */
+function toLf(content) {
+  if (content.includes(0) || !content.includes("\r\n")) return content;
+  return Buffer.from(content.toString("latin1").replaceAll("\r\n", "\n"), "latin1");
+}
+
+/** The hash of a skill folder, current version of the `skills` CLI. */
+async function hashV2(dir) {
+  const files = [];
+  await collectV2(dir, dir, files);
+  const entries = files.map((f) => ({ path: Buffer.from(f.rel, "utf8"), content: toLf(f.content) }));
+  entries.sort((a, b) => Buffer.compare(a.path, b.path));
+  const hash = createHash("sha256");
+  for (const { path, content } of entries) {
+    hash.update(path);
+    hash.update("\0");
+    hash.update(String(content.length));
+    hash.update("\0");
+    hash.update(content);
+  }
+  return hash.digest("hex");
+}
+
+/** The hash of a skill folder, old version. With `eol` and `clone`, text files get their checkout line endings. */
+async function hashV1(dir, clone, eol) {
   const files = [];
   await collect(dir, dir, files);
   if (eol?.size) {
@@ -168,8 +211,12 @@ async function main() {
           result.hashes[name] = execFileSync("git", ["-C", clone, "rev-parse", `HEAD:${rel}`], { encoding: "utf8" }).trim();
         } catch { result.hashes[name] = null; }
       } else {
+        // The current version first. An old Lock hash gets the old version.
+        const now = await hashV2(dir);
+        if (now === old) { result.hashes[name] = now; continue; }
         eol ??= checkoutEol(clone, autocrlf);
-        result.hashes[name] = await folderHash(dir, clone, eol);
+        const before = await hashV1(dir, clone, eol);
+        result.hashes[name] = before === old ? before : now;
       }
     }
   }
