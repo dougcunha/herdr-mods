@@ -12,7 +12,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { theme, props, shared, setShared, closeOverlay, run, nextCommand } from "herdr";
 import { register } from "./api.js";
-import { STATE, pump, jobs, clearJobs } from "./worktree.js";
+import { STATE, pump, leave, jobs, clearJobs } from "./worktree.js";
 import { KEY, rootSetting, filesSetting, globalCommands } from "./paths.js";
 
 const MOD = "powermods-core";
@@ -42,8 +42,9 @@ export default class PowerModsCore extends View {
     this.handle = cx.focus_handle();
 
     if (this.part === "status") {
-      pump(cx);
-      cx.timer.every(500, (cx) => pump(cx));
+      this.copy = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      pump(cx, this.copy);
+      cx.timer.every(500, (cx) => pump(cx, this.copy));
       // `herdr-app do powermods-core.open` opens the dialog (for tests from the shell).
       cx.spawn(async () => { for (;;) { const c = await nextCommand(); if (c === "open") run("mod.open", { name: MOD }); } });
       return;
@@ -51,6 +52,8 @@ export default class PowerModsCore extends View {
     if (this.part === "trust") {
       this.job = STATE.jobs.get(this.props.job) ?? null;
       cx.timer.after(40, () => this.handle.focus());
+      // Answered in another way, or the job is gone: the question closes.
+      cx.timer.every(500, () => { if (!this.job || this.job.trust !== undefined || !STATE.jobs.has(this.job.id)) this.closeDialog(); });
       return;
     }
     this.tab = "worktrees";
@@ -76,6 +79,7 @@ export default class PowerModsCore extends View {
   /** A trust dialog closed without an answer (Esc, a click beside it): the commands do not run. */
   async close() {
     if (this.part === "trust" && this.job && this.job.trust === undefined) this.job.trust = false;
+    if (this.part === "status") leave(this.copy);
   }
 
   closeDialog() { const o = this.props.overlay ?? props()?.overlay; if (o) closeOverlay(o); }

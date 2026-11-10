@@ -63,6 +63,9 @@ changes what it does.
 (`repo-launcher-status` → `repo-launcher`). The **Mods** tab shows no switch
 for a part: it goes on and off with that mod.
 
+`required` (optional, `true`) marks a mod that other mods need
+(`powermods-core`). The **Mods** tab shows no switch for it.
+
 `credit` (optional) names the work that the mod is based on:
 `{ "text": "Based on … by …", "url": "https://…" }`. The **Settings** tab
 shows it at the end of the section of the mod, with a link to `url`. Put the
@@ -96,6 +99,15 @@ kit mod must follow it:
   bars hide it. A mod that replaces a Herdr mod in a block goes into
   `ORIGINALS` of `tabs-dock` and `kanban`.
 
+
+## Worktrees: through `powermods-core`
+
+A mod of the kit never runs `git worktree add` or `git worktree remove` itself.
+It calls PowerMods Core: copy `powermods-core-app/client/core.js` into the mod
+(add the mod to `tools/sync-core-client.mjs` and run it), then
+`worktrees().create({...})` or `worktrees().remove({...})`. See
+`powermods-core-app/README.md`. After a change of `client/core.js`, run
+`node tools/sync-core-client.mjs` (`--check` compares the copies).
 
 ## Gallery image: `preview.png`
 

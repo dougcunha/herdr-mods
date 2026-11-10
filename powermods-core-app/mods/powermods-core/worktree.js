@@ -48,35 +48,54 @@ function settle(j, value) {
   j.settled = true;
   j.resolve(value);
 }
-function fail(j, e) {
+function fail(j, e, toast = false) {
   const message = String(e?.message ?? e);
-  record(j, { state: "failed", error: message });
+  record(j, { state: "failed", error: message, ended: Date.now() });
   if (!j.settled) { j.settled = true; j.reject(new Error(message)); }
+  else if (toast) notify({ title: `Worktree ${j.kind === "remove" ? "remove" : "setup"} stopped`, body: message, level: "error", timeout: 10000 });
   j.finish?.({ ok: false, error: message });
 }
 
-/** Runs the queue: called by every status copy of the core on its timer. */
-export function pump(cx) {
+// Each status copy has an id and a heartbeat (STATE.copies). A job belongs to the copy that runs it. A job is
+// lost only when its copy stopped beating (a layout switch, a reload): a slow git command is not a lost job.
+const ownerGone = (j) => Date.now() - (STATE.copies[j.owner] ?? 0) > STALE_MS;
+STATE.copies ??= {};
+
+/** Runs the queue: called by every status copy of the core on its timer, with the id of that copy. */
+export function pump(cx, copy) {
   STATE.beat = Date.now();
-  for (const j of STATE.jobs.values()) {
-    if (Date.now() - j.beat > STALE_MS) { STATE.jobs.delete(j.id); fail(j, "The core stopped during the work (a layout switch or a reload). Check the worktree by hand."); }
+  STATE.copies[copy] = Date.now();
+  for (const j of [...STATE.jobs.values()]) {
+    if (!ownerGone(j)) continue;
+    if (j.wait) {
+      // The setup runs on in its tab: this copy waits for it and starts the agent.
+      j.owner = copy;
+      cx.spawn(async (cx) => {
+        try { await waitSetup(cx, j, copy); } catch (e) { fail(j, e, true); } finally { if (j.owner === copy) STATE.jobs.delete(j.id); }
+      });
+    } else {
+      STATE.jobs.delete(j.id);
+      fail(j, "The core stopped during the work (a layout switch or a reload). Check the worktree by hand.", true);
+    }
   }
   while (STATE.queue.length) {
     const j = STATE.queue.shift();
-    j.beat = Date.now();
+    j.owner = copy;
     STATE.jobs.set(j.id, j);
     cx.spawn(async (cx) => {
       try {
-        if (j.kind === "create") await runCreate(cx, j);
+        if (j.kind === "create") await runCreate(cx, j, copy);
         else await runRemove(cx, j);
       } catch (e) {
-        fail(j, e);
+        fail(j, e, true);
       } finally {
-        STATE.jobs.delete(j.id);
+        if (j.owner === copy) STATE.jobs.delete(j.id);
       }
     });
   }
 }
+/** A status copy went away: its jobs can move to another copy at once. */
+export const leave = (copy) => { delete STATE.copies[copy]; };
 
 // ---- the API ------------------------------------------------------------------------------------------
 
@@ -159,7 +178,7 @@ async function askTrust(cx, j, info) {
   return j.trust === true;
 }
 
-async function runCreate(cx, j) {
+async function runCreate(cx, j, copy) {
   const r = j.req, on = r.on ?? null;
   const branch = String(r.branch ?? "").trim();
   if (!r.repo || !branch) throw new Error("The core needs a repository and a branch.");
@@ -236,17 +255,26 @@ async function runCreate(cx, j) {
   if (r.select === false && shown) run("space.select", { id: shown });
   const setupTab = sp.tabs[0]?.id ?? null;
   record(j, { spaceId: sp.id });
+  // Everything that the wait needs is on the job, so another status copy can take the wait over (pump).
+  j.wait = { runner, spaceId: sp.id, setupTab, agent, path, on, branch, notes };
   settle(j, { path, spaceId: sp.id, copied, setup: "running", done: j.done });
+  await waitSetup(cx, j, copy);
+}
 
+/** Waits for the exit code of the setup, then starts the agent (code 0) or reports the failure. */
+async function waitSetup(cx, j, copy) {
+  const { runner, spaceId, setupTab, agent, path, on, branch, notes } = j.wait;
   let code = null;
   for (;;) {
     await cx.sleep(1000);
-    j.beat = Date.now();
+    if (j.owner !== copy) return; // another copy took the job over
     code = await readStatus(runner.status, on);
     if (code != null) break;
-    const s = spaces().find((x) => x.id === sp.id);
+    const s = spaces().find((x) => x.id === spaceId);
     if (!s || !s.tabs.some((t) => t.id === setupTab)) { code = "closed"; break; }
   }
+  j.wait = null;
+  const sp = { id: spaceId };
   const terminal = panes().find((p) => p.tab === setupTab)?.terminal ?? null;
   const out = terminal ? await hc(["read", terminal, "--lines", "300"]).catch(() => null) : null;
   const log = [...notes, (out?.stdout ?? "").replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "").trim()].filter(Boolean).join("\n");
@@ -282,6 +310,12 @@ async function runRemove(cx, j) {
   const w = all.find((x) => samePath(x.path, path));
   if (!w) throw new Error(`${path} is not a worktree of ${repoName(main)}.`);
 
+  // Git refuses these without force: say so before a space (and its agent) closes for nothing.
+  if (!r.force && !w.prunable) {
+    if (w.locked) throw new Error("The worktree is locked. Unlock it first, or remove it with force.");
+    const st = await git(path, ["status", "--porcelain"], on);
+    if (st.ok && st.out) throw new Error("The worktree has changes or new files. Commit or stash them first, or remove it with force.");
+  }
   if (r.closeSpace !== false && !w.prunable) {
     // A space that works only in this folder closes; a space with a terminal elsewhere stays.
     const ids = spaces().filter((s) => (s.machine ?? null) === on).filter((s) => {
@@ -293,7 +327,10 @@ async function runRemove(cx, j) {
   }
   const res = w.prunable ? await git(main, ["worktree", "prune"], on)
     : await git(main, ["worktree", "remove", ...(r.force ? ["--force"] : []), path], on, 300000);
-  if (!res.ok) throw new Error(res.err || "git worktree remove failed.");
+  if (!res.ok) {
+    const busy = /permission denied|device or resource busy|being used by another process/i.test(res.err);
+    throw new Error(busy ? `A program still uses the folder (a terminal in it?). Close it and try again. Git: ${res.err}` : res.err || "git worktree remove failed.");
+  }
   record(j, { state: "done", ended: Date.now(), log: w.prunable ? "The folder was gone: git worktree prune." : "" });
   settle(j, { path });
   j.finish({ ok: true });
