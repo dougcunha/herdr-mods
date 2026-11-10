@@ -1,6 +1,8 @@
 # PRD: git-client ("Git")
 
-Status: approved (interview of 2026-11-09). Phase 1 in progress.
+Status: approved (interview of 2026-11-09). Phase 1 done (kit v37). Phase 2 done (kit v38). Phase 3 in progress.
+
+Changes to the plan during the build: the Pull setting also has "Fast-forward only"; Force push is in the menu of a branch and on a right-click of the Push button; the Expand dialog shows the diff only.
 
 ## Goal
 

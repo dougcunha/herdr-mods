@@ -87,6 +87,8 @@ export class DiffView {
     };
     return div().id(`${this.id}-area`).flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
       // on_size_change reports the width with the app zoom applied; w() and the text use unzoomed px.
+      // The spot of the last press: a list's item click has no position, and a menu opens there.
+      .on_mouse_down("left", (e) => { this.press = e; })
       .on_size_change((size, cx) => {
         const zoom = Number(settings()?.zoom) > 0 ? Number(settings().zoom) : 1, width = Math.round(size.width / zoom);
         if (width !== this.area) { this.area = width; if (currentView() === "split") cx.notify(); }
@@ -97,7 +99,7 @@ export class DiffView {
           .child(div().w_full().min_w(split ? 0 : this.width).h_full().child(v_virtual_list(this.id, items.length, split ? layout.sizes : ROW, (i) => String(i),
             (range) => items.slice(range.start, range.end).map(draw))
             // Rows of a virtual list can't hold their own handlers: the list reports the row's key.
-            .on_item_click((key, cx) => onClick?.(this.rowAt(key), null, cx))
+            .on_item_click((key, cx) => onClick?.(this.rowAt(key), this.press, cx))
             .on_item_secondary_click((key, ev, cx) => onMenu?.(this.rowAt(key), ev, cx))
             .size_full())))
         .child(Scrollbar.vertical(this.id).viewport_from_layout().absolute().inset_0()));

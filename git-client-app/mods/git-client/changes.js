@@ -4,7 +4,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { exec, readTextFile, theme, notify, openOverlay, setShared } from "herdr";
 import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError } from "./git.js";
-import { perform, openDialog } from "./act.js";
+import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { generateMessage } from "./ai.js";
@@ -152,19 +152,19 @@ export class Changes {
     if (paths.length || untracked.length) this.run({ type: "discard", paths, untracked }, cx);
   }
 
-  fileMenu(f, side, cx) {
+  fileMenu(f, side, e) {
     const ctx = this.ctx();
     if (!ctx) return;
     const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status } }, items = menuFor(target, ctx);
-    openOverlay({ mod: "git-client", kind: "popup", at: "pointer", width: 240, height: menuHeight(items), props: { role: "menu", target, ctx } });
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx } });
   }
 
   // A hunk of the shown diff: its menu (stage, unstage, discard).
-  hunkMenu(row) {
+  hunkMenu(row, e) {
     const ctx = this.ctx(), sel = this.sel;
     if (!ctx || !this.patch || !row || !(row.hunk >= 0) || !this.patch.hunks[row.hunk] || sel?.side === "conflict") return;
     const target = { kind: "hunk", side: sel.side, path: sel.path, hunk: row.hunk, patch: hunkPatch(this.patch, row.hunk) }, items = menuFor(target, ctx);
-    openOverlay({ mod: "git-client", kind: "popup", at: "pointer", width: 220, height: menuHeight(items), props: { role: "menu", target, ctx } });
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 220, height: menuHeight(items), props: { role: "menu", target, ctx } });
   }
 
   expand() {
@@ -260,7 +260,7 @@ export class Changes {
       .when(open, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
       .on_hover((h, cx) => { const next = h ? key : this.hover === key ? null : this.hover; if (next !== this.hover) { this.hover = next; cx.notify(); } })
       .on_click((_e, cx) => this.pick(f, side, cx))
-      .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.fileMenu(f, side, cx); })
+      .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); this.fileMenu(f, side, e); })
       .child(div().w(12).flex_none().text_size(11).text_color(color).child(f.untracked && side !== "conflict" ? "?" : letter))
       .child(h_flex().flex_1().min_w(0).child(div().min_w(0).flex_none().max_w(220).truncate().child(name))
         .child(div().pl(6).flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(parts.join("/"))))
@@ -369,8 +369,8 @@ export class Changes {
         .child(this.diff.render({
           empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
           hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
-          onClick: (row) => { if (row?.kind === "@") this.hunkMenu(row); },
-          onMenu: (row) => this.hunkMenu(row),
+          onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
+          onMenu: (row, e) => this.hunkMenu(row, e),
         })))
       .when(ready && !this.files().length, (e) => e.child(div().flex_1()))
       .when(ready, (e) => e.child(this.commitBox(t)));

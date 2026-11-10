@@ -10,7 +10,7 @@ import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
-import { perform, openDialog } from "./act.js";
+import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
@@ -379,7 +379,7 @@ export class History {
       : hit && hit.part.kind !== "head" ? { kind: hit.part.kind, name: hit.part.name, commit: brief(commit) }
       : { kind: "commit", commit: brief(commit) };
     const items = menuFor(target, this.ctx);
-    openOverlay({ mod: "git-client", kind: "popup", at: "pointer", width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
   }
 
   pick(commit, cx) {

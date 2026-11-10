@@ -4,10 +4,12 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, theme, settings, props, shared, setShared, closeOverlay, nextCommand, notify } from "herdr";
 import { READ } from "./git.js";
-import { perform } from "./act.js";
+import { perform, openDialog } from "./act.js";
 import { icon } from "./menu.js";
 import { History } from "./history.js";
 import { Changes } from "./changes.js";
+import { Branches } from "./branches.js";
+import { Stash } from "./stash.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -19,7 +21,12 @@ const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? n
 const TABS = [
   { id: "changes", label: "Changes", icon: "changes" },
   { id: "history", label: "History", icon: "history" },
+  { id: "branches", label: "Branches", icon: "branch" },
+  { id: "stash", label: "Stash", icon: "stash" },
 ];
+// Preferences of the Settings tab of Herdr Mods.
+const pullMode = () => (["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config");
+const prune = () => shared("git-client.prune") !== false;
 const NARROW = 420;
 
 export class Client {
@@ -33,7 +40,8 @@ export class Client {
     if (shared("git-client.view") == null && (old === "split" || old === "unified")) setShared("git-client.view", old);
     this.seenShow = shared("git-client.show")?.at;
     this.history = new History(this); this.changes = new Changes(this);
-    this.changes.init(cx); this.history.init(cx);
+    this.branches = new Branches(this); this.stash = new Stash(this);
+    this.changes.init(cx); this.branches.init(cx); this.stash.init(cx); this.history.init(cx);
     // git-client.<tab>, .commit, .fetch, .pull, .push, .refresh, .split, .unified, .toggle.
     cx.spawn(async (cx) => {
       for (;;) { const c = String(await nextCommand()); if (!kitOff()) this.command(c, cx); cx.notify(); }
@@ -52,8 +60,14 @@ export class Client {
   }
 
   ctx() { return this.history.ctx; }
-  onRead(cx) { this.changes.reload(cx); }
-  setTab(tab, cx) { if (TABS.some((t) => t.id === tab)) { this.tab = tab; cx.notify(); } }
+  onRead(cx) { this.changes.reload(cx); this.branches.reload(cx); this.stash.reload(cx); }
+  setTab(tab, cx) {
+    if (!TABS.some((t) => t.id === tab)) return;
+    this.tab = tab;
+    if (tab === "branches" && this.branches.dirty) this.branches.reload(cx, true);
+    if (tab === "stash") this.stash.reload(cx);
+    cx.notify();
+  }
 
   command(c, cx) {
     if (TABS.some((t) => t.id === c)) this.setTab(c, cx);
@@ -79,13 +93,18 @@ export class Client {
     cx.notify();
   }
 
-  fetch(cx) { const ctx = this.ctx(); if (ctx?.remotes.length) this.act("fetch", { type: "fetch" }, {}, ctx, cx); }
+  fetch(cx) { const ctx = this.ctx(); if (ctx?.remotes.length) this.act("fetch", { type: "fetch" }, { prune: prune() }, ctx, cx); }
+
+  forcePush() {
+    const ctx = this.ctx();
+    if (ctx?.current && ctx.remotes.length) openDialog({ type: "forcePush", name: ctx.current }, ctx);
+  }
 
   pull(cx) {
     const ctx = this.ctx(), info = this.history.branchInfo;
     if (!ctx) return;
     if (!info.upstream || info.gone) { notify({ title: "Nothing to pull from", body: `${ctx.current ?? "HEAD"} has no upstream branch. Push it first.`, level: "warning" }); return; }
-    this.act("pull", { type: "pull", upstream: info.upstream }, {}, ctx, cx);
+    this.act("pull", { type: "pull", upstream: info.upstream }, { mode: pullMode() }, ctx, cx);
   }
 
   push(cx) {
@@ -122,7 +141,7 @@ export class Client {
 
   tabBar(t) {
     const narrow = this.width < NARROW, files = this.history.files?.length ?? 0;
-    const counts = { changes: files };
+    const counts = { changes: files, stash: this.stash.list.length };
     return h_flex().h(40).flex_none().px(8).gap(2).items_center().border_b(1).border_color(t.border)
       .children(TABS.map((tab) => {
         const on = this.tab === tab.id, n = counts[tab.id];
@@ -155,7 +174,8 @@ export class Client {
       .when(remotes.length > 0, (e) => e
         .child(this.iconButton("gc-fetch", "cloud-down", busy === "fetch" ? "…" : null, "Fetch all remotes", !busy, (cx) => this.fetch(cx), t))
         .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? String(info.behind) : null, canPull ? `Pull ${info.upstream} (fast-forward only)` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t))
-        .child(this.iconButton("gc-push", "push-line", busy === "push" ? "…" : info.ahead ? String(info.ahead) : null, info.upstream && !info.gone ? `Push to ${info.upstream}` : "Push and set the upstream", canPush && !busy, (cx) => this.push(cx), t)));
+        .child(this.iconButton("gc-push", "push-line", busy === "push" ? "…" : info.ahead ? String(info.ahead) : null, `${info.upstream && !info.gone ? `Push to ${info.upstream}` : "Push and set the upstream"}. Right-click: force push (with lease)`, canPush && !busy, (cx) => this.push(cx), t)
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (canPush && !busy) this.forcePush(); })));
   }
 
   render(cx) {
@@ -186,6 +206,13 @@ export class Client {
           else if (dialog) closeOverlay(dialog);
           else { this.history.typing = false; this.handle.focus(); }
           cx.notify();
+        } else if (this.branches.typing) {
+          if (this.branches.search.value()) { this.branches.search.set_value(""); this.branches.text = ""; }
+          else if (dialog) closeOverlay(dialog);
+          else { this.branches.typing = false; this.handle.focus(); }
+          cx.notify();
+        } else if (this.tab === "stash" && this.stash.sel) {
+          this.stash.clear(); cx.notify();
         } else if (this.tab === "history" && this.history.escape(cx)) {
           // closed a diff, the details or the search
         } else if (dialog) closeOverlay(dialog);
@@ -195,6 +222,8 @@ export class Client {
       .child(this.tabBar(t))
       .child(this.branchBar(t))
       .when(this.tab === "changes", (e) => e.child(this.changes.render(t)))
-      .when(this.tab === "history", (e) => e.child(this.history.render(cx)));
+      .when(this.tab === "history", (e) => e.child(this.history.render(cx)))
+      .when(this.tab === "branches", (e) => e.child(this.branches.render(t)))
+      .when(this.tab === "stash", (e) => e.child(this.stash.render(t)));
   }
 }

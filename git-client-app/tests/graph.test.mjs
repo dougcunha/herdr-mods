@@ -131,9 +131,9 @@ console.log("uncommitted ok");
 // ---- menus
 const ctx = ctxOf();
 const labelsIn = (items) => items.filter((i) => !i.separator).map((i) => i.label);
-assert.deepEqual(labelsIn(G.menuFor({ kind: "branch", name: "main", commit: tip }, ctx)), ["Rename branch…", "Push branch…", "Copy branch name"], "no checkout/delete/merge of the current branch");
+assert.deepEqual(labelsIn(G.menuFor({ kind: "branch", name: "main", commit: tip }, ctx)), ["Create branch from here…", "Rename branch…", "Push branch…", "Force push (with lease)…", "Set upstream…", "Copy branch name"], "no checkout/delete/merge of the current branch");
 assert.deepEqual(labelsIn(G.menuFor({ kind: "branch", name: "fix", commit: tip }, ctx)),
-  ["Checkout branch", "Rename branch…", "Delete branch…", "Merge into main…", "Rebase main on this branch…", "Push branch…", "Copy branch name"]);
+  ["Checkout branch", "Create branch from here…", "Rename branch…", "Delete branch…", "Merge into main…", "Rebase main on this branch…", "Push branch…", "Force push (with lease)…", "Set upstream…", "Copy branch name"]);
 assert.deepEqual(labelsIn(G.menuFor({ kind: "remote", name: "origin/fix", commit: tip }, ctx))[0], "Checkout fix", "a local branch with the name is checked out instead");
 const headMenu = labelsIn(G.menuFor({ kind: "commit", commit: tip }, ctx));
 assert.ok(!headMenu.includes("Checkout…") && !headMenu.includes("Cherry pick…") && headMenu.includes("Revert…"), "HEAD's own menu");
@@ -337,4 +337,5 @@ rmSync(base, { recursive: true, force: true });
 // Keep the original CI entry point running the action-context regressions too.
 await import("./action-context.test.mjs");
 await import("./changes.test.mjs");
+await import("./branches.test.mjs");
 console.log("all tests passed");

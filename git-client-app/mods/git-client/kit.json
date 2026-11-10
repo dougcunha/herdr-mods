@@ -1,6 +1,6 @@
 {
   "app": "git-client-app",
-  "description": "A Git client in one panel: stage files and hunks, commit (amend, commit all, push, an AI message), resolve an operation in progress, and the commit graph with its actions and a search. Fetch, pull and push in its bar.",
+  "description": "A Git client in one panel: stage files and hunks, commit (amend, commit all, push, an AI message), the commit graph with a search, branches, tags, remotes, worktrees and stashes. Fetch, pull and push in its bar.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-client-app",
   "credit": { "text": "Based on Git Graph for Herdr by rabeeh-ta (MIT license).", "url": "https://github.com/rabeeh-ta/herdr-git-graph" },
   "settings": [
@@ -15,6 +15,28 @@
         { "value": "unified", "label": "Unified" },
         { "value": "split", "label": "Split" }
       ]
+    },
+    {
+      "id": "pull",
+      "type": "enum",
+      "key": "git-client.pull",
+      "default": "config",
+      "label": "Pull",
+      "hint": "How the Pull button joins the remote commits. Git config: what pull.rebase and pull.ff say. Fast-forward only: it stops when the branches went apart.",
+      "options": [
+        { "value": "config", "label": "Git config" },
+        { "value": "ff-only", "label": "Fast-forward only" },
+        { "value": "rebase", "label": "Rebase" },
+        { "value": "merge", "label": "Merge" }
+      ]
+    },
+    {
+      "id": "prune",
+      "type": "bool",
+      "key": "git-client.prune",
+      "default": true,
+      "label": "Fetch prunes",
+      "hint": "Fetch removes the remote branches that are gone from the remote (--prune)."
     },
     {
       "id": "provider",

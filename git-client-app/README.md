@@ -8,8 +8,8 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 
 ## What it shows
 
-- **Tabs:** **Changes** (with the number of changed files) and **History**. In a panel narrower than 420 px the tabs show only their icons.
-- **Branch bar:** the branch, how far it is ahead (↑) and behind (↓) its upstream, and 3 buttons: **Fetch** (all remotes), **Pull** (fast-forward only) and **Push** (sets the upstream on the first push).
+- **Tabs:** **Changes** (with the number of changed files), **History**, **Branches** and **Stash** (with the number of stashes). In a panel narrower than 420 px the tabs show only their icons.
+- **Branch bar:** the branch, how far it is ahead (↑) and behind (↓) its upstream, and 3 buttons: **Fetch** (all remotes, with `--prune` unless you turn it off), **Pull** (as the Pull setting says) and **Push** (sets the upstream on the first push). Right-click **Push** to force push with `--force-with-lease`; it asks first.
 
 ### Changes
 
@@ -27,11 +27,27 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 - **Search:** type and press Enter. Plain text searches the messages, a hash finds that commit, `author:<name>` and `path:<file>` filter by author and by file (quotes keep spaces: `path:"src/a b.js"`). Git searches the whole history; the list shows the commits without lanes. Esc or × clears it.
 - The **Uncommitted changes** row opens the Changes tab.
 
+### Branches
+
+A filter field at the top finds branches and tags by name. Each section opens and closes with a click on its title. A click (or a right-click) on a row opens its menu.
+
+- **Local:** the checked-out branch first (a check mark), its upstream, ↑ and ↓ (or `gone`) and its age. Menu: Checkout, Create branch from here, Rename, Delete, Merge into the current branch, Rebase the current branch on it, Push, Force push (with lease), Set upstream, Copy name. **+** makes a branch from HEAD.
+- **Remote:** the remote branches, by remote. Menu: Checkout (a tracking branch), Merge, Delete on the remote, Copy name.
+- **Tags:** Delete, Push, Copy name. **+** makes a tag at HEAD (a message makes an annotated tag).
+- **Remotes:** each remote and its URL. Menu: Fetch, Rename, Change URL, Remove, Copy URL. **+** adds a remote.
+- **Worktrees:** each worktree, its branch, its folder, its number of changed files and the badges `main`, `here`, `locked` and `gone`. Menu: Open in a space (the space that shows that folder, else a new space), Lock or Unlock, Remove (asks; Force only when you tick it), Copy path. **+** makes a worktree: a new or an existing branch, in `<repo>-<branch>` next to the repository unless you type a folder, and opens it in a new space. **×** prunes the worktrees whose folder is gone.
+
+### Stash
+
+The stashes, newest first, with their branch and age. **New stash…** stashes the uncommitted changes (a message, untracked files too). A click on a stash shows its files and the diff of a file, with **Apply**, **Pop** and **Drop…** (asks). Right-click a stash for the same menu.
+
 ## Settings
 
 In the **Settings** tab of Herdr Mods:
 
 - **Diff view:** Unified or Split (`shared("git-client.view")`).
+- **Pull:** Git config (what `pull.rebase` and `pull.ff` say; the default), Fast-forward only, Rebase or Merge.
+- **Fetch prunes:** Fetch removes the remote branches that are gone (on by default).
 - **AI program:** Auto (Claude Code when it is installed, else Codex), Claude Code or Codex.
 - **AI model:** empty means `haiku` for Claude Code and `gpt-6-luna` for Codex.
 - **Message format:** the same style as the last 20 commit subjects, Conventional Commits, or free.
@@ -41,7 +57,7 @@ The first time, the mod takes the Unified / Split choice of `changes-split` and 
 
 ## Commands
 
-`git-client.changes`, `git-client.history`, `git-client.commit`, `git-client.fetch`, `git-client.pull`, `git-client.push`, `git-client.refresh`, `git-client.split`, `git-client.unified` and `git-client.toggle`, for example from `keys.json`. They reach a copy of the panel that shows. The mod binds no key.
+`git-client.changes`, `git-client.history`, `git-client.branches`, `git-client.stash`, `git-client.commit`, `git-client.fetch`, `git-client.pull`, `git-client.push`, `git-client.refresh`, `git-client.split`, `git-client.unified` and `git-client.toggle`, for example from `keys.json`. They reach a copy of the panel that shows. The mod binds no key.
 
 ## Install
 
@@ -72,16 +88,19 @@ The mod has `"place": "none"`: it adds no panel by itself. In a layout of your o
 - **AI:** `claude -p` or `codex exec`, only when you click **AI**. The staged diff (cut to 6,000 characters), its `--stat` and the last 20 commit subjects go to that program.
 - **Open file:** the default app of the system, only on this computer.
 - **Continue** runs `git <operation> --continue` with `core.editor=true`: Git keeps the message that it prepared.
-- Pull is fast-forward only. Push pushes the current branch to the remote of its upstream (else `origin`).
+- Push pushes the current branch to the remote of its upstream (else `origin`).
+- Branches runs one `for-each-ref`, `remote -v`, `worktree list` and a `status` in each worktree (the first 20), when the tab shows. **New worktree** makes a folder next to the repository and **Open in a space** opens a Herdr space there.
+- Stash shows the untracked files of a stash with git 2.32 or newer.
 - The Expand dialog shows the diff only: stage hunks in the panel.
 - With **Commit all**, the AI sees the changes of tracked files, not the new untracked files.
 - A list shows its first 300 files; the "all" buttons act on every file.
-- No Branches, Stash or Submodules tab yet, no worktrees and no remotes management: they come in the next versions.
+- No Submodules tab, no file history or blame, and no agent for conflicts yet: they come in the next version.
+- A menu opens at the spot of the click, also in the panel dialog of the dock.
 - Tested on Windows. The `sh -c` route for another machine is tested on Windows with Git's `sh`.
 
 ## Tests
 
-`node tests/graph.test.mjs` runs the tests of Git Graph for Herdr and the tests of the Changes tab (`tests/changes.test.mjs`) against throwaway repositories. On Windows, put Git's `usr\bin` in `PATH` first (the tests run `mkdir` and `sh`).
+`node tests/graph.test.mjs` runs the tests of Git Graph for Herdr and the tests of the Changes, Branches and Stash tabs (`tests/changes.test.mjs`, `tests/branches.test.mjs`) against throwaway repositories. On Windows, put Git's `usr\bin` in `PATH` first (the tests run `mkdir` and `sh`).
 
 ## Credit
 

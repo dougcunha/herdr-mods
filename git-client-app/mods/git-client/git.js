@@ -5,6 +5,8 @@
 //
 // Based on git.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 
+import { worktreePath } from "./refs.js";
+
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor
 // cookie), so the folder watch never wakes for the panel's own reads.
 export const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
@@ -317,15 +319,44 @@ export function menuFor(target, ctx) {
       section(item("Stash uncommitted changes…", "stash", { type: "stash" })),
       section(item("Reset uncommitted changes…", "reset", { type: "resetUncommitted" })),
     ];
+  } else if (target.kind === "remoteConfig") {
+    const r = target.remote;
+    sections = [
+      section(item(`Fetch ${r.name}`, "cloud-down", { type: "fetchRemote", name: r.name })),
+      section(item("Rename remote…", "rename", { type: "renameRemote", name: r.name }),
+        item("Change URL…", "rename", { type: "setRemoteUrl", name: r.name, url: r.url }),
+        item("Remove remote…", "trash", { type: "removeRemote", name: r.name })),
+      section(r.url && item("Copy URL", "copy", { type: "copy", text: r.url })),
+    ];
+  } else if (target.kind === "worktree") {
+    const w = target.worktree, here = Boolean(target.current);
+    sections = [
+      section(!here && item("Open in a space", "folder", { type: "openWorktree", path: w.path })),
+      section(!w.main && item(w.locked ? "Unlock" : "Lock", "check", { type: w.locked ? "unlockWorktree" : "lockWorktree", path: w.path }),
+        !w.main && !here && item("Remove worktree…", "trash", { type: "removeWorktree", path: w.path, branch: w.branch })),
+      section(item("Copy path", "copy", { type: "copy", text: w.path }),
+        w.branch && item("Copy branch name", "copy", { type: "copy", text: w.branch })),
+    ];
+  } else if (target.kind === "stash") {
+    const s = target.stash;
+    sections = [
+      section(item("Apply", "check", { type: "stashApply", ref: s.ref }),
+        item("Pop (apply and drop)", "stash", { type: "stashPop", ref: s.ref })),
+      section(item("Drop…", "trash", { type: "stashDrop", ref: s.ref, message: s.message })),
+      section(item("Copy message", "copy", { type: "copy", text: s.message })),
+    ];
   } else if (target.kind === "branch") {
-    const name = target.name, current = name === ctx.current;
+    const name = target.name, current = name === ctx.current, remote = ctx.remotes.length > 0;
     sections = [
       section(!current && item("Checkout branch", "branch", { type: "checkout", name }),
+        item("Create branch from here…", "plus", { type: "newBranch", base: name, what: name }),
         item("Rename branch…", "rename", { type: "renameBranch", name }),
         !current && item("Delete branch…", "trash", { type: "deleteBranch", name })),
       section(!current && item(`Merge into ${cur}…`, "merge", { type: "merge", ref: name, what: `branch ${name}` }),
         !current && item(`Rebase ${cur} on this branch…`, "rebase", { type: "rebase", ref: name, what: `branch ${name}` })),
-      section(ctx.remotes.length > 0 && item("Push branch…", "push", { type: "push", name })),
+      section(remote && item("Push branch…", "push", { type: "push", name }),
+        remote && item("Force push (with lease)…", "push", { type: "forcePush", name }),
+        remote && item("Set upstream…", "cloud", { type: "setUpstream", name, upstream: target.upstream ?? null })),
       section(item("Copy branch name", "copy", { type: "copy", text: name })),
     ];
   } else if (target.kind === "remote") {
@@ -383,6 +414,24 @@ export function dialogFor(action, ctx) {
         detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}.` : ""}${a.untracked?.length ? ` Delete ${a.untracked.length === 1 ? "the untracked file" : `${a.untracked.length} untracked files`} ${a.untracked.length === 1 ? a.untracked[0] : ""}.` : ""} This cannot be undone.`.trim(),
         confirm: all.length === 1 && a.untracked?.length ? "Delete" : "Discard", danger: true };
     }
+    case "newBranch": return { title: "Create branch", detail: `From ${a.what ?? a.base}.`,
+      inputs: [{ id: "name", label: "Branch name", value: "" }], checks: [{ id: "checkout", label: "Check out the new branch", value: true }], confirm: "Create" };
+    case "newTag": return { title: "Add tag", detail: `At ${a.what ?? a.base}.`,
+      inputs: [{ id: "name", label: "Tag name", value: "" }, { id: "message", label: "Message (makes an annotated tag)", value: "", optional: true }], confirm: "Add tag" };
+    case "setUpstream": return { title: "Set upstream", detail: `The remote branch that ${a.name} pulls from and pushes to.${a.upstream ? ` Now: ${a.upstream}.` : ""}`,
+      inputs: [{ id: "upstream", label: "Remote branch (remote/branch)", value: a.upstream ?? `${ctx.remotes.includes("origin") ? "origin" : ctx.remotes[0]}/${a.name}` }], confirm: "Set" };
+    case "forcePush": return { title: "Force push", detail: `Push ${a.name} with --force-with-lease: it replaces the branch on the remote, unless someone pushed to it after your last fetch.`,
+      choice: remoteChoice(ctx), confirm: "Force push", danger: true };
+    case "addRemote": return { title: "Add remote", inputs: [{ id: "name", label: "Name", value: ctx.remotes.length ? "" : "origin" }, { id: "url", label: "URL", value: "" }], confirm: "Add" };
+    case "renameRemote": return { title: "Rename remote", detail: `Rename ${a.name}. Its remote branches get the new name too.`, inputs: [{ id: "name", label: "New name", value: a.name }], confirm: "Rename" };
+    case "setRemoteUrl": return { title: "Change URL", detail: `The URL of ${a.name}.`, inputs: [{ id: "url", label: "URL", value: a.url ?? "" }], confirm: "Save" };
+    case "removeRemote": return { title: "Remove remote", detail: `Remove ${a.name}, and its remote branches from this repository? Nothing changes on the server.`, confirm: "Remove", danger: true };
+    case "addWorktree": return { title: "New worktree", detail: `A second checkout of the repository in its own folder. Empty folder: ${worktreePath(ctx.root ?? "repo", "<branch>")}.`,
+      inputs: [{ id: "name", label: "Branch", value: "" }, { id: "path", label: "Folder (optional)", value: "", optional: true, text: true }],
+      checks: [{ id: "newBranch", label: "Create the branch (from HEAD)", value: true }, { id: "open", label: "Open it in a new space", value: true }], confirm: "Create" };
+    case "removeWorktree": return { title: "Remove worktree", detail: `Delete the folder ${a.path}? The branch${a.branch ? ` ${a.branch}` : ""} stays.`,
+      checks: [{ id: "force", label: "Force, even with changes or untracked files", value: false }], confirm: "Remove", danger: true };
+    case "stashDrop": return { title: "Drop stash", detail: `Delete ${a.ref}${a.message ? ` (${a.message})` : ""}? This cannot be undone.`, confirm: "Drop", danger: true };
     case "abortOp": return { title: `Abort the ${a.op}`, detail: `Stop the ${a.op} and go back to where the branch was before it. Conflict fixes made so far are lost.`, confirm: "Abort", danger: true };
     case "discardHunk": return { title: "Discard hunk", detail: `Discard this hunk of ${a.path} from the work tree. This cannot be undone.`, confirm: "Discard", danger: true };
     case "checkoutRemote": return { title: "Checkout remote branch", detail: `Create a local branch that tracks ${a.name}, and check it out.`,
@@ -481,7 +530,38 @@ export function commandsFor(a, v = {}, ctx = {}) {
     return out;
   };
   if (["continueOp", "abortOp"].includes(a.type) && !OPS.includes(a.op)) throw new Error("Unknown operation");
+  const ref = (s) => refName(s) || objectId(s);
+  if (["newBranch", "newTag"].includes(a.type) && (!ref(a.base) || !refName(name))) throw new Error("Invalid ref name");
+  if (["setUpstream", "forcePush", "renameRemote", "setRemoteUrl", "removeRemote", "fetchRemote"].includes(a.type) && !refName(a.name)) throw new Error("Invalid ref name");
+  if (a.type === "setUpstream" && !refName(String(v.upstream ?? "").trim())) throw new Error("Invalid remote branch");
+  if (a.type === "forcePush" && (!refName(v.remote) || !ctx.remotes?.includes(v.remote))) throw new Error("Invalid remote");
+  if (["addRemote", "renameRemote"].includes(a.type) && !refName(name)) throw new Error("Invalid remote name");
+  const url = String(v.url ?? "").trim();
+  if (["addRemote", "setRemoteUrl"].includes(a.type) && (!url || url.startsWith("-") || /[\s\0]/.test(url))) throw new Error("Invalid URL");
+  const path = (p) => { const s = String(p ?? "").trim(); if (!s || s.startsWith("-") || s.includes("\0")) throw new Error("Invalid folder"); return s; };
+  if (["stashApply", "stashPop", "stashDrop"].includes(a.type) && !/^stash@\{\d+\}$/.test(a.ref ?? "")) throw new Error("Invalid stash");
   switch (a.type) {
+    case "newBranch": return [v.checkout ? ["checkout", "-b", name, a.base] : ["branch", name, a.base]];
+    case "newTag": return [message ? ["tag", "-a", name, "-m", message, a.base] : ["tag", name, a.base]];
+    case "setUpstream": return [["branch", `--set-upstream-to=${String(v.upstream).trim()}`, a.name]];
+    case "forcePush": return [["push", "--force-with-lease", v.remote, a.name]];
+    case "fetchRemote": return [["fetch", ...(v.prune === false ? [] : ["--prune"]), a.name]];
+    case "addRemote": return [["remote", "add", name, url]];
+    case "renameRemote": return [["remote", "rename", a.name, name]];
+    case "setRemoteUrl": return [["remote", "set-url", a.name, url]];
+    case "removeRemote": return [["remote", "remove", a.name]];
+    case "addWorktree": {
+      if (!refName(name)) throw new Error("Invalid ref name");
+      const dir = path(String(v.path ?? "").trim() || worktreePath(ctx.root, name));
+      return [v.newBranch ? ["worktree", "add", "-b", name, dir, "HEAD"] : ["worktree", "add", dir, name]];
+    }
+    case "removeWorktree": return [["worktree", "remove", ...(v.force ? ["--force"] : []), path(a.path)]];
+    case "lockWorktree": return [["worktree", "lock", path(a.path)]];
+    case "unlockWorktree": return [["worktree", "unlock", path(a.path)]];
+    case "pruneWorktrees": return [["worktree", "prune"]];
+    case "stashApply": return [["stash", "apply", a.ref]];
+    case "stashPop": return [["stash", "pop", a.ref]];
+    case "stashDrop": return [["stash", "drop", a.ref]];
     // core.editor=true: git takes the prepared message instead of waiting for an editor.
     case "continueOp": return [["-c", "core.editor=true", a.op, "--continue"]];
     case "abortOp": return [[a.op, "--abort"]];
@@ -509,11 +589,11 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "pushTag": return [["push", v.remote, `refs/tags/${a.name}`]];
     // The message is -m's own argument, so one starting with "-" stays a message.
     case "commit": return [...(v.all ? [["add", "--all"]] : []), ["commit", ...(v.amend ? ["--amend"] : []), "-m", message]];
-    // Fast-forward only, as manygit pulls: never a merge or a rebase.
-    case "pull": return [["pull", "--ff-only", "--quiet"]];
+    // mode: the Pull setting. Without one, fast-forward only, as manygit pulls: never a merge or a rebase.
+    case "pull": return [["pull", ...({ config: [], rebase: ["--rebase"], merge: ["--no-rebase"] }[v.mode] ?? ["--ff-only"]), "--quiet"]];
     case "stash": return [["stash", "push", ...(v.untracked ? ["--include-untracked"] : []), ...(message ? ["-m", message] : [])]];
     case "resetUncommitted": return [["reset", `--${v.mode}`, "HEAD"]];
-    case "fetch": return [["fetch", "--all"]];
+    case "fetch": return [["fetch", "--all", ...(v.prune ? ["--prune"] : [])]];
     default: throw new Error("Unknown Git action");
   }
 }
@@ -538,6 +618,23 @@ export function doneText(a, v = {}) {
     case "push": return `Pushed ${a.name} to ${v.remote}`;
     case "pushTag": return `Pushed tag ${a.name} to ${v.remote}`;
     case "commit": return v.amend ? "Amended the last commit" : "Committed";
+    case "newBranch": return v.checkout ? `Created and checked out ${name}` : `Created branch ${name}`;
+    case "newTag": return `Tagged ${a.what ?? a.base} as ${name}`;
+    case "setUpstream": return `${a.name} now tracks ${String(v.upstream).trim()}`;
+    case "forcePush": return `Force pushed ${a.name} to ${v.remote}`;
+    case "fetchRemote": return `Fetched ${a.name}`;
+    case "addRemote": return `Added remote ${name}`;
+    case "renameRemote": return `Renamed ${a.name} to ${name}`;
+    case "setRemoteUrl": return `Changed the URL of ${a.name}`;
+    case "removeRemote": return `Removed remote ${a.name}`;
+    case "addWorktree": return `Created the worktree of ${name}`;
+    case "removeWorktree": return "Removed the worktree";
+    case "lockWorktree": return "Locked the worktree";
+    case "unlockWorktree": return "Unlocked the worktree";
+    case "pruneWorktrees": return "Pruned the worktrees";
+    case "stashApply": return `Applied ${a.ref}`;
+    case "stashPop": return `Popped ${a.ref}`;
+    case "stashDrop": return `Dropped ${a.ref}`;
     case "continueOp": return `Continued the ${a.op}`;
     case "abortOp": return `Aborted the ${a.op}`;
     case "stage": return a.paths.length === 1 ? `Staged ${a.paths[0]}` : `Staged ${a.paths.length} files`;
