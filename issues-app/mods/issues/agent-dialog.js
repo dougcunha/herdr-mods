@@ -336,8 +336,17 @@ export class AgentDialog extends View {
     }
     // An existing branch is reused; one only on origin starts from there, tracking it.
     const add = exists ? ["worktree", "add", path, branch] : remote ? ["worktree", "add", "--track", "-b", branch, path, `origin/${branch}`] : ["worktree", "add", "-b", branch, path, "HEAD"];
+    // Windows: the worktree folder is deeper than the main checkout, so a long file name can pass MAX_PATH
+    // (260). Turn on long paths for the repository (worktrees share its config) unless the person set it.
+    if (!(await git(main, ["config", "--get", "core.longpaths"], on)).out) await git(main, ["config", "core.longpaths", "true"], on);
     const r = await git(main, add, on);
-    if (!r.ok) throw new Error(r.err || "git worktree add failed.");
+    if (!r.ok) {
+      // A failed checkout leaves a registered worktree and a new branch: remove them, so a retry starts clean.
+      await git(main, ["worktree", "remove", "--force", path], on);
+      await git(main, ["worktree", "prune"], on);
+      if (!exists) await git(main, ["branch", "-D", branch], on);
+      throw new Error(r.err || "git worktree add failed.");
+    }
     const copied = await this.copyIncludes(main, path, on);
     const before = spaces().find((s) => s.active)?.id;
     keepAgent(this.agent.name);
