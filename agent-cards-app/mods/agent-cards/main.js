@@ -332,7 +332,8 @@ export default class AgentCards extends View {
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()
             .child(this.pill(t, a.status))
-            .when(Boolean(machine), (el) => el.child(this.machineChip(t, machine, a.address))))))
+            // At the right end: the "Working..." animation changes the width of the pill.
+            .when(Boolean(machine), (el) => el.child(div().flex_1()).child(this.machineChip(t, machine, a.address))))))
       .when(subs.length > 0, (el) => el.child(this.subs(t, a, subs)));
   }
 
