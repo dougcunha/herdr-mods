@@ -338,4 +338,5 @@ rmSync(base, { recursive: true, force: true });
 await import("./action-context.test.mjs");
 await import("./changes.test.mjs");
 await import("./branches.test.mjs");
+await import("./phase3.test.mjs");
 console.log("all tests passed");

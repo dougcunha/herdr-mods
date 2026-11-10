@@ -8,7 +8,7 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 
 ## What it shows
 
-- **Tabs:** **Changes** (with the number of changed files), **History**, **Branches** and **Stash** (with the number of stashes). In a panel narrower than 420 px the tabs show only their icons.
+- **Tabs:** **Changes** (with the number of changed files), **History**, **Branches**, **Stash** (with the number of stashes) and **Submodules**. In a panel narrower than 420 px the tabs show only their icons.
 - **Branch bar:** the branch, how far it is ahead (↑) and behind (↓) its upstream, and 3 buttons: **Fetch** (all remotes, with `--prune` unless you turn it off), **Pull** (as the Pull setting says) and **Push** (sets the upstream on the first push). Right-click **Push** to force push with `--force-with-lease`; it asks first.
 
 ### Changes
@@ -18,7 +18,9 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 - **Hunks:** a click on the `@@` row of a hunk (or a right-click on any of its lines) opens a menu: **Stage hunk**, **Unstage hunk** or **Discard hunk**. An untracked file stages as a whole.
 - **Commit box:** the message (more lines grow the box; Ctrl+Enter commits), and **Amend** (an empty box gets the last message), **Commit all** (stages every change first; not with conflicts) and **Push** (pushes after the commit). The button says what it does: `Commit 3 files`, `Amend`, `Commit all & push`.
 - **AI:** writes the message from the staged changes (all the changes with Commit all) with Claude Code or Codex. You can edit the message before you commit.
-- **Operation in progress:** a bar shows the operation and the number of files in conflict, with **Continue** (when no conflict is left) and **Abort** (asks first).
+- **Operation in progress:** a bar shows the operation and the number of files in conflict, with **Resolve with agent** (while there are conflicts), **Continue** (when no conflict is left) and **Abort** (asks first).
+- **Resolve with agent:** a dialog: pick an installed agent, edit the prompt (the operation, the branches and the files in conflict; the agent must not continue, commit or push), and **Start agent** (or Ctrl+Enter). The agent starts in a new tab of the shown space, in the repository. When it is done, check the files, stage them and click **Continue**.
+- **File history and Blame:** in the right-click menu of a file. They show over the tabs, with **Back** (or Esc) and a History / Blame switch. History lists the commits that changed the file, also under an older name, and shows the diff of the file in the commit that you click. Blame shows each line with its commit, author and age (`uncommitted` for lines that are not committed); a click on a line shows its commit in History.
 
 ### History
 
@@ -41,6 +43,10 @@ A filter field at the top finds branches and tags by name. Each section opens an
 
 The stashes, newest first, with their branch and age. **New stash…** stashes the uncommitted changes (a message, untracked files too). A click on a stash shows its files and the diff of a file, with **Apply**, **Pop** and **Drop…** (asks). Right-click a stash for the same menu.
 
+### Submodules
+
+Each submodule with its folder, its commit, its description and branch, the number of changed files, and its state: `ok`, `modified`, `out of sync` (another commit than the recorded one), `uninitialized` or `conflict`. **Update all** initializes and updates every submodule (`--recursive`), **Sync** copies the URLs of `.gitmodules`, **Add…** clones a repository into a folder (the name of the repository unless you type one, and a branch if you want). A click (or a right-click) on a submodule opens its menu: **Open in the client** (the panel shows the submodule; **Back** in the branch bar goes to the repository that holds it), **Open in a space**, **Update to the recorded commit**, **Update from the remote branch**, **Sync the URL**, **Remove submodule…** (asks; commit the change after), Copy path, Copy URL.
+
 ## Settings
 
 In the **Settings** tab of Herdr Mods:
@@ -57,7 +63,7 @@ The first time, the mod takes the Unified / Split choice of `changes-split` and 
 
 ## Commands
 
-`git-client.changes`, `git-client.history`, `git-client.branches`, `git-client.stash`, `git-client.commit`, `git-client.fetch`, `git-client.pull`, `git-client.push`, `git-client.refresh`, `git-client.split`, `git-client.unified` and `git-client.toggle`, for example from `keys.json`. They reach a copy of the panel that shows. The mod binds no key.
+`git-client.changes`, `git-client.history`, `git-client.branches`, `git-client.stash`, `git-client.submodules`, `git-client.commit`, `git-client.fetch`, `git-client.pull`, `git-client.push`, `git-client.refresh`, `git-client.split`, `git-client.unified` and `git-client.toggle`, for example from `keys.json`. They reach a copy of the panel that shows. The mod binds no key.
 
 ## Install
 
@@ -94,13 +100,15 @@ The mod has `"place": "none"`: it adds no panel by itself. In a layout of your o
 - The Expand dialog shows the diff only: stage hunks in the panel.
 - With **Commit all**, the AI sees the changes of tracked files, not the new untracked files.
 - A list shows its first 300 files; the "all" buttons act on every file.
-- No Submodules tab, no file history or blame, and no agent for conflicts yet: they come in the next version.
+- **Resolve with agent** starts the agent that you pick (`programs.json` `run`), with your account, in a new tab. The mod does not resolve conflicts by itself, and has no interactive rebase and no staging of single lines.
+- File history shows the last 300 commits of a file; Blame reads the file as it is in the work tree.
+- Submodules runs `git submodule status --recursive` and a `status` in each submodule (the first 20) when its tab shows. A submodule from a local folder needs `protocol.file.allow` in your git config (git refuses it by default).
 - A menu opens at the spot of the click, also in the panel dialog of the dock.
 - Tested on Windows. The `sh -c` route for another machine is tested on Windows with Git's `sh`.
 
 ## Tests
 
-`node tests/graph.test.mjs` runs the tests of Git Graph for Herdr and the tests of the Changes, Branches and Stash tabs (`tests/changes.test.mjs`, `tests/branches.test.mjs`) against throwaway repositories. On Windows, put Git's `usr\bin` in `PATH` first (the tests run `mkdir` and `sh`).
+`node tests/graph.test.mjs` runs the tests of Git Graph for Herdr and the tests of the Changes, Branches and Stash tabs (`tests/changes.test.mjs`, `tests/branches.test.mjs`, `tests/phase3.test.mjs`) against throwaway repositories. On Windows, put Git's `usr\bin` in `PATH` first (the tests run `mkdir` and `sh`).
 
 ## Credit
 

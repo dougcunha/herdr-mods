@@ -5,6 +5,7 @@ import { Client } from "./client.js";
 import { Menu, icon } from "./menu.js";
 import { Dialog } from "./dialog.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
+import { AgentDialog } from "./agent.js";
 
 // The wide diff of the Changes tab (its Expand button), opened with props { role: "diff", title, side, rows }.
 class DiffDialog {
@@ -38,7 +39,8 @@ class DiffDialog {
 export default class GitClient extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "diff" ? new DiffDialog() : new Client();
+    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "diff" ? new DiffDialog()
+      : role === "agent" ? new AgentDialog() : new Client();
     this.part.init(cx);
   }
 

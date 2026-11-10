@@ -67,3 +67,13 @@ export function atEvent(e) {
 export function showTab(tab) {
   setShared("git-client.show", { tab, at: Date.now() });
 }
+
+// Asks every copy to show a submodule (a path from the repository's top folder) in place of its repository.
+export function showSubmodule(root, path, on) {
+  setShared("git-client.show", { sub: { cwd: `${root}/${path}`, on: on ?? null, name: path }, at: Date.now() });
+}
+
+// Asks every copy to show the history or the blame of a file (a path from the repository's top folder).
+export function showFile(path, mode) {
+  setShared("git-client.show", { file: path, mode, at: Date.now() });
+}

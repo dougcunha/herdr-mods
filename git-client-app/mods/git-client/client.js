@@ -10,6 +10,8 @@ import { History } from "./history.js";
 import { Changes } from "./changes.js";
 import { Branches } from "./branches.js";
 import { Stash } from "./stash.js";
+import { FileView } from "./fileview.js";
+import { Submodules } from "./submodules.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -23,6 +25,7 @@ const TABS = [
   { id: "history", label: "History", icon: "history" },
   { id: "branches", label: "Branches", icon: "branch" },
   { id: "stash", label: "Stash", icon: "stash" },
+  { id: "submodules", label: "Submodules", icon: "package" },
 ];
 // Preferences of the Settings tab of Herdr Mods.
 const pullMode = () => (["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config");
@@ -40,8 +43,10 @@ export class Client {
     if (shared("git-client.view") == null && (old === "split" || old === "unified")) setShared("git-client.view", old);
     this.seenShow = shared("git-client.show")?.at;
     this.history = new History(this); this.changes = new Changes(this);
-    this.branches = new Branches(this); this.stash = new Stash(this);
-    this.changes.init(cx); this.branches.init(cx); this.stash.init(cx); this.history.init(cx);
+    this.branches = new Branches(this); this.stash = new Stash(this); this.fileView = new FileView(this); this.submodules = new Submodules(this);
+    // Submodules opened in the client, the last one shown; Back goes to the one before.
+    this.subs = [];
+    this.changes.init(cx); this.branches.init(cx); this.stash.init(cx); this.submodules.init(cx); this.history.init(cx);
     // git-client.<tab>, .commit, .fetch, .pull, .push, .refresh, .split, .unified, .toggle.
     cx.spawn(async (cx) => {
       for (;;) { const c = String(await nextCommand()); if (!kitOff()) this.command(c, cx); cx.notify(); }
@@ -52,6 +57,8 @@ export class Client {
 
   // The repository of the panel: props.folder (a pane), else the focused pane's folder and machine.
   location() {
+    const sub = this.subs[this.subs.length - 1];
+    if (sub) return { cwd: sub.cwd, on: sub.on };
     if (this.folder) return { cwd: this.folder, on: null };
     const space = spaces().find((s) => s.active), f = focused();
     const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
@@ -60,12 +67,16 @@ export class Client {
   }
 
   ctx() { return this.history.ctx; }
-  onRead(cx) { this.changes.reload(cx); this.branches.reload(cx); this.stash.reload(cx); }
+  onRead(cx) { this.changes.reload(cx); this.branches.reload(cx); this.stash.reload(cx); this.submodules.reload(cx); }
+
+  // Back from a submodule to the repository that holds it.
+  back(cx) { this.subs.pop(); this.fileView.close(); cx.notify(); }
   setTab(tab, cx) {
     if (!TABS.some((t) => t.id === tab)) return;
-    this.tab = tab;
+    this.tab = tab; this.fileView.close();
     if (tab === "branches" && this.branches.dirty) this.branches.reload(cx, true);
     if (tab === "stash") this.stash.reload(cx);
+    if (tab === "submodules" && this.submodules.dirty) this.submodules.reload(cx, true);
     cx.notify();
   }
 
@@ -163,7 +174,14 @@ export class Client {
     if (!h.root) return div();
     const where = h.current ?? (h.head ? `detached at ${h.head.slice(0, 8)}` : info.branch ?? "no commits");
     const busy = this.busy, canPull = Boolean(info.upstream) && !info.gone, canPush = remotes.length > 0 && Boolean(h.current);
+    const sub = this.subs[this.subs.length - 1];
     return h_flex().h(34).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border)
+      // In a submodule: Back to the repository that holds it, and the submodule's name.
+      .when(Boolean(sub), (e) => e.child(h_flex().id("gc-sub-back").h(22).pl(2).pr(7).gap(3).flex_none().items_center().rounded(6).cursor_pointer()
+          .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Back to the repository that holds this submodule")
+          .on_click((_e, cx) => this.back(cx)).child(svg(icon("back")).size(13)).child(div().text_size(11.5).child("Back")))
+        .child(h_flex().h(22).px(7).gap(5).flex_none().max_w(160).items_center().rounded(6).bg(t.raised).text_color(t.foreground)
+          .child(svg(icon("package")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).child(sub.name))))
       .child(h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
         .tooltip(info.upstream ? `${where} → ${info.upstream}${info.gone ? " (gone)" : ""}` : `${where} (no upstream)`)
         .child(svg(icon(h.current ? "branch" : "commit")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(where)))
@@ -180,9 +198,17 @@ export class Client {
 
   render(cx) {
     if (kitOff()) return offView();
-    this.history.sync(cx);
+    // The signal first: a submodule changes the location, and sync() then reads it.
     const show = shared("git-client.show");
-    if (show?.at && show.at !== this.seenShow) { this.seenShow = show.at; if (TABS.some((t) => t.id === show.tab)) this.tab = show.tab; }
+    if (show?.at && show.at !== this.seenShow) {
+      this.seenShow = show.at;
+      if (show.sub?.cwd) { this.subs.push(show.sub); this.tab = "changes"; this.fileView.close(); }
+      else if (show.file && this.history.root) { this.fileView.open(show.file, show.mode, cx); this.fileView.context = this.history.context; }
+      else if (TABS.some((t) => t.id === show.tab)) { this.tab = show.tab; this.fileView.close(); }
+    }
+    this.history.sync(cx);
+    // Another repository: the file of the view is not there.
+    if (this.fileView.path && this.fileView.context !== this.history.context) this.fileView.close();
     const t = theme();
     return v_flex().id("git-client").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
@@ -211,6 +237,8 @@ export class Client {
           else if (dialog) closeOverlay(dialog);
           else { this.branches.typing = false; this.handle.focus(); }
           cx.notify();
+        } else if (this.fileView.path) {
+          this.fileView.close(); cx.notify();
         } else if (this.tab === "stash" && this.stash.sel) {
           this.stash.clear(); cx.notify();
         } else if (this.tab === "history" && this.history.escape(cx)) {
@@ -221,9 +249,11 @@ export class Client {
       })
       .child(this.tabBar(t))
       .child(this.branchBar(t))
-      .when(this.tab === "changes", (e) => e.child(this.changes.render(t)))
-      .when(this.tab === "history", (e) => e.child(this.history.render(cx)))
-      .when(this.tab === "branches", (e) => e.child(this.branches.render(t)))
-      .when(this.tab === "stash", (e) => e.child(this.stash.render(t)));
+      .when(Boolean(this.fileView.path), (e) => e.child(this.fileView.render(t, cx)))
+      .when(!this.fileView.path && this.tab === "changes", (e) => e.child(this.changes.render(t)))
+      .when(!this.fileView.path && this.tab === "history", (e) => e.child(this.history.render(cx)))
+      .when(!this.fileView.path && this.tab === "branches", (e) => e.child(this.branches.render(t)))
+      .when(!this.fileView.path && this.tab === "stash", (e) => e.child(this.stash.render(t)))
+      .when(!this.fileView.path && this.tab === "submodules", (e) => e.child(this.submodules.render(t)));
   }
 }

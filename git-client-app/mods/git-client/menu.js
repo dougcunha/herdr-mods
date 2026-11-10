@@ -4,7 +4,7 @@ import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, notify, theme, run } from "herdr";
 import { menuFor } from "./git.js";
-import { perform, openDialog, showTab, openWorktree } from "./act.js";
+import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree } from "./act.js";
 
 // A glyph of this mod, or another mod's icon by its path.
 export const icon = (name) => (name.includes("/") ? name : `mods/git-client/icons/${name}.svg`);
@@ -38,6 +38,12 @@ export class Menu {
     } else if (a.type === "openWorktree") {
       closeOverlay(overlay);
       openWorktree(a.path, ctx.on);
+    } else if (a.type === "openSubmodule") {
+      closeOverlay(overlay);
+      showSubmodule(ctx.root, a.path, ctx.on);
+    } else if (a.type === "fileView") {
+      closeOverlay(overlay);
+      showFile(a.path, a.mode);
     } else if (a.type === "showChanges") {
       closeOverlay(overlay);
       showTab("changes");

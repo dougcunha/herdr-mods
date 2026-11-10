@@ -6,7 +6,8 @@ import { READ, commandsFor, gitError } from "./git.js";
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
 const STAGING = new Set(["stage", "unstage", "discard", "stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
-  "pruneWorktrees", "stashApply", "stashPop", "stashDrop"]);
+  "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
+  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove"]);
 const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discardHunk: ["-R"] };
 
 export async function executeAction(action, values, ctx, exec, io = null) {

@@ -5,7 +5,7 @@
 //
 // Based on git.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 
-import { worktreePath } from "./refs.js";
+import { worktreePath, submoduleFolder } from "./refs.js";
 
 // Reads write nothing under .git (no index refresh or lock, no fsmonitor
 // cookie), so the folder watch never wakes for the panel's own reads.
@@ -306,6 +306,9 @@ export function menuFor(target, ctx) {
         target.side === "staged" && item("Unstage", "minus", { type: "unstage", paths, unborn: !ctx.head }),
         target.side === "conflict" && item("Mark resolved (stage)", "check", { type: "stage", paths }),
         target.side === "unstaged" && item(f.untracked ? "Delete file…" : "Discard changes…", "trash", { type: "discard", paths: f.untracked ? [] : paths, untracked: f.untracked ? paths : [] })),
+      // A file with commits: not untracked, not only added to the index.
+      section(!f.untracked && f.x !== "A" && item("File history", "history", { type: "fileView", path: f.path, mode: "history" }),
+        !f.untracked && f.x !== "A" && f.status !== "D" && item("Blame", "commit", { type: "fileView", path: f.path, mode: "blame" })),
       section(!ctx.on && f.status !== "D" && item("Open file", "file", { type: "openFile", path: f.path }),
         item("Copy path", "copy", { type: "copy", text: f.path })),
     ];
@@ -336,6 +339,18 @@ export function menuFor(target, ctx) {
         !w.main && !here && item("Remove worktree…", "trash", { type: "removeWorktree", path: w.path, branch: w.branch })),
       section(item("Copy path", "copy", { type: "copy", text: w.path }),
         w.branch && item("Copy branch name", "copy", { type: "copy", text: w.branch })),
+    ];
+  } else if (target.kind === "submodule") {
+    const s = target.submodule, ready = s.state !== "uninitialized", one = { path: s.path, name: s.path };
+    sections = [
+      section(ready && item("Open in the client", "folder", { type: "openSubmodule", path: s.path }),
+        ready && item("Open in a space", "folder", { type: "openWorktree", path: `${ctx.root}/${s.path}` })),
+      section(item(ready ? "Update to the recorded commit" : "Initialize and update", "fetch", { type: "submoduleUpdate", ...one }),
+        item("Update from the remote branch", "cloud-down", { type: "submoduleUpdateRemote", ...one }),
+        item("Sync the URL", "refresh", { type: "submoduleSync", ...one })),
+      section(!s.nested && item("Remove submodule…", "trash", { type: "submoduleRemove", path: s.path })),
+      section(item("Copy path", "copy", { type: "copy", text: s.path }),
+        s.url && item("Copy URL", "copy", { type: "copy", text: s.url })),
     ];
   } else if (target.kind === "stash") {
     const s = target.stash;
@@ -431,6 +446,10 @@ export function dialogFor(action, ctx) {
       checks: [{ id: "newBranch", label: "Create the branch (from HEAD)", value: true }, { id: "open", label: "Open it in a new space", value: true }], confirm: "Create" };
     case "removeWorktree": return { title: "Remove worktree", detail: `Delete the folder ${a.path}? The branch${a.branch ? ` ${a.branch}` : ""} stays.`,
       checks: [{ id: "force", label: "Force, even with changes or untracked files", value: false }], confirm: "Remove", danger: true };
+    case "submoduleAdd": return { title: "Add submodule", detail: "Clone a repository into a folder of this one and record its commit.",
+      inputs: [{ id: "url", label: "URL", value: "" }, { id: "path", label: "Folder (optional: the name of the repository)", value: "", optional: true, text: true },
+        { id: "branch", label: "Branch (optional)", value: "", optional: true }], confirm: "Add" };
+    case "submoduleRemove": return { title: "Remove submodule", detail: `Remove ${a.path}: deinit it, delete its folder and its entry in .gitmodules. Commit the change after.`, confirm: "Remove", danger: true };
     case "stashDrop": return { title: "Drop stash", detail: `Delete ${a.ref}${a.message ? ` (${a.message})` : ""}? This cannot be undone.`, confirm: "Drop", danger: true };
     case "abortOp": return { title: `Abort the ${a.op}`, detail: `Stop the ${a.op} and go back to where the branch was before it. Conflict fixes made so far are lost.`, confirm: "Abort", danger: true };
     case "discardHunk": return { title: "Discard hunk", detail: `Discard this hunk of ${a.path} from the work tree. This cannot be undone.`, confirm: "Discard", danger: true };
@@ -537,7 +556,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
   if (a.type === "forcePush" && (!refName(v.remote) || !ctx.remotes?.includes(v.remote))) throw new Error("Invalid remote");
   if (["addRemote", "renameRemote"].includes(a.type) && !refName(name)) throw new Error("Invalid remote name");
   const url = String(v.url ?? "").trim();
-  if (["addRemote", "setRemoteUrl"].includes(a.type) && (!url || url.startsWith("-") || /[\s\0]/.test(url))) throw new Error("Invalid URL");
+  if (["addRemote", "setRemoteUrl", "submoduleAdd"].includes(a.type) && (!url || url.startsWith("-") || /[\s\0]/.test(url))) throw new Error("Invalid URL");
   const path = (p) => { const s = String(p ?? "").trim(); if (!s || s.startsWith("-") || s.includes("\0")) throw new Error("Invalid folder"); return s; };
   if (["stashApply", "stashPop", "stashDrop"].includes(a.type) && !/^stash@\{\d+\}$/.test(a.ref ?? "")) throw new Error("Invalid stash");
   switch (a.type) {
@@ -559,6 +578,16 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "lockWorktree": return [["worktree", "lock", path(a.path)]];
     case "unlockWorktree": return [["worktree", "unlock", path(a.path)]];
     case "pruneWorktrees": return [["worktree", "prune"]];
+    // Without a path: every submodule.
+    case "submoduleUpdate": return [["submodule", "update", "--init", "--recursive", ...(a.path ? ["--", path(a.path)] : [])]];
+    case "submoduleUpdateRemote": return [["submodule", "update", "--init", "--remote", "--recursive", ...(a.path ? ["--", path(a.path)] : [])]];
+    case "submoduleSync": return [["submodule", "sync", "--recursive", ...(a.path ? ["--", path(a.path)] : [])]];
+    case "submoduleAdd": {
+      const branch = String(v.branch ?? "").trim();
+      if (branch && !refName(branch)) throw new Error("Invalid branch");
+      return [["submodule", "add", ...(branch ? ["-b", branch] : []), "--", url, path(String(v.path ?? "").trim() || submoduleFolder(url))]];
+    }
+    case "submoduleRemove": return [["submodule", "deinit", "-f", "--", path(a.path)], ["rm", "-f", "--", path(a.path)]];
     case "stashApply": return [["stash", "apply", a.ref]];
     case "stashPop": return [["stash", "pop", a.ref]];
     case "stashDrop": return [["stash", "drop", a.ref]];
@@ -632,6 +661,11 @@ export function doneText(a, v = {}) {
     case "lockWorktree": return "Locked the worktree";
     case "unlockWorktree": return "Unlocked the worktree";
     case "pruneWorktrees": return "Pruned the worktrees";
+    case "submoduleUpdate": return a.path ? `Updated ${a.path}` : "Updated the submodules";
+    case "submoduleUpdateRemote": return a.path ? `Updated ${a.path} from its remote branch` : "Updated the submodules from their remote branches";
+    case "submoduleSync": return a.path ? `Synced the URL of ${a.path}` : "Synced the submodule URLs";
+    case "submoduleAdd": return "Added the submodule";
+    case "submoduleRemove": return `Removed ${a.path}`;
     case "stashApply": return `Applied ${a.ref}`;
     case "stashPop": return `Popped ${a.ref}`;
     case "stashDrop": return `Dropped ${a.ref}`;
@@ -701,4 +735,20 @@ export function diffRows(text) {
     if (kind === " ") { old++; return { kind, number: next++, text: line.slice(1) || " " }; }
     return { kind: "", text: line };
   });
+}
+
+// The first prompt of "Resolve with agent": the operation, the files in conflict and what the agent must not do.
+export function conflictPrompt({ op, files, current, theirs, root }) {
+  const what = op === "merge" ? `a merge${theirs ? ` of ${theirs}` : ""} into ${current ?? "HEAD"}`
+    : op === "rebase" ? `a rebase of ${current ?? "the branch"}${theirs ? ` onto ${theirs}` : ""}`
+    : op === "cherry-pick" ? `a cherry-pick${theirs ? ` of ${theirs}` : ""} onto ${current ?? "HEAD"}`
+    : `a revert${theirs ? ` of ${theirs}` : ""} on ${current ?? "HEAD"}`;
+  return [
+    `There is ${what} in progress in this repository (${root}). It stopped on conflicts in these files:`,
+    ...files.map((f) => `- ${f}`),
+    "",
+    "Resolve each conflict: read both sides and the commits behind them, keep the intent of both changes, and remove every conflict marker.",
+    "Then check that the code builds and that the tests that cover these files pass, and stage the resolved files with git add.",
+    `Do not run git ${op} --continue, do not commit and do not push: I review the result and continue myself.`,
+  ].join("\n");
 }

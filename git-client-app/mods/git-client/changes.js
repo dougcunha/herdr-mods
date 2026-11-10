@@ -64,7 +64,8 @@ export class Changes {
   reload(cx) {
     const h = this.host.history, root = h.root, on = h.on, context = h.context;
     if (context !== this.context) { this.context = context; this.resetFolder(); }
-    if (!root) { cx.notify(); return; }
+    // No cx.notify() here: reload can run inside a render (a new folder), and a render follows anyway.
+    if (!root) return;
     const seq = this.seq = (this.seq ?? 0) + 1, stale = () => this.seq !== seq || this.host.history.context !== context;
     const git = (args) => exec("git", [...READ, ...args], { cwd: root, on });
     cx.spawn(async (cx) => {
@@ -155,7 +156,7 @@ export class Changes {
   fileMenu(f, side, e) {
     const ctx = this.ctx();
     if (!ctx) return;
-    const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status } }, items = menuFor(target, ctx);
+    const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status, x: f.x } }, items = menuFor(target, ctx);
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx } });
   }
 
@@ -165,6 +166,19 @@ export class Changes {
     if (!ctx || !this.patch || !row || !(row.hunk >= 0) || !this.patch.hunks[row.hunk] || sel?.side === "conflict") return;
     const target = { kind: "hunk", side: sel.side, path: sel.path, hunk: row.hunk, patch: hunkPatch(this.patch, row.hunk) }, items = menuFor(target, ctx);
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 220, height: menuHeight(items), props: { role: "menu", target, ctx } });
+  }
+
+  // The agent dialog, with the other side of the operation by name when git knows it.
+  resolveWithAgent(cx) {
+    const ctx = this.ctx(), op = this.op;
+    if (!ctx || !op) return;
+    const files = this.conflicts().map((f) => f.path);
+    const head = { merge: "MERGE_HEAD", "cherry-pick": "CHERRY_PICK_HEAD", revert: "REVERT_HEAD", rebase: "REBASE_HEAD" }[op];
+    cx.spawn(async () => {
+      const r = await exec("git", [...READ, "name-rev", "--name-only", "--always", "--no-undefined", head], { cwd: ctx.root, on: ctx.on }).catch(() => null);
+      const theirs = r?.code === 0 ? r.stdout.trim().replace(/^remotes\//, "") : null;
+      openOverlay({ mod: "git-client", kind: "dialog", width: 640, height: 560, props: { role: "agent", ctx, op, files, theirs } });
+    });
   }
 
   expand() {
@@ -296,6 +310,7 @@ export class Changes {
       .child(v_flex().flex_1().min_w(0)
         .child(div().text_size(12).font_semibold().truncate().child(`${name} in progress`))
         .child(div().text_size(11).text_color(t.muted).truncate().child(conflicts ? `${plural(conflicts, "file")} in conflict. Fix them, then stage them.` : "No conflicts left. Continue to finish it.")))
+      .when(conflicts > 0, (e) => e.child(button("gc-op-agent", "Resolve with agent", false, true, (cx) => this.resolveWithAgent(cx))))
       .child(button("gc-op-abort", "Abort", false, true, (cx) => this.run({ type: "abortOp", op: this.op }, cx, { quiet: false })))
       .child(button("gc-op-continue", "Continue", true, !conflicts, (cx) => this.run({ type: "continueOp", op: this.op }, cx, { quiet: false })));
   }

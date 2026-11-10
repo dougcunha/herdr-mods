@@ -82,6 +82,69 @@ export function worktreePath(root, branch) {
   return `${r.slice(0, slash + 1)}${r.slice(slash + 1)}-${String(branch).replace(/[\\/:*?"<>|\s]+/g, "-")}`;
 }
 
+// ---- File history: the commits that changed a file, following renames, each with the path it had there.
+export const fileLogArgs = (path, limit = 300) => ["log", "--follow", `-n${limit}`, "--name-only", "--format=%x1e%H%x00%an%x00%at%x00%s", "--", path];
+export function parseFileLog(text) {
+  return String(text ?? "").split("\x1e").map((block) => {
+    const [head, ...rest] = block.split("\n");
+    const [hash, author, time, ...subject] = (head ?? "").split("\0");
+    if (!/^[0-9a-f]{40,64}$/.test(hash ?? "")) return null;
+    return { hash, author, time: Number(time) || 0, subject: subject.join("\0"), path: rest.map((l) => l.trim()).find(Boolean) ?? null };
+  }).filter(Boolean);
+}
+
+// ---- Blame: `git blame --porcelain`. Each line: "<hash> <orig> <final> [<count>]", then the fields of the
+// commit the first time it shows ("author …", "author-time …", "summary …"), then "\t<text>".
+export const blameArgs = (path) => ["blame", "--porcelain", "--", path];
+export function parseBlame(text) {
+  const commits = new Map(), rows = [];
+  let cur = null;
+  for (const line of String(text ?? "").split("\n")) {
+    if (line.startsWith("\t")) {
+      if (!cur) continue;
+      const c = commits.get(cur.hash);
+      const prev = rows[rows.length - 1];
+      rows.push({ hash: cur.hash, number: cur.final, text: line.slice(1) || " ", author: c.author, time: c.time, summary: c.summary,
+        first: !prev || prev.hash !== cur.hash, uncommitted: /^0+$/.test(cur.hash) });
+      cur = null;
+      continue;
+    }
+    const m = /^([0-9a-f]{40,64}) (\d+) (\d+)(?: \d+)?$/.exec(line);
+    if (m) { cur = { hash: m[1], final: Number(m[3]) }; if (!commits.has(m[1])) commits.set(m[1], { author: "", time: 0, summary: "" }); continue; }
+    if (!cur) continue;
+    const c = commits.get(cur.hash), sp = line.indexOf(" "), key = sp < 0 ? line : line.slice(0, sp), value = sp < 0 ? "" : line.slice(sp + 1);
+    if (key === "author") c.author = value;
+    else if (key === "author-time") c.time = Number(value) || 0;
+    else if (key === "summary") c.summary = value;
+  }
+  return rows;
+}
+
+// ---- Submodules: `git submodule status --recursive` ("<state><hash> <path>[ (<describe>)]"; state " " ok,
+// "-" not initialized, "+" another commit than the recorded one, "U" in conflict) and the .gitmodules config.
+export const submoduleStatusArgs = () => ["submodule", "status", "--recursive"];
+export const gitmodulesArgs = () => ["config", "-f", ".gitmodules", "--get-regexp", "^submodule\\..*\\.(path|url|branch)$"];
+const STATES = { " ": "ok", "-": "uninitialized", "+": "out of sync", U: "conflict" };
+export function parseSubmodules(statusText, configText = "") {
+  const config = new Map(); // name → { path, url, branch }
+  for (const line of String(configText ?? "").split("\n")) {
+    const m = /^submodule\.(.+)\.(path|url|branch) (.*)$/.exec(line.trim());
+    if (!m) continue;
+    const c = config.get(m[1]) ?? { name: m[1] };
+    c[m[2]] = m[3];
+    config.set(m[1], c);
+  }
+  const byPath = new Map([...config.values()].filter((c) => c.path).map((c) => [c.path, c]));
+  return String(statusText ?? "").split("\n").map((line) => {
+    const m = /^([ +\-U])([0-9a-f]{40,64}) (.+?)(?: \((.*)\))?$/.exec(line);
+    if (!m) return null;
+    const c = byPath.get(m[3]);
+    return { path: m[3], hash: m[2], state: STATES[m[1]], describe: m[4] ?? null, name: c?.name ?? m[3], url: c?.url ?? null, branch: c?.branch ?? null, nested: !byPath.has(m[3]) };
+  }).filter(Boolean);
+}
+// The folder a new submodule gets from its URL: "https://x/y/lib.git" → "lib".
+export const submoduleFolder = (url) => String(url ?? "").replace(/[\\/]+$/, "").split(/[\\/:]/).pop().replace(/\.git$/, "") || "submodule";
+
 export const STASH_FORMAT = "%gd%x00%H%x00%ct%x00%gs";
 export const stashListArgs = () => ["stash", "list", `--format=${STASH_FORMAT}`];
 export function parseStashes(text) {

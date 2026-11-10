@@ -1,6 +1,6 @@
 {
   "app": "git-client-app",
-  "description": "A Git client in one panel: stage files and hunks, commit (amend, commit all, push, an AI message), the commit graph with a search, branches, tags, remotes, worktrees and stashes. Fetch, pull and push in its bar.",
+  "description": "A Git client in one panel: stage files and hunks, commit (amend, commit all, push, an AI message), the commit graph with a search, branches, tags, remotes, worktrees, stashes and submodules, a file's history and blame, and an agent for merge conflicts. Fetch, pull and push in its bar.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/git-client-app",
   "credit": { "text": "Based on Git Graph for Herdr by rabeeh-ta (MIT license).", "url": "https://github.com/rabeeh-ta/herdr-git-graph" },
   "settings": [

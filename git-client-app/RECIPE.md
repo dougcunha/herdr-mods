@@ -1,6 +1,6 @@
 # Git
 
-A Git client in one Herdr panel: a **Changes** tab that stages files and hunks and commits (amend, commit all, push after, an AI message), a **History** tab with the commit graph of Git Graph for Herdr, a **Branches** tab (local and remote branches, tags, remotes, worktrees) and a **Stash** tab. A bar under the tabs shows the branch and has Fetch, Pull and Push. The panel follows the repository of the focused terminal.
+A Git client in one Herdr panel: a **Changes** tab that stages files and hunks and commits (amend, commit all, push after, an AI message), a **History** tab with the commit graph of Git Graph for Herdr, a **Branches** tab (local and remote branches, tags, remotes, worktrees), a **Stash** tab and a **Submodules** tab. A file's history and blame, and an agent that resolves conflicts. A bar under the tabs shows the branch and has Fetch, Pull and Push. The panel follows the repository of the focused terminal.
 
 ![Git](preview.png)
 
@@ -8,7 +8,7 @@ A Git client in one Herdr panel: a **Changes** tab that stages files and hunks a
 
 Top to bottom, in a panel of any width (the side panel is 368 px):
 
-1. **Tab bar**, 40 px, a border under it: 4 tabs (Changes, History, Branches, Stash) of 30 px (14 px icon, 12.5 px label, rounded 7 px; the shown one `selected` and semibold). **Changes** and **Stash** have a count pill (`raised`, 10.5 px): the changed files, the stashes. Under 420 px wide, the tabs show only the icon, with the name as a tooltip. At the right: a Refresh icon button.
+1. **Tab bar**, 40 px, a border under it: 5 tabs (Changes, History, Branches, Stash, Submodules) of 30 px (14 px icon, 12.5 px label, rounded 7 px; the shown one `selected` and semibold). **Changes** and **Stash** have a count pill (`raised`, 10.5 px): the changed files, the stashes. Under 420 px wide, the tabs show only the icon, with the name as a tooltip. At the right: a Refresh icon button.
 2. **Branch bar**, 34 px: a pill (`accent` at 15% alpha, `accent` text) with a branch icon and the branch (or `detached at <hash>`), its tooltip `branch → upstream`; `↑n` in `ansi2` and `↓n` in `ansi1`; `gone` when the upstream is gone. At the right, only when the repository has a remote: Fetch (`cloud-down`), Pull (`pull`, with the behind count) and Push (`push-line`, with the ahead count), 26 px each.
 3. **The tab.**
 
@@ -23,6 +23,12 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 **History tab:** a search row of 36 px (a 26 px field with a `search` icon; with a search, the count of commits and a × button), the toolbar of Git Graph (All branches / Current, Remotes; hidden during a search), the column header (Graph, Description, Date; Author and Commit from 600 px) and the rows of 24 px, then the details pane of a commit (320 px). During a search the graph column is 18 px with no lanes.
 
 **Branches tab:** a filter row of 36 px, then 5 sections that open and close (30 px titles with ▾ / ▸, the count, and icon buttons: **+** on Local, Tags, Remotes, Worktrees; **×** prune on Worktrees). Rows of 26 px, 24 px in: a 12 px icon (`check` in `accent` for the current branch, `branch`, `cloud`, `tag` in `ansi3`, `folder`), the name (at most 240 px), a `dim` detail (upstream, URL, tag message, folder), badges, the age. Remote branches sit under a 22 px line with the remote name. At most 200 rows a section, then "and N more". Worktree badges: a `blocked` dot and the number of changed files, `main`, `here` (`accent`), `locked`, `gone` (`ansi1`).
+
+**Submodules tab:** a 40 px row with the count and **Update all**, **Sync** (only with submodules) and **Add…**, then 32 px rows: an 8 px dot in the color of the state (`ansi2` ok, `blocked` modified or out of sync, `dim` uninitialized, `ansi1` conflict), the path over a `dim` line (short hash · describe · branch), the number of changed files and the state.
+
+**File view** (over the tabs, from the menu of a file): a 36 px row with **Back**, the file name and a History / Blame switch. History: 30 px rows (short hash in `accent`, subject, "as <old path>", author, age), at most 35% of the panel, then the diff of the file in the selected commit. Blame: a virtual list of 20 px lines in the monospace font: a 190 px column with the short hash (`accent`, or `uncommitted` in `blocked`), the author and the age on the first line of each group (a border above it), the line number and the text.
+
+**Agent dialog** (640 x 560): the title "Resolve conflicts with an agent", where the agent starts, the installed agents as 36 px cards (icon and name; the chosen one with an `accent` border), ↻, the prompt in a textarea, Cancel and **Start agent**.
 
 **Stash tab:** a 40 px row with the count and **New stash…** (only with changes), the list (30 px rows: `stash` icon, message, branch, age; at most 30% of the panel), then for the selected stash a 40 px row with its ref and **Apply**, **Pop** (`solid`), **Drop…** (`ansi1` text), its files (24 px rows, at most 6 shown, scrolling) and the diff of one file.
 
@@ -39,6 +45,9 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - A click or a right-click on a row of Branches or Stash opens its menu. Every popup menu opens at `e.position` of the click: `"pointer"` is the last spot that the layout saw, wrong in a dialog.
 - **New worktree** with "Open it in a new space": after the command, the space whose pane is in that folder is selected, else `space.new { folder, machine }`.
 - Push: a right-click opens the Force push dialog. Pull uses `shared("git-client.pull")` (`config` → `pull`, `ff-only`, `rebase`, `merge` → `--no-rebase`); Fetch adds `--prune` unless `shared("git-client.prune")` is `false`.
+- **Resolve with agent** reads `git name-rev --name-only` of `MERGE_HEAD` (`CHERRY_PICK_HEAD`, `REVERT_HEAD`, `REBASE_HEAD`) for the prompt, then opens the dialog. The agents come from `shared("git-client.agents")[machine]`, else the lists of issues and repo-launcher, else `knownAgents({ on })`. **Start agent**: `tab.new { space, folder: root, name: "Resolve <op>", argv: agent.run, task: prompt }`, and `shared("git-client.lastAgent")`.
+- **File history** / **Blame** set `shared("git-client.show")` = `{ file, mode, at }`; the panel shows the file view until Back, Esc, a tab click or another repository.
+- **Open in the client** sets `shared("git-client.show")` = `{ sub: { cwd, on, name }, at }`: the panel pushes it on a stack and reads that folder; **Back** pops it. The signal is handled before the read of the render, and `reload()` of the tabs never calls `cx.notify()` in a render.
 - When the mod is off in Herdr Mods (`herdr-mods.disabled`), it draws nothing, closes its dialog and skips its timers.
 
 ## Built from
@@ -47,6 +56,7 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - `main.js`: the roles (`props.role`): `menu` (the popup menu), `dialog` (an action dialog), `diff` (the Expand dialog), else the panel.
 - `client.js`: the panel: the tabs, the branch bar, Esc, the commands (`nextCommand`), `pushNow` (reads HEAD again, then `push [--set-upstream] <remote> <branch>`).
 - `history.js`: Git Graph's `graph.js` without the Manygit list and the self-update, plus the search and the status of the branch.
+- `submodules.js`, `fileview.js`, `agent.js`: the Submodules tab, the file view and the agent dialog (`props.role` `agent`). `refs.js` also parses `log --follow --name-only`, `blame --porcelain`, `submodule status --recursive` and `.gitmodules`.
 - `branches.js`, `stash.js`: the Branches and Stash tabs. `refs.js` (no herdr imports): `for-each-ref --sort=-creatordate` with NUL-split fields, `remote -v`, `worktree list --porcelain`, `stash list --format=%gd%x00%H%x00%ct%x00%gs`, `stash show -p --include-untracked` cut per file, `worktreePath`, `samePath`, `ago`.
 - `changes.js`: the Changes tab. `diffview.js`: the Unified / Split diff in a `v_virtual_list` (rows report clicks with `on_item_click` and `on_item_secondary_click`).
 - `git.js`: no herdr imports, tested with node: status, branch, log and search arguments, hunks (`parsePatch`, `hunkPatch`, `patchRows`, `splitRows`), menus, dialogs, `commandsFor` (paths after `--literal-pathspecs … --`, in chunks of 100), the AI prompt.
@@ -79,3 +89,6 @@ Top to bottom, in a panel of any width (the side panel is 368 px):
 - `herdr-app do git-client.branches` shows Local with the current branch first, Remotes and Worktrees with `here`.
 - After `git stash push` in the repository, the Stash tab shows the new stash and its count, without a refresh.
 - In the panel dialog of the dock, a right-click on a file opens its menu at the pointer.
+- During a merge with a conflict, **Resolve with agent** opens the dialog with the installed agents and a prompt that names the branches and the files.
+- **File history** of a renamed file lists its commits under the old name too; **Blame** shows `uncommitted` for the conflict markers.
+- In a repository with a submodule, the Submodules tab shows it `ok`; **Open in the client** shows the submodule and **Back** returns, with no error in `herdr-app status`.
