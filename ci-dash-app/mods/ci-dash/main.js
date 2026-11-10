@@ -13,6 +13,18 @@ import { icon, pill, section, searchBox, filterChip, busy, dialogKeys } from "./
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("ci-dash"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
+// A folder on another machine: a server icon and the machine name, in a hue that no agent status uses.
+// (The same chip as in the tabs-dock and kanban bars.)
+const machineChip = (t, machine) => {
+  const color = t.ansi5 || t.accent;
+  const tint = /^#[0-9a-f]{6}$/i.test(color || "") ? (a) => color + a : () => color;
+  return h_flex().id("machine-chip").h(20).px(7).gap(4).flex_none().max_w(140).items_center().rounded(6).text_size(11).font_semibold()
+    .bg(tint("26")).border_1().border_color(tint("66")).text_color(color)
+    .tooltip(`On ${machine}`)
+    .child(svg("mods/workspace-chrome/server.svg").size(11).flex_none())
+    .child(div().truncate().child(machine));
+};
+
 const POLL_MS = 5000;
 
 // Runs are grouped by what the person has to do about them.
@@ -406,6 +418,7 @@ export default class CiDash extends View {
     return v_flex().flex_none()
       .child(h_flex().h(38).flex_none().px(12).gap(8).items_center()
         .child(div().font_semibold().flex_none().child("CI Dash"))
+        .when(Boolean(this.repo && this.gh?.on), (e) => e.child(machineChip(t, this.gh.on)))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.repo ? this.repo.slug : ""))
         .when(onArtifacts, (e) => e.child(this.button("folder", "↗", (cx) => this.openArtifactsFolder(cx), t, { disabled: !this.root })))
         .child(this.button("refresh", "⟳", (cx) => {

@@ -17,6 +17,18 @@ import { Submodules } from "./submodules.js";
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-client"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+
+// A folder on another machine: a server icon and the machine name, in a hue that no agent status uses.
+// (The same chip as in the tabs-dock and kanban bars.)
+const machineChip = (t, machine) => {
+  const color = t.ansi5 || t.accent;
+  const tint = /^#[0-9a-f]{6}$/i.test(color || "") ? (a) => color + a : () => color;
+  return h_flex().id("machine-chip").h(20).px(7).gap(4).flex_none().max_w(140).items_center().rounded(6).text_size(11).font_semibold()
+    .bg(tint("26")).border_1().border_color(tint("66")).text_color(color)
+    .tooltip(`On ${machine}`)
+    .child(svg("mods/workspace-chrome/server.svg").size(11).flex_none())
+    .child(div().truncate().child(machine));
+};
 // The dialog that shows this panel: its own overlay, or the dock's panel dialog; null in the side panel.
 const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
 
@@ -182,6 +194,7 @@ export class Client {
           .on_click((_e, cx) => this.back(cx)).child(svg(icon("back")).size(13)).child(div().text_size(11.5).child("Back")))
         .child(h_flex().h(22).px(7).gap(5).flex_none().max_w(160).items_center().rounded(6).bg(t.raised).text_color(t.foreground)
           .child(svg(icon("package")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).child(sub.name))))
+      .when(Boolean(h.on), (e) => e.child(machineChip(t, h.on)))
       .child(h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
         .tooltip(info.upstream ? `${where} → ${info.upstream}${info.gone ? " (gone)" : ""}` : `${where} (no upstream)`)
         .child(svg(icon(h.current ? "branch" : "commit")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(where)))

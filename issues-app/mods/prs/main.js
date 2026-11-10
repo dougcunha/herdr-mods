@@ -23,6 +23,18 @@ import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE,
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("prs"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
 
+// A folder on another machine: a server icon and the machine name, in a hue that no agent status uses.
+// (The same chip as in the tabs-dock and kanban bars.)
+const machineChip = (t, machine) => {
+  const color = t.ansi5 || t.accent;
+  const tint = /^#[0-9a-f]{6}$/i.test(color || "") ? (a) => color + a : () => color;
+  return h_flex().id("machine-chip").h(20).px(7).gap(4).flex_none().max_w(140).items_center().rounded(6).text_size(11).font_semibold()
+    .bg(tint("26")).border_1().border_color(tint("66")).text_color(color)
+    .tooltip(`On ${machine}`)
+    .child(svg("mods/workspace-chrome/server.svg").size(11).flex_none())
+    .child(div().truncate().child(machine));
+};
+
 const SPINNER = "mods/workspace-chrome/spinner.svg", COG = "mods/workspace-chrome/settings.svg";
 const WEEK = 7 * 24 * 3600 * 1000, WIDE = 720, ROOMY = 520, PAGES = 30;
 
@@ -674,6 +686,7 @@ export default class PullRequests extends View {
         .on_mouse_down("left", (_e, cx) => { try { this.handle.focus(); } catch { /* best effort */ } cx.stop_propagation(); })
         .child(h_flex().gap(8).items_center()
           .when(!dock, (e) => e.child(div().flex_none().font_semibold().child("Pull requests")))
+          .when(Boolean(this.where?.on), (e) => e.child(machineChip(t, this.where.on)))
           .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.dim).truncate().child(this.loading && this.prs.length ? `${this.where?.github ?? ""} · Refreshing…` : this.where?.github ?? ""))
           .when(wide, (e) => e.child(search.w(220)))
           .child(iconButton(t, "refresh", "refresh", (cx) => this.refresh(cx), { spin: this.loading, tooltip: "Refresh" }))

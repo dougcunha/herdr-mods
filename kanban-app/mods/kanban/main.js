@@ -13,7 +13,10 @@ import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
   setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents } from "herdr";
 import * as fs from "fs/promises";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop } from "./ui.js";
+import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop, machineChip, remoteColor } from "./ui.js";
+
+/** The machine of an agent on another computer: its address is "<machine>/<terminal>". */
+const machineOf = (a) => (String(a?.address ?? "").includes("/") ? a.address.split("/")[0] : null);
 import { WaitingTracker } from "./waiting.js";
 
 const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: props.lang
@@ -1106,12 +1109,13 @@ export default class Kanban extends View {
     const line = a.wait ? this.waitText(a)
       : title && title !== name ? title : [name, pane?.branch].filter(Boolean).join(" · ");
     const over = this.hoverCard === a.address;
+    const machine = machineOf(a);
     const small = (id, symbol, action, tooltip, active = false) => iconButton(t, `${id}-${a.address}`, symbol, action,
       { active, tooltip, size: 20, glyph: 11, color: active ? t.accent : t.dim });
 
     return v_flex().id(`card-${a.address}`).w_full().flex_none().px(9).py(7).gap(4).rounded(9).cursor_pointer()
       .bg(selected ? t.raised : t.background)
-      .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : t.border)
+      .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : machine ? tint(remoteColor(t), "88") : t.border)
       .when(selected || hot, (e) => e.shadow_md())
       .hover((s) => s.bg(t.raised))
       .on_hover((hovered, cx) => {
@@ -1122,6 +1126,7 @@ export default class Kanban extends View {
       .child(h_flex().gap(7).items_center()
         .child(this.glyph(a, t, true).size(20).rounded(6))
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_bold().text_color(t.foreground).child(head))
+        .when(Boolean(machine), (e) => e.child(machineChip(t, `machine-${a.address}`, machine, { height: 18, text: 10.5 })))
         .when(a.pinned && !over, (e) => e.child(svg(icon("pin")).size(11).flex_none().text_color(t.accent)))
         .child(this.mark(a, t)))
       .child(h_flex().h(20).gap(4).items_center()
@@ -1171,10 +1176,11 @@ export default class Kanban extends View {
     const { text: title, named, agentTitle } = this.cardTitle(a, name);
     const branch = pane?.branch || null;
     const folder = base(pane?.cwd);
+    const machine = machineOf(a);
 
     return v_flex().id(`card-${a.address}`).w_full().flex_none().p(compact ? 9 : 12).gap(compact ? 7 : 9).rounded(compact ? 10 : 12).cursor_pointer()
       .bg(selected ? t.raised : t.background)
-      .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : t.border)
+      .border_1().border_color(selected ? t.accent : hot ? tint(color, "99") : machine ? tint(remoteColor(t), "88") : t.border)
       .when(selected || hot, (e) => e.shadow_md())
       .hover((s) => s.bg(t.raised))
       .on_click(() => this.select(a))
@@ -1193,6 +1199,7 @@ export default class Kanban extends View {
           .when(named && Boolean(agentTitle) && agentTitle !== title, (el) => el.tooltip(agentTitle))
           .child(title)))
       .child(h_flex().flex_wrap().gap(5).items_center()
+        .when(Boolean(machine), (e) => e.child(machineChip(t, `machine-${a.address}`, machine)))
         .when(Boolean(a.wait), (e) => e.child(pill(t, { label: this.waitText(a), symbol: "hourglass", color })))
         .when(Boolean(branch), (e) => e.child(pill(t, { label: branch, symbol: "branch", code: true })))
         // No pill that repeats the head of the card (the space, the program) or the branch.
@@ -1331,6 +1338,7 @@ export default class Kanban extends View {
         .when(tab.status === "blocked" || tab.status === "done", (e) => e.child(div().size(6).rounded(3).bg(t[tab.status])));
     });
     return h_flex().id("kb-tabs").flex_1().min_w(0).h_full().gap(4).items_center().overflow_x_scrollbar()
+      .when(Boolean(space?.machine), (e) => e.child(machineChip(t, "kb-machine", space.machine, { height: 24, text: 11.5 })))
       .children(pills)
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }

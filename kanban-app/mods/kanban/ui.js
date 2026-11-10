@@ -80,6 +80,20 @@ export function pill(t, { label, symbol, code = false, color }) {
     .child(div().truncate().child(label));
 }
 
+/** The color of a machine chip: one hue that no agent status uses. */
+export const remoteColor = (t) => t.ansi5 || t.accent;
+
+/** The machine of an agent, a pane or a space on another computer: a server icon and the name,
+ *  in the remote color, with a border so it stands out from the other pills. */
+export function machineChip(t, id, machine, { height = 20, text = 11 } = {}) {
+  const color = remoteColor(t);
+  return h_flex().id(id).h(height).px(7).gap(4).flex_none().max_w(160).items_center().rounded(6).text_size(text).font_semibold()
+    .bg(tint(color, "26")).border_1().border_color(tint(color, "66")).text_color(color)
+    .tooltip(`Runs on ${machine}`)
+    .child(svg(icon("server")).size(11).flex_none())
+    .child(div().truncate().child(machine));
+}
+
 /** A button for a side panel, a tab or a command: an icon (a path in the Herdr home: `.svg` is tinted,
  *  anything else is a picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it).
  *  `menu`: a small arrow after the name, for a button that opens a menu. */

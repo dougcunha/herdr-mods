@@ -105,6 +105,16 @@ const STR = {
 
 // A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
 const tint = (color, alpha = "24") => (/^#[0-9a-f]{6}$/i.test(color || "") ? color + alpha : color);
+// The machine of a space on another computer: a server icon and the name, in a hue that no agent
+// status uses. (The same as machineChip in mods/kanban/ui.js.)
+const machineChip = (t, machine) => {
+  const color = t.ansi5 || t.accent;
+  return h_flex().id("tab-machine").h(26).px(8).gap(5).flex_none().max_w(160).items_center().rounded(7).text_size(12).font_semibold()
+    .bg(tint(color, "26")).border(1).border_color(tint(color, "66")).text_color(color)
+    .tooltip(`This space runs on ${machine}`)
+    .child(svg("mods/workspace-chrome/server.svg").size(12).flex_none())
+    .child(div().truncate().child(machine));
+};
 // The name of a layout file as a button label: "main-dock" -> "Main dock".
 const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
 
@@ -789,7 +799,10 @@ export default class Tabs extends View {
       })
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
+      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar()
+        // A space on another machine: its tabs and panes run there. The same chip as in the Kanban bar.
+        .when(Boolean(space?.machine), el => el.child(machineChip(t, space.machine)))
+        .children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
       .child(buttonGroup(t, [densityButton, gearButton]))
       .child(right);

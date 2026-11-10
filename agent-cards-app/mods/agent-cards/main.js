@@ -31,6 +31,11 @@ function find(node, id) {
 // The sidebar rail goes by its width, as in the shipped `agents` mod.
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
+// An agent on another machine has the address "<machine>/<terminal>" (the demo gives `machine`).
+const machineOf = (a) => a.machine ?? (a.address.includes("/") ? a.address.split("/")[0] : null);
+// The color of the machine chip: one hue that no agent status uses.
+const remoteColor = (t) => t.ansi5 || t.accent;
+
 const RANK = { blocked: 4, done: 3, working: 2, idle: 1 };
 const LABEL = { working: "Working", idle: "Sleeping", blocked: "Needs you", done: "Done" };
 
@@ -117,7 +122,7 @@ export default class AgentCards extends View {
       ["idle", "docs", "Release notes", 95],
     ].map(([status, space, tab, m], i) => {
       const address = `demo-${i}`;
-      const a = { address, status, space_name: space, focused: i === 2, program: null, demo: true, pinned: this.demoPins.has(address) };
+      const a = { address, status, space_name: space, focused: i === 2, program: null, demo: true, pinned: this.demoPins.has(address), machine: i === 0 ? "build-box" : null };
       this.changed[a.address] = { s: status, at: ago(m) };
       const kid = (n, name, st, depth, last) => ({ t: { address: `${address}-${n}`, name }, status: st, depth, last });
       const subs = i === 2
@@ -160,6 +165,26 @@ export default class AgentCards extends View {
       const s = a.status === "done" ? "idle" : a.status;
       if (this.changed[a.address]?.s !== s) this.changed[a.address] = { s, at: now };
     }
+  }
+
+  // The machine of an agent on another computer: a server icon and the name, in the remote color.
+  machineChip(t, machine, key) {
+    const color = remoteColor(t);
+    return h_flex()
+      .id(`ac-machine-${key}`)
+      .flex_none()
+      .min_w(0)
+      .h(18)
+      .px(7)
+      .gap(4)
+      .rounded(9)
+      .items_center()
+      .bg(color + "26")
+      .border(1)
+      .border_color(color + "66")
+      .tooltip(`Runs on ${machine}`)
+      .child(svg("mods/workspace-chrome/server.svg").size(11).flex_none().text_color(color))
+      .child(div().truncate().text_size(10.5).font_semibold().text_color(color).child(machine));
   }
 
   pill(t, status) {
@@ -276,8 +301,8 @@ export default class AgentCards extends View {
 
   card(t, a, info, now, subs = []) {
     const since = this.changed[a.address]?.at;
-    const machine = a.address.includes("/") ? a.address.split("/")[0] : null;
-    const border = a.status === "blocked" ? t.blocked + "99" : a.focused ? t.accent : t.border;
+    const machine = machineOf(a);
+    const border = a.status === "blocked" ? t.blocked + "99" : a.focused ? t.accent : machine ? remoteColor(t) + "88" : t.border;
     const hovered = this.hovered === a.address;
     return v_flex()
       .id(`card-${a.address}`)
@@ -307,7 +332,7 @@ export default class AgentCards extends View {
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()
             .child(this.pill(t, a.status))
-            .when(Boolean(machine), (el) => el.child(div().text_size(10).text_color(t.dim).child(machine))))))
+            .when(Boolean(machine), (el) => el.child(this.machineChip(t, machine, a.address))))))
       .when(subs.length > 0, (el) => el.child(this.subs(t, a, subs)));
   }
 
@@ -323,6 +348,7 @@ export default class AgentCards extends View {
       .gap(4)
       .hover((s) => s.bg(t.hover))
       .on_click(() => run("pane.focus", { pane: a.pane }))
+      .when(Boolean(machineOf(a)), (el) => el.child(svg("mods/workspace-chrome/server.svg").size(10).flex_none().text_color(remoteColor(t))))
       .child(div().flex_1().text_right().text_color(t.muted).child(String(i + 1)))
       .child(div().size(8).flex_none().rounded(4).bg(color)
         .when(a.status === "working" || a.status === "blocked", (el) => el.loop("opacity", { from: 0.3, to: 1, period: 900 })));
