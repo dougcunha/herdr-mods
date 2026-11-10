@@ -1,12 +1,13 @@
 // The Node helper of the skill-bundles mod. The mod runs it with `node probe.mjs <json>`.
 // The mod runtime has no SHA-256 and reads files only as text, so the hashes are made here.
 //
-// Input (the last argument, JSON): { project, clone, catalogRepo, lockFile }
+// Input (the last argument, JSON): { project, clone, catalogRepo, lockFile, autocrlf }
 //   For a project on another machine, the mod runs this code there with
 //   `node --input-type=module -e <code> <json>` (project only), then here with
 //   `lockFile` (the Lock that it read there) and the clone.
 // Output (stdout, JSON):
 //   platform    process.platform of the machine that ran it
+//   autocrlf    core.autocrlf in the project ("" when not set), with a project only
 //   lock        the "skills" object of <project>/skills-lock.json ({} when there is none)
 //   lockError   the reason when the Lock is not valid JSON, else null
 //   dirs        the skill folders of the project (.agents/skills, .claude/skills) with a SKILL.md
@@ -40,10 +41,12 @@ const slashed = (p) => p.split("\\").join("/");
  * LF (i/lf) are in it: git does not convert the others, so their bytes are read as they are.
  * Empty when the clone is not a git repository.
  */
-function checkoutEol(clone) {
+function checkoutEol(clone, given) {
   const out = new Map();
-  let autocrlf = "";
-  try { autocrlf = execFileSync("git", ["-C", clone, "config", "--get", "core.autocrlf"], { encoding: "utf8" }).trim().toLowerCase(); } catch {}
+  let autocrlf = typeof given === "string" ? given : "";
+  if (typeof given !== "string") {
+    try { autocrlf = execFileSync("git", ["-C", clone, "config", "--get", "core.autocrlf"], { encoding: "utf8" }).trim().toLowerCase(); } catch {}
+  }
   let list = "";
   try { list = execFileSync("git", ["-C", clone, "ls-files", "--eol", "-z"], { encoding: "utf8", maxBuffer: 64 << 20 }); } catch { return out; }
   for (const line of list.split("\0")) {
@@ -114,8 +117,12 @@ async function skillFolders(root, depth, out = [], dir = root) {
 const sameRepo = (a, b) => String(a ?? "").split("#")[0].toLowerCase() === String(b ?? "").split("#")[0].toLowerCase();
 
 async function main() {
-  const { project, clone, catalogRepo, lockFile } = JSON.parse(process.argv[process.argv.length - 1] ?? "{}");
+  const { project, clone, catalogRepo, lockFile, autocrlf } = JSON.parse(process.argv[process.argv.length - 1] ?? "{}");
   const result = { platform: process.platform, lock: {}, lockError: null, dirs: [], hashes: {} };
+  if (project) {
+    // The core.autocrlf that `npx skills` uses on this machine (for a hash pass on another machine).
+    try { result.autocrlf = execFileSync("git", ["-C", project, "config", "--get", "core.autocrlf"], { encoding: "utf8" }).trim().toLowerCase(); } catch { result.autocrlf = ""; }
+  }
 
   if (lockFile) {
     result.lock = JSON.parse(await readFile(lockFile, "utf8")) ?? {};
@@ -161,7 +168,7 @@ async function main() {
           result.hashes[name] = execFileSync("git", ["-C", clone, "rev-parse", `HEAD:${rel}`], { encoding: "utf8" }).trim();
         } catch { result.hashes[name] = null; }
       } else {
-        eol ??= checkoutEol(clone);
+        eol ??= checkoutEol(clone, autocrlf);
         result.hashes[name] = await folderHash(dir, clone, eol);
       }
     }

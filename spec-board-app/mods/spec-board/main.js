@@ -66,6 +66,7 @@ const STR = {
     delOpen: "This spec is not done. Its agent loses the checkpoint and the plan.",
     delTracked: "Git tracks files of this folder: git shows the delete as a change.",
     delOthers: "The copies in other worktrees stay.", delBtn: "Move to Recycle Bin",
+    delRemoteUnix: "On {machine}, the folder goes to the trash only when gio works there. Else it is deleted for good.",
     launched: "Agent started", launchedBody: "{skill} for {name}", wtMade: "Worktree created",
     failed: "Spec Board", badBranch: "That is not a valid branch name.", emptyRequest: "Write the request first.",
     deleted: "Moved to the Recycle Bin", demoNo: "Example specs: nothing changes on disk.",
@@ -104,6 +105,7 @@ const STR = {
     delOpen: "Esta spec não está concluída. O agente perde o checkpoint e o plano.",
     delTracked: "O git controla arquivos desta pasta: o git mostra a remoção como mudança.",
     delOthers: "As cópias em outros worktrees ficam.", delBtn: "Mover para a Lixeira",
+    delRemoteUnix: "Em {machine}, a pasta vai para a lixeira só quando o gio funciona lá. Senão, ela é apagada para sempre.",
     launched: "Agente iniciado", launchedBody: "{skill} para {name}", wtMade: "Worktree criado",
     failed: "Spec Board", badBranch: "Este nome de branch não é válido.", emptyRequest: "Escreva o pedido antes.",
     deleted: "Movida para a Lixeira", demoNo: "Specs de exemplo: nada muda no disco.",
@@ -981,6 +983,7 @@ export default class SpecBoard extends View {
       return box.child(title(this.s("delTitle", { name: s.slug })))
         .child(hint(this.s("delHint", { path: native(s.path) })))
         .when(s.status !== "done", (e) => e.child(hint(this.s("delOpen"), t.ansi1)))
+        .when(Boolean(this.machine) && !isWin(), (e) => e.child(hint(this.s("delRemoteUnix", { machine: this.machine }), t.ansi1)))
         .when(sh.tracked, (e) => e.child(hint(this.s("delTracked"), t.blocked)))
         .when(s.others?.length > 0, (e) => e.child(hint(this.s("delOthers"), t.dim)))
         .when(Boolean(sh.error), (e) => e.child(err(sh.error)))

@@ -43,7 +43,7 @@ const CHECK_MS = 60 * 1000; // the timer: read the project again, and fetch when
 // for this long is from a copy that stopped (a reload of the mod in the middle of it).
 const JOB_STALE_MS = 150 * 1000;
 
-let lastCwd = null;
+const lastCwd = new Map(); // machine ("" for this computer) → the last folder of a terminal there
 
 /** Where the focused work is: { cwd, machine }. As in ci-dash: the pane, the tab, the space. */
 function location() {
@@ -54,9 +54,10 @@ function location() {
   const inTab = all.find((p) => p.tab === f?.tab && p.cwd)?.cwd;
   const tabs = new Set((space?.tabs ?? []).map((t) => t.id));
   const inSpace = all.find((p) => tabs.has(p.tab) && p.cwd)?.cwd;
-  const cwd = pane?.cwd || f?.cwd || inTab || inSpace || lastCwd || space?.folder || null;
-  if (pane?.cwd || f?.cwd || inTab || inSpace) lastCwd = cwd;
-  return { cwd, machine: space?.machine ?? null };
+  const machine = space?.machine ?? null;
+  const cwd = pane?.cwd || f?.cwd || inTab || inSpace || lastCwd.get(machine ?? "") || space?.folder || null;
+  if (pane?.cwd || f?.cwd || inTab || inSpace) lastCwd.set(machine ?? "", cwd);
+  return { cwd, machine };
 }
 
 const baseName = (p) => String(p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();

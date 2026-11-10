@@ -189,9 +189,22 @@ export async function probe(project, clone, catalogRepo, on = null) {
   const there = parse(await sh("node", ["--input-type=module", "-e", code, JSON.stringify({ project })], { on, timeout: 60000 }));
   if (there.error || !clone || !Object.keys(there.lock ?? {}).length) return there;
   // The Lock goes to the helper here in a file: a command line on Windows is short.
-  const lockFile = `${slash(appHome())}/cache/skill-bundles/remote-lock.json`;
-  const old = await readTextFile(lockFile).catch(() => null);
-  await writeTextFile(lockFile, JSON.stringify(there.lock), old);
-  const here = parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project: null, clone, catalogRepo, lockFile })]));
+  // 2 copies of the mod (status item, panel, dialog) can write the same Lock at the same time.
+  const dir = `${slash(appHome())}/cache/skill-bundles`;
+  const lockFile = `${dir}/remote-lock.json`;
+  const want = JSON.stringify(there.lock);
+  for (let i = 0; i < 3; i++) {
+    const old = await readTextFile(lockFile).catch(() => null);
+    if (old === want) break;
+    try {
+      await writeTextFile(lockFile, want, old);
+      break;
+    } catch (e) {
+      if (i === 0 && old === null) await sh("node", ["-e", "require('fs').mkdirSync(process.argv[1], { recursive: true })", dir]);
+      else if (i === 2) return { ...there, error: `remote-lock.json: ${e?.message ?? e}` };
+    }
+  }
+  // `npx skills` installs on that machine with its git settings: the hashes use its core.autocrlf.
+  const here = parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project: null, clone, catalogRepo, lockFile, autocrlf: there.autocrlf ?? "" })]));
   return here.error ? { ...there, error: here.error } : { ...there, hashes: here.hashes };
 }
