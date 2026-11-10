@@ -24,7 +24,7 @@ Copy and paste this prompt to your LLM agent:
 
 ## What you can do
 
-- **Click** a space to show it. **Right-click** it for the menu: **Icon and color…**, **Pin** / **Unpin**, **Note…**, **New agent…**, and **Herdr options…** (Herdr's own menu: rename, worktrees, close).
+- **Click** a space to show it. **Right-click** it for the menu: **Icon and color…**, **Pin** / **Unpin**, **Note…**, **New agent…**, **New terminal** (a shell in a new tab of the space, in its folder), and **Herdr options…** (Herdr's own menu: rename, worktrees, close).
 - **Put the pointer on a space** for 2 buttons: **New agent** (a list of the agents installed on that machine; the agent starts in a new tab of the space) and **Close space**.
 - **Click a terminal row** to show that terminal. **Put the pointer on it** for the **X** button: it closes the terminal.
 - **Icon and color.** Choose one of 52 icons, type an emoji, or click **Default** to go back to the first letter of the name. Click one of the 8 colors.

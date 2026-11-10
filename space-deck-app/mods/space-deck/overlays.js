@@ -105,6 +105,14 @@ class MenuPart extends ListPart {
       { label: pinned ? "Unpin" : "Pin", icon: glyph(pinned ? "pin-off" : "pin"), run: () => { close(); pinned ? unpin(p.key) : pinAt(p.key); } },
       { label: "Note…", icon: glyph("sticky-note"), run: () => { close(); popup("note", { space: p.space, key: p.key, name: p.name }, 300, 120); } },
       { label: "New agent…", icon: glyph("bot"), run: () => { close(); popup("agents", { space: p.space, folder: p.folder, machine: p.machine }, 240, 300); } },
+      {
+        label: "New terminal", icon: glyph(`mods/${MOD}/icons/terminal.svg`),
+        run: () => {
+          close();
+          run("space.select", { id: p.space });
+          run("tab.new", { space: p.space, ...(p.folder ? { folder: p.folder } : {}) });
+        },
+      },
       null,
       {
         label: "Herdr options…", icon: glyph("ellipsis"),
