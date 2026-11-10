@@ -1,7 +1,7 @@
 // Paths, settings and git helpers of the core. No state: every function reads the settings
 // (shared keys of kit.json) when it runs, so a change in the Settings tab of mods-hub applies at once.
 
-import { exec, shared, home, window as appWindow } from "herdr";
+import { exec, shared, setShared, home, window as appWindow } from "herdr";
 
 export const KEY = {
   root: "powermods-core.worktreeRoot",
@@ -37,6 +37,16 @@ export const repoName = (main) => norm(main).split("/").filter(Boolean).pop() ??
 const text = (key) => { const v = shared(key); return typeof v === "string" && v.trim() ? v.trim() : ""; };
 /** The root folder setting as the person wrote it (or the default). */
 export const rootSetting = () => text(KEY.root) || text(OLD_ROOT) || DEFAULT_ROOT;
+/**
+ * Moves the old folder setting of spec-board to the core once, so the Settings tab shows the folder that the
+ * core uses, and only 1 setting is left.
+ */
+export function migrateSettings() {
+  const old = text(OLD_ROOT);
+  if (!old) return;
+  if (!text(KEY.root)) setShared(KEY.root, old);
+  setShared(OLD_ROOT, null);
+}
 export const filesSetting = () => text(KEY.files) || DEFAULT_FILES;
 /** The setup commands of the settings: 1 for each line, empty lines and # comments left out. */
 export function globalCommands() {

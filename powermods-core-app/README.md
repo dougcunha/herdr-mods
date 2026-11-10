@@ -37,7 +37,7 @@ In **PowerMods** → **Settings** → **powermods-core**:
 | Files for every worktree | `~/.herdr/worktree-files` | Every file in this folder goes into each new worktree of this computer, with the same relative path. |
 | Setup commands | none | **Edit…** opens the dialog. The commands run in every new worktree, before the commands of the repository. |
 
-Until you set **Worktree folder**, the core uses the old setting of Spec Board (`spec-board.worktreeRoot`), if you had one.
+If you had set the worktree folder of Spec Board (`spec-board.worktreeRoot`), the core moves that value to **Worktree folder** on its first start.
 
 ## The setup of a repository
 

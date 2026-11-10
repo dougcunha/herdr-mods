@@ -13,7 +13,7 @@ import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { theme, props, shared, setShared, closeOverlay, run, nextCommand } from "herdr";
 import { register } from "./api.js";
 import { STATE, pump, leave, jobs, clearJobs } from "./worktree.js";
-import { KEY, rootSetting, filesSetting, globalCommands } from "./paths.js";
+import { KEY, rootSetting, filesSetting, globalCommands, migrateSettings } from "./paths.js";
 
 const MOD = "powermods-core";
 const ICON = "mods/powermods-core/worktree.svg";
@@ -43,6 +43,7 @@ export default class PowerModsCore extends View {
 
     if (this.part === "status") {
       this.copy = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      migrateSettings();
       pump(cx, this.copy);
       cx.timer.every(500, (cx) => pump(cx, this.copy));
       // `herdr-app do powermods-core.open` opens the dialog (for tests from the shell).

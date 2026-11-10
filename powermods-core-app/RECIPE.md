@@ -22,7 +22,7 @@ A Herdr mod with shared services for the other mods of the kit. The first servic
 - **Trust.** The commands of `.herdr/worktree.json` run only when `shared("powermods-core.trusted")["<machine>:<main checkout, lower case>"]` is the FNV-1a hash of their JSON. Else the trust dialog opens; the job waits up to 30 min. Yes stores the hash. The commands of the settings need no question.
 - **remove.** Main checkout from `repo` (else from the folder), the worktree in `worktree list`. Without `force`: a locked worktree, or one with `git status --porcelain` output, is refused before anything closes. With `closeSpace` (default): `space.close {confirmed}` of each space on that machine whose terminals all work inside the folder, then 1.5 s. `worktree prune` when git marks it prunable, else `worktree remove [--force]`.
 - **locate.** A folder inside the root of this computer gives `{ repo, leaf }`. Any folder under `.herdr/worktrees/<repo>/…` too (Herdr's own folder, other machines).
-- **Settings** (`kit.json`): `powermods-core.worktreeRoot` (falls back to `spec-board.worktreeRoot`, then `~/.herdr/worktrees`), `powermods-core.filesFolder` (`~/.herdr/worktree-files`), `powermods-core.run` (a list of lines; # starts a comment). Read on every job. `"required": true`: mods-hub shows no on/off switch.
+- **Settings** (`kit.json`): `powermods-core.worktreeRoot` (`~/.herdr/worktrees` when empty; a status copy moves `spec-board.worktreeRoot` into it once and clears the old key, so the Settings field shows the folder in use), `powermods-core.filesFolder` (`~/.herdr/worktree-files`), `powermods-core.run` (a list of lines; # starts a comment). Read on every job. `"required": true`: mods-hub shows no on/off switch.
 
 ## Files
 

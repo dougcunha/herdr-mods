@@ -37,7 +37,7 @@ A Herdr panel that lists the SDD specs (`tasks/prd-<name>/`) of the shown space'
 - `mods/spec-board/`: `mod.json` `{ "place": "none", "title": "Spec Board" }`; `main.js` (the view), `data.js` (git, listing, parsing, sort and groups), `actions.js` (settings, skills, launch, copy, trash), `core.js` (the client of PowerMods Core, a copy of `powermods-core-app/client/core.js`), `demo.js` (6 example specs of `D:/MyProjects/notes-app`, texts in memory), `kit.json` (the mods-hub settings).
 - A Dock panel: `{ "id": "specs", "label": "Specs", "icon": "mods/spec-board/specs.svg", "mod": "spec-board" }` in `dock/panels.json`.
 - `herdr`: `focused`, `spaces`, `panes`, `run` (`space.select`, `tab.new`, `space.new`), `knownAgents`, `readTextFile`, `writeTextFile`, `watchFolder`, `exec`, `notify`, `shared`, `setShared`, `closeOverlay`, `nextCommand`, `settings`, `theme`, `home`. `gpui-base`: `InputState`/`Input`, `TextareaState`/`Textarea`, `EditorState`/`Editor`, `TextView`.
-- Shared keys: `spec-board.agent`, `.prompt`, `.triageSkills`, `.flowSkills`, `.branchPrefix` (the worktree folder is `powermods-core.worktreeRoot`; the core reads the old `spec-board.worktreeRoot` until it has its own), `.sort`, `.showDone`.
+- Shared keys: `spec-board.agent`, `.prompt`, `.triageSkills`, `.flowSkills`, `.branchPrefix` (the worktree folder is `powermods-core.worktreeRoot`; the core moves the old `spec-board.worktreeRoot` there once), `.sort`, `.showDone`.
 - Art: Lucide 0.460.0 (ISC): `specs` (clipboard-list), `play`, `save`, `sort` (arrow-up-down), `message` (message-circle), `plus`, `search`, `refresh`, `spinner`, `close`, `trash`, `chevron-down`, `chevron-left`, `chevron-right`, `check`, `folder`, `git-branch`, `file-text`, `pencil`, `external-link`.
 
 ## Watch out

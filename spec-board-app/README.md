@@ -67,7 +67,7 @@ In PowerMods → **Settings** → **Spec Board**:
 
 For each skill, the panel uses the first name of the list that is installed in `<repository>/.claude/skills`, `<repository>/.agents/skills`, `~/.claude/skills`, `~/.agents/skills` or `~/.codex/skills`. With none, it uses the first name. So a repository with English skill names works when you add them to the list (`sdd-triar, sdd-triage`).
 
-The worktree folder is a setting of PowerMods Core (**Settings** → **powermods-core**). The old setting of this panel (`spec-board.worktreeRoot`) still applies until the core has its own value.
+The worktree folder is a setting of PowerMods Core (**Settings** → **powermods-core**). The core moves the old setting of this panel (`spec-board.worktreeRoot`) to its own setting on its first start.
 
 ## Add it to the Dock
 
