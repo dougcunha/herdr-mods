@@ -126,7 +126,7 @@ export class Branches {
         // Local
         .child(this.header(SECTIONS[0], local.length, t, [this.smallButton("gb-new-branch", "plus", "New branch from HEAD", () => this.dialog({ type: "newBranch", base: "HEAD", what: h.current ?? "HEAD" }), t)]))
         .when(open.local, (el) => el.children(local.slice(0, SHOWN).map((b, i) => this.row(`gb-l-${i}`, b.current ? "check" : "branch", b.current ? t.accent : t.muted,
-          b.name, b.upstream ? `→ ${b.upstream}` : "", ago(b.time), { kind: "branch", name: b.name, upstream: b.upstream }, t,
+          b.name, b.upstream ? `→ ${b.upstream}` : "", ago(b.time), { kind: "branch", name: b.name, upstream: b.upstream, gone: b.gone }, t,
           track(b) ? div().flex_none().text_size(11).text_color(b.gone || b.behind ? t.ansi1 : t.ansi2).child(track(b)) : null)
           .when(b.current, (r) => r.font_semibold()))).children(this.more(local.length, t)))
         // Remote, grouped by remote

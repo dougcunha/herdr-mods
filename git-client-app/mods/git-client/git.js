@@ -362,7 +362,11 @@ export function menuFor(target, ctx) {
     ];
   } else if (target.kind === "branch") {
     const name = target.name, current = name === ctx.current, remote = ctx.remotes.length > 0;
+    // The upstream as remote + branch: the longest remote name that starts it (a remote name can hold a "/").
+    const up = target.upstream && !target.gone ? splitUpstream(target.upstream, ctx.remotes) : null;
     sections = [
+      section(up && current && item(`Pull from ${target.upstream}`, "pull", { type: "pull", upstream: target.upstream }),
+        up && !current && item(`Fetch ${target.upstream} into ${name}`, "cloud-down", { type: "fetchBranch", name, ...up })),
       section(!current && item("Checkout branch", "branch", { type: "checkout", name }),
         item("Create branch from here…", "plus", { type: "newBranch", base: name, what: name }),
         item("Rename branch…", "rename", { type: "renameBranch", name }),
@@ -412,7 +416,13 @@ export function menuFor(target, ctx) {
   return out;
 }
 
-export const menuHeight = (items) => 10 + items.reduce((n, i) => n + (i.separator ? 9 : 30), 0);
+/** "origin/feature/x" -> { remote: "origin", branch: "feature/x" }, or null when no remote of `remotes` starts it. */
+export function splitUpstream(upstream, remotes = []) {
+  const remote = [...remotes].sort((a, b) => b.length - a.length).find((r) => upstream.startsWith(`${r}/`));
+  return remote ? { remote, branch: upstream.slice(remote.length + 1) } : null;
+}
+
+export const menuHeight =(items) => 10 + items.reduce((n, i) => n + (i.separator ? 9 : 30), 0);
 
 const remoteChoice = (ctx) => ({ id: "remote", label: "Remote", value: ctx.remotes.includes("origin") ? "origin" : ctx.remotes[0],
   options: ctx.remotes.map((r) => ({ value: r, label: r })) });
@@ -553,6 +563,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
   if (["newBranch", "newTag"].includes(a.type) && (!ref(a.base) || !refName(name))) throw new Error("Invalid ref name");
   if (["setUpstream", "forcePush", "renameRemote", "setRemoteUrl", "removeRemote", "fetchRemote"].includes(a.type) && !refName(a.name)) throw new Error("Invalid ref name");
   if (a.type === "setUpstream" && !refName(String(v.upstream ?? "").trim())) throw new Error("Invalid remote branch");
+  if (a.type === "fetchBranch" && (!refName(a.name) || !refName(a.branch) || !refName(a.remote) || !ctx.remotes?.includes(a.remote))) throw new Error("Invalid remote branch");
   if (a.type === "forcePush" && (!refName(v.remote) || !ctx.remotes?.includes(v.remote))) throw new Error("Invalid remote");
   if (["addRemote", "renameRemote"].includes(a.type) && !refName(name)) throw new Error("Invalid remote name");
   const url = String(v.url ?? "").trim();
@@ -565,6 +576,9 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "setUpstream": return [["branch", `--set-upstream-to=${String(v.upstream).trim()}`, a.name]];
     case "forcePush": return [["push", "--force-with-lease", v.remote, a.name]];
     case "fetchRemote": return [["fetch", ...(v.prune === false ? [] : ["--prune"]), a.name]];
+    // A branch that is not checked out, moved to its upstream without a checkout. Fast-forward only:
+    // git refuses a refspec without "+" that would lose commits, and a branch checked out in a worktree.
+    case "fetchBranch": return [["fetch", a.remote, `refs/heads/${a.branch}:refs/heads/${a.name}`]];
     case "addRemote": return [["remote", "add", name, url]];
     case "renameRemote": return [["remote", "rename", a.name, name]];
     case "setRemoteUrl": return [["remote", "set-url", a.name, url]];
@@ -652,6 +666,7 @@ export function doneText(a, v = {}) {
     case "setUpstream": return `${a.name} now tracks ${String(v.upstream).trim()}`;
     case "forcePush": return `Force pushed ${a.name} to ${v.remote}`;
     case "fetchRemote": return `Fetched ${a.name}`;
+    case "fetchBranch": return `Updated ${a.name} from ${a.remote}/${a.branch}`;
     case "addRemote": return `Added remote ${name}`;
     case "renameRemote": return `Renamed ${a.name} to ${name}`;
     case "setRemoteUrl": return `Changed the URL of ${a.name}`;

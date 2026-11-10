@@ -33,7 +33,7 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 
 A filter field at the top finds branches and tags by name. Each section opens and closes with a click on its title. A click (or a right-click) on a row opens its menu.
 
-- **Local:** the checked-out branch first (a check mark), its upstream, ↑ and ↓ (or `gone`) and its age. Menu: Checkout, Create branch from here, Rename, Delete, Merge into the current branch, Rebase the current branch on it, Push, Force push (with lease), Set upstream, Copy name. **+** makes a branch from HEAD.
+- **Local:** the checked-out branch first (a check mark), its upstream, ↑ and ↓ (or `gone`) and its age. Menu: **Pull from <upstream>** (the checked-out branch, with the Pull setting), **Fetch <upstream> into <branch>** (another local branch: a fast-forward without a checkout; Git refuses it when the branch has commits that the upstream does not have, or when a worktree has it checked out), Checkout, Create branch from here, Rename, Delete, Merge into the current branch, Rebase the current branch on it, Push, Force push (with lease), Set upstream, Copy name. **+** makes a branch from HEAD.
 - **Remote:** the remote branches, by remote. Menu: Checkout (a tracking branch), Merge, Delete on the remote, Copy name.
 - **Tags:** Delete, Push, Copy name. **+** makes a tag at HEAD (a message makes an annotated tag).
 - **Remotes:** each remote and its URL. Menu: Fetch, Rename, Change URL, Remove, Copy URL. **+** adds a remote.

@@ -2,7 +2,7 @@
 // { role: "menu", target, ctx }. Styled like Herdr's own menu.
 import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { props, closeOverlay, notify, theme, run } from "herdr";
+import { props, closeOverlay, notify, theme, run, shared } from "herdr";
 import { menuFor } from "./git.js";
 import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree } from "./act.js";
 
@@ -47,6 +47,11 @@ export class Menu {
     } else if (a.type === "showChanges") {
       closeOverlay(overlay);
       showTab("changes");
+    } else if (a.type === "pull") {
+      // The same pull as the Pull button of the bar: the Pull setting, no dialog.
+      const mode = ["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config";
+      this.busy = i;
+      cx.spawn(async (cx) => { await perform(a, { mode }, ctx); closeOverlay(overlay); cx.notify(); });
     } else if (openDialog(a, ctx)) {
       closeOverlay(overlay);
     } else {

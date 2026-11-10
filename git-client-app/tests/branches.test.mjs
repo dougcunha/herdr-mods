@@ -137,5 +137,37 @@ assert.deepEqual(labels({ kind: "worktree", worktree: { path: "/x", branch: "mai
 assert.deepEqual(labels({ kind: "stash", stash: { ref: "stash@{0}", message: "m" } }), ["Apply", "Pop (apply and drop)", "Drop…", "Copy message"]);
 assert.ok(R.ago(Date.now() / 1000 - 7200) === "2h");
 
+// ---- pull the current branch, fetch into another local branch
+assert.deepEqual(G.splitUpstream("origin/feature/x", ["origin", "or"]), { remote: "origin", branch: "feature/x" });
+assert.deepEqual(G.splitUpstream("team/a/b", ["team", "team/a"]), { remote: "team/a", branch: "b" }, "the longest remote");
+assert.equal(G.splitUpstream("other/x", ["origin"]), null);
+{
+  const c = ctx();
+  const local = (name, extra = {}) => G.menuFor({ kind: "branch", name, upstream: `origin/${name}`, ...extra }, c).filter((i) => !i.separator);
+  assert.equal(local(c.current)[0].label, `Pull from origin/${c.current}`);
+  assert.deepEqual(local(c.current)[0].action, { type: "pull", upstream: `origin/${c.current}` });
+  assert.deepEqual(local("other")[0].action, { type: "fetchBranch", name: "other", remote: "origin", branch: "other" });
+  assert.ok(!local("other", { gone: true }).some((i) => /^(Pull|Fetch)/.test(i.label)), "no pull or fetch for a gone upstream");
+  assert.ok(!G.menuFor({ kind: "branch", name: "x", upstream: null }, c).some((i) => /^(Pull|Fetch)/.test(i.label ?? "")), "no pull or fetch without upstream");
+}
+assert.throws(() => G.commandsFor({ type: "fetchBranch", name: "a", remote: "nope", branch: "a" }, {}, { remotes: ["origin"] }), /remote branch/);
+assert.throws(() => G.commandsFor({ type: "fetchBranch", name: "-x", remote: "origin", branch: "a" }, {}, { remotes: ["origin"] }), /remote branch/);
+{
+  // A second clone pushes to "lag"; this repository's "lag" moves to it without a checkout.
+  const other = `${dir}/lag-clone`;
+  sh(repo, "branch", "lag", head()); sh(repo, "push", "-q", "-u", "origin", "lag");
+  sh(dir, "clone", "-q", "-b", "lag", remote, other);
+  writeFileSync(join(other, "c.txt"), "c\n"); sh(other, "add", "-A"); sh(other, "commit", "-qm", "remote work"); sh(other, "push", "-q");
+  const theirs = git(other, ["rev-parse", "HEAD"]).stdout.trim(), before = current();
+  await run({ type: "fetchBranch", name: "lag", remote: "origin", branch: "lag" });
+  assert.equal(git(repo, ["rev-parse", "lag"]).stdout.trim(), theirs, "fast-forwarded");
+  assert.equal(git(repo, ["rev-parse", "origin/lag"]).stdout.trim(), theirs, "the remote-tracking branch moves too");
+  assert.equal(current(), before, "no checkout");
+  // A local commit on "lag" that the remote does not have: the fetch fails and changes nothing.
+  sh(repo, "branch", "-f", "lag", "HEAD");
+  const r = await executeAction({ type: "fetchBranch", name: "lag", remote: "origin", branch: "lag" }, {}, ctx(), exec);
+  assert.ok(!r.ok || git(repo, ["rev-parse", "lag"]).stdout.trim() === theirs, "never a non-fast-forward update");
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log("branches ok");
