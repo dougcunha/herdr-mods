@@ -234,8 +234,10 @@ export default class GitDash extends View {
   // ---- data --------------------------------------------------------------
 
   tick(cx) {
-    if (this.roots.length && !this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.refresh(cx);
-    else cx.notify(); // keeps "Updated 3m ago" fresh
+    // Only ask for the silent run: render() starts it. Herdr does not draw a hidden copy (the
+    // other child of a stack, a hidden column), so a hidden panel runs no git until it shows.
+    if (this.roots.length && !this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.due = true;
+    cx.notify(); // keeps "Updated 3m ago" fresh
   }
 
   refresh(cx) {
@@ -792,8 +794,9 @@ export default class GitDash extends View {
         .when(this.capped, (e) => e.child(div().px(14).py(8).text_size(11).text_color(t.blocked).child(this.s("capped", { n: MAX_REPOS })))));
   }
 
-  render(_cx) {
+  render(cx) {
     if (kitOff()) return offView();
+    if (this.due) { this.due = false; this.refresh(cx); }
     const t = theme();
     return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
       .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)

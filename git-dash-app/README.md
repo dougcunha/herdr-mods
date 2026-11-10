@@ -47,7 +47,7 @@ herdr-app do tab.new --name Pending --mod git-dash --props '{"root":"D:/Projetos
 | Control | What it does |
 | ------- | ------------ |
 | Folder button | Shows the list of base folders: 1 row per folder, with its repository count (or `not found`) and a trash button, then **Add folder…**. A second click goes back to the list of repositories. The list is saved and every Git Dash panel uses it. |
-| Refresh button | Reads all repositories again. It spins while it works. The panel also refreshes by itself every 5 minutes. |
+| Refresh button | Reads all repositories again. It spins while it works. The panel also refreshes by itself every 5 minutes while it shows. A hidden panel refreshes when it shows again. |
 | Download button | Fetch on refresh. When it is on, `git fetch --all --prune` runs in each repository, so the *behind* count is current. It is off by default. |
 | Chips | **Pending**, **Clean**, **Errors** and **All**. |
 | Filter box | Filters by repository path or branch. |
