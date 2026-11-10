@@ -1,7 +1,8 @@
 // Space Deck: a Spaces sidebar with cards or a list. Each space has an icon,
 // a color and a note (kept by the folder of its repo, so they come back when
 // the space opens again). Pinned spaces stay on top. A card shows the agents,
-// tabs, terminals, git status, folder and last activity of the space. The +
+// tabs, terminals, git status, folder and last activity of the space. Under a
+// space, one row for each terminal shows its agent status and closes it. The +
 // opens repo-launcher when it is installed. Recent closed spaces open again
 // with one click.
 //
@@ -15,7 +16,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay } from "herdr";
 import { Git } from "./git.js";
 import { rows, sections, recentRows, needsYou } from "./model.js";
-import { KEYS, item, pins, pinAt, unpin, view, cardField, gitEvery, needsYouFirst, recentCount, touch, fillOf, PALETTE } from "./store.js";
+import { KEYS, item, pins, pinAt, unpin, view, cardField, gitEvery, needsYouFirst, recentCount, terminalsMode, touch, fillOf, PALETTE } from "./store.js";
 import { overlayFor, popup, programIcon, tile } from "./overlays.js";
 import { demoModel } from "./demo.js";
 
@@ -51,6 +52,12 @@ const deco = (r) => r.deco ?? item(r.key);
 
 const base = (folder) => String(folder || "").replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || folder;
 
+// The words for the status of an agent in a terminal row.
+const STATUS_WORD = { working: "working", blocked: "needs you", done: "done", idle: "idle" };
+
+/** The name of a terminal row: its title without the leading marks, else its program. */
+const termName = (p) => String(p.title ?? "").replace(/^[^\p{L}\p{N}~/\\]+/u, "").trim() || p.program?.name || p.app || "shell";
+
 export default class SpaceDeck extends View {
   init(_props, cx) {
     this.part = overlayFor(props()?.part);
@@ -82,6 +89,9 @@ class Deck {
     this.demo = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("folded") ?? "[]")); // machines, and "recent"
     if (!localStorage.getItem("folded")) this.folded.add("recent");
+    this.termHover = null; // the terminal row under the pointer
+    // Space key -> true (terminals shown) or false (hidden), when the person clicked the toggle of the space.
+    try { this.termOpen = JSON.parse(localStorage.getItem("termOpen") ?? "{}") ?? {}; } catch { this.termOpen = {}; }
     this.refreshFiles(cx);
     cx.timer.every(10000, (cx) => kitOff() || this.refreshFiles(cx));
     cx.timer.every(1000, (cx) => kitOff() || this.tick(cx));
@@ -195,6 +205,81 @@ class Deck {
     this.folded.has(name) ? this.folded.delete(name) : this.folded.add(name);
     localStorage.setItem("folded", JSON.stringify([...this.folded]));
     cx.notify();
+  }
+
+  // ---- terminals of a space ----
+
+  /** True when the space shows its terminal rows. */
+  termsShown(r) {
+    const mode = terminalsMode();
+    if (mode === "off" || !r.terminals?.length) return false;
+    const mine = this.termOpen[r.key];
+    return typeof mine === "boolean" ? mine : mode === "all" || r.active;
+  }
+
+  toggleTerms(r, cx) {
+    this.termOpen[r.key] = !this.termsShown(r);
+    localStorage.setItem("termOpen", JSON.stringify(this.termOpen));
+    cx.notify();
+  }
+
+  // The toggle on a space: a terminal icon, the count and a chevron.
+  termToggle(r, section, t) {
+    if (terminalsMode() === "off" || !r.terminals?.length) return null;
+    const open = this.termsShown(r);
+    return h_flex().id(`terms-${section}-${r.id}`).h(20).px(4).gap(3).flex_none().items_center().rounded(5)
+      .text_size(11).text_color(open ? t.muted : t.dim)
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(open ? "Hide the terminals" : "Show the terminals")
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); this.toggleTerms(r, cx); })
+      .child(svg(`mods/${MOD}/icons/terminal.svg`).size(11).flex_none())
+      .child(div().child(String(r.terminals.length)))
+      .child(svg(ICON(open ? "chevron-down" : "chevron-right")).size(10).flex_none());
+  }
+
+  // The status of the agent in a terminal: a dot and a word. A shell has none.
+  termStatus(p, t) {
+    if (!p.status) return null;
+    const color = p.status === "idle" ? t.dim : t[p.status] ?? t.unknown;
+    const dot = p.status === "idle"
+      ? div().size(6).flex_none().rounded(3).border(1).border_color(color)
+      : div().size(6).flex_none().rounded(3).bg(color);
+    return h_flex().flex_none().gap(4).items_center().text_size(10.5).text_color(color)
+      .child(needsYou(p.status) || p.status === "working" ? dot.loop("opacity", { from: 0.35, to: 1, period: 1200 }) : dot)
+      .child(div().child(STATUS_WORD[p.status] ?? p.status));
+  }
+
+  // One row for a terminal: a click shows it, the X closes its pane.
+  termRow(r, p, section, t) {
+    const id = `${section}-${p.terminal}`;
+    const hovered = this.termHover === id;
+    const name = termName(p);
+    const where = p.cwd ? shortFolder(p.cwd) : "";
+    const icon = p.program?.icon ? programIcon(p.program, 12, t.muted) : svg(`mods/${MOD}/icons/terminal.svg`).size(12).flex_none().text_color(t.dim);
+    return h_flex().id(`term-${id}`).h(24).pl(6).pr(2).gap(6).flex_none().items_center().rounded(6)
+      .when(p.focused && r.active, (el) => el.bg(t.selected))
+      .hover((s) => s.bg(t.hover))
+      .tooltip([name, p.app && p.status ? `${p.app}: ${STATUS_WORD[p.status] ?? p.status}` : null, where].filter(Boolean).join("\n"))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_up("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_down("right", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); if (!this.demo) run("pane.focus", { pane: p.pane }); })
+      .on_hover((h, cx) => {
+        const next = h ? id : this.termHover === id ? null : this.termHover;
+        if (next !== this.termHover) { this.termHover = next; cx.notify(); }
+      })
+      .child(icon)
+      .child(div().flex_1().min_w(0).truncate().text_size(12)
+        .text_color(p.focused && r.active ? t.foreground : t.muted).child(name))
+      .child(hovered && !this.demo
+        ? this.smallButton(`term-close-${id}`, "x", "Close the terminal", t, () => run("pane.close", { pane: p.pane }))
+        : this.termStatus(p, t) ?? div());
+  }
+
+  termRows(r, section, t) {
+    return this.termsShown(r) ? r.terminals.map((p) => this.termRow(r, p, section, t)) : [];
   }
 
   // ---- drag and drop ----
@@ -356,8 +441,11 @@ class Deck {
         .child(v_flex().flex_1().min_w(0)
           .child(div().truncate().font_medium().text_color(t.foreground).child(r.name))
           .when(Boolean(r.parent), (el) => el.child(div().truncate().text_size(10.5).text_color(t.dim).child(`worktree of ${r.parent}`))))
+        .child(this.termToggle(r, section, t) ?? div())
         .child(this.tail(r, section, t)))
-      .children(lines);
+      .children(lines)
+      .when(this.termsShown(r), (el) => el.child(v_flex().pt(4).gap(1).border_t(1).border_color(t.border)
+        .children(this.termRows(r, section, t))));
     return this.dropLine(this.draggable(box, r, section), r, section, t);
   }
 
@@ -382,6 +470,7 @@ class Deck {
       .child(div().flex_shrink(1).min_w(0).truncate().text_color(t.foreground).child(r.name))
       .child(h_flex().flex_1().min_w(0).justify_end()
         .when(Boolean(g) && cardField("git"), (el) => el.child(this.gitText(g, t, true))))
+      .child(this.termToggle(r, section, t) ?? div())
       .child(this.tail(r, section, t));
     return this.dropLine(this.draggable(box, r, section), r, section, t);
   }
@@ -429,11 +518,17 @@ class Deck {
   body(model, t) {
     const narrow = this.width < 160;
     const cards = view() === "card";
-    const draw = (r, section) => (narrow ? this.rail(r, t) : cards ? this.card(r, section, t) : this.listRow(r, section, t));
+    // In the list, the terminal rows of a space go under its row, indented.
+    const listed = (r, section) => {
+      const terms = this.termRows(r, section, t);
+      if (!terms.length) return [this.listRow(r, section, t)];
+      return [this.listRow(r, section, t), v_flex().flex_none().ml(r.tree ? 34 : 20).gap(1).children(terms)];
+    };
+    const draw = (r, section) => (narrow ? [this.rail(r, t)] : cards ? [this.card(r, section, t)] : listed(r, section));
     const out = [];
     if (model.pinned.length) {
       if (!narrow) out.push(this.head("pinned-head", "Pinned", t, { icon: ICON("pin") }));
-      out.push(...model.pinned.map((r) => draw(r, "pin")));
+      out.push(...model.pinned.flatMap((r) => draw(r, "pin")));
       if (narrow) out.push(div().h(1).mx(8).my(4).flex_none().bg(t.border));
     }
     for (const g of model.groups) {
@@ -451,7 +546,7 @@ class Deck {
       } else if (model.pinned.length && g.rows.length && !narrow) {
         out.push(this.head("spaces-head", "Spaces", t, {}));
       }
-      out.push(...g.rows.map((r) => draw(r, section)));
+      out.push(...g.rows.flatMap((r) => draw(r, section)));
     }
     if (!narrow && model.recent.length) out.push(...this.recent(model.recent, t));
     return out;

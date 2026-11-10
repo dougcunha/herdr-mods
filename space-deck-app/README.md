@@ -17,6 +17,7 @@ Copy and paste this prompt to your LLM agent:
 - **The list** shows one row for each space: the icon, the name, the branch and the status.
 - **Pinned.** Pinned spaces go to the **Pinned** section at the top, from every machine. Drag a space into the section to pin it. Drag it inside the section to change the order. Drag it out to unpin it.
 - **Groups.** Spaces of other machines show in their own group, as in Herdr's own sidebar. A worktree shows under the space of its repository. Drag a space in its group to change the order of Herdr's spaces.
+- **Terminals.** Under a space, one row for each terminal shows the program icon, the title and the status of its agent (working, needs you, done, idle). A shell has no status. At first, only the shown space opens its rows. The terminal button of a space (an icon, the count and a chevron) shows or hides them.
 - **Needs you.** A space with an agent that is blocked or done gets a colored border and a dot that pulses. With **Needs you first** on (PowerMods → Settings), these spaces go to the top of their section.
 - **Recent.** The **Recent** section at the bottom (folded at first) lists the spaces that you closed. A click opens the space again in the same folder.
 - **A narrow sidebar** (less than 160 px) shows only the icons, with a status dot.
@@ -25,6 +26,7 @@ Copy and paste this prompt to your LLM agent:
 
 - **Click** a space to show it. **Right-click** it for the menu: **Icon and color…**, **Pin** / **Unpin**, **Note…**, **New agent…**, and **Herdr options…** (Herdr's own menu: rename, worktrees, close).
 - **Put the pointer on a space** for 2 buttons: **New agent** (a list of the agents installed on that machine; the agent starts in a new tab of the space) and **Close space**.
+- **Click a terminal row** to show that terminal. **Put the pointer on it** for the **X** button: it closes the terminal.
 - **Icon and color.** Choose one of 52 icons, type an emoji, or click **Default** to go back to the first letter of the name. Click one of the 8 colors.
 - **The + button** opens [Repo Launcher](../repo-launcher-app) when it is installed. Without it, + shows **New space** and **New space with agent…** (you choose the agent, then the folder).
 
@@ -52,6 +54,7 @@ In PowerMods → **Settings** → **Space Deck**:
 | Setting | Default |
 | ------- | ------- |
 | View | Cards |
+| Terminals | Shown space (also: All spaces, Off) |
 | Card: agents, tabs and terminals, git, folder and machine, last activity, note | On |
 | Git refresh | 15 s (5 to 120 s) |
 | Needs you first | Off |

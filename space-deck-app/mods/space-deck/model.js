@@ -11,7 +11,8 @@ export const needsYou = (status) => status === "blocked" || status === "done";
 
 /**
  * One row for each space:
- * { id, name, active, status, machine, key, where, folder, git, agents, tabs, terms, activity, tree, parent, index }
+ * { id, name, active, status, machine, key, where, folder, git, agents, tabs, terms, terminals, activity, tree, parent, index }
+ * `terminals`: [{ terminal, pane, title, cwd, status, app, program, focused }], in Herdr's order.
  */
 export function rows(git) {
   const ps = panes();
@@ -36,6 +37,9 @@ export function rows(git) {
       agents: ag.filter((a) => a.space === s.id).map((a) => ({ address: a.address, status: a.status, program: a.program, name: a.program?.name ?? a.app ?? "agent", pane: a.pane })),
       tabs: (s.tabs ?? []).length,
       terms: ps.filter((p) => p.terminal && tabIds.has(p.tab)).length,
+      terminals: ps.filter((p) => p.terminal && tabIds.has(p.tab)).map((p) => ({
+        terminal: p.terminal, pane: p.pane, title: p.title, cwd: p.cwd, status: p.status, app: p.app, program: p.program, focused: p.focused,
+      })),
       activity: Math.max(changed, item(key).activeAt ?? 0) || null,
       tree: null,
       parent: null,

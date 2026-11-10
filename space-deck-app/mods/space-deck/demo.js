@@ -23,6 +23,7 @@ function row(id, name, extra) {
     agents: [],
     tabs: 1,
     terms: 1,
+    terminals: [],
     activity: Date.now() - 30 * min,
     tree: null,
     parent: null,
@@ -33,6 +34,8 @@ function row(id, name, extra) {
 
 const git = (branch, ahead = 0, behind = 0, changed = 0) => ({ branch, ahead, behind, changed, linked: false, repo: branch, name: branch });
 const agent = (program, status) => ({ address: `${program.key}-${status}`, status, program, name: program.name });
+const term = (n, title, program = null, status = null, focused = false) =>
+  ({ terminal: `demo-t${n}`, pane: `demo-p${n}`, title, cwd: null, status, app: program?.key ?? null, program, focused });
 
 export function demoModel() {
   const now = Date.now();
@@ -42,12 +45,14 @@ export function demoModel() {
         active: true, status: "working", tabs: 3, terms: 4, activity: now - 2 * min,
         git: git("main", 2, 0, 3),
         agents: [agent(CLAUDE, "working"), agent(CODEX, "idle")],
+        terminals: [term(1, "Space Deck: terminal rows", CLAUDE, "working", true), term(2, "Review the diff", CODEX, "idle"), term(3, "pwsh"), term(4, "npm run dev")],
         deco: { icon: "rocket", color: "ansi4", note: "Space Deck: test the drag of pinned cards" },
       }),
       row("hound", "TokenHound", {
         status: "blocked", tabs: 2, terms: 2, activity: now - 8 * min,
         git: git("feature/hud-v2", 0, 1, 0),
         agents: [agent(CLAUDE, "blocked")],
+        terminals: [term(5, "Approve: run migrations?", CLAUDE, "blocked"), term(6, "pwsh")],
         deco: { icon: "gamepad-2", color: "ansi3" },
       }),
     ],

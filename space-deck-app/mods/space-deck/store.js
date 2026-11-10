@@ -15,6 +15,7 @@ export const KEYS = {
   gitEvery: "space-deck.gitEvery", // seconds
   needsYouFirst: "space-deck.needsYouFirst",
   recentCount: "space-deck.recentCount",
+  terminals: "space-deck.terminals", // "off" | "active" | "all": which spaces show their terminals at first
   colors: "space.colors", // Herdr's own: { [space id]: color }, read by the native mods
 };
 
@@ -80,6 +81,12 @@ export function gitEvery() {
 }
 
 export const needsYouFirst = () => shared(KEYS.needsYouFirst) === true;
+
+/** "off": no terminal list. "active": the shown space opens its list. "all": every space opens its list. */
+export function terminalsMode() {
+  const v = shared(KEYS.terminals);
+  return v === "off" || v === "all" ? v : "active";
+}
 
 export function recentCount() {
   const v = shared(KEYS.recentCount);

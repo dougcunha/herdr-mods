@@ -1,6 +1,6 @@
 {
   "app": "space-deck-app",
-  "description": "A Spaces sidebar with cards or a list: an icon, a color and a note for each space, pinned spaces on top, the agents, tabs and git status of each space, and recent spaces to open again.",
+  "description": "A Spaces sidebar with cards or a list: an icon, a color and a note for each space, pinned spaces on top, the agents, tabs and git status of each space, its terminals with their status, and recent spaces to open again.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/space-deck-app",
   "settings": [
     {
@@ -13,6 +13,19 @@
       "options": [
         { "value": "card", "label": "Cards" },
         { "value": "list", "label": "List" }
+      ]
+    },
+    {
+      "id": "terminals",
+      "type": "enum",
+      "key": "space-deck.terminals",
+      "default": "active",
+      "label": "Terminals",
+      "hint": "Which spaces show their terminals under the space at first. The terminal button of a space shows or hides them.",
+      "options": [
+        { "value": "active", "label": "Shown space" },
+        { "value": "all", "label": "All spaces" },
+        { "value": "off", "label": "Off" }
       ]
     },
     { "id": "cardAgents", "type": "bool", "key": "space-deck.card", "path": "agents", "default": true, "label": "Card: agents", "hint": "Show the agents of the space and their status on the card." },
