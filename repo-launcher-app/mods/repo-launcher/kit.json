@@ -1,6 +1,6 @@
 {
   "app": "repo-launcher-app",
-  "description": "A popup that finds your Git repositories and opens one in a space, with an agent, an account and arguments that you choose.",
+  "description": "A popup that finds your Git repositories and opens one in a space, with an agent, an account and arguments that you choose. It also finds repositories on your other machines and opens them in a space there.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/repo-launcher-app",
   "settings": [
     {

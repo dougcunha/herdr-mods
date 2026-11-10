@@ -41,12 +41,53 @@ export function isInside(path, folder) {
   return p === f || p.startsWith(f + "/");
 }
 
-/** A path for people: native slashes, and `~` for the home folder. */
-export function displayPath(path) {
+/**
+ * A path for people: native slashes, and `~` for the home folder.
+ * `info`: the machine of the path (from machineInfo()); null is this computer.
+ */
+export function displayPath(path, info = null) {
   const p = normalize(path);
-  const h = normalize(home());
-  const short = pathKey(p) === pathKey(h) ? "~" : isInside(p, h) ? "~" + p.slice(h.length) : p;
-  return isWindows() ? short.replace(/\//g, "\\") : short;
+  const h = normalize(info ? info.home : home());
+  const short = h && pathKey(p) === pathKey(h) ? "~" : h && isInside(p, h) ? "~" + p.slice(h.length) : p;
+  return (info ? info.windows : isWindows()) ? short.replace(/\//g, "\\") : short;
+}
+
+/** The key of a repository or a root on a machine: the path, after `machine|` for another machine. */
+export function placeId(machine, path) {
+  return machine ? `${machine}|${normalize(path)}` : normalize(path);
+}
+
+// What the launcher knows of each other machine: { windows, home, ps }.
+const infos = new Map();
+
+/**
+ * The system of a machine: `{ windows, home, ps }` (`ps`: the PowerShell to
+ * run on Windows). Null `on` is this computer. A Windows machine with Git Bash
+ * also has `sh`, so `uname` tells the two apart. Rejects when no shell runs there.
+ */
+export async function machineInfo(on) {
+  if (!on) return { windows: isWindows(), home: normalize(home()), ps: isWindows() ? await powershell() : null };
+  if (infos.has(on)) return infos.get(on);
+  let info = null;
+  try {
+    const r = await exec("sh", ["-c", 'uname -s; printf "%s\\n" "$HOME"'], { on, timeout: 20000 });
+    const [uname, h] = r.stdout.split("\n").map((s) => s.trim());
+    if (r.code === 0 && uname && !/^(MINGW|MSYS|CYGWIN)/i.test(uname)) info = { windows: false, home: normalize(h), ps: null };
+  } catch {}
+  if (!info) {
+    for (const ps of ["pwsh", "powershell"]) {
+      try {
+        const r = await exec(ps, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "$HOME"], { on, timeout: 20000 });
+        if (r.code === 0 && r.stdout.trim()) {
+          info = { windows: true, home: normalize(r.stdout.trim()), ps };
+          break;
+        }
+      } catch {}
+    }
+  }
+  if (!info) throw new Error(`Could not run a shell on ${on}`);
+  infos.set(on, info);
+  return info;
 }
 
 const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
@@ -59,9 +100,11 @@ $ErrorActionPreference = 'Stop'
 $skip = @{}
 foreach ($n in @(${SKIP.map(psQuote).join(",")})) { $skip[$n] = $true }
 foreach ($root in @(${roots.map(psQuote).join(",")})) {
-  if (-not [IO.Directory]::Exists($root)) { [Console]::Out.WriteLine("!missing\`t" + $root); continue }
+  $start = $root
+  if ($start -eq '~' -or $start -like '~/*' -or $start -like '~\\*') { $start = $HOME + $start.Substring(1) }
+  if (-not [IO.Directory]::Exists($start)) { [Console]::Out.WriteLine("!missing\`t" + $root); continue }
   $queue = New-Object System.Collections.Queue
-  $queue.Enqueue(@([IO.Path]::GetFullPath($root), 0))
+  $queue.Enqueue(@([IO.Path]::GetFullPath($start), 0))
   $count = 0
   while ($queue.Count -gt 0 -and $count -lt ${MAX_REPOS}) {
     $item = $queue.Dequeue(); $dir = $item[0]; $level = $item[1]
@@ -85,8 +128,10 @@ depth="$1"; shift
 prune=""
 for n in ${SKIP.filter((n) => n !== ".git").join(" ")}; do prune="$prune -o -name $n"; done
 for root in "$@"; do
-  if [ ! -d "$root" ]; then printf '!missing\\t%s\\n' "$root"; continue; fi
-  find "$root" -mindepth 0 -maxdepth "$depth" \\( -false $prune \\) -prune -o -name .git -print 2>/dev/null | head -n ${MAX_REPOS} | while IFS= read -r g; do
+  start="$root"
+  case "$root" in "~"|"~/"*) start="$HOME\${root#"~"}" ;; esac
+  if [ ! -d "$start" ]; then printf '!missing\\t%s\\n' "$root"; continue; fi
+  find "$start" -mindepth 0 -maxdepth "$depth" \\( -false $prune \\) -prune -o -name .git -print 2>/dev/null | head -n ${MAX_REPOS} | while IFS= read -r g; do
     printf 'repo\\t%s\\t%s\\n' "$root" "$(dirname "$g")"
   done
 done
@@ -106,15 +151,17 @@ export async function powershell() {
 }
 
 /**
- * The repositories under `roots`.
- * Resolves with `{ repos: [{ path, name, root }], missing: [root] }`.
+ * The repositories under `roots`, on the machine `on` (null: this computer).
+ * `info`: that machine's machineInfo().
+ * Resolves with `{ repos: [{ path, name, root, machine }], missing: [root] }`.
  * Rejects when the search program cannot run.
  */
-export async function findRepos(roots) {
+export async function findRepos(roots, { on = null, info } = {}) {
   if (roots.length === 0) return { repos: [], missing: [] };
-  const r = isWindows()
-    ? await exec(await powershell(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PS_SCAN(roots, DEPTH)])
-    : await exec("sh", ["-c", SH_SCAN, "sh", String(DEPTH + 1), ...roots]);
+  const opts = { on, timeout: 120000 };
+  const r = info.windows
+    ? await exec(info.ps, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PS_SCAN(roots, DEPTH)], opts)
+    : await exec("sh", ["-c", SH_SCAN, "sh", String(DEPTH + 1), ...roots], opts);
   if (r.code !== 0 && !r.stdout.trim()) {
     throw new Error(r.stderr.trim().split("\n")[0] || "The repository search failed");
   }
@@ -135,7 +182,7 @@ export async function findRepos(roots) {
     if (!kept.some((k) => isInside(repo.path, k.path))) kept.push(repo);
   }
   const repos = kept
-    .map((repo) => ({ ...repo, name: repo.path.split("/").pop() || repo.path }))
+    .map((repo) => ({ ...repo, machine: on ?? null, name: repo.path.split("/").pop() || repo.path }))
     .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
   return { repos, missing };
 }

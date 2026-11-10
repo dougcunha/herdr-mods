@@ -14,6 +14,8 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Cached list.** The launcher reads the root folders only when you add or remove one, or click Refresh (`Ctrl+R`). It never reads the disk when the popup opens.
 - **Cached agents.** The launcher keeps the list of installed agents in shared state, so the popup opens without starting a shell. After you install or remove an agent, click **Refresh agents** in the settings.
 - **Shortcut.** Change it in the settings: click **Change** and press the new keys. The launcher writes it to `keys.json`.
+- **Other machines.** Add a folder of a machine of `hc machine ls` in the settings: pick the machine and type the path (`~/code` or `C:\Projects`). Its repositories show in an **On <machine>** section, and a repository opens in a space on that machine, with the agents installed there. The machine can run Windows, macOS or Linux.
+- **Machine filter.** When some repositories are on other machines, a switch in the search bar shows all of them, only this computer, or only one machine (`Ctrl+M`).
 
 ![The choices of a repository: a terminal, and each agent with each of its accounts](preview-choices.png)
 
@@ -85,18 +87,19 @@ It needs the `repo-launcher` mod (it uses its icon and opens it).
 | List | `Ctrl+S` | Add or remove the favorite |
 | List | `Ctrl+E` | Turn "Reuse open space" on or off |
 | List | `Ctrl+R` | Read the root folders again |
+| List | `Ctrl+M` | Show all repositories, this computer only, or one machine only |
 | Choices | `1` to `9`, or `↑` `↓` and `Enter` | Open that choice |
 | Choices | `Backspace` or `←` | Go back to the list |
 | Everywhere | `Esc` | Close the launcher |
 
 ## What it runs, and its limits
 
-- **Programs.** To find the repositories, it runs PowerShell (`pwsh`, else `powershell`) on Windows and `sh` with `find` on macOS and Linux, through the app's `exec`. It uses no network.
+- **Programs.** To find the repositories, it runs PowerShell (`pwsh`, else `powershell`) on Windows and `sh` with `find` on macOS and Linux, through the app's `exec`. On another machine it runs the same programs there through herdr-core (`exec` with `on`), after `uname` or `$HOME` tells it the system. It uses no network of its own.
 - **Files that it reads.** The list of your home folder (to find the account folders), `.claude.json` of each Claude Code account and `auth.json` of each Codex account (only to show the e-mail). It reads no token for any other use.
 - **Status bar item.** `repo-launcher-status` only reads `keys()` and runs `mod.open`.
 - **Files that it writes.** Its settings and the repository cache go in the shared state of the app (`shared.json`, keys `repo-launcher.settings` and `repo-launcher.cache`). **Change** in the shortcut settings rewrites the `global` section of `keys.json`.
 - **A second account.** Herdr has no field for environment variables when it starts a program. For an account that is not the default one, the launcher starts the agent through a wrapper: `env CLAUDE_CONFIG_DIR=<folder> claude …` on macOS and Linux, and `pwsh -NoProfile -Command "$env:CLAUDE_CONFIG_DIR='<folder>'; & 'claude' …"` on Windows. Codex uses `CODEX_HOME`. A shell function or an alias with the agent name does not run in this wrapper; the agent program does.
 - **Search depth.** 3 folder levels under each root folder. The search does not go into a repository that it found, or into `node_modules`, `bin`, `obj`, `dist`, `build`, `target`, `vendor` and similar folders. At most 2000 repositories per root folder.
 - **A search stops when the popup closes.** Keep the popup open until the search ends. When the popup opens again with root folders and no cache, the search starts again.
-- **This computer only.** Spaces on other machines are not used, and the root folders are on this computer.
+- **Other machines.** The system folder picker shows only this computer, so you type the path of a folder on another machine. The accounts are folders on this computer: on another machine, each agent starts with its default account. When a machine cannot be reached, Refresh keeps the repositories of its last search.
 - Tested on Windows. macOS and Linux use the same code with `find` and `env`.

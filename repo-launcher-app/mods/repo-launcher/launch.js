@@ -57,15 +57,15 @@ export async function agentArgv(agent, extraArgs, account) {
 }
 
 /**
- * The open spaces of this computer that work in `repo`: a space with a
- * terminal whose live folder is in the repository.
+ * The open spaces of `machine` (null: this computer) that work in `repo`: a
+ * space with a terminal whose live folder is in the repository.
  *
  * The space of the repository comes first: its name is the repository's
  * (Herdr names a space after the repository of its first terminal), then
  * its start folder is in the repository, then the shown space; then the
  * space with the most terminals there.
  */
-export function spacesFor(repoPath, allSpaces = spaces(), allPanes = panes()) {
+export function spacesFor(repoPath, machine = null, allSpaces = spaces(), allPanes = panes()) {
   const repoName = repoPath.replace(/[\\/]+$/, "").split(/[\\/]/).pop().toLowerCase();
   const inRepo = new Map(); // tab id -> [panes in the repository, all panes]
   for (const p of allPanes) {
@@ -87,7 +87,7 @@ export function spacesFor(repoPath, allSpaces = spaces(), allPanes = panes()) {
   // breaks ties.
   const rank = (s) => (s.name.toLowerCase() === repoName ? 4 : 0) + (isInside(s.folder, repoPath) ? 2 : 0) + (s.active ? 1 : 0);
   return allSpaces
-    .filter((s) => s.machine == null)
+    .filter((s) => (s.machine ?? null) === (machine ?? null))
     .map((s) => ({ s, rank: rank(s), share: share(s) }))
     .filter((x) => x.share.hit > 0)
     .sort((a, b) => (b.rank - a.rank) || (b.share.ratio - a.share.ratio) || (a.s.index - b.s.index))
@@ -99,14 +99,16 @@ export function spacesFor(repoPath, allSpaces = spaces(), allPanes = panes()) {
  * `reuse`: use the repository's open space when it has one.
  * `mode`: "tab" (a new tab), "split" (a split to the right of the space's
  * focused pane) or "go" (only show the space; an agent still gets a tab).
+ * `machine`: the machine of the repository (null: this computer), and
+ * `windows`: that machine runs Windows.
  */
-export function open(repoPath, { argv = null, name = undefined, reuse = true, mode = "tab" } = {}) {
-  const folder = isWindows() ? repoPath.replace(/\//g, "\\") : repoPath;
-  const space = reuse ? spacesFor(repoPath)[0] : null;
+export function open(repoPath, { argv = null, name = undefined, reuse = true, mode = "tab", machine = null, windows = isWindows() } = {}) {
+  const folder = windows ? repoPath.replace(/\//g, "\\") : repoPath;
+  const space = reuse ? spacesFor(repoPath, machine)[0] : null;
   const withArgv = (args) => (argv ? { ...args, argv } : args);
 
   if (!space) {
-    run("space.new", withArgv({ folder, ...(name ? { tab: name } : {}) }));
+    run("space.new", withArgv({ folder, ...(machine ? { machine } : {}), ...(name ? { tab: name } : {}) }));
     return { created: true };
   }
   // Some layouts (a board of agents, say) show the focused pane, not the

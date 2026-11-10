@@ -11,13 +11,14 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, run, settings as appSettings, shared } from "herdr";
+import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, run, settings as appSettings, shared, machines } from "herdr";
 import { matchRepo } from "./fuzzy.js";
-import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, ACCOUNT_AGENTS } from "./scan.js";
+import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, machineInfo, placeId, ACCOUNT_AGENTS } from "./scan.js";
 import { agentArgv, open, spacesFor } from "./launch.js";
 import {
   settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened, lastOpened,
   boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut, agentCache, setAgentCache,
+  remoteAgentCache, setRemoteAgentCache, allRoots,
 } from "./store.js";
 import {
   icon, GOLD, tint, spaceColor, repoColor, letterTile, programTile, pill, kbd, hint, toggle,
@@ -46,8 +47,23 @@ const MODES = [
 const MODE_TEXT = { tab: "in a new tab", split: "in a split to the right", go: "" };
 
 // Kept between openings of the popup, so the next one draws at once.
-const memory = { accounts: null, scanningSince: 0, checkingAgents: false };
-const isScanning = () => Date.now() - memory.scanningSince < 120000;
+// `place`: the quick filter of the list: "all", "local" or a machine name.
+const memory = { accounts: null, scanningSince: 0, checkingAgents: false, checkingRemote: {}, place: "all" };
+const isScanning = () => Date.now() - memory.scanningSince < 180000;
+
+// Other machines (`hc machine ls`), by name. Herdr leaves out temporary ones.
+const remoteMachines = () => machines().map((m) => m.name).filter(Boolean);
+/** What the launcher knows of the system of a repository's machine (null: this computer). */
+const infoOf = (machine) => (machine ? cache().machines?.[machine] ?? { windows: false, home: "" } : null);
+const repoId = (repo) => placeId(repo.machine, repo.path);
+const parentOf = (repo) => displayPath(repo.path.slice(0, repo.path.length - repo.name.length), infoOf(repo.machine));
+/** A root or a missing root for people: "notebook: ~\src" for another machine. */
+function placeLabel(id) {
+  const bar = id.indexOf("|");
+  if (bar < 0) return displayPath(id);
+  const machine = id.slice(0, bar);
+  return `${machine}: ${displayPath(id.slice(bar + 1), infoOf(machine))}`;
+}
 
 export default class RepoLauncher extends View {
   init(_props, cx) {
@@ -74,6 +90,10 @@ export default class RepoLauncher extends View {
     });
     this.query.on("submit", (_e, cx) => this.choose(this.selectedRepo(), cx));
     this.query.focus();
+    // A folder on another machine: the system picker shows only this computer.
+    this.remotePath = InputState.new({ placeholder: "~/projects or C:\\Projects" });
+    this.remotePath.on("submit", (_e, cx) => this.addRemoteRoot(cx));
+    this.remoteTarget = null;
     cx.timer.after(600, () => {
       if (this.view === "list") this.query.focus();
     });
@@ -94,8 +114,7 @@ export default class RepoLauncher extends View {
     });
 
     // A first open with folders but no cache (a scan stopped by closing the popup).
-    const s = settings();
-    if (s.roots.length && !cache().scannedAt && !isScanning()) this.scan(cx);
+    if (allRoots().length && !cache().scannedAt && !isScanning()) this.scan(cx);
   }
 
   close() {
@@ -117,15 +136,47 @@ export default class RepoLauncher extends View {
   // ---------------------------------------------------------------------------
   // Data
 
+  /**
+   * Searches the roots of each machine at the same time. A machine that
+   * cannot be reached keeps the repositories of its last search.
+   * Resolves with `{ count, failed }`.
+   */
   async scanNow(roots) {
     memory.scanningSince = Date.now();
     try {
-      const { repos, missing } = await findRepos(roots);
-      setCache({ repos, scannedAt: Date.now(), missing });
-      if (missing.length) {
-        notify({ title: "Some folders were not found", body: missing.map(displayPath).join(", "), level: "warning", timeout: 6000 });
+      const groups = new Map();
+      for (const r of roots) groups.set(r.machine, [...(groups.get(r.machine) ?? []), r.path]);
+      const results = await Promise.all([...groups].map(async ([on, paths]) => {
+        try {
+          // An offline machine would make each shell wait for its timeout.
+          if (on && machines().find((m) => m.name === on)?.layout === "unavailable") throw new Error(`${on} cannot be reached now`);
+          const info = await machineInfo(on);
+          return { on, info, ...(await findRepos(paths, { on, info })) };
+        } catch (error) {
+          return { on, error };
+        }
+      }));
+      const prev = cache();
+      const repos = [];
+      const missing = [];
+      const known = { ...prev.machines };
+      const failed = [];
+      for (const r of results) {
+        if (r.error) {
+          failed.push(r.on);
+          repos.push(...prev.repos.filter((x) => (x.machine ?? null) === r.on));
+          notify({ title: r.on ? `Could not read the folders on ${r.on}` : "Could not read the folders", body: String(r.error?.message ?? r.error), level: "error", timeout: 8000 });
+          continue;
+        }
+        repos.push(...r.repos);
+        missing.push(...r.missing.map((m) => placeId(r.on, m)));
+        if (r.on) known[r.on] = { windows: r.info.windows, home: r.info.home };
       }
-      return repos.length;
+      setCache({ repos, scannedAt: Date.now(), missing, machines: known });
+      if (missing.length) {
+        notify({ title: "Some folders were not found", body: missing.map(placeLabel).join(", "), level: "warning", timeout: 6000 });
+      }
+      return { count: repos.length, failed };
     } finally {
       memory.scanningSince = 0;
     }
@@ -133,11 +184,11 @@ export default class RepoLauncher extends View {
 
   scan(cx, { quiet = true } = {}) {
     if (isScanning()) return;
-    const roots = settings().roots;
+    const roots = allRoots(remoteMachines());
     cx.spawn(async (cx) => {
       try {
-        const count = await this.scanNow(roots);
-        if (!quiet) notify({ title: "Repositories updated", body: `${count} repositories in ${roots.length} folder${roots.length === 1 ? "" : "s"}`, level: "success", timeout: 3000 });
+        const { count, failed } = await this.scanNow(roots);
+        if (!quiet && !failed.length) notify({ title: "Repositories updated", body: `${count} repositories in ${roots.length} folder${roots.length === 1 ? "" : "s"}`, level: "success", timeout: 3000 });
       } catch (e) {
         notify({ title: "Could not read the folders", body: String(e?.message ?? e), level: "error", timeout: 8000 });
       }
@@ -161,17 +212,64 @@ export default class RepoLauncher extends View {
     });
   }
 
+  /** The machine that a new remote folder goes to: the chosen one, else the first. */
+  remoteMachine() {
+    const list = remoteMachines();
+    return list.includes(this.remoteTarget) ? this.remoteTarget : list[0] ?? null;
+  }
+
+  addRemoteRoot(cx) {
+    const machine = this.remoteMachine();
+    const path = normalize(this.remotePath.value().trim());
+    if (!machine || !path) return;
+    const list = settings().remoteRoots;
+    if (!list.some((r) => r.machine === machine && pathKey(r.path) === pathKey(path))) {
+      updateSettings({ remoteRoots: [...list, { machine, path }] });
+      memory.scanningSince = 0;
+      this.scan(cx, { quiet: false });
+    }
+    this.remotePath.set_value("");
+    cx.notify();
+  }
+
+  /** `root`: an entry of allRoots(). */
   removeRoot(root, cx) {
-    updateSettings((s) => ({ roots: s.roots.filter((r) => pathKey(r) !== pathKey(root)) }));
+    const same = (machine, path) => (machine ?? null) === root.machine && pathKey(path) === pathKey(root.path);
+    updateSettings((s) => (root.machine
+      ? { remoteRoots: s.remoteRoots.filter((r) => !same(r.machine, r.path)) }
+      : { roots: s.roots.filter((r) => !same(null, r)) }));
     // The other folders keep their repositories: drop this folder's only.
     const c = cache();
-    setCache({ ...c, repos: c.repos.filter((r) => pathKey(r.root) !== pathKey(root)), missing: c.missing.filter((m) => pathKey(m) !== pathKey(root)) });
+    setCache({ ...c, repos: c.repos.filter((r) => !same(r.machine, r.root)), missing: c.missing.filter((m) => pathKey(m) !== pathKey(root.id)) });
+    cx.notify();
+  }
+
+  /** The choices of the quick filter: none when all repositories are on this computer. */
+  places() {
+    const names = [...new Set(cache().repos.map((r) => r.machine).filter(Boolean))].sort();
+    if (!names.length) return [];
+    return [{ value: "all", label: "All" }, { value: "local", label: "This computer" }, ...names.map((m) => ({ value: m, label: m }))];
+  }
+
+  /** The quick filter now; "all" when its machine has no repositories any more. */
+  place() {
+    return this.places().some((p) => p.value === memory.place) ? memory.place : "all";
+  }
+
+  setPlace(value, cx) {
+    memory.place = value;
+    this.at = 0;
+    this.scrollTop.list = 0;
+    this.follow = true;
     cx.notify();
   }
 
   /** The rows of the list view: section titles and repositories. */
   rows() {
-    const repos = [...cache().repos].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const place = this.place();
+    const repos = cache().repos
+      .filter((r) => place === "all" || (place === "local" ? !r.machine : r.machine === place))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     const q = this.filter.trim();
     const rows = [];
     const add = (title, items, opts = {}) => {
@@ -183,11 +281,11 @@ export default class RepoLauncher extends View {
     if (q) {
       const hits = [];
       for (const repo of repos) {
-        const parent = displayPath(repo.path.slice(0, repo.path.length - repo.name.length));
+        const parent = parentOf(repo);
         const match = matchRepo(q, repo.name, parent);
         if (!match) continue;
-        const fav = isFavorite(repo.path);
-        const recent = lastOpened(repo.path);
+        const fav = isFavorite(repoId(repo));
+        const recent = lastOpened(repoId(repo));
         hits.push({ repo, parent, match, fav, score: match.score + (fav ? 40 : 0) + (recent ? 10 : 0) });
       }
       hits.sort((a, b) => b.score - a.score || a.repo.name.localeCompare(b.repo.name));
@@ -197,19 +295,26 @@ export default class RepoLauncher extends View {
 
     const entry = (repo) => ({
       repo,
-      parent: displayPath(repo.path.slice(0, repo.path.length - repo.name.length)),
+      parent: parentOf(repo),
       match: null,
-      fav: isFavorite(repo.path),
+      fav: isFavorite(repoId(repo)),
     });
-    const favorites = repos.filter((r) => isFavorite(r.path)).map(entry);
-    const rest = repos.filter((r) => !isFavorite(r.path));
-    const recent = rest.filter((r) => lastOpened(r.path) > 0)
-      .sort((a, b) => lastOpened(b.path) - lastOpened(a.path))
+    const favorites = repos.filter((r) => isFavorite(repoId(r))).map(entry);
+    const rest = repos.filter((r) => !isFavorite(repoId(r)));
+    const recent = rest.filter((r) => lastOpened(repoId(r)) > 0)
+      .sort((a, b) => lastOpened(repoId(b)) - lastOpened(repoId(a)))
       .slice(0, RECENT_COUNT);
-    const recentKeys = new Set(recent.map((r) => pathKey(r.path)));
+    const recentKeys = new Set(recent.map((r) => pathKey(repoId(r))));
+    const others = rest.filter((r) => !recentKeys.has(pathKey(repoId(r))));
     add("Favorites", favorites, { symbol: "star-fill", color: GOLD });
     add("Recent", recent.map(entry), { symbol: "refresh" });
-    add("Repositories", rest.filter((r) => !recentKeys.has(pathKey(r.path))).map(entry), { symbol: "repo" });
+    // This computer's repositories, then one section for each other machine.
+    const groups = new Map([[null, []]]);
+    for (const r of others) groups.set(r.machine ?? null, [...(groups.get(r.machine ?? null) ?? []), r]);
+    const remote = groups.size > 1;
+    for (const [machine, items] of groups) {
+      add(machine ? `On ${machine}` : remote ? "On this computer" : "Repositories", items.map(entry), { symbol: "repo" });
+    }
     return rows;
   }
 
@@ -234,14 +339,38 @@ export default class RepoLauncher extends View {
     return out;
   }
 
+  /** The installed agents of a machine (null: this computer). */
+  agentsOn(machine) {
+    return machine ? remoteAgentCache(machine).list ?? [] : this.agents;
+  }
+
+  /** Asks another machine for its agents once; Refresh agents asks again. */
+  checkRemoteAgents(machine, cx, { force = false } = {}) {
+    if (!machine || memory.checkingRemote[machine]) return;
+    if (!force && remoteAgentCache(machine).list) return;
+    memory.checkingRemote[machine] = true;
+    cx.spawn(async (cx) => {
+      try {
+        setRemoteAgentCache(machine, (await knownAgents({ on: machine })).filter((a) => a.installed));
+      } catch (e) {
+        notify({ title: `Could not read the agents on ${machine}`, body: String(e?.message ?? e), level: "error" });
+      } finally {
+        memory.checkingRemote[machine] = false;
+      }
+      cx.notify();
+    });
+  }
+
   /** The choices of the actions view. */
   actions() {
     const out = [{ id: "terminal", title: "Terminal", subtitle: "A shell in the repository", program: { icon: "icons/shell.svg", tint: true, color: theme().foreground, tile: theme().raised } }];
     const args = settings().args;
-    for (const agent of this.agents) {
+    const machine = this.repo?.machine ?? null;
+    for (const agent of this.agentsOn(machine)) {
       const extra = (args[agent.key] ?? "").trim();
       const command = [...(agent.run ?? []), extra].filter(Boolean).join(" ");
-      const accounts = ACCOUNT_AGENTS[agent.key] ? this.accountsOf(agent.key) : [];
+      // The accounts are folders on this computer.
+      const accounts = ACCOUNT_AGENTS[agent.key] && !machine ? this.accountsOf(agent.key) : [];
       if (accounts.length > 1) {
         for (const account of accounts) {
           out.push({
@@ -267,6 +396,7 @@ export default class RepoLauncher extends View {
   choose(repo, cx) {
     if (!repo) return;
     this.repo = repo;
+    this.checkRemoteAgents(repo.machine, cx);
     this.view = "actions";
     this.actionAt = 0;
     this.scrollTop.actions = 0;
@@ -298,6 +428,8 @@ export default class RepoLauncher extends View {
    * and when a person clicks Refresh. `loud`: show a toast with the result.
    */
   refreshAgents(cx, { loud = false } = {}) {
+    // The machines with folders here ask again too.
+    if (loud) for (const m of new Set(settings().remoteRoots.map((r) => r.machine))) this.checkRemoteAgents(m, cx, { force: true });
     if (memory.checkingAgents) return;
     memory.checkingAgents = true;
     cx.notify();
@@ -361,13 +493,14 @@ export default class RepoLauncher extends View {
       const before = new Set(panes().map((p) => p.terminal).filter(Boolean));
       let result;
       try {
-        result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode });
+        const machine = repo.machine ?? null;
+        result = open(repo.path, { argv, name, reuse: s.reuse, mode: s.reuseMode, machine, windows: machine ? infoOf(machine).windows : isWindows() });
       } catch (e) {
         this.close();
         notify({ title: `Could not open ${repo.name}`, body: String(e?.message ?? e), level: "error" });
         return;
       }
-      markOpened(repo.path);
+      markOpened(repoId(repo));
       if (!result?.created) return this.close();
       // Focus the new terminal, so every layout shows it (a layout can
       // follow the focused pane rather than the selected space). The popup
@@ -463,7 +596,7 @@ export default class RepoLauncher extends View {
         const a = actions[Number(k) - 1];
         if (a) this.launch(a, cx);
       } else if (ctrl && k === "s") {
-        toggleFavorite(this.repo.path);
+        toggleFavorite(repoId(this.repo));
       } else if (ctrl && k === "e") {
         updateSettings((s) => ({ reuse: !s.reuse }));
       } else return;
@@ -485,12 +618,18 @@ export default class RepoLauncher extends View {
       this.follow = true;
     } else if (ctrl && k === "s") {
       const repo = this.selectedRepo();
-      if (repo) toggleFavorite(repo.path);
+      if (repo) toggleFavorite(repoId(repo));
     } else if (ctrl && k === "e") {
       updateSettings((s) => ({ reuse: !s.reuse }));
     } else if (ctrl && k === "r") {
       memory.scanningSince = 0;
       this.scan(cx, { quiet: false });
+    } else if (ctrl && k === "m") {
+      const places = this.places();
+      if (!places.length) return;
+      const i = places.findIndex((p) => p.value === this.place());
+      cx.stop_propagation();
+      return this.setPlace(places[(i + 1) % places.length].value, cx);
     } else if (ctrl && k === "enter") {
       const repo = this.selectedRepo();
       if (repo) this.quickTerminal(repo, cx);
@@ -556,9 +695,10 @@ export default class RepoLauncher extends View {
     if (this.at >= list.length) this.at = Math.max(0, list.length - 1);
     const sel = list[this.at]?.repo ?? null;
 
-    const subtitle = s.roots.length === 0
+    const roots = allRoots();
+    const subtitle = roots.length === 0
       ? "Add a folder to start"
-      : `${c.repos.length} repositories in ${s.roots.length} folder${s.roots.length === 1 ? "" : "s"}`;
+      : `${c.repos.length} repositories in ${roots.length} folder${roots.length === 1 ? "" : "s"}`;
 
     const head = this.header(t, "Open a repository", subtitle, {
       leading: this.brandTile(t),
@@ -577,15 +717,20 @@ export default class RepoLauncher extends View {
       .bg(t.background).border_1().border_color(tint(t.accent, "99"))
       .child(svg(icon("search")).size(16).text_color(t.accent))
       .child(Input.new(this.query).flex_1().h_full().text_size(14).text_color(t.foreground))
-      .when(Boolean(this.filter), (e) => e.child(div().text_size(11).text_color(t.dim).child(`${list.length} match${list.length === 1 ? "" : "es"}`)));
+      .when(Boolean(this.filter), (e) => e.child(div().text_size(11).text_color(t.dim).child(`${list.length} match${list.length === 1 ? "" : "es"}`)))
+      .when(this.places().length > 0, (e) => e.child(div().flex_none().tooltip(`Show the repositories of one machine (${prettyKeys("ctrl-m")})`)
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .child(segmented(t, "rl-place", this.places(), this.place(), (v, cx) => this.setPlace(v, cx)))));
 
     let content;
-    if (s.roots.length === 0) {
+    if (roots.length === 0) {
       content = this.emptyState(t, "folder-plus", "Add the folders that hold your repositories",
         "The launcher reads them once and keeps the list. Refresh reads them again.",
-        button(t, "rl-add-first", "Add folder…", (cx) => this.addRoot(cx), { primary: true, symbol: "plus" }));
+        h_flex().gap(8)
+          .child(button(t, "rl-add-first", "Add folder…", (cx) => this.addRoot(cx), { primary: true, symbol: "plus" }))
+          .when(remoteMachines().length > 0, (e) => e.child(button(t, "rl-add-remote-first", "Folder on another machine…", (cx) => this.openSettings(cx), { symbol: "folder-plus" }))));
     } else if (c.repos.length === 0 && scanning) {
-      content = this.emptyState(t, null, "Looking for repositories…", s.roots.map(displayPath).join("  ·  "));
+      content = this.emptyState(t, null, "Looking for repositories…", roots.map((r) => placeLabel(r.id)).join("  ·  "));
     } else if (c.repos.length === 0) {
       content = this.emptyState(t, "repo", "No repositories found",
         `The search opens ${3} folder levels under each root folder.`,
@@ -607,6 +752,7 @@ export default class RepoLauncher extends View {
       .child(hint(t, ["↵"], "choose"))
       .child(hint(t, [prettyKeys("ctrl-enter")], "terminal"))
       .child(hint(t, [prettyKeys("ctrl-s")], "favorite"))
+      .when(this.places().length > 0, (e) => e.child(hint(t, [prettyKeys("ctrl-m")], "machine")))
       .child(div().flex_1())
       .child(div().text_size(11).text_color(t.dim).child(scanning ? "Scanning…" : c.scannedAt ? `Scanned ${ago(c.scannedAt)}` : ""));
 
@@ -670,7 +816,7 @@ export default class RepoLauncher extends View {
   }
 
   spaceBadge(t, repo) {
-    const open = spacesFor(repo.path);
+    const open = spacesFor(repo.path, repo.machine ?? null);
     if (!open.length) return null;
     const space = open[0];
     const color = spaceColor(t, space) ?? t.accent;
@@ -684,11 +830,11 @@ export default class RepoLauncher extends View {
 
   repoRow(t, r, selected) {
     const { repo, parent, match, fav } = r;
-    const open = spacesFor(repo.path);
+    const open = spacesFor(repo.path, repo.machine ?? null);
     const color = open.length ? spaceColor(t, open[0]) : repoColor(repo.name);
     const badge = this.spaceBadge(t, repo);
     const branch = open[0]?.branch;
-    return h_flex().id(`rl-row-${repo.path}`).h(ROW_H).px(8).flex_none()
+    return h_flex().id(`rl-row-${repoId(repo)}`).h(ROW_H).px(8).flex_none()
       .child(h_flex().size_full().px(10).gap(12).items_center().rounded(10).cursor_pointer()
         .border_1().border_color(selected ? tint(t.accent, "80") : "#00000000")
         .bg(selected ? tint(t.accent, "1c") : fav ? tint(GOLD, "0c") : "#00000000")
@@ -705,14 +851,15 @@ export default class RepoLauncher extends View {
               .child(svg(icon("branch")).size(11))
               .child(div().max_w(140).truncate().child(branch)))))
           .child(highlighted(parent, match?.path, { color: t.dim, hit: t.accent, size: 11 })))
+        .when(Boolean(repo.machine), (e) => e.child(pill(t, repo.machine, { max: 110 })))
         .when(Boolean(badge), (e) => e.child(badge))
-        .child(h_flex().id(`rl-star-${repo.path}`).size(28).flex_none().items_center().justify_center().rounded(7)
+        .child(h_flex().id(`rl-star-${repoId(repo)}`).size(28).flex_none().items_center().justify_center().rounded(7)
           .cursor_pointer().hover((s) => s.bg(t.hover))
           .tooltip(fav ? "Remove from favorites (Ctrl+S)" : "Add to favorites (Ctrl+S)")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => {
             cx.stop_propagation();
-            toggleFavorite(repo.path);
+            toggleFavorite(repoId(repo));
             cx.notify();
           })
           .child(svg(icon(fav ? "star-fill" : "star")).size(15).text_color(fav ? GOLD : selected ? t.muted : tint(t.dim, "99"))))
@@ -726,17 +873,17 @@ export default class RepoLauncher extends View {
     const s = settings();
     const actions = this.actions();
     if (this.actionAt >= actions.length) this.actionAt = 0;
-    const open = spacesFor(repo.path);
+    const open = spacesFor(repo.path, repo.machine ?? null);
     const target = s.reuse ? open[0] : null;
-    const fav = isFavorite(repo.path);
+    const fav = isFavorite(repoId(repo));
     const color = open.length ? spaceColor(t, open[0]) : repoColor(repo.name);
 
-    const head = this.header(t, repo.name, displayPath(repo.path), {
+    const head = this.header(t, repo.name, repo.machine ? placeLabel(repoId(repo)) : displayPath(repo.path), {
       leading: h_flex().gap(8).items_center()
         .child(iconButton(t, "rl-back", "back", (cx) => this.back(cx), { tooltip: "Back (Esc)" }))
         .child(letterTile(repo.name, color, 34)),
       trailing: [
-        iconButton(t, "rl-fav", fav ? "star-fill" : "star", (cx) => { toggleFavorite(repo.path); cx.notify(); },
+        iconButton(t, "rl-fav", fav ? "star-fill" : "star", (cx) => { toggleFavorite(repoId(repo)); cx.notify(); },
           { tooltip: fav ? "Remove from favorites (Ctrl+S)" : "Add to favorites (Ctrl+S)", color: fav ? GOLD : null }),
       ],
     });
@@ -746,7 +893,9 @@ export default class RepoLauncher extends View {
       ? (s.reuseMode === "go"
         ? [`Terminal goes to the space `, target.name, `. An agent opens in a new tab there.`]
         : [`Opens in the space `, target.name, ` ${MODE_TEXT[s.reuseMode]}.`])
-      : [open.length ? "Opens in a new space (reuse is off)." : "Opens in a new space.", "", ""];
+      : repo.machine
+        ? ["Opens in a new space on ", repo.machine, open.length ? " (reuse is off)." : "."]
+        : [open.length ? "Opens in a new space (reuse is off)." : "Opens in a new space.", "", ""];
     const banner = v_flex().mx(16).mt(14).p(12).gap(10).flex_none().rounded(11)
       .bg(target ? tint(spaceColor(t, target) ?? t.accent, "14") : t.raised)
       .border_1().border_color(target ? tint(spaceColor(t, target) ?? t.accent, "40") : t.border)
@@ -763,7 +912,11 @@ export default class RepoLauncher extends View {
 
     const sizes = actions.map(() => ACTION_H);
     const listEl = div().mt(10).mb(8).w_full().flex_none()
-      .child(this.scrollList(t, "actions", actions, sizes, LIST_MAX, [this.actionAt, this.actionAt], (a, i) => this.actionRow(t, a, i)));
+      .child(this.scrollList(t, "actions", actions, sizes, LIST_MAX, [this.actionAt, this.actionAt], (a, i) => this.actionRow(t, a, i)))
+      .when(Boolean(repo.machine && memory.checkingRemote[repo.machine]), (e) => e.child(h_flex().h(30).px(18).gap(8).items_center()
+        .text_size(11.5).text_color(t.dim)
+        .child(svg(icon("spinner")).size(12).text_color(t.accent).spin(900))
+        .child(div().child(`Looking for the agents on ${repo.machine}…`))));
 
     const footer = h_flex().h(38).flex_none().px(16).gap(14).items_center().border_t(1).border_color(t.border).bg(t.chrome ?? t.popover)
       .child(hint(t, ["↑", "↓"], "move"))
@@ -824,16 +977,33 @@ export default class RepoLauncher extends View {
 
     // Root folders.
     const counts = {};
-    for (const r of c.repos) counts[pathKey(r.root)] = (counts[pathKey(r.root)] ?? 0) + 1;
+    for (const r of c.repos) {
+      const k = pathKey(placeId(r.machine, r.root));
+      counts[k] = (counts[k] ?? 0) + 1;
+    }
+    const known = remoteMachines();
+    const target = this.remoteMachine();
+    const remoteAdd = known.length === 0 ? null : h_flex().gap(8).items_center()
+      .child(known.length > 1
+        ? segmented(t, "rl-remote-machine", known.map((m) => ({ value: m, label: m })), target, (v, cx) => { this.remoteTarget = v; cx.notify(); })
+        : pill(t, target, { max: 140 }))
+      .child(h_flex().flex_1().h(30).px(10).items_center().rounded(8).bg(t.raised).border_1().border_color(t.border)
+        .child(Input.new(this.remotePath).flex_1().h_full().text_size(12)))
+      .child(button(t, "rl-add-remote", "Add", (cx) => this.addRemoteRoot(cx), { symbol: "plus" }));
     const roots = v_flex().gap(6)
-      .children(s.roots.map((root, i) => {
-        const missing = c.missing.some((m) => pathKey(m) === pathKey(root));
+      .children(allRoots().map((root, i) => {
+        const missing = c.missing.some((m) => pathKey(m) === pathKey(root.id));
+        const offline = root.machine && !known.includes(root.machine);
         return h_flex().id(`rl-root-${i}`).h(40).px(10).gap(10).items_center().rounded(9).bg(t.raised)
-          .child(svg(icon("folder")).size(16).text_color(missing ? t.blocked : t.accent))
-          .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(displayPath(root)))
-          .child(missing ? pill(t, "not found", { color: t.blocked }) : pill(t, `${counts[pathKey(root)] ?? 0} repos`))
+          .child(svg(icon("folder")).size(16).text_color(missing || offline ? t.blocked : t.accent))
+          .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(displayPath(root.path, infoOf(root.machine))))
+          .when(Boolean(root.machine), (e) => e.child(pill(t, root.machine, { max: 110 })))
+          .child(offline ? pill(t, "unknown machine", { color: t.blocked })
+            : missing ? pill(t, "not found", { color: t.blocked })
+            : pill(t, `${counts[pathKey(root.id)] ?? 0} repos`))
           .child(iconButton(t, `rl-root-del-${i}`, "trash", (cx) => this.removeRoot(root, cx), { tooltip: "Remove this folder", size: 28 }));
       }))
+      .when(Boolean(remoteAdd), (e) => e.child(div().pt(4).text_size(11.5).text_color(t.dim).child("A folder on another machine (type its path):")).child(remoteAdd))
       .child(h_flex().gap(8).pt(2)
         .child(button(t, "rl-add-root", "Add folder…", (cx) => this.addRoot(cx), { primary: true, symbol: "folder-plus" }))
         .child(button(t, "rl-refresh-all", scanning ? "Scanning…" : "Refresh", (cx) => { memory.scanningSince = 0; this.scan(cx, { quiet: false }); }, { symbol: "refresh" }))
@@ -929,7 +1099,7 @@ export default class RepoLauncher extends View {
         })));
 
     const body = v_flex().id("rl-settings").h(SETTINGS_H).w_full().flex_none().overflow_y_scrollbar().p(16).gap(12)
-      .child(this.card(t, "Repository folders", `The launcher looks for Git repositories down to 3 folder levels under each folder. It reads them again only when you add or remove a folder, or click Refresh.`, roots))
+      .child(this.card(t, "Repository folders", `The launcher looks for Git repositories down to 3 folder levels under each folder. It reads them again only when you add or remove a folder, or click Refresh. A repository on another machine opens in a space on that machine.`, roots))
       .child(this.card(t, "Open space", "A repository has an open space when one of the space's terminals works in it.", reuse))
       .child(this.card(t, "Shortcut", "The keys that open this launcher.", shortcut))
       .child(this.card(t, "Agent arguments", "Added after the command of each agent, for example --dangerously-skip-permissions. The launcher keeps the list of agents. Click Refresh agents after you install or remove an agent.", args))

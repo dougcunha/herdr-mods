@@ -3,7 +3,7 @@
 // without a file read.
 
 import { shared, setShared, keys, appHome, readTextFile, writeTextFile, window } from "herdr";
-import { normalize, pathKey } from "./scan.js";
+import { normalize, pathKey, placeId } from "./scan.js";
 
 export const MOD = "repo-launcher";
 export const OPEN_ACTION = `mod.open:${MOD}`;
@@ -14,7 +14,8 @@ const SHORTCUT_STAMP = `${MOD}.shortcut-changed`;
 const AGENTS = `${MOD}.agents`;
 
 const DEFAULTS = {
-  roots: [],
+  roots: [], // folders on this computer
+  remoteRoots: [], // folders on other machines: { machine, path }
   favorites: [],
   reuse: true,
   reuseMode: "tab", // "tab" | "split" | "go"
@@ -33,9 +34,27 @@ export function updateSettings(change) {
   return next;
 }
 
-/** `{ repos: [{ path, name, root }], scannedAt, missing }`. */
+/**
+ * `{ repos: [{ path, name, root, machine }], scannedAt, missing, machines }`.
+ * `missing`: placeId() of each root that was not found. `machines`: the
+ * machineInfo() of each other machine, so paths show at once.
+ */
 export function cache() {
-  return { repos: [], scannedAt: null, missing: [], ...(shared(CACHE) ?? {}) };
+  return { repos: [], scannedAt: null, missing: [], machines: {}, ...(shared(CACHE) ?? {}) };
+}
+
+/**
+ * Every root folder: `[{ machine, path, id }]`, this computer first.
+ * Roots of a machine that Herdr no longer knows are left out.
+ */
+export function allRoots(known = null) {
+  const s = settings();
+  return [
+    ...s.roots.map((path) => ({ machine: null, path, id: placeId(null, path) })),
+    ...s.remoteRoots
+      .filter((r) => !known || known.includes(r.machine))
+      .map((r) => ({ machine: r.machine, path: r.path, id: placeId(r.machine, r.path) })),
+  ];
 }
 
 export function setCache(value) {
@@ -53,6 +72,19 @@ export function agentCache() {
 
 export function setAgentCache(list) {
   setShared(AGENTS, { list, checkedAt: Date.now() });
+}
+
+// The agents of the other machines: { [machine]: { list, checkedAt } }. A
+// separate key, because other mods read `repo-launcher.agents` as this
+// computer's list.
+const REMOTE_AGENTS = `${AGENTS}.remote`;
+
+export function remoteAgentCache(machine) {
+  return { list: null, checkedAt: null, ...(shared(REMOTE_AGENTS)?.[machine] ?? {}) };
+}
+
+export function setRemoteAgentCache(machine, list) {
+  setShared(REMOTE_AGENTS, { ...(shared(REMOTE_AGENTS) ?? {}), [machine]: { list, checkedAt: Date.now() } });
 }
 
 export function isFavorite(path) {
