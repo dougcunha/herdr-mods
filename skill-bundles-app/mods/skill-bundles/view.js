@@ -181,7 +181,28 @@ function groupTitle(t, m, g) {
     .child(svg(ICON(folded ? "chevron-right" : "chevron-down")).size(13).flex_none().text_color(t.dim))
     .child(div().flex_none().text_size(11.5).font_semibold().text_color(t.muted).child(title))
     .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(desc))
+    .children(groupActions(t, m, g))
     .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.length)));
+}
+
+/** The batch buttons of a group title: act on every skill of the group. */
+function groupActions(t, m, g) {
+  const busy = Boolean(m.job);
+  const key = groupKey(g);
+  const small = (id, label, onClick, opts) => button(t, `sb-all-${id}-${key}`, label, onClick, opts);
+  const list = [];
+  const work = g.rows.filter((r) => r.state === "missing" || r.state === "outdated").length;
+  if (work > 0 && (g.kind === "bundle" || g.kind === "sources")) {
+    list.push(small("update", fill(m.str.updateGroup, { n: work }), (cx) => m.a.updateGroup(key, cx), { disabled: busy || Boolean(m.blocked), tip: m.str.updateGroupTip }));
+  }
+  if (g.kind === "extra" && g.rows.length > 1) {
+    list.push(small("keep", m.str.keepAll, (cx) => m.a.keepAllExtra(cx), { disabled: busy || !m.proj.manifest, tip: m.str.keepAllTip }));
+    list.push(small("remove", m.waiting === "all:extra" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllExtra(cx), { kind: "danger", disabled: busy, tip: m.str.removeAllTip }));
+  }
+  if (g.kind === "local" && g.rows.length > 1) {
+    list.push(small("delete", m.waiting === "all:local" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllLocal(cx), { kind: "danger", disabled: busy, tip: m.str.removeAllLocalTip }));
+  }
+  return list;
 }
 
 function listView(t, m, s) {

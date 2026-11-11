@@ -68,6 +68,7 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 - **Bundles:** the Bundles of the Catalog with check boxes. **Save and apply** writes `skills.yaml`, installs the skills of the new Bundles and removes the skills of the Bundles that you took out.
 - **Add skill:** the skills of the Catalog that the Manifest does not cover, with a search field. **Install** installs one skill. With **Keep in skills.yaml** off, the skill is for now and shows as Extra; with it on, the skill goes to `sources:`.
 - **Remove** on a Source: takes the skill out of `sources:` and uninstalls it.
+- **Batch buttons on the title of a group:** **Update N** on a Bundle or Sources group installs its Missing and Outdated skills. The Extra group (2 or more skills) has **Keep all** (adds all to `sources:` in one write) and **Remove all** (one `npx skills remove`, after a second click). The Local group (2 or more skills) has **Remove all** (deletes all their folders, after a second click).
 - A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
 - The refresh button of the header fetches the Catalog at once. The gear opens the Settings of PowerMods.
 

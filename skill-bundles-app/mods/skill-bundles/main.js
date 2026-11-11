@@ -447,6 +447,58 @@ export default class SkillBundles extends View {
     }, fill(this.str.localRemoved, { name: row.name }));
   }
 
+  // ---- batch actions on a group of the list --------------------------------------------------
+
+  /** The rows of a group (by its key "<kind>:<key>") in the current project. */
+  groupRowsOf(key) {
+    return this.proj.groups?.find((g) => `${g.kind}:${g.key}` === key)?.rows ?? [];
+  }
+
+  /** Installs the Missing and Outdated skills of a group, grouped by repository. */
+  updateGroup(cx, key) {
+    const byRepo = new Map();
+    for (const r of this.groupRowsOf(key)) {
+      if (r.state !== "missing" && r.state !== "outdated") continue;
+      if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
+      byRepo.get(r.repo).push(r.name);
+    }
+    if (!byRepo.size) return;
+    const groups = [...byRepo].map(([repo, skills]) => ({ repo, skills }));
+    this.act(cx, fill(this.str.busyInstall, { n: groups.reduce((n, g) => n + g.skills.length, 0) }), async (p) => this.install(p, groups));
+  }
+
+  /** Keep all: adds every Extra skill to sources: in skills.yaml, in one write. */
+  keepAllExtra(cx) {
+    const rows = this.groupRowsOf("extra:extra");
+    if (!rows.length || !this.proj.manifest) return;
+    this.act(cx, this.str.busyWrite, async (p) => {
+      let next = p.manifest;
+      for (const r of rows) next = withSource(next, r.repo || this.cat.catalog.repo, [r.name]);
+      await this.writeManifest(p, next);
+    });
+  }
+
+  /** Remove all: uninstalls every Extra skill with one `npx skills remove`. Asks for a second click. */
+  removeAllExtra(cx) {
+    const names = this.groupRowsOf("extra:extra").map((r) => r.name);
+    if (!names.length || this.job() || !this.armed(cx, "all:extra")) return;
+    this.act(cx, fill(this.str.busyRemove, { list: names.join(", ") }), async (p) => this.uninstall(p, names));
+  }
+
+  /** Remove all: deletes the folders of every Local skill. Asks for a second click. */
+  removeAllLocal(cx) {
+    const names = this.groupRowsOf("local:local").map((r) => r.name).filter((n) => /^[\w.-]+$/.test(n) && !/^\.+$/.test(n));
+    if (!names.length || this.job() || !this.armed(cx, "all:local")) return;
+    this.act(cx, fill(this.str.busyRemove, { list: names.join(", ") }), async (p) => {
+      for (const name of names) {
+        for (const sub of [".agents/skills", ".claude/skills"]) {
+          const error = await C.removeFolder(`${p.root}/${sub}/${name}`, p.machine);
+          if (error) throw new Error(error);
+        }
+      }
+    }, fill(this.str.localRemovedAll, { n: names.length }));
+  }
+
   /** Folds or unfolds a group of the list. The choice stays in this copy (localStorage). */
   toggleGroup(key, cx) {
     if (this.collapsed.has(key)) this.collapsed.delete(key);
@@ -567,6 +619,10 @@ export default class SkillBundles extends View {
         keepExtra: (row, cx) => this.keepExtra(cx, row),
         removeLocal: (row, cx) => this.removeLocal(cx, row),
         toggleGroup: (key, cx) => this.toggleGroup(key, cx),
+        updateGroup: (key, cx) => this.updateGroup(cx, key),
+        keepAllExtra: (cx) => this.keepAllExtra(cx),
+        removeAllExtra: (cx) => this.removeAllExtra(cx),
+        removeAllLocal: (cx) => this.removeAllLocal(cx),
         dropSource: (row, cx) => this.dropSource(cx, row),
         applyBundles: (cx) => this.applyBundles(cx),
         start: (cx) => this.start(cx),
