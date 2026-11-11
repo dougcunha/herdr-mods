@@ -3,7 +3,7 @@
 // See DESIGN.md in the herdr-mods repository.
 //
 // Roles (props.part):
-//   "status"  the status bar item. It keeps the core loaded, puts the API on globalThis and runs the queue.
+//   "status"  the status bar item ("ModsCore"). It keeps the core loaded, puts the API on globalThis and runs the queue.
 //   "trust"   the dialog that asks before the commands of a repository's .herdr/worktree.json run.
 //   (none)    the dialog (mod.open:powermods-core, a click on the status item): the last worktrees and the
 //             setup commands of the Settings.
@@ -16,7 +16,7 @@ import { STATE, pump, leave, jobs, clearJobs } from "./worktree.js";
 import { KEY, rootSetting, filesSetting, globalCommands, migrateSettings } from "./paths.js";
 
 const MOD = "powermods-core";
-const ICON = "mods/powermods-core/worktree.svg";
+const ICON = "mods/powermods-core/core.svg";
 const RUNNING = new Set(["git", "copy", "trust", "setup"]);
 const STATE_TEXT = { git: "git worktree add", copy: "copying files", trust: "waiting for your answer", setup: "setup running", done: "done", failed: "failed" };
 const ago = (ms) => { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
@@ -110,7 +110,7 @@ export default class PowerModsCore extends View {
     const running = jobs().filter((j) => RUNNING.has(j.state));
     const failed = jobs().find((j) => j.state === "failed" && Date.now() - (j.ended ?? j.at) < 10 * 60000);
     const color = running.length ? t.working : failed ? t.blocked : t.dim;
-    const label = running.length ? `${running.length} setup${running.length > 1 ? "s" : ""}` : "worktrees";
+    // "ModsCore", with the number of running setups after it.
     const tip = running.length ? `PowerMods Core: ${running.map((j) => `${j.branch ?? "?"} (${STATE_TEXT[j.state]})`).join(", ")}. Click to open.`
       : failed ? `PowerMods Core: the setup of ${failed.branch ?? "a worktree"} failed. Click to open.`
       : "PowerMods Core: the worktrees of the kit. Click to open.";
@@ -122,7 +122,8 @@ export default class PowerModsCore extends View {
         .tooltip(tip)
         .on_click(() => run("mod.open", { name: MOD }))
         .child(svg(ICON).size(12))
-        .child(div().child(label)));
+        .child(div().child("ModsCore"))
+        .when(running.length > 0, (e) => e.child(div().font_semibold().child(String(running.length)))));
   }
 
   trustView(t) {

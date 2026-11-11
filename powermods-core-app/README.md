@@ -21,7 +21,7 @@ The block keeps the core running. **The core runs only while the shown layout ha
 
 ## What you see
 
-- **Status bar item:** `worktrees`, or `<n> setups` while a setup runs. Red after a failed setup. A click opens the dialog.
+- **Status bar item:** `ModsCore`, with the number of running setups after it. Red after a failed setup. A click opens the dialog.
 - **Dialog** (`mod.open:powermods-core`):
   - **Worktrees:** the last worktrees that the core made or removed, with their state, folder, copied files and the output of the setup.
   - **Setup:** the commands for every new worktree, 1 for each line.
