@@ -139,7 +139,7 @@ const short = (ref) => ref.replace(/^refs\/(heads|remotes)\//, "");
  * origin/main, origin/master, main or master. Null when none exists.
  * `local` is the name of the local branch for `git switch`.
  */
-async function findBase(repo) {
+export async function findBase(repo) {
   const refs = [];
   const h = await git(repo, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
   if (h.code === 0 && h.stdout.trim()) refs.push(h.stdout.trim());
@@ -158,7 +158,7 @@ async function findBase(repo) {
  * `[{ path, branch, locked, prunable }]` (`branch` is a full ref, or "" when
  * detached). `prunable`: Git knows the worktree, but its folder is gone.
  */
-async function listWorktrees(repo) {
+export async function listWorktrees(repo) {
   const w = await git(repo, ["worktree", "list", "--porcelain"]);
   if (w.code !== 0) return [];
   const out = [];

@@ -4,6 +4,8 @@ A Herdr app mod that shows the pending work of every Git repository under one or
 
 The panel lists only the repositories that need attention, the most urgent first. Each card shows the branch and colored counts: unpushed commits, staged, modified and new files, stash entries, conflicts, a merge or rebase in progress, and merged branches that were not deleted. A click on a card shows its changed files and its fixes. **Refresh** reads all repositories again.
 
+The **Worktrees** tab lists every linked worktree of your repositories, also the ones outside the base folders, so you do not forget an open worktree. See [Worktrees tab](#worktrees-tab).
+
 The panel changes a repository only when you click a fix and confirm it. A fix that is not safe has no button: the card tells you what to resolve and opens the repository in a terminal for you.
 
 [`RECIPE.md`](RECIPE.md) describes the mod in full.
@@ -120,6 +122,44 @@ Colors: red for conflicts, an operation in progress and unpushed commits; yellow
 
 With 2 or more base folders, each card shows the name of its base folder before the path (`Projetos/api`), and the header shows `2 folders`. When 2 base folders have the same name, the name has its parent folder too (`D:/Projetos`, `E:/Projetos`). The sort by urgency is one list for all folders. A repository that is in 2 base folders (one folder inside the other) shows once.
 
+### Worktrees tab
+
+The **Repositories** and **Worktrees** tabs show under the header. **Worktrees** lists every linked worktree (made with `git worktree add`) of these repositories:
+
+- The repositories of the folders of Git Dash.
+- The repositories of the folders of [Repo Launcher](../repo-launcher-app/README.md), on this computer. Repo Launcher keeps this list: scan its folders again in Repo Launcher to find a new repository.
+
+The worktree folder can be anywhere, for example `~/.herdr/worktrees`. The tab reads the worktrees the first time it shows, then every 5 minutes while it shows. **Refresh** reads them again.
+
+The rows are grouped by repository: the name, the branch of the main checkout and its folder. Each row shows the branch (or `detached`), the folder and these pills:
+
+| Pill | Meaning |
+| ---- | ------- |
+| `open` | A terminal of Herdr works in the folder. |
+| `N changed`, `N conflicts` | Staged, modified or new files, and conflicts. |
+| `merged` | The branch has no commit that is not in the default branch, and it did some work (it has an upstream, or its reflog shows more than its creation). |
+| `no commits` | The branch has no commit of its own yet. |
+| `↑N not in main`, `↓N behind main` | Commits that the default branch does not have, and commits of the default branch that the worktree does not have. A merge into the local `main` counts before its push. |
+| `not pushed`, `↑N unpushed` | The branch has no upstream, or has commits that its upstream does not have. |
+| `3d ago` | The age of the last commit. Yellow after 14 days. |
+| `locked`, `folder missing` | `git worktree lock`, or Git knows the worktree but its folder is gone. |
+
+Chips filter the rows: **All**, **Merged**, **Changes**, **Old** (no commit for 14 days) and **Missing**. The filter box filters by repository, branch and folder.
+
+A click on a row shows its actions. Each action shows its steps and waits for **Run**:
+
+| Action | What it does |
+| ------ | ------------ |
+| **Open** | Goes to a space whose terminal works in the worktree, or opens the worktree in a new space. |
+| **Terminal**, **Git** | As on a repository card. |
+| **Remove** | Removes the worktree through [PowerMods Core](../powermods-core-app/README.md). A space that works only in this folder closes, with its agent. Not offered for a locked worktree. |
+| **Force remove** | In place of **Remove** when the worktree has changes. The changes are lost. |
+| **Remove + delete branch** | Removes the worktree, then `git branch -D`. For a branch that is not merged, the confirmation says how many commits are lost. |
+| **Remove + delete branch (local + remote)** | For a merged branch whose upstream is merged too: also `git push <remote> --delete <branch> --force-with-lease=…`. |
+| **Prune**, **Prune + delete branch** | For a worktree whose folder is gone. |
+| **Merge into main** | `git merge --no-edit <branch>` in the main checkout. Offered only when the main checkout is on the default branch, has no staged or modified files and no operation in progress, and the worktree has no changes. Else the row tells why. On a conflict, `git merge --abort` runs, and **Open a terminal** runs the merge again in a terminal, where you can resolve it. The panel does not push. |
+| **Pull request** | Pushes the branch when needed (`git push -u origin <branch>`, or `git push`), then `gh pr view <branch> --web`, or `gh pr create --web --head <branch>` when the branch has no PR. Needs the GitHub CLI (`gh`). |
+
 ### Commands
 
 Bind a key, or run `herdr-app do git-dash.<command>`:
@@ -128,7 +168,8 @@ Bind a key, or run `herdr-app do git-dash.<command>`:
 | ------- | ------------ |
 | `git-dash.folders` | Shows the list of base folders. |
 | `git-dash.list` | Shows the list of repositories. |
-| `git-dash.refresh` | Reads all repositories again. |
+| `git-dash.worktrees` | Shows the Worktrees tab. |
+| `git-dash.refresh` | Reads the shown tab again. |
 
 ## Props
 

@@ -5,6 +5,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, shared, setShared, pickFolder, run, panes, spaces, layout, openOverlay, notify, home, nextCommand, closeOverlay } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
+import { WtTab, WT_STR } from "./wt-view.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -157,6 +158,8 @@ const STR = {
   },
 };
 
+for (const l of Object.keys(STR)) Object.assign(STR[l], WT_STR[l]);
+
 const fill = (text, vars = {}) => text.replace(/\{(\w+)\}/g, (_m, k) => String(vars[k] ?? ""));
 const base = (p) => String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 
@@ -179,7 +182,8 @@ export default class GitDash extends View {
     this.roots = cleanRoots(saved);
     this.sig = rootsSig(this.roots);
 
-    this.view = "list"; // "list" | "folders"
+    this.view = "list"; // "list" | "folders" | "worktrees"
+    this.wt = new WtTab(this); // the Worktrees tab
     this.rootErrors = {}; // samePath(root) -> why the folder could not be read
     this.repos = new Map(); // path -> result of analyze(), with `root`
     this.gen = 0; // bumps when a run must be ignored (a new folder was chosen)
@@ -202,15 +206,16 @@ export default class GitDash extends View {
     this.msg.on("change", (_e, cx) => cx.notify());
     this.msg.on("submit", (_e, cx) => this.commit(cx));
 
-    cx.timer.every(30000, (cx) => kitOff() || this.tick(cx));
+    cx.timer.every(30000, (cx) => kitOff() || (this.wt.tick(), this.tick(cx)));
     // Another copy of the panel (or the mods-hub) can change the list: follow it.
     cx.timer.every(1000, (cx) => kitOff() || this.followRoots(cx));
-    // Commands: `git-dash.folders` shows the folders view, `git-dash.list` the list, `git-dash.refresh` reads again.
+    // Commands: `git-dash.folders` shows the folders view, `git-dash.list` the list, `git-dash.worktrees` the
+    // Worktrees tab, `git-dash.refresh` reads again (the shown tab).
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (c === "folders" || c === "list") this.view = c;
-        else if (c === "refresh") this.refresh(cx);
+        if (c === "folders" || c === "list" || c === "worktrees") this.view = c;
+        else if (c === "refresh") this.view === "worktrees" ? this.wt.refresh(cx) : this.refresh(cx);
         cx.notify();
       }
     });
@@ -230,6 +235,8 @@ export default class GitDash extends View {
   }
 
   s(key, vars) { return fill(STR[this.lang][key] ?? key, vars); }
+
+  gitOff() { return gitOff(); }
 
   // ---- data --------------------------------------------------------------
 
@@ -282,6 +289,7 @@ export default class GitDash extends View {
         const keep = new Set(entries.map((p) => p.path));
         for (const k of [...this.repos.keys()]) if (!keep.has(k)) this.repos.delete(k);
         this.updated = Date.now();
+        if (this.wt.partial) { this.wt.partial = false; this.wt.due = true; }
       } catch (e) {
         if (gen === this.gen) this.scanError = String(e?.message || e);
       } finally {
@@ -499,9 +507,9 @@ export default class GitDash extends View {
 
   // ---- formatting --------------------------------------------------------
 
-  age() {
-    if (!this.updated) return "";
-    const m = Math.floor((Date.now() - this.updated) / 60000);
+  age(at = this.updated) {
+    if (!at) return "";
+    const m = Math.floor((Date.now() - at) / 60000);
     if (m < 1) return this.s("now");
     return m < 60 ? this.s("ago", { n: m }) : this.s("agoH", { n: Math.floor(m / 60) });
   }
@@ -532,8 +540,10 @@ export default class GitDash extends View {
         { active: this.fetch, tooltip: this.s(this.fetch ? "fetchTipOn" : "fetchTipOff") }))
       .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? "list" : "folders"; cx.notify(); },
         { active: this.view === "folders", tooltip: this.s(this.view === "folders" ? "back" : "folders") }))
-      .child(iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx),
-        { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }));
+      .child(this.view === "worktrees"
+        ? iconButton(t, "gd-refresh", "refresh", (cx) => this.wt.refresh(cx), { spin: this.wt.loading, tooltip: this.s("refresh") })
+        : iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx),
+          { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }));
   }
 
   /** The header text: the name of the only folder, or `2 folders`. */
@@ -744,9 +754,26 @@ export default class GitDash extends View {
         .when(this.roots.length > 0, (x) => x.child(button(t, "gd-folders", this.s("folders"), (cx) => { this.view = "folders"; cx.notify(); })))));
   }
 
+  /** The tabs under the header: Repositories and Worktrees. */
+  tabs(t) {
+    const n = [...this.wt.groups.values()].reduce((a, g) => a + g.rows.length, 0);
+    const tab = (id, label, count) => filterChip(t, `gd-tab-${id}`, label, count, this.view === id, (cx) => { this.view = id; cx.notify(); });
+    return h_flex().flex_none().px(12).pb(6).gap(4)
+      .child(tab("list", this.s("tabRepos"), this.repos.size))
+      .child(tab("worktrees", this.s("tabWorktrees"), this.wt.updated || n ? n : "…"));
+  }
+
   body(t) {
-    if (!this.roots.length) return this.emptyState(t, this.s("pickTitle"), this.s("pickHint", { depth: this.depth }), true);
     if (this.view === "folders") return this.foldersView(t);
+    return v_flex().flex_1().min_h(0)
+      .child(this.tabs(t))
+      .child(this.view === "worktrees"
+        ? this.wt.body(t, (title, detail) => this.emptyState(t, title, detail, !this.roots.length))
+        : this.repoBody(t));
+  }
+
+  repoBody(t) {
+    if (!this.roots.length) return this.emptyState(t, this.s("pickTitle"), this.s("pickHint", { depth: this.depth }), true);
     const where = this.roots.map(nativePath).join(", ");
     if (this.scanError && !this.repos.size) return this.emptyState(t, this.scanError, where, true);
     if (this.scanning && !this.repos.size) return busy(t, this.s("scanning"), where);
@@ -797,6 +824,8 @@ export default class GitDash extends View {
   render(cx) {
     if (kitOff()) return offView();
     if (this.due) { this.due = false; this.refresh(cx); }
+    // The Worktrees tab reads its data the first time it shows, then when it is old (only while it shows).
+    if (this.view === "worktrees" && !this.wt.loading && (this.wt.due || !this.wt.updated)) { this.wt.due = false; this.wt.refresh(cx); }
     const t = theme();
     return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
       .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)
