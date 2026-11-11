@@ -306,7 +306,8 @@ export default class GitDash extends View {
         cx.notify();
       }
     });
-    cx.notify();
+    // No cx.notify() here or before the first await of the task: render() calls refresh(), and a notify
+    // during render fails. A click handler that calls refresh() calls cx.notify() itself.
   }
 
   /** Uses `roots` as the list: saves it when `save`, then reads every folder again. */
@@ -550,8 +551,8 @@ export default class GitDash extends View {
       .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? this.tab : "folders"; cx.notify(); },
         { active: this.view === "folders", tooltip: this.s(this.view === "folders" ? "back" : "folders") }))
       .child(this.view === "worktrees"
-        ? iconButton(t, "gd-refresh", "refresh", (cx) => this.wt.refresh(cx), { spin: this.wt.loading, tooltip: this.s("refresh") })
-        : iconButton(t, "gd-refresh", "refresh", (cx) => this.refresh(cx),
+        ? iconButton(t, "gd-refresh", "refresh", (cx) => { this.wt.refresh(cx); cx.notify(); }, { spin: this.wt.loading, tooltip: this.s("refresh") })
+        : iconButton(t, "gd-refresh", "refresh", (cx) => { this.refresh(cx); cx.notify(); },
           { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }));
   }
 
@@ -836,7 +837,7 @@ export default class GitDash extends View {
     // The Repositories tab analyzes the repositories the first time it shows (and after a change of the folders).
     if (this.view === "list" && this.roots.length && !this.updated && !this.loading && !this.scanError) this.refresh(cx);
     // The Worktrees tab reads its data the first time it shows, then when it is old (only while it shows).
-    if (this.view === "worktrees" && !this.wt.loading && (this.wt.due || !this.wt.updated)) { this.wt.due = false; this.wt.refresh(cx); }
+    if (this.view === "worktrees" && !this.wt.loading && (this.wt.due || !this.wt.fresh)) { this.wt.due = false; this.wt.refresh(cx); }
     const t = theme();
     return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
       .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)

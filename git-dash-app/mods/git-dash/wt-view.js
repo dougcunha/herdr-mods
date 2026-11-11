@@ -1,12 +1,14 @@
 // The Worktrees tab of Git Dash: its state, its data runs and its views.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
-import { run, panes, spaces } from "herdr";
+import { run, panes, spaces, shared, setShared } from "herdr";
 import { candidates, findMains, readGroup, rereadGroup, rowActions, runActionSteps, showStep, dirty, isOld } from "./wt.js";
 import { samePath, findRepos } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, smallButton, tint } from "./ui.js";
 
 const AUTO_MS = 5 * 60 * 1000;
+// The last result, for every copy: a dialog of the Dock is a new copy each time, and shows it at once.
+const KEY_CACHE = "git-dash.worktrees";
 
 export const WT_STR = {
   en: {
@@ -80,6 +82,12 @@ export class WtTab {
     this.progress = { done: 0, total: 0 };
     this.updated = 0;
     this.due = false;
+    this.fresh = false; // false until this copy starts its first run (render() starts it when the tab shows)
+    const c = shared(KEY_CACHE);
+    if (c && Array.isArray(c.groups)) {
+      this.groups = new Map(c.groups.filter((g) => g && g.main && Array.isArray(g.rows)).map((g) => [samePath(g.main), g]));
+      this.updated = Number(c.updated) || 0;
+    }
     this.filter = "all";
     this.open = new Set(); // row keys with their actions shown
     this.ask = null; // { key, action }
@@ -90,6 +98,11 @@ export class WtTab {
   }
 
   s(key, vars) { return this.host.s(key, vars); }
+
+  /** Keeps the result in shared state, so the next copy (the next dialog) shows it at once. */
+  save() {
+    setShared(KEY_CACHE, { updated: this.updated, groups: [...this.groups.values()] });
+  }
 
   /** The folders to look in, without a search: Repo Launcher's repositories and the cards of Git Dash. */
   paths() {
@@ -113,6 +126,7 @@ export class WtTab {
   refresh(cx) {
     if (this.loading) return;
     const gen = ++this.gen;
+    this.fresh = true;
     this.loading = true;
     this.progress = { done: 0, total: 0 };
     cx.spawn(async (cx) => {
@@ -130,19 +144,22 @@ export class WtTab {
         }));
         if (gen !== this.gen) return;
         this.groups = next;
+        this.updated = Date.now();
+        this.save();
       } finally {
-        // Also after a failure: render() must not start the run again at once.
-        if (gen === this.gen) { this.loading = false; this.updated = Date.now(); }
+        if (gen === this.gen) this.loading = false;
         cx.notify();
       }
     });
-    cx.notify();
+    // No cx.notify() here or before the first await of the task: render() calls refresh(), and a notify
+    // during render fails. A click handler that calls refresh() calls cx.notify() itself.
   }
 
   rereadGroup(main, cx) {
     cx.spawn(async (cx) => {
       const g = await rereadGroup(main).catch(() => null);
       if (g) this.groups.set(samePath(g.main), g); else this.groups.delete(samePath(main));
+      this.save();
       cx.notify();
     });
   }
@@ -316,7 +333,7 @@ export class WtTab {
       return filterChip(t, `wt-f-${id}`, this.s(`wf_${id}`), count, this.filter === id, (cx) => { this.filter = id; cx.notify(); }, color);
     };
     const chips = [chip("all"), chip("merged", t.ansi4), chip("changes", t.ansi3), chip("old", t.ansi5), chip("missing", t.ansi1)].filter(Boolean);
-    const state = this.loading ? this.s("wtReading") : this.updated ? this.host.s("updated", { t: this.host.age(this.updated) }) : "";
+    const state = this.loading ? (this.progress.total ? this.s("wtScanning", this.progress) : this.s("wtReading")) : this.updated ? this.host.s("updated", { t: this.host.age(this.updated) }) : "";
     const list = [];
     for (const g of groups) {
       const mine = shown.filter((x) => x.g === g);

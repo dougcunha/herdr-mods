@@ -129,7 +129,7 @@ The **Repositories** and **Worktrees** tabs show under the header. **Worktrees**
 - The repositories of the folders of Git Dash.
 - The repositories of the folders of [Repo Launcher](../repo-launcher-app/README.md), on this computer. Repo Launcher keeps this list: scan its folders again in Repo Launcher to find a new repository.
 
-The worktree folder can be anywhere, for example `~/.herdr/worktrees`. The panel opens on the last tab that you used. Each tab reads its data only when it shows: the Worktrees tab looks for the repositories in the folders, but does not analyze them as the Repositories tab does. It reads again every 5 minutes while it shows. **Refresh** reads them again.
+The worktree folder can be anywhere, for example `~/.herdr/worktrees`. The panel opens on the last tab that you used. Each tab reads its data only when it shows: the Worktrees tab looks for the repositories in the folders, but does not analyze them as the Repositories tab does. It reads again every 5 minutes while it shows. The last list of worktrees is kept, so the tab shows it at once when the panel opens, and reads again in the background. **Refresh** reads them again.
 
 The rows are grouped by repository: the name, the branch of the main checkout and its folder. Each row shows the branch (or `detached`), the folder and these pills:
 
