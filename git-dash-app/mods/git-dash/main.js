@@ -31,6 +31,7 @@ const KEY_ROOTS = "git-dash.roots";
 const KEY_ROOT = "git-dash.root";
 const oldRootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
 const KEY_FETCH = "git-dash.fetch";
+const KEY_TAB = "git-dash.tab"; // the last tab (UI state, not a setting of the mods-hub)
 const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: the `lang` prop
 // Keeps the slash of a drive root ("D:/") and of "/".
 const normRoot = (p) => String(p || "").trim().replace(/\\/g, "/").replace(/([^:/])\/+$/, "$1");
@@ -182,7 +183,9 @@ export default class GitDash extends View {
     this.roots = cleanRoots(saved);
     this.sig = rootsSig(this.roots);
 
-    this.view = "list"; // "list" | "folders" | "worktrees"
+    // The panel opens on the last tab ("list" | "worktrees"). A dialog is a new copy each time, so the tab is shared.
+    this.tab = shared(KEY_TAB) === "worktrees" ? "worktrees" : "list";
+    this.view = this.tab; // "list" | "folders" | "worktrees"
     this.wt = new WtTab(this); // the Worktrees tab
     this.rootErrors = {}; // samePath(root) -> why the folder could not be read
     this.repos = new Map(); // path -> result of analyze(), with `root`
@@ -214,12 +217,12 @@ export default class GitDash extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (c === "folders" || c === "list" || c === "worktrees") this.view = c;
+        if (c === "list" || c === "worktrees") this.setTab(c);
+        else if (c === "folders") this.view = c;
         else if (c === "refresh") this.view === "worktrees" ? this.wt.refresh(cx) : this.refresh(cx);
         cx.notify();
       }
     });
-    if (this.roots.length) this.refresh(cx);
   }
 
   /** The language: the kit setting `herdr-mods.lang` when it is set, else the `lang` prop, else English. */
@@ -237,6 +240,13 @@ export default class GitDash extends View {
   s(key, vars) { return fill(STR[this.lang][key] ?? key, vars); }
 
   gitOff() { return gitOff(); }
+
+  /** Shows the tab `id` ("list" or "worktrees") and keeps it for the next start of the panel. */
+  setTab(id) {
+    this.tab = id;
+    this.view = id;
+    if (shared(KEY_TAB) !== id) setShared(KEY_TAB, id);
+  }
 
   // ---- data --------------------------------------------------------------
 
@@ -289,7 +299,6 @@ export default class GitDash extends View {
         const keep = new Set(entries.map((p) => p.path));
         for (const k of [...this.repos.keys()]) if (!keep.has(k)) this.repos.delete(k);
         this.updated = Date.now();
-        if (this.wt.partial) { this.wt.partial = false; this.wt.due = true; }
       } catch (e) {
         if (gen === this.gen) this.scanError = String(e?.message || e);
       } finally {
@@ -308,7 +317,7 @@ export default class GitDash extends View {
     this.gen += 1; this.loading = false; this.scanning = false;
     this.repos.clear(); this.open.clear(); this.ask = null; this.running.clear(); this.result.clear();
     this.rootErrors = {}; this.updated = 0; this.scanError = null; this.capped = false;
-    this.refresh(cx);
+    this.wt.due = true; // the shown tab reads again in render()
     cx.notify();
   }
 
@@ -538,7 +547,7 @@ export default class GitDash extends View {
       .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.rootsText()))
       .child(iconButton(t, "gd-fetch", "download", (cx) => this.toggleFetch(cx),
         { active: this.fetch, tooltip: this.s(this.fetch ? "fetchTipOn" : "fetchTipOff") }))
-      .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? "list" : "folders"; cx.notify(); },
+      .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? this.tab : "folders"; cx.notify(); },
         { active: this.view === "folders", tooltip: this.s(this.view === "folders" ? "back" : "folders") }))
       .child(this.view === "worktrees"
         ? iconButton(t, "gd-refresh", "refresh", (cx) => this.wt.refresh(cx), { spin: this.wt.loading, tooltip: this.s("refresh") })
@@ -591,7 +600,7 @@ export default class GitDash extends View {
         .children(this.roots.map(row))
         .child(h_flex().flex_none().px(14).py(10).gap(8)
           .child(button(t, "gd-add", this.s("addFolder"), (cx) => this.addFolder(cx), { primary: true }))
-          .when(this.roots.length > 0, (e) => e.child(button(t, "gd-back", this.s("back"), (cx) => { this.view = "list"; cx.notify(); })))));
+          .when(this.roots.length > 0, (e) => e.child(button(t, "gd-back", this.s("back"), (cx) => { this.view = this.tab; cx.notify(); })))));
   }
 
   pills(r, t) {
@@ -757,7 +766,7 @@ export default class GitDash extends View {
   /** The tabs under the header: Repositories and Worktrees. */
   tabs(t) {
     const n = [...this.wt.groups.values()].reduce((a, g) => a + g.rows.length, 0);
-    const tab = (id, label, count) => filterChip(t, `gd-tab-${id}`, label, count, this.view === id, (cx) => { this.view = id; cx.notify(); });
+    const tab = (id, label, count) => filterChip(t, `gd-tab-${id}`, label, count, this.view === id, (cx) => { this.setTab(id); cx.notify(); });
     return h_flex().flex_none().px(12).pb(6).gap(4)
       .child(tab("list", this.s("tabRepos"), this.repos.size))
       .child(tab("worktrees", this.s("tabWorktrees"), this.wt.updated || n ? n : "…"));
@@ -824,6 +833,8 @@ export default class GitDash extends View {
   render(cx) {
     if (kitOff()) return offView();
     if (this.due) { this.due = false; this.refresh(cx); }
+    // The Repositories tab analyzes the repositories the first time it shows (and after a change of the folders).
+    if (this.view === "list" && this.roots.length && !this.updated && !this.loading && !this.scanError) this.refresh(cx);
     // The Worktrees tab reads its data the first time it shows, then when it is old (only while it shows).
     if (this.view === "worktrees" && !this.wt.loading && (this.wt.due || !this.wt.updated)) { this.wt.due = false; this.wt.refresh(cx); }
     const t = theme();

@@ -3,7 +3,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { run, panes, spaces } from "herdr";
 import { candidates, findMains, readGroup, rereadGroup, rowActions, runActionSteps, showStep, dirty, isOld } from "./wt.js";
-import { samePath } from "./git.js";
+import { samePath, findRepos } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, smallButton, tint } from "./ui.js";
 
 const AUTO_MS = 5 * 60 * 1000;
@@ -91,9 +91,18 @@ export class WtTab {
 
   s(key, vars) { return this.host.s(key, vars); }
 
-  /** The folders to look in: Repo Launcher's repositories and the cards of Git Dash. */
+  /** The folders to look in, without a search: Repo Launcher's repositories and the cards of Git Dash. */
   paths() {
     return candidates([...this.host.repos.values()].map((r) => r.worktree?.main ?? r.path));
+  }
+
+  /**
+   * The folders to look in: Repo Launcher's repositories and the repositories in the folders of Git Dash.
+   * Only the folder search (findRepos) runs, not the analysis of the Repositories tab.
+   */
+  async search() {
+    const found = await Promise.all(this.host.roots.map((root) => findRepos(root, this.host.depth).catch(() => [])));
+    return candidates([...this.paths(), ...found.flat().map((e) => e.path)]);
   }
 
   /** Called by the timer of the host: ask for a silent run when the data is old (render() starts it). */
@@ -103,14 +112,15 @@ export class WtTab {
 
   refresh(cx) {
     if (this.loading) return;
-    const paths = this.paths();
     const gen = ++this.gen;
-    // The cards of Git Dash are part of the list: a run before they are all read must run again after.
-    this.partial = this.host.loading;
     this.loading = true;
-    this.progress = { done: 0, total: paths.length };
+    this.progress = { done: 0, total: 0 };
     cx.spawn(async (cx) => {
       try {
+        const paths = await this.search();
+        if (gen !== this.gen) return;
+        this.progress = { done: 0, total: paths.length };
+        cx.notify();
         const mains = await findMains(paths, () => { if (gen === this.gen) { this.progress.done += 1; cx.notify(); } });
         if (gen !== this.gen) return;
         const next = new Map();
@@ -286,8 +296,8 @@ export class WtTab {
     const groups = [...this.groups.values()].sort((a, b) => a.name.localeCompare(b.name));
     const rows = groups.flatMap((g) => g.rows.map((w) => ({ g, w })));
     if (!rows.length) {
-      if (this.loading) return busy(t, this.s("wtScanning", this.progress));
-      if (!this.paths().length) return emptyState(this.s("wtNoFolders"), this.s("wtNoFoldersHint"));
+      if (this.loading) return busy(t, this.progress.total ? this.s("wtScanning", this.progress) : this.s("wtReading"));
+      if (!this.paths().length && !this.host.roots.length) return emptyState(this.s("wtNoFolders"), this.s("wtNoFoldersHint"));
       return emptyState(this.s("wtNone"), this.s("wtNoneHint"));
     }
     const tests = {
