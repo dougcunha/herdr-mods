@@ -137,10 +137,11 @@ export function textToAdf(text, people = []) {
     content: b.split("\n").flatMap((line, n) => [...(n ? [{ type: "hardBreak" }] : []), ...inline(line)]),
   })) };
 }
-// Adds a comment, written by the signed-in account.
-export async function addComment(site, key, text, people = []) {
+// Adds a comment, written by the signed-in account. `parentId` (optional): the id of the comment
+// that this one replies to; Jira shows the reply in the thread of that comment.
+export async function addComment(site, key, text, people = [], parentId = null) {
   if (!String(text ?? "").trim()) throw new Error("Type a comment.");
-  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text, people) });
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text, people), ...(parentId ? { parentId } : {}) });
 }
 // The people whose name starts with `query`, for a mention: [{ id, name }].
 // Two searches: the people who can see the issue (needs the "Browse users and groups" permission,

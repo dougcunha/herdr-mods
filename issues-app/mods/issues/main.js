@@ -105,6 +105,12 @@ const rowData = (i) => ({
 // Markdown is laid out again on every render, and a long text takes the render past the
 // app's time limit ("interrupted"), so pages show the start and link to the rest.
 const MAX = 2000;
+// The start of a comment as one plain line, for the quote of a reply.
+const gist = (md) => {
+  const plain = String(md ?? "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^\s*>.*$/gm, "").replace(/[*_`#>~]/g, "").replace(/\s+/g, " ").trim();
+  return plain.length > 160 ? `${plain.slice(0, 160).replace(/\s+\S*$/, "")}…` : plain;
+};
 const short = (text) => {
   const t = imagesAsLinks(text?.trim() ?? "");
   if (t.length <= MAX) return t;
@@ -349,7 +355,7 @@ export default class SpaceIssues extends View {
   // A page from the cache shows at once and is fetched again behind it.
   load(i, cx) {
     // Another issue: the comment box starts empty.
-    if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; this.atUser = null; this.named = new Map(); try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
+    if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; this.atUser = null; this.named = new Map(); this.reply = null; try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
     this.open = i; this.shown = i; this.page = this.pages.get(pageKey(i)) ?? null; this.pageError = null;
     // The refresh button of the page spins until the latest load ends.
     const seq = this.pageSeq = (this.pageSeq ?? 0) + 1;
@@ -407,10 +413,21 @@ export default class SpaceIssues extends View {
     // description, then comments and events in time order.
     const comments = page.fields.comment?.comments ?? [];
     page.md = { description: short(text(page.fields.description)), count: comments.length };
-    page.timeline = [
-      ...comments.slice(-COMMENTS).map((c) => ({ who: c.author?.displayName, at: c.created, md: short(text(c.body)) || " " })),
-      ...(page.events ?? []),
-    ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    // A reply (Jira's parentId) goes under the first comment of its thread, in time order.
+    // A reply whose thread starts before the shown comments stands alone.
+    const shown = comments.slice(-COMMENTS).map((c) => {
+      const md = text(c.body);
+      return { id: String(c.id), parent: c.parentId != null ? String(c.parentId) : null, who: c.author?.displayName, at: c.created, md: short(md) || " ", gist: gist(md), replies: [] };
+    });
+    const byId = new Map(shown.map((c) => [c.id, c]));
+    const top = [];
+    for (const c of shown) {
+      let root = c;
+      for (let n = 0; root.parent && byId.has(root.parent) && n < 50; n++) root = byId.get(root.parent);
+      c.root = root.id;
+      if (root === c) top.push(c); else root.replies.push(c);
+    }
+    page.timeline = [...top, ...(page.events ?? [])].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     delete page.fields.comment; delete page.events;
     this.pages.delete(pageKey(i)); this.pages.set(pageKey(i), page);
     if (this.pages.size > PAGES) this.pages.delete(this.pages.keys().next().value);
@@ -611,9 +628,14 @@ export default class SpaceIssues extends View {
       : full ? k.button("issue-back", "← Back", () => run("issues.back")) : null;
     const m = p?.meta ?? {};
     const md = (id, body) => TextView.markdown(id, body).selectable(true).on_link_click((url) => openUrl(url));
-    const timeline = p ? p.timeline.map((x, n) => (x.md != null
-      ? k.card(`c-${i.key}-${n}`, x.who, "commented", `${ago(x.at)} ago`, md(`comment-${i.key}-${n}`, x.md))
-      : k.event(`e-${i.key}-${n}`, x.who, x.text, `${ago(x.at)} ago`, x.color && t[x.color]))) : [];
+    // A comment card; Jira comments get Reply, and the replies of a thread sit under its first comment.
+    const comment = (x, id) => k.card(`c-${i.key}-${id}`, x.who, x.parent ? "replied" : "commented", `${ago(x.at)} ago`, md(`comment-${i.key}-${id}`, x.md),
+      !gh && x.id && button(t, `reply-${i.key}-${id}`, "Reply", (cx) => this.replyTo(x, cx), { kind: "link", small: true, tooltip: "Reply in the thread of this comment" }));
+    const timeline = p ? p.timeline.map((x, n) => (x.md == null
+      ? k.event(`e-${i.key}-${n}`, x.who, x.text, `${ago(x.at)} ago`, x.color && t[x.color])
+      : !x.replies?.length ? comment(x, n)
+      : v_flex().gap(8).child(comment(x, n))
+        .child(v_flex().gap(8).ml(14).pl(24).border_l_2().border_color(t.border).children(x.replies.map((r, m) => comment(r, `${n}-${m}`)))))) : [];
     const sub = p?.sub?.length ? p.sub : this.kids(i.key);
     const prs = p?.prs ?? [];
     const prIcon = (s) => (s === "MERGED" ? "merged" : s === "CLOSED" ? "closed" : s === "DRAFT" ? "draft" : "pr");
@@ -749,8 +771,19 @@ export default class SpaceIssues extends View {
     this.commentBox.on("focus", () => { this.typing = true; });
     this.commentBox.on("blur", () => { this.typing = false; });
     // "@" and a name at the end of the text: a list of Jira people to mention.
-    this.atUser = null; this.named = new Map(); this.atSeq = 0;
+    this.atUser = null; this.named = new Map(); this.atSeq = 0; this.reply = null;
     this.commentBox.on("change", (_e, cx) => this.followMention(cx));
+  }
+
+  // Reply to a comment: the next comment goes into the thread of that comment (Jira's parentId,
+  // the first comment of the thread). The box gets the keyboard.
+  replyTo(x, cx) {
+    this.reply = { id: x.root ?? x.id, who: x.who ?? "", text: x.gist ?? "" };
+    this.atUser = null; this.atSeq++;
+    const refocus = () => { try { this.commentBox.focus(); } catch { /* not shown */ } };
+    refocus();
+    try { cx.timer.after(40, refocus); } catch { /* the first focus stays */ }
+    cx.notify(this.pageView);
   }
 
   // The "@name" that ends the text opens the list of people; each change searches again after 250 ms.
@@ -835,12 +868,16 @@ export default class SpaceIssues extends View {
         }
         if (e.key === "enter" && (md.control || md.platform)) { send(cx); cx.stop_propagation(); }
       })
+      .when(Boolean(this.reply), (e) => e.child(h_flex().gap(6).items_center().min_w(0).px(8).py(4).rounded(6).bg(tint(t.accent, "14")).text_size(fs.meta)
+        .child(div().flex_none().text_color(t.accent).child(`Reply to ${this.reply.who || "comment"}`))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(this.reply.text ? `“${this.reply.text}”` : ""))
+        .child(iconButton(t, "reply-cancel", "x", (cx) => { this.reply = null; cx.notify(this.pageView); }, { size: 20, tooltip: "Cancel the reply" }))))
       .child(div().h(96).px(8).py(5).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(fs.meta).child(Textarea.new(this.commentBox)))
       .when(Boolean(this.atUser), (e) => e.child(this.mentionList(t)))
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).text_size(fs.tiny).text_color(this.commentError ? t.ansi1 : t.dim)
           .child(this.commentError || "Posted to Jira as you. Type @ to mention a person. A blank line starts a new paragraph."))
-        .child(button(t, "comment-send", this.commenting ? "Posting…" : "Comment", send, { kind: "primary", disabled: this.commenting })));
+        .child(button(t, "comment-send", this.commenting ? "Posting…" : this.reply ? "Reply" : "Comment", send, { kind: "primary", disabled: this.commenting })));
   }
   sendComment(i, cx) {
     const text = this.commentBox.value().trim();
@@ -849,8 +886,8 @@ export default class SpaceIssues extends View {
     cx.spawn(async (cx) => {
       try {
         const m = this.withMentions(text);
-        await addComment(i.site, i.key, m.text, m.people);
-        this.commentBox.set_value(""); this.named = new Map(); this.atUser = null;
+        await addComment(i.site, i.key, m.text, m.people, this.reply?.id ?? null);
+        this.commentBox.set_value(""); this.named = new Map(); this.atUser = null; this.reply = null;
         notify({ title: `Comment added to ${i.key}`, level: "success", timeout: 2500 });
         // Every copy reloads the page of this issue (followChanges), this one too.
         setShared(CHANGED, { site: i.site, key: i.key, at: Date.now() });

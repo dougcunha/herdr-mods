@@ -27,6 +27,7 @@ The changes of this kit:
 
 - **Key:** the copy button next to the key in the title copies it (`C` also does).
 - **Refresh:** the refresh button in the header of the page (or `R`) loads the issue again: its fields, comments and pull requests.
+- **Replies:** **Reply** on a comment puts your next comment into the thread of that comment, as in Jira. The replies of a thread show under its first comment. The bar over the comment box shows the comment that you reply to; its × cancels the reply.
 - **Mentions:** in the comment box, type `@` and the start of a name. A list shows the people who can see the issue or who can be assigned to it. Pick one with a click, or with ↑ ↓ and Enter or Tab. The comment mentions that person in Jira, and Jira tells them. The list opens only for an `@` at the end of the text, and it searches with the first word of the name.
 - **The list:** a right-click on an issue opens a menu with **Move** (Jira only), **Open in Jira** (or GitHub), **Start agent** (when the space has a git repository) and **Copy key**.
 
