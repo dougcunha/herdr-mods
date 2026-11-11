@@ -160,6 +160,7 @@ Rules:
 ### Herdr app runtime traps
 - A `popup` overlay is as tall as its content: `height` in `mod.json` does not size it, so a `flex_1` list gets 0 px. Give lists a fixed height and `w_full()`.
 - `v_virtual_list` drew nothing inside a popup. Draw a windowed list yourself (rows at fixed offsets, `on_scroll_wheel`), like the shipped `picker` mod.
+- Open a popup menu at the spot of the mouse press, not at `"pointer"`: in a dialog (the dock's panel dialogs) `"pointer"` is the last spot that the layout saw. The `on_click` event has no `position`: keep the event of `on_mouse_down("left")` and use its `position` (see `atEvent` in `git-client/act.js`).
 - Esc closes a popup or a dialog before the mod's `on_key_down` sees it. Use Backspace or ← for "back".
 - A dialog made of a layout (the dock's panel dialogs) does not take the keyboard: the terminal behind it keeps it and gets Esc. The title row of the dialog (`panel-title` in `tabs-dock` and `kanban`) takes the keyboard when it opens and closes the dialog on Esc.
 - A click on a row in a dialog takes the keyboard from a text field, and no part of the dialog has it after that: Esc does nothing. Give the mod a focus handle (`track_focus` on its root, `on_key_down` for Esc) and focus it in the click handlers when it is in a dialog (`keepKeys` in `files-md`), or on the root's left mouse down while text fields stop their own mouse down (`dialogKeys` in `git-dash/ui.js`).
