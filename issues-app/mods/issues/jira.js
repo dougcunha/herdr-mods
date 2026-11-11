@@ -142,12 +142,23 @@ export async function addComment(site, key, text, people = []) {
   if (!String(text ?? "").trim()) throw new Error("Type a comment.");
   await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text, people) });
 }
-// The people who can see the issue and whose name starts with `query`: [{ id, name }], for a mention.
+// The people whose name starts with `query`, for a mention: [{ id, name }].
+// Two searches: the people who can see the issue (needs the "Browse users and groups" permission,
+// else Jira answers an empty list) and the people who can be assigned to it (needs only the project).
 export async function mentionable(site, key, query) {
-  const list = await call(site, `/rest/api/3/user/viewissue/search?issueKey=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}&maxResults=8`);
-  return (Array.isArray(list) ? list : [])
-    .filter((u) => u?.accountId && u.active !== false && u.accountType !== "app")
-    .map((u) => ({ id: u.accountId, name: u.displayName ?? u.accountId }));
+  const q = `issueKey=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}&maxResults=8`;
+  const answers = await Promise.allSettled([
+    call(site, `/rest/api/3/user/viewissue/search?${q}`),
+    call(site, `/rest/api/3/user/assignable/search?${q}`),
+  ]);
+  if (answers.every((a) => a.status === "rejected")) throw answers[0].reason;
+  const seen = new Map();
+  for (const a of answers) {
+    for (const u of a.status === "fulfilled" && Array.isArray(a.value) ? a.value : []) {
+      if (u?.accountId && u.active !== false && u.accountType !== "app" && !seen.has(u.accountId)) seen.set(u.accountId, { id: u.accountId, name: u.displayName ?? u.accountId });
+    }
+  }
+  return [...seen.values()].slice(0, 8);
 }
 
 // The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].
