@@ -11,7 +11,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, metaFields, sprintOf } from "./jira.js";
+import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
@@ -349,8 +349,11 @@ export default class SpaceIssues extends View {
   // A page from the cache shows at once and is fetched again behind it.
   load(i, cx) {
     // Another issue: the comment box starts empty.
-    if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
+    if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; this.atUser = null; this.named = new Map(); try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
     this.open = i; this.shown = i; this.page = this.pages.get(pageKey(i)) ?? null; this.pageError = null;
+    // The refresh button of the page spins until the latest load ends.
+    const seq = this.pageSeq = (this.pageSeq ?? 0) + 1;
+    this.pageLoading = true;
     cx.spawn(async (cx) => {
       let page = null;
       try {
@@ -358,6 +361,7 @@ export default class SpaceIssues extends View {
         if (this.open === i) { this.page = page; this.pageError = null; }
       }
       catch (e) { if (this.open === i && !this.page) this.pageError = String(e?.message ?? e); }
+      if (seq === this.pageSeq) this.pageLoading = false;
       cx.notify(this.pageView);
       // The pictures of the people on the page (Jira), then the page again with them.
       if (page?.people?.length && await loadPeople(page.people)) cx.notify(this.pageView);
@@ -537,7 +541,7 @@ export default class SpaceIssues extends View {
     return this.issues.filter((x) => x.fields.parent?.key === key).map((x) => ({ key: x.key, summary: x.fields.summary, done: false }));
   }
 
-  // The page's own keys (Up, Down and Esc are the dialog's or the list's): ⌘↵ Start agent, O open, C copy the key.
+  // The page's own keys (Up, Down and Esc are the dialog's or the list's): ⌘↵ Start agent, O open, C copy the key, R refresh.
   pageKey(e, cx) {
     const i = this.open, p = this.page, m = e.modifiers ?? {};
     if (!i || this.typing) return false;
@@ -545,6 +549,7 @@ export default class SpaceIssues extends View {
     if (m.platform || m.control || m.alt) return false;
     if (e.key === "o") { openUrl(browse(i)); return true; }
     if (e.key === "c") { this.copyKey(i, cx); return true; }
+    if (e.key === "r") { this.load(i, cx); return true; }
     return false;
   }
 
@@ -669,10 +674,12 @@ export default class SpaceIssues extends View {
         : div().text_size(fs.meta).text_color(t.dim).child(gh ? "No pull request mentions this issue." : this.github ? `No pull request names ${i.key}.` : "Link a GitHub repository to see pull requests.")),
     ];
     const keys = [...(this.only || split() ? [[["↑", "↓"], "previous / next"]] : []), ...(lead ? [[["⌘", "↵"], "go to agent"]] : this.repo && p ? [[["⌘", "↵"], "Start agent"]] : []),
-      [["O"], `open in ${home(i)}`], [["C"], "copy key"], [["Esc"], this.only ? "close" : "back"]];
+      [["O"], `open in ${home(i)}`], [["C"], "copy key"], [["R"], "refresh"], [["Esc"], this.only ? "close" : "back"]];
     return pageLayout({
       id: "issue-detail", t, wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, nav,
       actions: [
+        // Fetches this issue again: fields, comments, pull requests.
+        iconButton(t, "issue-refresh", "refresh", (cx) => this.load(i, cx), { spin: Boolean(this.pageLoading), tooltip: "Refresh this issue" }),
         // Jira only: the moves of its workflow (the one write of this mod).
         ...(!gh ? [k.button("issue-move", `Move · ${f.status?.name ?? "?"}`, () => this.openMove(i, f.status?.name ?? ""), { icon: "pending" })] : []),
         k.button("issue-open", `Open in ${home(i)}`, () => openUrl(browse(i))),
@@ -737,6 +744,67 @@ export default class SpaceIssues extends View {
     // While the box has the keyboard, the page's keys (O, C, ↑ ↓) leave the keys to it.
     this.commentBox.on("focus", () => { this.typing = true; });
     this.commentBox.on("blur", () => { this.typing = false; });
+    // "@" and a name at the end of the text: a list of Jira people to mention.
+    this.atUser = null; this.named = new Map(); this.atSeq = 0;
+    this.commentBox.on("change", (_e, cx) => this.followMention(cx));
+  }
+
+  // The "@name" that ends the text opens the list of people; each change searches again after 250 ms.
+  followMention(cx) {
+    const i = this.open;
+    if (!i || isGithub(i)) return;
+    const text = this.commentBox.value();
+    const m = /(^|\s)@([^\s@]{0,30})$/u.exec(text);
+    if (!m) { if (this.atUser) { this.atUser = null; this.atSeq++; cx.notify(this.pageView); } return; }
+    const q = m[2];
+    if (this.atUser?.q === q) return;
+    const seq = ++this.atSeq;
+    this.atUser = { q, start: m.index + m[1].length, end: text.length, users: this.atUser?.users ?? null, at: 0 };
+    cx.notify(this.pageView);
+    cx.spawn(async (cx) => {
+      await cx.sleep(250);
+      if (seq !== this.atSeq) return;
+      const users = await mentionable(i.site, i.key, q).catch(() => []);
+      if (seq !== this.atSeq || !this.atUser) return;
+      this.atUser.users = users; this.atUser.at = 0; cx.notify(this.pageView);
+    });
+  }
+  // Puts "@Name " in the place of the typed "@name"; Comment sends it as a Jira mention.
+  pickMention(u, cx) {
+    const m = this.atUser;
+    if (!m) return;
+    const text = this.commentBox.value();
+    this.atUser = null; this.atSeq++;
+    this.named.set(u.name, u.id);
+    this.commentBox.set_value(`${text.slice(0, m.start)}@${u.name} ${text.slice(m.end)}`);
+    try { this.commentBox.focus(); } catch { /* not shown */ }
+    cx.notify(this.pageView);
+  }
+  // The text with each picked "@Name" as "\0<index>\0", and the people of those indexes.
+  withMentions(text) {
+    const people = [];
+    const names = [...this.named.keys()].sort((a, b) => b.length - a.length);
+    if (!names.length) return { text, people };
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\p{L}\\p{N}_])`, "gu");
+    const out = text.replace(re, (_all, name) => {
+      let n = people.findIndex((p) => p.name === name);
+      if (n < 0) n = people.push({ id: this.named.get(name), name }) - 1;
+      return `\0${n}\0`;
+    });
+    return { text: out, people };
+  }
+  mentionList(t) {
+    const m = this.atUser, users = m.users ?? [];
+    const box = v_flex().id("mention-list").gap(1).p(4).rounded(8).border_1().border_color(t.border).bg(t.background).text_size(fs.meta);
+    if (!users.length) return box.child(div().px(6).py(3).text_color(t.dim).child(m.users ? `No one matches @${m.q}.` : "Searching people…"));
+    return box.children(users.map((u, n) => h_flex().id(`mention-${n}`).gap(6).items_center().px(6).py(3).rounded(6).min_w(0)
+      .when(n === m.at, (e) => e.bg(t.hover))
+      .cursor_pointer().hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => this.pickMention(u, cx))
+      .child(avatar(u.name, t, 18))
+      .child(div().min_w(0).truncate().child(u.name))))
+      .child(div().px(6).pt(2).text_size(fs.tiny).text_color(t.dim).child("↑ ↓ pick · ↵ or Tab mention"));
   }
   composer(t, i) {
     const send = (cx) => this.sendComment(i, cx);
@@ -745,12 +813,21 @@ export default class SpaceIssues extends View {
       // a stopped key never reaches the box as text (this.typing keeps the page's keys out).
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_key_down((e, cx) => {
-        if (e.key === "enter" && (e.modifiers?.control || e.modifiers?.platform)) { send(cx); cx.stop_propagation(); }
+        const md = e.modifiers ?? {}, list = this.atUser?.users ?? [];
+        // The list of people takes ↑ ↓, Enter, Tab and Esc while it shows names.
+        if (list.length && !md.control && !md.platform && !md.alt) {
+          const m = this.atUser;
+          if (e.key === "down" || e.key === "up") { m.at = (m.at + (e.key === "down" ? 1 : list.length - 1)) % list.length; cx.notify(this.pageView); cx.stop_propagation(); return; }
+          if (e.key === "enter" || e.key === "tab") { this.pickMention(list[m.at], cx); cx.stop_propagation(); return; }
+          if (e.key === "escape") { this.atUser = null; this.atSeq++; cx.notify(this.pageView); cx.stop_propagation(); return; }
+        }
+        if (e.key === "enter" && (md.control || md.platform)) { send(cx); cx.stop_propagation(); }
       })
       .child(div().h(96).px(8).py(5).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(fs.meta).child(Textarea.new(this.commentBox)))
+      .when(Boolean(this.atUser), (e) => e.child(this.mentionList(t)))
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().min_w(0).text_size(fs.tiny).text_color(this.commentError ? t.ansi1 : t.dim)
-          .child(this.commentError || "Posted to Jira as you. A blank line starts a new paragraph."))
+          .child(this.commentError || "Posted to Jira as you. Type @ to mention a person. A blank line starts a new paragraph."))
         .child(button(t, "comment-send", this.commenting ? "Posting…" : "Comment", send, { kind: "primary", disabled: this.commenting })));
   }
   sendComment(i, cx) {
@@ -759,8 +836,9 @@ export default class SpaceIssues extends View {
     this.commenting = true; this.commentError = ""; cx.notify(this.pageView);
     cx.spawn(async (cx) => {
       try {
-        await addComment(i.site, i.key, text);
-        this.commentBox.set_value("");
+        const m = this.withMentions(text);
+        await addComment(i.site, i.key, m.text, m.people);
+        this.commentBox.set_value(""); this.named = new Map(); this.atUser = null;
         notify({ title: `Comment added to ${i.key}`, level: "success", timeout: 2500 });
         // Every copy reloads the page of this issue (followChanges), this one too.
         setShared(CHANGED, { site: i.site, key: i.key, at: Date.now() });

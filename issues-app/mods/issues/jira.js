@@ -124,17 +124,30 @@ export async function issue(site, key, extra = []) {
 
 // Plain text as Jira's rich text (ADF): a paragraph per block split by a blank line, a line break
 // for each other line end. Nothing in the text is read as markup.
-export function textToAdf(text) {
+// `people`: [{ id, name }] of the mentions; the text holds each one as "\0<index>\0".
+export function textToAdf(text, people = []) {
   const blocks = String(text ?? "").replace(/\r\n?/g, "\n").trim().split(/\n{2,}/);
+  const inline = (line) => line.split(/\0(\d+)\0/).flatMap((part, n) => {
+    if (n % 2 === 0) return part ? [{ type: "text", text: part }] : [];
+    const p = people[Number(part)];
+    return p ? [{ type: "mention", attrs: { id: p.id, text: `@${p.name}` } }] : [];
+  });
   return { type: "doc", version: 1, content: blocks.map((b) => ({
     type: "paragraph",
-    content: b.split("\n").flatMap((line, n) => [...(n ? [{ type: "hardBreak" }] : []), ...(line ? [{ type: "text", text: line }] : [])]),
+    content: b.split("\n").flatMap((line, n) => [...(n ? [{ type: "hardBreak" }] : []), ...inline(line)]),
   })) };
 }
 // Adds a comment, written by the signed-in account.
-export async function addComment(site, key, text) {
+export async function addComment(site, key, text, people = []) {
   if (!String(text ?? "").trim()) throw new Error("Type a comment.");
-  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text) });
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: textToAdf(text, people) });
+}
+// The people who can see the issue and whose name starts with `query`: [{ id, name }], for a mention.
+export async function mentionable(site, key, query) {
+  const list = await call(site, `/rest/api/3/user/viewissue/search?issueKey=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}&maxResults=8`);
+  return (Array.isArray(list) ? list : [])
+    .filter((u) => u?.accountId && u.active !== false && u.accountType !== "app")
+    .map((u) => ({ id: u.accountId, name: u.displayName ?? u.accountId }));
 }
 
 // The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].
