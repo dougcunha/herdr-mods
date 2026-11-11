@@ -69,8 +69,18 @@ function done(t) {
   ];
 }
 
+function waiting(t) {
+  const c = t.waiting ?? t.dim;
+  return [
+    disc(40).border(1.5).border_color(c + "44"),
+    arc(46, c + "99", 3200),
+    orb(22, 25, 2400).bg(c).flex().items_center().justify_center()
+      .child(svg("mods/agent-cards/hourglass.svg").size(12).text_color(t.background)),
+  ];
+}
+
 export function modernStage(t, status) {
-  const scene = { working, idle, blocked, done }[status] ?? idle;
+  const scene = { working, idle, blocked, done, waiting }[status] ?? idle;
   const c = t[status] ?? t.dim;
   return div()
     .relative()

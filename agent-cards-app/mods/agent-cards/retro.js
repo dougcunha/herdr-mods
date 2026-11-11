@@ -118,13 +118,34 @@ function done(t, shell) {
   ];
 }
 
+function waiting(t, shell) {
+  const c = t.waiting ?? t.dim;
+  // The eyes look left, then right.
+  const look = [1, 1, 0, 0];
+  const away = look.map((v) => 1 - v);
+  // A pixel hourglass at the right: the sand goes down, then the glass starts again.
+  return [
+    ...bot(t, shell, [
+      flick(4, 5, 2, 2, c, look, 450), flick(8, 5, 2, 2, c, look, 450),
+      flick(6, 5, 2, 2, c, away, 450), flick(10, 5, 2, 2, c, away, 450),
+    ], flick(7, 1, 2, 1, c, [1, 1, 0, 0], 450)),
+    px(2, 12, 12, 1, t.border),
+    px(13, 0, 3, 1, shell), px(13, 6, 3, 1, shell),
+    flick(13, 1, 3, 1, c, [1, 0, 0, 0], 600),
+    flick(14, 2, 1, 1, c, [1, 1, 0, 0], 600),
+    px(14, 3, 1, 1, c + "88"),
+    flick(14, 4, 1, 1, c, [0, 0, 1, 1], 600),
+    flick(13, 5, 3, 1, c, [0, 1, 1, 1], 600),
+  ];
+}
+
 // Thin dark lines over the whole screen, as on an old monitor.
 const scanlines = () => Array.from({ length: SIZE / 2 }, (_, i) =>
   div().absolute().left(0).top(i * 2 + 1).w(SIZE).h(1).bg("#00000026"));
 
 export function retroStage(t, status) {
   const shell = t.muted;
-  const scene = { working, idle, blocked, done }[status] ?? idle;
+  const scene = { working, idle, blocked, done, waiting }[status] ?? idle;
   const c = t[status] ?? t.dim;
   return div()
     .relative()

@@ -105,6 +105,19 @@ function done(t, s) {
   ];
 }
 
+function waiting(t, s) {
+  const c = t.waiting ?? t.dim;
+  // The eyes look from side to side: the robot watches its background jobs.
+  const eyes = div().absolute().top(0).w(STAGE).h(STAGE).loop("left", { from: -2, to: 2, period: 1800 }).children(roundEyes(26, 5, c));
+  return [
+    headGroup(head(t, s, [eyes], box(29, 3, 6, 6, c, 3).loop("opacity", { from: 0.35, to: 1, period: 1800 })),
+      { from: 0, to: 1, period: 2400 }),
+    box(19, 41, 26, 16, s.shell, 6),
+    box(10, 57, 44, 4, t.border, 2),
+    at(svg("mods/agent-cards/hourglass.svg").size(14).text_color(c).loop("opacity", { from: 0.4, to: 1, period: 1800 }), 47, 2),
+  ];
+}
+
 // The animation styles. "robot" is the first style; the others are in their own files.
 export const STYLES = ["robot", "retro", "modern"];
 
@@ -117,7 +130,7 @@ export function stage(t, status, style = "robot") {
 
 function robotStage(t, status, size = STAGE) {
   const s = { shell: t.muted };
-  const scene = { working, idle, blocked, done }[status] ?? idle;
+  const scene = { working, idle, blocked, done, waiting }[status] ?? idle;
   const tint = t[status] ?? t.dim;
   return div()
     .relative()
