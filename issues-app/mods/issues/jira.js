@@ -1,5 +1,6 @@
 // Jira Cloud: projects named in a repository, the sign-in, and the REST calls.
-// Read only, with two exceptions that the person makes on an issue page: a comment and a move (transition).
+// Read only, with four exceptions that the person makes on an issue page: a comment, a move (transition),
+// Assign to me and a new story points value.
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
@@ -160,6 +161,28 @@ export async function mentionable(site, key, query) {
     }
   }
   return [...seen.values()].slice(0, 8);
+}
+
+// The account id of the signed-in account, kept per site.
+const accounts = new Map();
+export function myAccountId(site) {
+  if (!accounts.has(site)) accounts.set(site, call(site, "/rest/api/3/myself").then((m) => m?.accountId ?? null).catch((e) => { accounts.delete(site); throw e; }));
+  return accounts.get(site);
+}
+// Makes the signed-in account the assignee of the issue.
+export async function assignToMe(site, key) {
+  const id = await myAccountId(site);
+  if (!id) throw new Error("Jira did not give the id of your account.");
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, { accountId: id }, undefined, "PUT");
+}
+// The fields of the issue that the signed-in account can edit (its edit screen): a Set of field ids.
+export async function editable(site, key) {
+  const meta = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/editmeta`);
+  return new Set(Object.keys(meta?.fields ?? {}));
+}
+// Sets a number field (the story points); null clears it.
+export async function setNumberField(site, key, id, value) {
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { [id]: value } }, undefined, "PUT");
 }
 
 // The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].

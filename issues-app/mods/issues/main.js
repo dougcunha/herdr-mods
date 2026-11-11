@@ -11,7 +11,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf } from "./jira.js";
+import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
@@ -386,11 +386,17 @@ export default class SpaceIssues extends View {
     const defs = !isGithub(i) && wanted.length ? await extraFields(i.site, wanted).catch(() => []) : [];
     // Sprint and story points: custom fields whose ids the site's field list gives.
     const mf = isGithub(i) ? { sprint: null, points: [] } : await metaFields(i.site).catch(() => ({ sprint: null, points: [] }));
-    const [page, prs] = await Promise.all([
+    const [page, prs, me, edits] = await Promise.all([
       isGithub(i) ? github.issue(i, where(this.repo, i)) : issue(i.site, i.key, [...defs.map((d) => d.id), ...(mf.sprint ? [mf.sprint] : []), ...mf.points]),
       !isGithub(i) && this.github ? github.prsFor(i.key, this.github, where(this.repo, { repo: this.github })).catch(() => []) : null,
+      // Jira: the signed-in account (Assign to me) and the fields it can edit (the story points).
+      isGithub(i) ? null : myAccountId(i.site).catch(() => null),
+      isGithub(i) || !mf.points.length ? null : editable(i.site, i.key).catch(() => null),
     ]);
     if (prs) page.prs = prs;
+    page.me = me;
+    // The story points field of this issue's edit screen (a site can have two; a project uses one).
+    page.pointsField = edits ? mf.points.find((id) => edits.has(id)) ?? null : null;
     // What the Details card and the chips under the title show (Jira; GitHub has none of it).
     const pf = page.fields;
     const points = mf.points.map((id) => pf[id]).find((v) => typeof v === "number");
@@ -654,12 +660,18 @@ export default class SpaceIssues extends View {
     const due = m.due ? dueText(m.due) : null, dueColor = due?.late ? t.ansi1 : due?.soon ? t.ansi3 : t.muted;
     const tags = (list, color) => h_flex().flex_wrap().gap(4).children(list.map((x) => k.tag(x, color)));
     const details = ["full", k.facts("Details", [
-      ["Assignee", f.assignee ? k.person(f.assignee.displayName) : div().text_color(t.dim).child("Unassigned"), "user"],
+      ["Assignee", h_flex().gap(6).items_center().min_w(0)
+        .child(div().flex_1().min_w(0).child(f.assignee ? k.person(f.assignee.displayName) : div().text_color(t.dim).child("Unassigned")))
+        .when(!gh && Boolean(p?.me) && f.assignee?.accountId !== p?.me, (e) => e.child(button(t, "assign-me", this.assigning ? "Assigning…" : "Assign to me",
+          (cx) => this.assignMe(i, cx), { kind: "link", small: true, disabled: Boolean(this.assigning), tooltip: "Make you the assignee of this issue" }))), "user"],
       reporter && [gh ? "Author" : "Reporter", k.person(reporter), "user"],
       prio && ["Priority", div().text_color(urgent ? prioColor : t.foreground).when(urgent, (e) => e.font_semibold()).child(prio), "flag"],
-      !gh && ["Story points", m.points != null
-        ? h_flex().gap(5).items_baseline().child(div().text_size(fs.title + 3).font_bold().text_color(t.accent).child(points(m.points))).child(div().text_size(fs.tiny).text_color(t.dim).child(m.points === 1 ? "point" : "points"))
-        : div().text_color(t.dim).child(p ? "Not estimated" : "…"), "points"],
+      !gh && ["Story points", this.pointsEdit === i.key ? this.pointsEditor(t, i)
+        : div().id("points-value").when(Boolean(p?.pointsField), (e) => e.cursor_pointer().tooltip("Click to change the story points")
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => this.editPoints(i, m.points, cx)))
+          .child(m.points != null
+            ? h_flex().gap(5).items_baseline().child(div().text_size(fs.title + 3).font_bold().text_color(t.accent).child(points(m.points))).child(div().text_size(fs.tiny).text_color(t.dim).child(m.points === 1 ? "point" : "points"))
+            : div().text_color(t.dim).child(!p ? "…" : p.pointsField ? "Not estimated · click to set" : "Not estimated")), "points"],
       m.sprint && ["Sprint", h_flex().gap(6).items_center().min_w(0).child(div().size(7).flex_none().rounded_full().bg(sprintColor(m.sprint)))
         .child(div().min_w(0).truncate().child(m.sprint.name)), "sprint"],
       m.versions?.length && ["Fix versions", h_flex().flex_wrap().gap(4).children(m.versions.map((v) => k.tag(v.name, v.released ? t.ansi2 : t.accent))), "version"],
@@ -772,6 +784,12 @@ export default class SpaceIssues extends View {
     this.commentBox.on("blur", () => { this.typing = false; });
     // "@" and a name at the end of the text: a list of Jira people to mention.
     this.atUser = null; this.named = new Map(); this.atSeq = 0; this.reply = null;
+    // The story points editor of the Details card: Enter saves, Esc cancels.
+    this.pointsEdit = null; this.pointsError = ""; this.savingPoints = false; this.assigning = false;
+    this.pointsBox = InputState.new({ placeholder: "Points" });
+    this.pointsBox.on("focus", () => { this.typing = true; });
+    this.pointsBox.on("blur", () => { this.typing = false; });
+    this.pointsBox.on("submit", (_e, cx) => { if (this.open) this.savePoints(this.open, cx); });
     this.commentBox.on("change", (_e, cx) => this.followMention(cx));
   }
 
@@ -878,6 +896,61 @@ export default class SpaceIssues extends View {
         .child(div().flex_1().min_w(0).text_size(fs.tiny).text_color(this.commentError ? t.ansi1 : t.dim)
           .child(this.commentError || "Posted to Jira as you. Type @ to mention a person. A blank line starts a new paragraph."))
         .child(button(t, "comment-send", this.commenting ? "Posting…" : this.reply ? "Reply" : "Comment", send, { kind: "primary", disabled: this.commenting })));
+  }
+  // Assign to me (Jira): the signed-in account becomes the assignee; every copy reloads the issue.
+  assignMe(i, cx) {
+    if (this.assigning) return;
+    this.assigning = true; cx.notify(this.pageView);
+    cx.spawn(async (cx) => {
+      try {
+        await assignToMe(i.site, i.key);
+        notify({ title: `${i.key} is assigned to you`, level: "success", timeout: 2500 });
+        setShared(CHANGED, { site: i.site, key: i.key, at: Date.now() });
+      } catch (e) { notify({ title: `${i.key} was not assigned`, body: String(e?.message ?? e).slice(0, 300), level: "error" }); }
+      this.assigning = false; cx.notify(this.pageView);
+    });
+  }
+  editPoints(i, now, cx) {
+    this.pointsEdit = i.key; this.pointsError = "";
+    this.pointsBox.set_value(now != null ? String(now) : "");
+    const focus = () => { try { this.pointsBox.focus(); } catch { /* not shown */ } };
+    focus();
+    try { cx.timer.after(40, focus); } catch { /* the first focus stays */ }
+    cx.notify(this.pageView);
+  }
+  cancelPoints(cx) {
+    this.pointsEdit = null; this.pointsError = ""; this.typing = false;
+    try { this.handle.focus(); } catch { /* not shown */ }
+    cx.notify(this.pageView);
+  }
+  // An empty field clears the estimate; else a number of 0 or more (a comma is a decimal point too).
+  savePoints(i, cx) {
+    const field = this.page?.pointsField;
+    if (!field || this.savingPoints || this.pointsEdit !== i.key) return;
+    const raw = this.pointsBox.value().trim().replace(",", ".");
+    const value = raw === "" ? null : Number(raw);
+    if (value !== null && (!Number.isFinite(value) || value < 0)) { this.pointsError = "Type a number, or leave it empty."; cx.notify(this.pageView); return; }
+    this.savingPoints = true; this.pointsError = ""; cx.notify(this.pageView);
+    cx.spawn(async (cx) => {
+      try {
+        await setNumberField(i.site, i.key, field, value);
+        this.pointsEdit = null; this.typing = false;
+        try { this.handle.focus(); } catch { /* not shown */ }
+        setShared(CHANGED, { site: i.site, key: i.key, at: Date.now() });
+      } catch (e) { this.pointsError = String(e?.message ?? e).slice(0, 200); }
+      this.savingPoints = false; cx.notify(this.pageView);
+    });
+  }
+  pointsEditor(t, i) {
+    return v_flex().id("points-edit").gap(4).min_w(0)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      // Esc reaches here while the field has the keyboard (the dialog does not close).
+      .on_key_down((e, cx) => { if (e.key === "escape") { this.cancelPoints(cx); cx.stop_propagation(); } })
+      .child(h_flex().gap(4).items_center()
+        .child(div().w(72).h(26).px(6).rounded(6).border_1().border_color(this.pointsError ? t.ansi1 : t.accent).bg(t.background).flex().items_center().child(Input.new(this.pointsBox)))
+        .child(iconButton(t, "points-save", "check", (cx) => this.savePoints(i, cx), { size: 24, spin: this.savingPoints, tooltip: "Save (Enter)" }))
+        .child(iconButton(t, "points-cancel", "x", (cx) => this.cancelPoints(cx), { size: 24, tooltip: "Cancel (Esc)" })))
+      .when(Boolean(this.pointsError), (e) => e.child(div().text_size(fs.tiny).text_color(t.ansi1).child(this.pointsError)));
   }
   sendComment(i, cx) {
     const text = this.commentBox.value().trim();

@@ -34,11 +34,13 @@ export function kit(t) {
   k.person = (name, label = name) => h_flex().gap(6).items_center().min_w(0).text_size(fs.meta)
     .child(avatar(name, t, 20)).child(div().min_w(0).truncate().child(label ?? "Nobody"));
   // One entry of the timeline: initials in the left column, a box with a header bar.
-  k.card = (id, who, verb, at, body) => h_flex().id(id).gap(10).items_start()
+  // `action` (optional): an element at the right end of the header bar (Reply).
+  k.card = (id, who, verb, at, body, action) => h_flex().id(id).gap(10).items_start()
     .child(avatar(who, t, 28))
     .child(v_flex().flex_1().min_w(0).rounded(8).border_1().border_color(t.border).overflow_hidden()
       .child(h_flex().gap(6).items_center().px(10).py(5).bg(t.surface).border_b_1().border_color(t.border).text_size(fs.meta).text_color(t.muted)
-        .child(div().font_semibold().text_color(t.foreground).child(who ?? "?")).child(verb).child(div().text_color(t.dim).child(at)))
+        .child(div().font_semibold().text_color(t.foreground).child(who ?? "?")).child(verb).child(div().text_color(t.dim).child(at))
+        .when(Boolean(action), (e) => e.child(div().flex_1()).child(action)))
       .child(div().px(12).py(10).child(body)));
   // A small event between the cards: who did what, when.
   k.event = (id, who, text, at, color) => h_flex().id(id).gap(6).items_center().pl(38).text_size(fs.meta).text_color(t.muted)

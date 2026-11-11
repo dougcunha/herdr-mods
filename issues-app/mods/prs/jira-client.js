@@ -205,15 +205,15 @@ export class JiraError extends Error {
   constructor(status, message, site) { super(message); this.status = status; this.site = site; }
 }
 
-// `as`: explicit { email, token }; otherwise the stored sign-in.
-export async function call(site, path, body, as) {
+// `as`: explicit { email, token }; otherwise the stored sign-in. `method`: GET without a body, else POST, unless given (PUT).
+export async function call(site, path, body, as, method) {
   if (!trustedSite(site)) throw new JiraError(0, `${site} isn't an Atlassian Cloud site: type it in Link space to use it.`, site);
   const c = as ?? await credentials(site);
   if (!c) throw new JiraError(401, `No Jira sign-in for ${site}.`, site);
   const r = await fetch(`https://${site}${path}`, {
     // Herdr's fetch takes method, headers and body only (no redirect option): a redirect is
     // caught below, by the answer's status or by the host of the URL it came from.
-    method: body ? "POST" : "GET",
+    method: method ?? (body ? "POST" : "GET"),
     headers: { Authorization: `Basic ${base64(`${c.email}:${c.token}`)}`, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });

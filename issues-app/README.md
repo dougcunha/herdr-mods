@@ -7,7 +7,7 @@
 - **`issues`**: the issues of the space from Jira Cloud or GitHub. Each issue opens as a page. **Start agent** opens a coding agent on the issue in a new git worktree and space.
 - **`prs`**: the pull requests of the space, grouped by what each one waits for (review requested, yours to fix, ready to merge). Each pull request opens as a page with its checks, files and a merge box. **Agent review** checks it out, builds, tests and reports.
 
-Both mods only read, with two exceptions on a Jira issue page: **Comment** adds the comment that you type, and **Move** moves the issue to the status that you pick (a Jira transition). They write nothing else to Jira and nothing to GitHub. The page shows the last 10 comments; older ones are in Jira. **Start agent** makes a local worktree and branch, and pushes nothing.
+Both mods only read, with four exceptions on a Jira issue page: **Comment** (and **Reply**) adds the comment that you type, **Move** moves the issue to the status that you pick (a Jira transition), **Assign to me** makes you the assignee, and a click on the story points sets a new value. They write nothing else to Jira and nothing to GitHub. The page shows the last 10 comments; older ones are in Jira. **Start agent** makes a local worktree and branch, and pushes nothing.
 
 ## Credits
 
@@ -33,6 +33,8 @@ The changes of this kit:
 
 - **Under the title:** chips for the status, the type, the priority, the story points, the sprint and the due date. A high priority, the active sprint and a due date that is near or past show in color.
 - **Tabs:** **Description**, a tab for each long extra field (for example **Refinement**, see below) and **Activity** (the comments, the changes of status, assignee and priority, and the comment box).
+- **Assign to me:** next to the assignee in **Details**, when the issue is not yours. Your Jira account needs the Assign issues permission.
+- **Story points:** click the value in **Details**, type a number and press Enter. An empty field clears the estimate. Esc cancels. The value can be changed only when the story points field is on the edit screen of the project.
 - **Details:** the assignee, the reporter, the priority, the story points, the sprint, the fix versions, the affected versions, the components, the labels, the due date, the parent, the short extra fields and the dates. A narrow page shows the card above the tabs. A click on **Details** collapses or expands the card; every page keeps that choice.
 - **Pictures:** the people show with their Jira picture, in the list too. The mod downloads only the public pictures (Atlassian's avatar host and Gravatar) to `~/.config/herdr-app/data/issues-app/avatars/`, and sends no sign-in for them. A person without a picture shows their initials.
 
