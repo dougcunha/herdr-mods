@@ -34,6 +34,9 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
   - **Robot** (default): the robot of the table above.
   - **Retro (8-bit)**: a pixel robot on a small old screen with scan lines. It moves in hard steps: the eyes blink, the hands type over a loading bar, the "z" letters come one by one, a pixel `!` blinks, and pixel sparks show in turn.
   - **Modern**: a soft orb in the status color. Working: 2 rings turn and the orb breathes. Idle: a dim orb breathes slowly. Blocked: a ring ripples out from a `!` orb. Done: a check orb with dots that fly out. Waiting: a slow ring turns around an hourglass orb.
+  - **Mainframe (cards & tape)**: the computer room of the first computers: a tape drive with 2 reels, a row of panel lamps and a punched card in the reader. Working: the reels turn, the tape goes from one reel to the other, the lamps blink and the holes of the card are punched one column at a time. Idle: the reels stand still, only the power lamp glows and "z" letters rise between the reels. Blocked: the card is stuck half out of the reader and shakes, all the lamps blink and a `!` shows. Done: the tape rewinds fast, a light runs along the lamps and the finished card jumps out. Waiting: the tape creeps on slowly next to an hourglass.
+
+    ![The five statuses in the Mainframe style](preview-mainframe.png)
 
   `herdr-app do agent-cards.style` shows the next style.
 - The animations run inside Herdr (no timer redraws the panel).

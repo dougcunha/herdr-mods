@@ -4,6 +4,7 @@
 import { div, svg } from "gpui-kit";
 import { retroStage } from "./retro.js";
 import { modernStage } from "./modern.js";
+import { mainframeStage } from "./mainframe.js";
 
 export const STAGE = 64;
 
@@ -119,12 +120,13 @@ function waiting(t, s) {
 }
 
 // The animation styles. "robot" is the first style; the others are in their own files.
-export const STYLES = ["robot", "retro", "modern"];
+export const STYLES = ["robot", "retro", "modern", "mainframe"];
 
 // The stage: a tinted square with the scene of the status, in the given style.
 export function stage(t, status, style = "robot") {
   if (style === "retro") return retroStage(t, status);
   if (style === "modern") return modernStage(t, status);
+  if (style === "mainframe") return mainframeStage(t, status);
   return robotStage(t, status);
 }
 
