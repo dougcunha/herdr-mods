@@ -58,7 +58,9 @@ its `panels.json`.
   *Passed* and *Other*. Each run shows pills for its branch, status, duration
   and trigger. A **filter box** at the top matches title, workflow, branch,
   actor, trigger and `#number`, and **chips** (`All`, `Running`, `Failed`,
-  `Passed`, `Other`, with counts) narrow by status. Click a run for its jobs and
+  `Passed`, `Other`, with counts) narrow by status. When the runs come from more
+  than 1 workflow, a second chip row (`All workflows`, then 1 chip per workflow,
+  most runs first) narrows by workflow. Click a run for its jobs and
   steps, live status, **Open** (browser), **Cancel**, and **Rerun**. Open runs
   poll every 5 s, backing off to 30 s. A notification fires when a run you were
   watching finishes.

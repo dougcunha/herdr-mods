@@ -41,6 +41,9 @@ const groupOf = (run) => {
   return kind === "success" ? "passed" : "other";
 };
 
+/** The workflow of a run: its id when GitHub gives one, else its name. */
+const workflowKey = (run) => String(run.workflow_id ?? run.name ?? "");
+
 const ART_GROUPS = [
   { id: "available", filter: "Available", color: (t) => t.accent },
   { id: "downloaded", filter: "Downloaded", color: (t) => t.ansi2 },
@@ -115,7 +118,7 @@ export default class CiDash extends View {
     this.detail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
-    this.runStatus = "all"; this.artStatus = "all"; this.artType = "all";
+    this.runStatus = "all"; this.runWorkflow = "all"; this.artStatus = "all"; this.artType = "all";
     this.runFilter.set_value(""); this.artFilter.set_value("");
     this.dsp.reset();
   }
@@ -463,7 +466,7 @@ export default class CiDash extends View {
         .when(Boolean(by), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(by))));
   }
 
-  clearRunFilters(cx) { this.runFilter.set_value(""); this.runStatus = "all"; cx.notify(); }
+  clearRunFilters(cx) { this.runFilter.set_value(""); this.runStatus = "all"; this.runWorkflow = "all"; cx.notify(); }
 
   runsView(t) {
     if (this.runsError && !this.runs.length) return this.errorView(t, this.runsError);
@@ -473,15 +476,34 @@ export default class CiDash extends View {
     const q = this.runFilter.value().trim().toLowerCase();
     const matches = this.runs.filter((r) => !q || [r.display_title, r.name, r.head_branch, r.actor?.login, r.event, `#${r.run_number}`]
       .filter(Boolean).join(" ").toLowerCase().includes(q));
-    const count = (id) => matches.filter((r) => groupOf(r) === id).length;
-    const shown = this.runStatus === "all" ? matches : matches.filter((r) => groupOf(r) === this.runStatus);
+    const statusOk = (r) => this.runStatus === "all" || groupOf(r) === this.runStatus;
+    const workflowOk = (r) => this.runWorkflow === "all" || workflowKey(r) === this.runWorkflow;
+    const shown = matches.filter((r) => statusOk(r) && workflowOk(r));
 
-    const chips = [filterChip(t, "rf-all", "All", matches.length, this.runStatus === "all", (cx) => { this.runStatus = "all"; cx.notify(); })];
+    // Each row of chips counts what the other one already allows, so a number
+    // is always what you get by clicking that chip.
+    const byStatus = matches.filter(workflowOk), byWorkflow = matches.filter(statusOk);
+    const count = (id) => byStatus.filter((r) => groupOf(r) === id).length;
+    const chips = [filterChip(t, "rf-all", "All", byStatus.length, this.runStatus === "all", (cx) => { this.runStatus = "all"; cx.notify(); })];
     for (const g of RUN_GROUPS) {
       if (count(g.id) > 0 || this.runStatus === g.id) {
         chips.push(filterChip(t, `rf-${g.id}`, g.filter, count(g.id), this.runStatus === g.id, (cx) => { this.runStatus = g.id; cx.notify(); }, g.color(t)));
       }
     }
+
+    // Workflows come from the loaded runs, most runs first. The row shows only
+    // when the runs come from more than 1 workflow, or when one is selected.
+    const workflows = new Map();
+    for (const r of this.runs) if (!workflows.has(workflowKey(r))) workflows.set(workflowKey(r), r.name || `Workflow ${r.workflow_id}`);
+    const wfCounts = new Map([...workflows.keys()].map((k) => [k, 0]));
+    for (const r of byWorkflow) wfCounts.set(workflowKey(r), (wfCounts.get(workflowKey(r)) || 0) + 1);
+    const wfIds = [...workflows.keys()].sort((a, b) => wfCounts.get(b) - wfCounts.get(a) || workflows.get(a).localeCompare(workflows.get(b)));
+    const wfChips = workflows.size > 1 || this.runWorkflow !== "all"
+      ? [filterChip(t, "rw-all", "All workflows", byWorkflow.length, this.runWorkflow === "all", (cx) => { this.runWorkflow = "all"; cx.notify(); }),
+        ...wfIds.filter((id) => wfCounts.get(id) > 0 || this.runWorkflow === id)
+          .map((id) => filterChip(t, `rw-${id}`, workflows.get(id), wfCounts.get(id), this.runWorkflow === id, (cx) => { this.runWorkflow = id; cx.notify(); }))]
+      : [];
+    const filtering = q || this.runStatus !== "all" || this.runWorkflow !== "all";
 
     const rows = [];
     for (const g of RUN_GROUPS) {
@@ -493,8 +515,11 @@ export default class CiDash extends View {
 
     return v_flex().flex_1().min_h(0)
       .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(8)
-        .child(searchBox(t, "run-filter", this.runFilter, { right: q || this.runStatus !== "all" ? `${shown.length}/${this.runs.length}` : `${this.runs.length}`, onClear: (cx) => { this.runFilter.set_value(""); cx.notify(); } }))
-        .child(h_flex().flex_wrap().gap(4).children(chips)))
+        .child(searchBox(t, "run-filter", this.runFilter, { right: filtering ? `${shown.length}/${this.runs.length}` : `${this.runs.length}`, onClear: (cx) => { this.runFilter.set_value(""); cx.notify(); } }))
+        .child(h_flex().flex_wrap().gap(4).children(chips))
+        .when(wfChips.length > 0, (e) => e.child(h_flex().flex_wrap().gap(4).items_center()
+          .child(div().px(4).flex_none().text_size(11).text_color(t.dim).child("Workflow"))
+          .children(wfChips))))
       .child(v_flex().id("runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8).children(rows)
         .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
           .child(div().text_size(12).text_color(t.dim).child("No run matches the filters."))
