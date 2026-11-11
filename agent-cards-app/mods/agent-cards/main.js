@@ -18,8 +18,11 @@ const animStyle = () => { const v = shared(KEY_STYLE); return STYLES.includes(v)
 // and the other cards go to the bottom of the panel, under a line.
 const KEY_NEEDS_YOU = "agent-cards.needsYouFirst";
 const needsYouFirst = () => shared(KEY_NEEDS_YOU) === true;
-// True when the person turned tab-namer off in the mods-hub: the cards show no pencil then.
-const namerOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("tab-namer"); };
+// True when the person turned a kit mod off in the mods-hub: tab-namer off, the cards show no pencil;
+// kanban off, no duplicate button.
+const modOff = (name) => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes(name); };
+const namerOff = () => modOff("tab-namer");
+const kanbanOff = () => modOff("kanban");
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -112,12 +115,14 @@ export default class AgentCards extends View {
     // Cards whose sub-agents are folded.
     this.folded = new Set();
     this.hovered = null;
-    // The pencil of a card opens the tab-namer dialog, when that mod is installed.
+    // The pencil of a card opens the tab-namer dialog, when that mod is installed. The duplicate
+    // button opens the duplicate menu of the kanban mod, when that mod is installed.
     this.namer = false;
+    this.kanban = false;
+    const installed = async (mod) => { try { return Boolean(await readTextFile(`${appHome()}/mods/${mod}/mod.json`)); } catch { return false; } };
     const findNamer = (cx) => cx.spawn(async (cx) => {
-      let found = false;
-      try { found = Boolean(await readTextFile(`${appHome()}/mods/tab-namer/mod.json`)); } catch {}
-      if (found !== this.namer) { this.namer = found; cx.notify(); }
+      const [namer, kanban] = [await installed("tab-namer"), await installed("kanban")];
+      if (namer !== this.namer || kanban !== this.kanban) { this.namer = namer; this.kanban = kanban; cx.notify(); }
     });
     findNamer(cx);
     cx.timer.every(60000, (cx) => findNamer(cx));
@@ -341,6 +346,32 @@ export default class AgentCards extends View {
       .child(svg("mods/agent-cards/pencil.svg").size(13));
   }
 
+  // The duplicate button: shown while the pointer is on the card. It opens the duplicate menu of the
+  // kanban mod at the pointer: a new session of the same agent in this space, or in a new worktree.
+  duplicate(t, a) {
+    return div()
+      .id(`clone-${a.address}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip("Duplicate this agent")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (a.demo) return;
+        const name = a.space_name || a.program?.name || a.app || "Agent";
+        const pt = shared("herdr-mods.lang") === "pt";
+        // The size of the kanban menu: its padding, its title row and 2 rows (see CLONE_W and MENU_* in kanban).
+        openOverlay({
+          mod: "kanban", kind: "popup", width: 270, height: 5 * 2 + 26 + 2 * 32,
+          props: { part: "clone-menu", title: pt ? `Duplicar ${name}` : `Duplicate ${name}`, address: a.address },
+        });
+      })
+      .child(svg("mods/kanban/copy.svg").size(13));
+  }
+
   // The sub-agents of a card: a header that folds them, then one row for each.
   subs(t, a, subs) {
     const open = !this.folded.has(a.address);
@@ -419,6 +450,7 @@ export default class AgentCards extends View {
             .when(Boolean(since) && !hovered, (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(duration(now - since))))
             .when(hovered && Boolean(a.wait), (el) => el.child(this.notWaiting(t, a)))
             .when(hovered && this.namer && !namerOff(), (el) => el.child(this.rename(t, a)))
+            .when(hovered && this.kanban && !kanbanOff(), (el) => el.child(this.duplicate(t, a)))
             .when(hovered || a.pinned, (el) => el.child(this.pin(t, a))))
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()

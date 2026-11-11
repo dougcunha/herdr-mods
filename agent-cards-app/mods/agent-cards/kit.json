@@ -1,6 +1,6 @@
 {
   "app": "agent-cards-app",
-  "description": "The agents of the sidebar as cards: a small robot acts out each status (types when working, sleeps when idle, waves when it needs you, jumps when done, watches an hourglass while Claude Code waits for background work), with sub-agents and a pin button. Pick a robot, retro 8-bit or modern animation style.",
+  "description": "The agents of the sidebar as cards: a small robot acts out each status (types when working, sleeps when idle, waves when it needs you, jumps when done, watches an hourglass while Claude Code waits for background work), with sub-agents, a pin button and a duplicate button. Pick a robot, retro 8-bit or modern animation style.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/agent-cards-app",
   "settings": [
     {
