@@ -11,7 +11,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
-  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents } from "herdr";
+  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents, exec } from "herdr";
 import * as fs from "fs/promises";
 import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop, machineChip, remoteColor } from "./ui.js";
 
@@ -315,7 +315,7 @@ export default class Kanban extends View {
     }
     // Which Claude Code agents wait for subagents. Both parts run one: they count the cards too.
     const minutes = Number(this.props.waitingMinutes);
-    this.tracker = new WaitingTracker({ hc, home, dirs: this.props.claudeDirs, ttlMs: minutes > 0 ? minutes * 60000 : undefined });
+    this.tracker = new WaitingTracker({ hc, home, exec, dirs: this.props.claudeDirs, ttlMs: minutes > 0 ? minutes * 60000 : undefined });
     this.waitSig = null;
     this.waitBusy = false;
     // The pencil of a card opens the tab-namer dialog, when that mod is installed.

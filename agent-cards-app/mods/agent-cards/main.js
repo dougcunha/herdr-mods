@@ -5,7 +5,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared,
-  openOverlay, readTextFile, appHome, hc, home } from "herdr";
+  openOverlay, readTextFile, appHome, hc, home, exec } from "herdr";
 import { stage, STYLES } from "./robot.js";
 // A copy of kanban/waiting.js: it finds the Claude Code agents that wait for background work.
 import { WaitingTracker } from "./waiting.js";
@@ -128,7 +128,7 @@ export default class AgentCards extends View {
     cx.timer.every(60000, (cx) => findNamer(cx));
     cx.timer.every(30000, (cx) => cx.notify());
     // Which Claude Code agents wait for background work.
-    this.tracker = new WaitingTracker({ hc, home });
+    this.tracker = new WaitingTracker({ hc, home, exec });
     this.waitSig = null;
     this.waitBusy = false;
     // The jobs run on their own: look again now and then at the agents known to wait, so a

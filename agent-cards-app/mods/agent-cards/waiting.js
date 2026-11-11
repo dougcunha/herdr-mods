@@ -12,7 +12,7 @@
 //      work": an interim report. The agent is not finished.
 //   3. A <task-notification> for <id> without that phrase: the agent finished (or failed).
 // So a subagent is pending when it was launched and its last notification is interim or absent.
-// A background shell command (the Bash tool with `run_in_background`) leaves 2 marks:
+// A background shell command (the Bash or PowerShell tool with `run_in_background`) leaves 2 marks:
 //   1. A tool_result "Command running in background with ID: <id>".
 //   2. A <task-notification> for <id> when the command ends (completed, failed or killed).
 // So a command is pending when it was started and no notification for it follows.
@@ -20,6 +20,10 @@
 // notification: the stop call ends it.
 // The registry also tells it: a session that ended its turn while a background command runs has
 // `"status": "shell"` in <config>/sessions/<pid>.json.
+//
+// An agent on another machine (address "<machine>/<terminal>") keeps these files on that machine. The tracker
+// reads them there with `exec`: a small sh or PowerShell script prints the registry, and an other one prints
+// only the transcript lines that `scanTranscript` reads (a transcript is too large for `readTextFile`).
 //
 // This file imports only `fs/promises`, so a plain Node script can test it.
 import * as fs from "fs/promises";
@@ -39,6 +43,9 @@ const INTERIM = /waiting on its own background work/;
 const NOTIFY_RECORD = /^\{"type":"queue-operation".*?"content":"<task-notification>|"message":\{"role":"user","content":"<task-notification>|"attachment":\{"type":"queued_command","prompt":"<task-notification>/;
 const AGENT_TOOLS = ['"name":"Agent"', '"name":"Task"'];
 const SHELL_STARTED = /Command running in background with ID:\s*([A-Za-z0-9_-]+)/;
+// The tools that run a shell command: Bash, and PowerShell on Windows.
+const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
+const SHELL_MARKS = [...SHELL_TOOLS].map((n) => `"name":"${n}"`);
 const STOP_TOOLS = new Set(["TaskStop", "KillShell", "KillBash"]);
 const STOP_MARKS = [...STOP_TOOLS].map((n) => `"name":"${n}"`);
 
@@ -53,12 +60,12 @@ export function scanTranscript(transcript) {
   const agents = new Map(); // agentId or shell id -> { kind, toolUseId, since, last, pending }
   for (const line of String(transcript).split("\n")) {
     if (line.startsWith('{"type":"api-request')) continue; // request dumps: big and of no use here
-    if (line.includes('"type":"tool_use"') && (AGENT_TOOLS.some((n) => line.includes(n)) || line.includes('"name":"Bash"') || STOP_MARKS.some((n) => line.includes(n)))) {
+    if (line.includes('"type":"tool_use"') && (AGENT_TOOLS.some((n) => line.includes(n)) || SHELL_MARKS.some((n) => line.includes(n)) || STOP_MARKS.some((n) => line.includes(n)))) {
       for (const block of parse(line)?.message?.content ?? []) {
         if (block?.type !== "tool_use") continue;
         const description = String(block.input?.description ?? "").trim();
         if (block.name === "Agent" || block.name === "Task") calls.set(block.id, { kind: "agent", description });
-        else if (block.name === "Bash" && block.input?.run_in_background === true) calls.set(block.id, { kind: "shell", description });
+        else if (SHELL_TOOLS.has(block.name) && block.input?.run_in_background === true) calls.set(block.id, { kind: "shell", description });
         else if (STOP_TOOLS.has(block.name)) {
           const job = agents.get(String(block.input?.task_id ?? block.input?.shell_id ?? ""));
           if (job) job.pending = false;
@@ -134,6 +141,62 @@ export function withShellStatus(items, registry, sessionId) {
 /** How Claude Code names the folder of a project: every character that is not a letter or digit becomes "-". */
 export const projectDir = (cwd) => String(cwd ?? "").replace(/[^A-Za-z0-9]/g, "-");
 
+/** The machine of a terminal address "<machine>/<terminal>", or null for this computer. */
+export const machineOf = (address) => {
+  const i = String(address ?? "").indexOf("/");
+  return i > 0 ? String(address).slice(0, i) : null;
+};
+
+// The words that mark the transcript lines `scanTranscript` reads. A remote transcript is filtered with them.
+const MARKS = ['"name":"Agent"', '"name":"Task"', '"name":"Bash"', '"name":"PowerShell"', '"name":"KillShell"', '"name":"KillBash"',
+  "Async agent launched", "Command running in background", "<task-notification>"];
+// The scripts contain no backslash: the way to a remote machine can drop it.
+const shq = (s) => `'${String(s).replace(/'/g, `'"'"'`)}'`;
+const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// A PowerShell string with double quotes, made with [char]34.
+const psText = (s) => `(${String(s).split('"').map(psq).join("+$q+")})`;
+const PS_HEAD = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $q = [string][char]34; ";
+
+/** The scripts that run on a remote machine: `sh` for Unix (and Git Bash), `ps` for Windows PowerShell. */
+export const remoteScripts = {
+  registry: {
+    sh: 'for r in "$HOME"/.claude*; do [ -d "$r/sessions" ] || continue; n=$(cygpath -m "$r" 2>/dev/null || printf %s "$r"); echo "ROOT $n"; '
+      + 'for f in "$r"/sessions/*.json; do [ -f "$f" ] || continue; echo FILE; cat "$f"; echo; done; done',
+    ps: PS_HEAD + "Get-ChildItem -Force -Directory -LiteralPath $HOME -Filter '.claude*' | ForEach-Object { "
+      + "$s = Join-Path $_.FullName 'sessions'; if (Test-Path -LiteralPath $s) { 'ROOT ' + $_.FullName.Replace([string][char]92, '/'); "
+      + "Get-ChildItem -LiteralPath $s -Filter '*.json' | ForEach-Object { 'FILE'; Get-Content -Raw -Encoding UTF8 -LiteralPath $_.FullName } } }",
+  },
+  /** Prints the marked lines of the first file of `paths` that exists. */
+  transcript: (paths) => ({
+    sh: `for f in ${paths.map(shq).join(" ")}; do if [ -f "$f" ]; then grep -F -e ${shq(MARKS.join("\n"))} -- "$f"; exit 0; fi; done`,
+    ps: PS_HEAD + `$p = @(${MARKS.map(psText).join(", ")}); foreach ($f in @(${paths.map(psq).join(", ")})) { if (Test-Path -LiteralPath $f) { `
+      + "Select-String -SimpleMatch -Encoding UTF8 -LiteralPath $f -Pattern $p | ForEach-Object { [Console]::Out.WriteLine($_.Line) }; break } }",
+  }),
+};
+
+/** Reads the output of the registry script: [{ ...record, root }]. */
+export function parseRegistry(out) {
+  const records = [];
+  let root = null;
+  let buf = null;
+  const flush = () => {
+    if (buf === null || !root) return;
+    try {
+      const r = JSON.parse(buf);
+      if (r && Number.isInteger(r.pid) && typeof r.sessionId === "string") records.push({ ...r, root });
+    } catch {}
+    buf = null;
+  };
+  for (const line of String(out ?? "").split("\n")) {
+    const l = line.replace(/\r$/, "");
+    if (l.startsWith("ROOT ")) { flush(); root = l.slice(5).trim(); }
+    else if (l === "FILE") { flush(); buf = ""; }
+    else if (buf !== null) buf += l + "\n";
+  }
+  flush();
+  return records;
+}
+
 async function list(dir) {
   try { return await fs.readdir(dir); } catch { return []; }
 }
@@ -142,12 +205,15 @@ async function readJson(path) {
   try { return JSON.parse(await fs.readFile(path, "utf8")); } catch { return null; }
 }
 
-/** Reads the Claude Code sessions of this computer and tells which agents wait for subagents.
- *  `hc(args)` and `home()` come from the `herdr` module; `dirs`: the Claude config folders (default: every
- *  `~/.claude*` folder, because people keep more than one). */
+/** Reads the Claude Code sessions and tells which agents wait for subagents.
+ *  `hc(args)`, `home()` and `exec(cmd, args, { on })` come from the `herdr` module; `dirs`: the Claude config
+ *  folders of this computer (default: every `~/.claude*` folder, because people keep more than one). Without
+ *  `exec`, the agents of other machines never wait. */
 export class WaitingTracker {
-  constructor({ hc, home, dirs, ttlMs }) {
+  constructor({ hc, home, exec, dirs, ttlMs }) {
     this.hc = hc;
+    this.exec = exec;
+    this.shells = new Map(); // machine -> "sh" | "ps": the shell that ran there last time
     this.ttlMs = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : WAITING_TTL_MS;
     this.home = home;
     this.dirs = Array.isArray(dirs) && dirs.length ? dirs.map(String) : null;
@@ -185,6 +251,39 @@ export class WaitingTracker {
     return out;
   }
 
+  /** Runs a script of `remoteScripts` on `machine` and returns its output. The shell that worked last time
+   *  goes first; else PowerShell first when the folders look like Windows. Rejects when no shell starts. */
+  async remote(machine, script, windows) {
+    const run = {
+      sh: () => this.exec("sh", ["-c", script.sh], { on: machine }),
+      ps: () => this.exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", script.ps], { on: machine }),
+    };
+    const known = this.shells.get(machine);
+    const order = known ? [known, known === "sh" ? "ps" : "sh"] : windows ? ["ps", "sh"] : ["sh", "ps"];
+    let error = null;
+    for (const shell of order) {
+      try {
+        const out = (await run[shell]())?.stdout ?? "";
+        this.shells.set(machine, shell);
+        return out;
+      } catch (e) { error = e; }
+    }
+    throw error;
+  }
+
+  async remoteRegistry(machine, windows) {
+    if (!this.exec) return [];
+    return parseRegistry(await this.remote(machine, remoteScripts.registry, windows));
+  }
+
+  /** The transcript lines that `scanTranscript` reads, from a remote machine ("" when not found). */
+  async remoteTranscript(machine, session, roots, windows) {
+    const file = `projects/${projectDir(session.cwd)}/${session.sessionId}.jsonl`;
+    const order = session.root ? [session.root, ...roots.filter((r) => r !== session.root)] : roots;
+    if (!order.length || !session.cwd) return "";
+    return this.remote(machine, remoteScripts.transcript(order.map((r) => `${r}/${file}`)), windows);
+  }
+
   async terminalInfo(address) {
     const hit = this.infos.get(address);
     if (hit && Date.now() - hit.at < 20000) return hit.info;
@@ -217,7 +316,7 @@ export class WaitingTracker {
   /** The pending subagents of one agent: [] when none or when unsure. The transcript is read again only when
    *  the agent changed turn since the last read (or `recheck`): a session that did not take a turn did not
    *  start or end a subagent, apart from the time limit, which is applied to the saved answer. */
-  async pending(candidate, roots, registry, now, recheck) {
+  async pending(candidate, roots, registry, now, recheck, machine = null, windows = false) {
     const kept = this.scans.get(candidate.address);
     if (kept && Number.isInteger(kept.turn) && kept.turn === candidate.turn && !recheck) {
       return this.alive(withShellStatus(kept.items, registry, kept.sessionId), now);
@@ -226,8 +325,16 @@ export class WaitingTracker {
     if (!info) return [];
     const session = pickSession({ ...info, cwd: candidate.cwd ?? info.cwd }, registry);
     if (!session) return [];
-    const path = await this.transcriptPath(session, roots);
     let items = [];
+    if (machine) {
+      let lines = null;
+      try { lines = await this.remoteTranscript(machine, session, roots, windows); } catch {}
+      items = scanTranscript(lines ?? "");
+      // When the machine did not answer, the next refresh reads again.
+      if (lines !== null) this.scans.set(candidate.address, { turn: candidate.turn, sessionId: session.sessionId, items });
+      return this.alive(withShellStatus(items, registry, session.sessionId), now);
+    }
+    const path = await this.transcriptPath(session, roots);
     if (path) {
       let body = "";
       try { body = await fs.readFile(path, "utf8"); } catch {}
@@ -249,12 +356,32 @@ export class WaitingTracker {
     const here = new Set(candidates.map((c) => c.address));
     for (const address of this.scans.keys()) if (!here.has(address)) this.scans.delete(address);
     if (candidates.length) {
-      const roots = await this.configRoots();
-      const registry = await this.registry(roots);
-      const results = await Promise.all(candidates.map((c) => this.pending(c, roots, registry, now, recheck.has(c.address)).catch(() => [])));
-      candidates.forEach((c, i) => {
-        if (results[i].length) next.set(c.address, { turn: c.turn, count: results[i].length, items: results[i] });
-      });
+      // Each machine has its own registry and transcripts (and its own process ids).
+      const groups = new Map(); // machine (null: this computer) -> candidates
+      for (const c of candidates) {
+        const m = machineOf(c.address);
+        if (!groups.has(m)) groups.set(m, []);
+        groups.get(m).push(c);
+      }
+      const found = new Map(); // address -> items
+      await Promise.all([...groups].map(async ([machine, list]) => {
+        const windows = list.some((c) => /^[A-Za-z]:[\\/]/.test(String(c.cwd ?? "")));
+        let roots = [];
+        let registry = [];
+        if (machine) {
+          try { registry = await this.remoteRegistry(machine, windows); } catch { return; }
+          roots = [...new Set(registry.map((r) => r.root))];
+        } else {
+          roots = await this.configRoots();
+          registry = await this.registry(roots);
+        }
+        const results = await Promise.all(list.map((c) => this.pending(c, roots, registry, now, recheck.has(c.address), machine, windows).catch(() => [])));
+        list.forEach((c, i) => found.set(c.address, results[i]));
+      }));
+      for (const c of candidates) { // in the order of `candidates`, so the comparison below is stable
+        const items = found.get(c.address) ?? [];
+        if (items.length) next.set(c.address, { turn: c.turn, count: items.length, items });
+      }
     }
     const changed = JSON.stringify([...next]) !== JSON.stringify([...this.waits]);
     this.waits = next;
