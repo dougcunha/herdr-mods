@@ -198,7 +198,7 @@ Save first asks Jira whether the filter parses and shows Jira's error instead of
 
 One template per mode (segmented), a monospace textarea, the placeholders as chips that insert at the cursor, a status line on whether the repository's `.herdr/prompts.md` overrides this mode, **Reset to default**, **Cancel** and **Save ⌘↵**. Saved in `shared("mod-settings")[mod].prompts`, only the changed modes.
 
-**Needs:** `gh` signed in and `git`; `curl` for the avatars (without it, initials show). Optional: the `gh stack` extension for **Fix stack to merge**. Optional: the [mod-buttons](../mod-buttons/RECIPE.md) layout for the **PRs** button in the tab bar; without it, open the list with `mod.open` or its key.
+**Needs:** `gh` signed in and `git`; `curl` for the avatars (without it, initials show). Optional: the `gh stack` extension for **Fix stack to merge**. Optional: the [mod-buttons](../mod-buttons/RECIPE.md) layout for the **Pull requests** button in the tab bar; without it, open the list with `mod.open` or its key.
 
 ### How it behaves
 

@@ -44,7 +44,7 @@ The `agents` block of the sidebar shows the `agent-cards` mod ([`agent-cards-app
 ```json
 {
   "panels": [
-    { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "group": "git" },
+    { "id": "repos", "label": "Dashboard", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "group": "git" },
     { "id": "ci", "label": "CI", "icon": "mods/tabs-dock/ci.svg", "mod": "ci-dash", "props": { "repo": "owner/name" } },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" }
   ]

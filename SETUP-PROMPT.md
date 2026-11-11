@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 58 -->
+<!-- herdr-mods-setup-version: 59 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -189,7 +189,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 {
   "panels": [
     { "id": "ci", "label": "CI", "icon": "mods/tabs-dock/ci.svg", "mod": "ci-dash" },
-    { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
+    { "id": "repos", "label": "Dashboard", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "props": { "root": "[BASE FOLDER OF MY REPOSITORIES]" }, "group": "git" },
     { "id": "specs", "label": "Specs", "icon": "mods/spec-board/specs.svg", "mod": "spec-board" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" },
     { "id": "kanban", "label": "Kanban", "icon": "mods/kanban/board.svg", "opens": "command", "run": "layout.switch", "args": { "name": "kanban" } },
@@ -197,12 +197,12 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
     { "id": "skills", "label": "Skills", "icon": "mods/skill-bundles/bundles.svg", "mod": "skill-bundles" },
     { "id": "automations", "label": "Automations", "icon": "mods/automations/zap.svg", "mod": "automations" },
     { "id": "issues", "label": "Issues", "icon": "mods/issues/issue.svg", "mod": "issues" },
-    { "id": "prs", "label": "PRs", "icon": "mods/prs/pr.svg", "mod": "prs", "group": "git" }
+    { "id": "prs", "label": "Pull requests", "icon": "mods/prs/pr.svg", "mod": "prs", "group": "git" }
   ]
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 3 exceptions: if the `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show it in the Git menu with Changes. Remove the `graph` entry (item 5: the Git panel has the graph now). If the `repos` entry has `"label": "Repos"`, change the label to `"Pending"`; keep any other label. Entries of mods that are new in this repository (item 21) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 3 exceptions: if the `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show it in the Git menu with Changes. Remove the `graph` entry (item 5: the Git panel has the graph now). If the `repos` entry has `"label": "Repos"` or `"label": "Pending"`, change the label to `"Dashboard"`. If the `prs` entry has `"label": "PRs"`, change the label to `"Pull requests"`. Keep any other label. Entries of mods that are new in this repository (item 21) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
 
 ### The places of `tokenhound`
 

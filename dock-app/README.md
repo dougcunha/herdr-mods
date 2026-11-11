@@ -71,7 +71,7 @@ The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod 
 ```json
 {
   "panels": [
-    { "id": "repos", "label": "Pending", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "group": "git" },
+    { "id": "repos", "label": "Dashboard", "icon": "mods/tabs-dock/repos.svg", "mod": "git-dash", "group": "git" },
     { "id": "insights", "label": "Insights", "icon": "mods/insights/insights.svg", "mod": "insights", "opens": "tab", "name": "Insights" }
   ]
 }

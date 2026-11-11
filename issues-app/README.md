@@ -83,7 +83,7 @@ The setup prompt of this repository installs the mods (item `issues-app`). By ha
 
    ```json
    { "id": "issues", "label": "Issues", "icon": "mods/issues/issue.svg", "mod": "issues" },
-   { "id": "prs", "label": "PRs", "icon": "mods/prs/pr.svg", "mod": "prs", "group": "git" }
+   { "id": "prs", "label": "Pull requests", "icon": "mods/prs/pr.svg", "mod": "prs", "group": "git" }
    ```
 
 3. Add the keys to `~/.config/herdr-app/keys.json`:

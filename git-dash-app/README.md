@@ -32,11 +32,11 @@ The mod has `"place": "none"`: it adds no panel by itself. Pick one way to show 
 With the [`dock-app`](../dock-app/README.md) layout, add one entry to `~/.config/herdr-app/dock/panels.json`:
 
 ```json
-{ "id": "repos", "label": "Pending", "icon": "mods/git-dash/repos.svg", "mod": "git-dash",
+{ "id": "repos", "label": "Dashboard", "icon": "mods/git-dash/repos.svg", "mod": "git-dash",
   "props": { "root": "D:/Projetos" } }
 ```
 
-The **Pending** button shows in the tab bar next to **Changes** and **CI**. A click shows the panel and a second click hides it.
+The **Dashboard** button shows in the **Git** menu of the tab bar, next to **Changes**. A click shows the panel and a second click hides it.
 
 ### A tab
 
