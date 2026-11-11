@@ -56,7 +56,7 @@ In PowerMods → **Settings** → **Space Deck**:
 | View | Cards |
 | Terminals | Shown space (also: All spaces, Off) |
 | Card: agents, tabs and terminals, git, folder and machine, last activity, note | On |
-| Git refresh | 15 s (5 to 120 s) |
+| Git refresh | 30 s (5 to 120 s) |
 | Needs you first | Off |
 | Recent spaces | 5 (0 hides the section) |
 

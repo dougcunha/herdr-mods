@@ -77,7 +77,7 @@ export function cardField(name) {
 
 export function gitEvery() {
   const n = Number(shared(KEYS.gitEvery));
-  return Number.isFinite(n) && n > 0 ? Math.min(120, Math.max(5, n)) : 15;
+  return Number.isFinite(n) && n > 0 ? Math.min(120, Math.max(5, n)) : 30;
 }
 
 export const needsYouFirst = () => shared(KEYS.needsYouFirst) === true;
