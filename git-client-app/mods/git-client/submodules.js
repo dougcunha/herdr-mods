@@ -85,7 +85,9 @@ export class Submodules {
         .children(list.map((s, i) => {
           const modified = s.changes > 0, state = modified && s.state === "ok" ? "modified" : s.state;
           return h_flex().id(`gsm-${i}`).h(ROW).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((st) => st.bg(t.hover))
-            .on_click((ev) => this.menu(s, ev))
+            // A click event has no position: the menu opens at the spot of the press.
+            .on_mouse_down("left", (ev) => { this.press = ev; })
+            .on_click(() => this.menu(s, this.press))
             .on_mouse_down("right", (ev, cx) => { cx.stop_propagation(); this.menu(s, ev); })
             .child(div().size(8).flex_none().rounded(4).bg(modified && s.state === "ok" ? t.blocked : color[s.state] ?? t.dim))
             .child(v_flex().flex_1().min_w(0)

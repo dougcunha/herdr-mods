@@ -93,7 +93,9 @@ export class Branches {
 
   row(id, glyph, glyphColor, name, detail, right, target, t, extra = null) {
     return h_flex().id(id).h(ROW).flex_none().pl(24).pr(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-      .on_click((e) => this.menu(target, e))
+      // A click event has no position: the menu opens at the spot of the press.
+      .on_mouse_down("left", (e) => { this.press = e; })
+      .on_click(() => this.menu(target, this.press))
       .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); this.menu(target, e); })
       .child(svg(icon(glyph)).size(12).flex_none().text_color(glyphColor))
       .child(h_flex().flex_1().min_w(0).gap(6).items_center()
