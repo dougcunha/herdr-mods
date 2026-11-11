@@ -360,7 +360,11 @@ export default class SpaceIssues extends View {
         page = await this.fetchPage(i);
         if (this.open === i) { this.page = page; this.pageError = null; }
       }
-      catch (e) { if (this.open === i && !this.page) this.pageError = String(e?.message ?? e); }
+      catch (e) {
+        if (this.open === i && !this.page) this.pageError = String(e?.message ?? e);
+        // The page stays as it was: a toast tells that the refresh failed.
+        else if (this.open === i) notify({ title: `${i.key} did not refresh`, body: String(e?.message ?? e).slice(0, 300), level: "error" });
+      }
       if (seq === this.pageSeq) this.pageLoading = false;
       cx.notify(this.pageView);
       // The pictures of the people on the page (Jira), then the page again with them.
@@ -759,14 +763,18 @@ export default class SpaceIssues extends View {
     const q = m[2];
     if (this.atUser?.q === q) return;
     const seq = ++this.atSeq;
-    this.atUser = { q, start: m.index + m[1].length, end: text.length, users: this.atUser?.users ?? null, at: 0 };
+    // While the search runs, the list keeps only the names that still match.
+    const lq = q.toLowerCase();
+    const kept = this.atUser?.users?.filter((u) => u.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(lq))) ?? [];
+    this.atUser = { q, start: m.index + m[1].length, end: text.length, users: kept.length ? kept : null, error: "", at: 0 };
     cx.notify(this.pageView);
     cx.spawn(async (cx) => {
       await cx.sleep(250);
       if (seq !== this.atSeq) return;
-      const users = await mentionable(i.site, i.key, q).catch(() => []);
+      let users = [], error = "";
+      try { users = await mentionable(i.site, i.key, q); } catch (e) { error = String(e?.message ?? e).slice(0, 200); }
       if (seq !== this.atSeq || !this.atUser) return;
-      this.atUser.users = users; this.atUser.at = 0; cx.notify(this.pageView);
+      this.atUser.users = users; this.atUser.error = error; this.atUser.at = 0; cx.notify(this.pageView);
     });
   }
   // Puts "@Name " in the place of the typed "@name"; Comment sends it as a Jira mention.
@@ -777,7 +785,10 @@ export default class SpaceIssues extends View {
     this.atUser = null; this.atSeq++;
     this.named.set(u.name, u.id);
     this.commentBox.set_value(`${text.slice(0, m.start)}@${u.name} ${text.slice(m.end)}`);
-    try { this.commentBox.focus(); } catch { /* not shown */ }
+    // A click on a row takes the keyboard from the box: give it back after the click.
+    const refocus = () => { try { this.commentBox.focus(); } catch { /* not shown */ } };
+    refocus();
+    try { cx.timer.after(40, refocus); } catch { /* the first focus stays */ }
     cx.notify(this.pageView);
   }
   // The text with each picked "@Name" as "\0<index>\0", and the people of those indexes.
@@ -797,7 +808,8 @@ export default class SpaceIssues extends View {
   mentionList(t) {
     const m = this.atUser, users = m.users ?? [];
     const box = v_flex().id("mention-list").gap(1).p(4).rounded(8).border_1().border_color(t.border).bg(t.background).text_size(fs.meta);
-    if (!users.length) return box.child(div().px(6).py(3).text_color(t.dim).child(m.users ? `No one matches @${m.q}.` : "Searching people…"));
+    if (!users.length) return box.child(div().px(6).py(3).text_color(m.error ? t.ansi1 : t.dim)
+      .child(m.error ? `The search failed: ${m.error}` : m.users ? `No one matches @${m.q}.` : "Searching people…"));
     return box.children(users.map((u, n) => h_flex().id(`mention-${n}`).gap(6).items_center().px(6).py(3).rounded(6).min_w(0)
       .when(n === m.at, (e) => e.bg(t.hover))
       .cursor_pointer().hover((s) => s.bg(t.hover))
