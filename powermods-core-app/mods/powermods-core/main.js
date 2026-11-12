@@ -154,8 +154,7 @@ export default class PowerModsCore extends View {
         .child(div().text_color(t.accent).child(svg(ICON).size(16)))
         .child(v_flex().flex_1().min_w(0)
           .child(div().font_semibold().text_size(14).child("PowerMods Core"))
-          .child(div().text_size(11.5).text_color(t.muted).child("The setup of every new worktree. The last worktrees are in PowerMods → Worktrees.")))
-        .child(this.button(t, "pmc-worktrees", "Worktrees", () => { this.closeDialog(); openWorktrees(); })))
+          .child(div().text_size(11.5).text_color(t.muted).child("The setup of every new worktree. The last worktrees are in PowerMods → Worktrees."))))
       .child(this.setupView(t));
   }
 
