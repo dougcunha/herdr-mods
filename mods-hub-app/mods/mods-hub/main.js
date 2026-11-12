@@ -196,6 +196,9 @@ export default class ModsUpdate extends View {
     this.keyAsk = null; // { action, chord, other }: the new keys run another action now
     this.keyError = null;
     this.inputs = new Map(); // field id -> InputState of a text field
+    this.query = ""; // the text of the filter field, in lower case
+    this.search = InputState.new({ placeholder: "Filter the settings of all mods" });
+    this.search.on("change", (_e, cx) => { this.query = this.search.value().trim().toLowerCase(); cx.notify(); });
     this.handle = cx.focus_handle();
     this.handle.focus();
     cx.timer.after(40, () => this.handle.focus());
@@ -378,9 +381,32 @@ export default class ModsUpdate extends View {
   selectSection(id, cx) {
     this.capture = null;
     this.keyAsk = null;
+    // A click on a section while the filter is on shows the whole section.
+    if (this.query) {
+      this.search.set_value("");
+      this.query = "";
+    }
     setState({ section: id });
     this.prepareInputs();
     cx.notify();
+  }
+
+  /**
+   * The sections with the fields that match the filter text, or null when the filter is empty.
+   * Each word must be in the label, the hint, the option names or the name of the section.
+   * Each field keeps its index `i`: its id (fieldId) must not change.
+   */
+  filtered(list) {
+    const words = this.query.split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    return list.map((s) => ({
+      ...s,
+      found: s.fields.map((f, i) => ({ f, i })).filter(({ f }) => {
+        const text = [s.label, s.id, f.label, f.hint, f.button, f.placeholder, ...(f.options ?? []).map((o) => o.label ?? o.value)]
+          .filter((x) => x != null).join(" ").toLowerCase();
+        return words.every((w) => text.includes(w));
+      }),
+    })).filter((s) => s.found.length);
   }
 
   /** The id of the control of 1 field. fieldRow uses the same id. */
@@ -735,11 +761,24 @@ export default class ModsUpdate extends View {
 
   /** The Settings tab: the sections at the left, the fields of the chosen section at the right. */
   renderSettings(t) {
-    const frame = h_flex().w_full().h(360).rounded(6).bg(t.background).border_1().border_color(t.border).overflow_hidden();
+    const frame = h_flex().w_full().h(324).rounded(6).bg(t.background).border_1().border_color(t.border).overflow_hidden();
     const message = (text, color = t.dim) => frame.child(div().p(12).text_size(12).text_color(color).child(text));
     if (this.mods == null) return message("Reading the mods folder…");
     const list = this.sections();
     if (!list.length) return message("No installed kit mod has settings. Run the setup (Update tab) to get the newest mods.");
+    const found = this.filtered(list);
+    const total = list.reduce((n, s) => n + s.fields.length, 0);
+    const hits = found ? found.reduce((n, s) => n + s.found.length, 0) : total;
+    const searchRow = h_flex().id("mh-filter").w_full().h(30).px(10).gap(8).flex_none().items_center().rounded(7)
+      .bg(t.popover).border_1().border_color(this.query ? t.accent : t.input).cursor_text()
+      .child(Input.new(this.search).h_full().flex_1().min_w(0).text_size(12))
+      .child(div().flex_none().text_size(11.5).text_color(t.dim).child(found ? `${hits}/${total}` : `${total}`))
+      .when(Boolean(this.query), (el) => el.child(div().id("mh-filter-clear").flex_none().px(4).cursor_pointer().text_size(13)
+        .text_color(t.muted).hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => { this.search.set_value(""); this.query = ""; cx.notify(); })
+        .child("×")));
+    const wrap = (el) => v_flex().w_full().gap(6).child(searchRow).child(el);
+    if (found) return wrap(this.renderFound(t, frame, found));
     const shown = this.shownSection(list);
     const nav = v_flex().id("mh-sections").w(150).flex_none().h_full().p(4).gap(2).border_r(1).border_color(t.border)
       .overflow_y_scrollbar()
@@ -759,6 +798,26 @@ export default class ModsUpdate extends View {
         .child(div().flex_1().min_w(0).child(shown.credit.text))
         .when(Boolean(shown.credit.url), (r) => r.child(div().id(`mh-credit-${shown.id}`).flex_none().cursor_pointer().text_color(t.accent)
           .hover((s) => s.opacity(0.8)).on_click(() => openUrl(shown.credit.url)).child("Open ↗")))));
+    return wrap(frame.child(nav).child(body));
+  }
+
+  /**
+   * The Settings tab while the filter is on: the sections with matches at the left (a click shows
+   * the whole section), and the matching fields of all sections, under the name of their section.
+   */
+  renderFound(t, frame, found) {
+    if (!found.length) return frame.child(div().p(12).text_size(12).text_color(t.dim).child("No setting matches the filter."));
+    const nav = v_flex().id("mh-found-sections").w(150).flex_none().h_full().p(4).gap(2).border_r(1).border_color(t.border)
+      .overflow_y_scrollbar()
+      .children(found.map((s) => h_flex().id(`mh-found-sec-${s.id}`).w_full().h(28).px(8).gap(6).flex_none().items_center().rounded(5)
+        .cursor_pointer().text_size(12.5).text_color(t.muted).hover((st) => st.bg(t.hover))
+        .on_click((_e, cx) => this.selectSection(s.id, cx))
+        .child(div().flex_1().min_w(0).truncate().child(s.label))
+        .child(div().flex_none().text_size(11).text_color(t.dim).child(String(s.found.length)))));
+    const body = v_flex().id(`mh-found-${this.query}`).flex_1().min_w(0).h_full().px(14).pb(10).overflow_y_scrollbar()
+      .children(found.map((s) => v_flex().w_full().flex_none()
+        .child(div().pt(10).pb(2).text_size(11).font_semibold().text_color(t.accent).child(s.label))
+        .children(s.found.map(({ f, i }) => this.fieldRow(t, s.id, f, i)))));
     return frame.child(nav).child(body);
   }
 

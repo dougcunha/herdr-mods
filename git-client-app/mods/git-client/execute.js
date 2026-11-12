@@ -1,10 +1,11 @@
 // Action execution is separate from the UI so context checks can be tested
 // against disposable repositories. exec has Herdr's (program, argv, options) shape.
-// io: { writePatch(text) → path, remove(path) }, for hunk patches in a local repository.
-import { READ, commandsFor, gitError } from "./git.js";
+// io: { writePatch(text) → path, remove(path) }, for hunk patches in a local repository,
+// and appendLine(file, line), for the ignore files of a local repository.
+import { READ, commandsFor, gitError, ignoreLine } from "./git.js";
 
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
-const STAGING = new Set(["stage", "unstage", "discard", "stageHunk", "unstageHunk", "discardHunk",
+const STAGING = new Set(["stage", "unstage", "discard", "ignore","stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove"]);
@@ -13,6 +14,7 @@ const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discard
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
   if (HUNK[action.type]) return applyPatch(action.patch, HUNK[action.type], ctx, exec, io);
+  if (action.type === "ignore") return addIgnore(action, ctx, exec, io);
   const commands = commandsFor(action, values, ctx);
   // A dialog/menu describes this snapshot, not whatever HEAD happens to be
   // when the user confirms it. Fetch does not operate on the current branch.
@@ -61,5 +63,27 @@ async function applyPatch(patch, flags, ctx, exec, io) {
     finally { await io.remove(file); }
   }
   if (result.code !== 0) return { ok: false, message: `${gitError(result)}\nIf the file changed after the diff was read, refresh and try again.` };
+  return { ok: true };
+}
+
+// Adds a line for one file to the .gitignore at the top of the work tree, or to the exclude file
+// of the repository (its own for a worktree: git says where). A line that is already there stays once.
+async function addIgnore(action, ctx, exec, io) {
+  if (typeof action.path !== "string" || !action.path) return { ok: false, message: "Invalid path" };
+  let file = `${ctx.root}/.gitignore`;
+  if (action.where === "exclude") {
+    const r = await exec("git", [...READ, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], { cwd: ctx.root, on: ctx.on });
+    if (r.code !== 0 || !r.stdout.trim()) return { ok: false, message: gitError(r) || "Cannot find the exclude file" };
+    file = r.stdout.trim();
+  }
+  const line = ignoreLine(action.path);
+  if (ctx.on) {
+    // Makes the folder, ends an unfinished last line, and adds the line when it is not there.
+    const script = 'mkdir -p "$(dirname "$1")" && touch "$1" && { grep -qxF -- "$2" "$1" || { [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ] && echo >> "$1"; printf "%s\\n" "$2" >> "$1"; }; }';
+    const r = await exec("sh", ["-c", script, "sh", file, line], { cwd: ctx.root, on: ctx.on });
+    return r.code === 0 ? { ok: true } : { ok: false, message: gitError(r) || `Cannot write ${file}` };
+  }
+  if (!io?.appendLine) return { ok: false, message: `Cannot write ${file}` };
+  try { await io.appendLine(file, line); } catch (e) { return { ok: false, message: `Cannot write ${file}: ${e?.message ?? e}` }; }
   return { ok: true };
 }

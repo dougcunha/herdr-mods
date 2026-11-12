@@ -880,8 +880,8 @@ export default class Kanban extends View {
           .child(this.s("resetButtons"))));
   }
 
-  /** The menu of the gear button. "PowerMods" opens the dialog on its Settings tab (the tab that the
-   *  mods-hub keeps in shared("mods-hub").tab). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
+  /** The menu of the gear button. "PowerMods" opens the dialog on its Settings tab, on the section of this bar (the tab and
+   *  the section that the mods-hub keeps in shared("mods-hub")). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
    *  for the editor ("kanban.buttons"): the bar knows the buttons. */
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
@@ -895,7 +895,7 @@ export default class Kanban extends View {
       .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
       .child(row("buttons", "buttons", this.s("gearButtons"), () => run("kanban.buttons")))
       .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => {
-        setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
+        setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings", section: "kanban" });
         run("mod.open", { name: "mods-hub" });
       })));
   }
