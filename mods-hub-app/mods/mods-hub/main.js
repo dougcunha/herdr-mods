@@ -5,9 +5,10 @@
 // on GitHub with the version of the last run of the prompt on this machine
 // (data/herdr-mods-setup.json). When GitHub has a newer version, it shows an
 // "Update mods" button and posts 1 toast. The button (or `mod.open`) opens
-// this mod as a dialog with 4 tabs: Mods (the installed mods, where they come
+// this mod as a dialog with 5 tabs: Mods (the installed mods, where they come
 // from, errors, local changes and, for third-party mods, a newer version on
-// GitHub), Settings, What's new (whats-new/<version>.md) and Update (the person
+// GitHub), Settings, Worktrees (the last worktrees of PowerMods Core; only
+// while the core runs), What's new (whats-new/<version>.md) and Update (the person
 // chooses an agent, and the mod starts it in a new space with the prompt of
 // SETUP-PROMPT.md, or with its section for 1 third-party mod).
 
@@ -23,6 +24,7 @@ import {
 } from "./setup.js";
 import { scanMods, checkChanges, checkThird, thirdStatus, compareUrl, installedThird } from "./mods.js";
 import { canTurnOff, isOn, setOn } from "./onoff.js";
+import { renderWorktrees, coreLoaded } from "./worktrees.js";
 
 /** Opens a web page in the browser of this computer. */
 function openUrl(url) {
@@ -34,7 +36,9 @@ function openUrl(url) {
 /** A short form of a commit date: "2026-11-07". */
 const day = (iso) => String(iso ?? "").slice(0, 10);
 
-const TABS = [["mods", "Mods"], ["settings", "Settings"], ["news", "What's new"], ["update", "Update"]];
+const TABS = [["mods", "Mods"], ["settings", "Settings"], ["worktrees", "Worktrees"], ["news", "What's new"], ["update", "Update"]];
+/** The tabs that the dialog shows now: Worktrees only while PowerMods Core runs. */
+const shownTabs = () => TABS.filter(([k]) => k !== "worktrees" || coreLoaded());
 /** The mod whose `settings` make the "Kit" section: the settings of the whole kit. */
 const KIT_SECTION = MOD;
 const ORIGINS = [["kit", "Kit"], ["third", "Third-party"], ["manual", "Manual"], ["herdr", "Herdr"]];
@@ -67,7 +71,7 @@ export default class ModsUpdate extends View {
           this.readLocal(cx);
           this.check(cx, true);
         }
-        // `mods-hub.open-<tab>` (mods, settings, news, update) opens the dialog on that tab.
+        // `mods-hub.open-<tab>` (mods, settings, worktrees, news, update) opens the dialog on that tab.
         const tab = c.match(/^open-(.+)$/)?.[1];
         if (tab && TABS.some(([k]) => k === tab)) {
           setState({ tab, newsSeen: state().remote });
@@ -185,6 +189,7 @@ export default class ModsUpdate extends View {
     this.changes = new Map(); // mod name -> checkChanges() result (null: nothing to compare)
     this.filter = "kit";
     this.openMod = null; // the name of the expanded row
+    this.openJob = null; // Worktrees tab: the id of the expanded row
     this.readme = null; // { app, name, loading } | { app, name, text } | { app, name, error }
     // Settings tab
     this.capture = null; // { id, action }: a key field that waits for the new keys
@@ -195,6 +200,8 @@ export default class ModsUpdate extends View {
     this.handle.focus();
     cx.timer.after(40, () => this.handle.focus());
     this.loadMods(cx);
+    // The Worktrees tab shows times ("40 s ago"): draw it again every second.
+    cx.timer.every(1000, (cx) => { if (this.shownTab() === "worktrees") cx.notify(); });
     cx.spawn(async (cx) => {
       this.local = await installedVersion();
       this.tab = this.startTab();
@@ -279,12 +286,13 @@ export default class ModsUpdate extends View {
   startTab() {
     const s = state();
     if (this.local != null && updateAvailable(this.local) && s.newsSeen !== s.remote) return "news";
-    return TABS.some(([k]) => k === s.tab) ? s.tab : "mods";
+    return shownTabs().some(([k]) => k === s.tab) ? s.tab : "mods";
   }
 
   /** The tab that the dialog shows. */
   shownTab() {
-    return this.tab ?? "mods";
+    const tab = this.tab ?? "mods";
+    return shownTabs().some(([k]) => k === tab) ? tab : "mods";
   }
 
   /** Reads the mods folder and the record, then checks the kit mods for local changes. */
@@ -537,7 +545,7 @@ export default class ModsUpdate extends View {
         .child(label);
     };
     const tabs = h_flex().w_full().gap(4).border_b(1).border_color(t.border)
-      .children(TABS.map(([key, label]) => tabButton(key, label)));
+      .children(shownTabs().map(([key, label]) => tabButton(key, label)));
 
     const footButton = (id, label, onClick) =>
       h_flex().id(id).h(28).px(12).items_center().rounded(6).cursor_pointer().text_size(12.5)
@@ -556,6 +564,7 @@ export default class ModsUpdate extends View {
       .child(tabs)
       .when(tab === "mods", (el) => el.child(this.readme ? this.renderReadme(t) : this.renderMods(t)))
       .when(tab === "settings", (el) => el.child(this.renderSettings(t)))
+      .when(tab === "worktrees", (el) => el.child(renderWorktrees(t, this)))
       .when(tab === "update" && !!this.thirdUpdate, (el) => el
         .child(div().text_size(12).text_color(t.dim).child(
           `The agent that you choose updates only the third-party mod ${this.thirdUpdate}, with the rules of SETUP-PROMPT.md: `

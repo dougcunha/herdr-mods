@@ -21,10 +21,9 @@ The block keeps the core running. **The core runs only while the shown layout ha
 
 ## What you see
 
-- **Status bar item:** `ModsCore`, with the number of running setups after it. Red after a failed setup. A click opens the dialog.
-- **Dialog** (`mod.open:powermods-core`):
-  - **Worktrees:** the last worktrees that the core made or removed, with their state, folder, copied files and the output of the setup.
-  - **Setup:** the commands for every new worktree, 1 for each line.
+- **Status bar item:** `ModsCore`, with the number of running setups after it. Red after a failed setup. A click opens the **Worktrees** tab of the PowerMods dialog (`mods-hub`).
+- **Worktrees** tab of PowerMods: the last worktrees that the core made or removed, with their state, folder, copied files and the output of the setup. The tab shows only while the core runs.
+- **Dialog** (`mod.open:powermods-core`): the commands for every new worktree, 1 for each line.
 - **Question:** before the commands of a repository run, the core shows them and asks. It asks again when the file changes.
 
 ## Settings

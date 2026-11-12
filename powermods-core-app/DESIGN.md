@@ -220,8 +220,8 @@ When `on` names another machine:
 
 - It shows a small worktree icon.
 - While a setup runs, it shows the number of setups that run.
-- A click opens a dialog: the last worktrees that the core made, and the log
-  of the setup of each one.
+- A click opens the Worktrees tab of the PowerMods dialog (`mods-hub`): the
+  last worktrees that the core made, and the log of the setup of each one.
 
 ## Scope of version 1
 

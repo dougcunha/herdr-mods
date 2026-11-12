@@ -22,7 +22,7 @@ Open it with a click on the status bar item, with `ctrl-shift-h` (`cmd-shift-h` 
 
 The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **PowerMods**. **PowerMods** opens the dialog on its **Settings** tab.
 
-The dialog has 4 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
+The dialog has 5 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
 
 ### Mods
 
@@ -84,6 +84,10 @@ Each mod also keeps its own controls, so it works without the hub. The list of s
 
 A shortcut field writes the `global` section of `~/.config/herdr-app/keys.json`. **Change**, then press the new keys. When the keys run another action, the dialog asks before it replaces it. A new key removes the other keys of the same action, also the macOS key.
 
+### Worktrees
+
+The last worktrees that PowerMods Core (`powermods-core`) made or removed: the branch, the repository, the state, the folder and the number of copied files. A click on a row shows the output of the setup and **Show the space**. **Clear the finished ones** keeps only the running ones. **Setup commands…** opens the dialog of the core. The tab shows only while the core runs. A click on the `ModsCore` status bar item opens this tab.
+
 ### What's new
 
 The release notes of each version after your last run, newest first. The mod downloads them from [`whats-new/<N>.md`](../whats-new). When you have the newest version, the tab shows the notes of that version.
@@ -99,7 +103,7 @@ The prompt finds out by itself what is installed. It installs the new mods, upda
 - **Check now** downloads `SETUP-PROMPT.md` and the release notes again, and asks GitHub for the third-party mods again. On the **Mods** tab, it also reads the mods folder again.
 - **Skip version N** hides the button until a newer version comes. The dialog still opens from the dim item.
 - `herdr-app do mods-hub.check` checks GitHub from a shell (the status item must be on screen).
-- `mods-hub.off-<mod>` and `mods-hub.on-<mod>` turn a kit mod off and on, and `mods-hub.open-<tab>` opens the dialog on a tab (`mods`, `settings`, `news`, `update`). Bind them to keys in `keys.json`, or run them with `herdr-app do` (the status item must be on screen).
+- `mods-hub.off-<mod>` and `mods-hub.on-<mod>` turn a kit mod off and on, and `mods-hub.open-<tab>` opens the dialog on a tab (`mods`, `settings`, `worktrees`, `news`, `update`). Bind them to keys in `keys.json`, or run them with `herdr-app do` (the status item must be on screen).
 
 ## Install
 
@@ -134,7 +138,7 @@ The new mod reads the shared state of `mods-update` (the skipped version, the la
 - **Files:** it reads `data/herdr-mods-setup.json`, `installed.json`, and the files of the folders in `mods/` (to list them, read their `kit.json` and compare the kit files with their hashes). It writes `data/herdr-mods-setup-prompt.md`, and `keys.json` when you change a shortcut on the **Settings** tab. All in `~/.config/herdr-app`.
 - **Settings:** the **Settings** tab writes the `shared()` keys that the `kit.json` files name (for example `kanban.density`, `agent-resume.config`, `git-dash.roots`, `herdr-mods.lang`). An object key keeps its other fields.
 - **Programs:** `explorer`, `open` or `xdg-open` only when you click **Compare on GitHub** or **Open on GitHub**. It starts the agent that you choose with the `space.new` command, with the `run` entry of that agent in Herdr's program table.
-- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked, the last row of the Settings tab, and the last version whose notes the dialog showed. Its field `third` holds the last commit of each third-party mod on GitHub, the errors and the time of that check.
+- **Shared state:** the key `mods-hub` holds the version on GitHub, the time of the last check, the version that you skipped, the version that got a toast, the last tab that you clicked, the last row of the Settings tab, and the last version whose notes the dialog showed. Its field `third` holds the last commit of each third-party mod on GitHub, the errors and the time of that check. The **Worktrees** tab reads the key `powermods-core.jobs`, and **Clear the finished ones** writes it.
 
 ## Notes
 
