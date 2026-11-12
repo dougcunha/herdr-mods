@@ -70,7 +70,7 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 - **Remove** on a Source: takes the skill out of `sources:` and uninstalls it.
 - **Batch buttons on the title of a group:** **Update N** on a Bundle or Sources group installs its Missing and Outdated skills. The Extra group (2 or more skills) has **Keep all** (adds all to `sources:` in one write) and **Remove all** (one `npx skills remove`, after a second click). The Local group (2 or more skills) has **Remove all** (deletes all their folders, after a second click).
 - A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
-- The refresh button of the header fetches the Catalog at once. The gear opens the Settings of PowerMods.
+- The refresh button of the header fetches the Catalog at once. The gear opens the Settings of PowerMods, on the row of Skill Bundles.
 
 ### Offer to update
 

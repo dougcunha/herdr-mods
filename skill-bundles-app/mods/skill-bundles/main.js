@@ -622,9 +622,9 @@ export default class SkillBundles extends View {
     openOverlay({ mod: MOD, kind: "dialog", width: 620, height: 680, props: { part: "dialog", lang: this.lang } });
   }
 
-  /** Opens the Settings tab of the mods-hub dialog (its tab is kept in its shared state). */
+  /** Opens the Settings tab of the mods-hub dialog on the section of this mod (both are kept in its shared state). */
   openSettings() {
-    setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings" });
+    setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings", section: MOD });
     run("mod.open", { name: "mods-hub" });
   }
 

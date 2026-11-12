@@ -20,7 +20,7 @@ No preview of the dialog ships with this recipe: a real screenshot shows the mod
 
 Open it with a click on the status bar item, with `ctrl-shift-h` (`cmd-shift-h` on macOS; the setup adds the key only when it is free), or with `mod.open:mods-hub` in the palette.
 
-The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **PowerMods**. **PowerMods** opens the dialog on its **Settings** tab.
+The gear button of the `kanban` and `tabs-dock` bars opens a menu with **Herdr settings** and **PowerMods**. **PowerMods** opens the dialog on its **Settings** tab, on the row of that bar. The gear of the `skill-bundles` panel opens the row of Skill Bundles.
 
 The dialog has 5 tabs. When an update is available and you did not see its notes yet, it opens on **What's new**. Otherwise it opens on the last tab that you clicked, or on **Mods**.
 
@@ -71,6 +71,8 @@ The status item shows `↑N` in the accent color next to `mods vN` when N third-
 ### Settings
 
 The settings of the kit mods in one place. At the left: **Kit** (the settings of the whole kit), then 1 row per installed kit mod with settings. At the right: the settings of the chosen row. A change is saved at once, and the mod shows it at once. The dialog opens on the last row that you chose.
+
+The filter field above the rows searches the settings of all mods. Type 1 or more words: each word must be in the name of the setting, its hint, its options or the name of its mod. The left column then shows only the mods with matches, with the number of matches. The right column shows all matches, under the name of their mod. Click a mod at the left to clear the filter and show all its settings. Click × to clear the filter.
 
 - **Kit:** the language of the Kanban, Dock and Git Dash bars (or **Each layout decides**: the `lang` prop of each layout), and the shortcut of PowerMods.
 - **agent-resume:** Auto resume, Shell wait, Toast, Agents without a hook.
