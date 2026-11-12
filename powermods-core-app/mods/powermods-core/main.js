@@ -133,7 +133,9 @@ export default class PowerModsCore extends View {
     }
     return root
       .child(v_flex().flex_none().gap(3).px(16).pt(14).pb(12).border_b_1().border_color(t.border)
-        .child(div().font_semibold().text_size(14).child("Run the setup commands of this repository?"))
+        .child(h_flex().gap(10).items_center()
+          .child(div().flex_1().min_w(0).font_semibold().text_size(14).child("Run the setup commands of this repository?"))
+          .child(this.closeButton(t, "pmc-trust-close", "Close: skip them", () => this.answer(false))))
         .child(div().text_size(11.5).text_color(t.muted).child(`${info.repo}${info.on ? ` on ${info.on}` : ""} · .herdr/worktree.json`)))
       .child(v_flex().id("pmc-trust-body").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(12).gap(10)
         .child(div().text_color(t.muted).child("These commands come from the repository, so another person can have written them. They run in the new worktree with your account. Read them before you say yes."))
@@ -154,7 +156,8 @@ export default class PowerModsCore extends View {
         .child(div().text_color(t.accent).child(svg(ICON).size(16)))
         .child(v_flex().flex_1().min_w(0)
           .child(div().font_semibold().text_size(14).child("PowerMods Core"))
-          .child(div().text_size(11.5).text_color(t.muted).child("The setup of every new worktree. The last worktrees are in PowerMods → Worktrees."))))
+          .child(div().text_size(11.5).text_color(t.muted).child("The setup of every new worktree. The last worktrees are in PowerMods → Worktrees.")))
+        .child(this.closeButton(t, "pmc-close-x", "Close", () => this.closeDialog())))
       .child(this.setupView(t));
   }
 
@@ -176,6 +179,15 @@ export default class PowerModsCore extends View {
         .child(div().font_semibold().child("The setup of a repository"))
         .child(div().text_size(11.5).text_color(t.muted).font_family("Menlo").child('.herdr/worktree.json: { "copy": [".env"], "run": ["npm install"], "runWindows": ["npm install"] }'))
         .child(div().text_size(11.5).text_color(t.dim).child("copy: git-ignored files of the main checkout (globs; .worktreeinclude works too). run: its commands; the core asks you before they run, and again when the file changes.")));
+  }
+
+  /** The × at the right end of the title row of a dialog (the same look as the title row of the dock's dialogs). */
+  closeButton(t, id, tooltip, onClick) {
+    return div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
+      .hover((s) => s.bg(t.hover)).tooltip(tooltip)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+      .child(svg("mods/powermods-core/close.svg").size(13).text_color(t.muted));
   }
 
   button(t, id, text, onClick, primary = false) {

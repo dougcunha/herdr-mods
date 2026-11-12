@@ -31,6 +31,8 @@ const machineChip = (t, machine) => {
 };
 // The dialog that shows this panel: its own overlay, or the dock's panel dialog; null in the side panel.
 const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the tab bar shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 const TABS = [
   { id: "changes", label: "Changes", icon: "changes" },
@@ -178,7 +180,8 @@ export class Client {
           .when(Boolean(n), (e) => e.child(div().px(5).rounded(8).bg(on ? t.background : t.raised).text_size(10.5).text_color(t.muted).child(String(n))));
       }))
       .child(div().flex_1())
-      .child(this.iconButton("gc-refresh", "refresh", null, "Refresh", this.history.state !== "nofolder", (cx) => this.history.refresh(cx), t));
+      .child(this.iconButton("gc-refresh", "refresh", null, "Refresh", this.history.state !== "nofolder", (cx) => this.history.refresh(cx), t))
+      .when(Boolean(ownDialog()), (e) => e.child(this.iconButton("gc-close", "x", null, "Close", true, () => closeOverlay(ownDialog()), t)));
   }
 
   branchBar(t) {

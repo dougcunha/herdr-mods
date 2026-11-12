@@ -23,6 +23,8 @@ import { demoSpecs } from "./demo.js";
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("spec-board"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the header shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 const MOD = "spec-board";
 const KEY_LANG = "herdr-mods.lang";
@@ -645,7 +647,8 @@ export default class SpecBoard extends View {
         .when(Boolean(sub), (e) => e.child(div().text_size(11).text_color(t.dim).truncate().child(sub))))
       .child(this.iconBtn(t, "sb-new", "plus", this.s("newSpec"), (cx) => this.openNew(cx), { active: this.sheet?.kind === "new" }))
       .child(this.iconBtn(t, "sb-sort", "sort", this.s("sort"), (cx) => { this.sortOpen = !this.sortOpen; cx.notify(); }, { active: this.sortOpen }))
-      .child(this.iconBtn(t, "sb-refresh", "refresh", this.s("refresh"), (cx) => this.refresh(cx), { spin: this.loading }));
+      .child(this.iconBtn(t, "sb-refresh", "refresh", this.s("refresh"), (cx) => this.refresh(cx), { spin: this.loading }))
+      .when(Boolean(ownDialog()), (e) => e.child(this.iconBtn(t, "sb-close", "close", "Close", () => closeOverlay(ownDialog()))));
   }
 
   get sortMode() {

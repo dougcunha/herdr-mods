@@ -2,7 +2,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex, Input, Textarea } from "gpui-base";
-import { settings } from "herdr";
+import { settings, props, shared, closeOverlay } from "herdr";
 
 export const icon = (name) => `mods/automations/${name}.svg`;
 export const mono = () => settings()?.font_family ?? "JetBrains Mono";
@@ -24,6 +24,21 @@ export function button(t, id, text, action, { kind = "plain", iconName = null, t
   if (tip) el = el.tooltip(tip);
   if (iconName) el = el.child(svg(icon(iconName)).size(13).flex_none().text_color(fg));
   return text ? el.child(text) : el;
+}
+
+/**
+ * The × at the right end of a header: it closes the dialog of this mod. Only in a dialog of the mod's own,
+ * not in a panel dialog of the dock (its title row has its own ×) or in a side panel. The `when` helper
+ * of a header: `.when(Boolean(closeX(t)), (e) => e.child(closeX(t)))`.
+ */
+export function closeX(t) {
+  const o = props()?.overlay;
+  if (!o || shared("kanban.panelDialog")?.id === o) return null;
+  return div().id("au-close").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
+    .hover((s) => s.bg(t.hover)).tooltip("Close")
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(o); })
+    .child(svg(icon("close")).size(13).text_color(t.muted));
 }
 
 /** A square icon button. */

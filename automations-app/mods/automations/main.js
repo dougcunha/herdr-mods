@@ -363,7 +363,8 @@ export default class Automations extends View {
     return h_flex().w_full().h(52).px(16).gap(10).items_center().flex_none().border_b(1).border_color(t.border)
       .when(Boolean(left), (e) => e.child(left))
       .child(div().flex_1().min_w(0).text_size(15).font_semibold().truncate().child(title))
-      .children(right);
+      .children(right)
+      .when(Boolean(U.closeX(t)), (e) => e.child(U.closeX(t)));
   }
 
   listView(t) {

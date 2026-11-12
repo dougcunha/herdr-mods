@@ -26,6 +26,8 @@ function stateColor(t, state) {
 
 /** The dialog that shows this mod: its own overlay or the Dock's panel dialog. */
 const dialogId = () => props()?.overlay ?? shared("kanban.panelDialog")?.id ?? null;
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the header shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 /** In a dialog, a click gives the panel the keyboard, so Esc closes the dialog (see AGENTS.md). */
 function dialogKeys(el, handle) {
@@ -89,7 +91,8 @@ function header(t, m) {
     .child(div().flex_none().font_semibold().child(m.str.title))
     .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(project))
     .child(iconButton(t, "sb-fetch", "refresh", m.str.fetch, (cx) => m.a.reload(cx), { spin: reading }))
-    .child(iconButton(t, "sb-settings", "settings", m.str.openSettings, () => m.a.settings()));
+    .child(iconButton(t, "sb-settings", "settings", m.str.openSettings, () => m.a.settings()))
+    .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "sb-close", "close", m.str.close ?? "Close", () => closeOverlay(ownDialog()))));
 }
 
 /** The line under the header: the Catalog, its commit and its warnings. */

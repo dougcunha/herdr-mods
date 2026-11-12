@@ -12,6 +12,8 @@ import { icon, pill, section, searchBox, filterChip, busy, dialogKeys, segmented
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("ci-dash"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the header shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 // A folder on another machine: a server icon and the machine name, in a hue that no agent status uses.
 // (The same chip as in the tabs-dock and kanban bars.)
@@ -524,7 +526,12 @@ export default class CiDash extends View {
           else if (this.tab === "dispatch") { this.dsp.loaded = false; this.dsp.reset(); this.dsp.load(cx); }
           else if (this.detail) { this.detail.artLoaded = false; this.pollDetail(cx); }
           else this.loadRuns(cx);
-        }, t, { disabled: !this.gh })))
+        }, t, { disabled: !this.gh }))
+        .when(Boolean(ownDialog()), (e) => e.child(div().id("ci-close").size(26).flex_none().flex().items_center().justify_center().rounded(7)
+          .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip("Close")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(ownDialog()); })
+          .child(svg(icon("close")).size(13).text_color(t.muted)))))
       .child(h_flex().h(40).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
         .child(tab("runs", "Runs", this.runsLoaded ? this.runs.length : null))
         .child(tab("dispatch", "Dispatch", this.dsp.loaded ? this.dsp.workflows.length : null))

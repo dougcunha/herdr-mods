@@ -2,7 +2,7 @@
 //
 // image() only loads paths inside the app folder (absolute paths and ".." do not load), so the
 // file is copied to data/image-viewer/ first and the copy is deleted when the viewer closes.
-import { View, div } from "gpui-kit";
+import { View, div, svg } from "gpui-kit";
 import { image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, exec, appHome, window, theme, settings, shared, closeOverlay } from "herdr";
@@ -11,6 +11,7 @@ import { props, exec, appHome, window, theme, settings, shared, closeOverlay } f
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("image-viewer"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 const EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i;
 const MAX_BYTES = 64 * 1024 * 1024;
@@ -134,7 +135,13 @@ export default class ImageViewer extends View {
         .child(this.button("−", "iv-out", false, cx => this.step(-1, cx), t, !zoomable))
         .child(div().w(44).flex_none().text_center().text_size(12).text_color(t.muted).child(zoomable ? `${Math.round(this.scale() * 100)}%` : ""))
         .child(this.button("+", "iv-in", false, cx => this.step(1, cx), t, !zoomable))
-        .child(this.button("↻", "iv-reload", false, cx => { this.load(cx); cx.notify(); }, t)));
+        .child(this.button("↻", "iv-reload", false, cx => { this.load(cx); cx.notify(); }, t)))
+      // The × of a dialog of this mod's own. A panel dialog of the dock has its own × in its title row.
+      .when(Boolean(ownDialog()), el => el.child(div().id("iv-close").size(26).flex_none().flex().items_center().justify_center().rounded(8)
+        .cursor_pointer().hover(s => s.bg(t.hover)).tooltip("Close")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(ownDialog()); })
+        .child(svg("mods/image-viewer/close.svg").size(13).text_color(t.muted))));
 
     let body;
     if (this.status === "ready") {

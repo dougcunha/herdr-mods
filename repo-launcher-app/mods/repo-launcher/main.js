@@ -744,7 +744,8 @@ export default class RepoLauncher extends View {
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().text_size(15).font_semibold().truncate().child(title))
         .when(Boolean(subtitle), (e) => e.child(div().text_size(11.5).text_color(t.dim).truncate().child(subtitle))))
-      .children(trailing);
+      .children(trailing)
+      .when(Boolean(props()?.overlay), (e) => e.child(iconButton(t, "rl-close", "close", () => this.close(), { tooltip: "Close", size: 26 })));
   }
 
   brandTile(t) {

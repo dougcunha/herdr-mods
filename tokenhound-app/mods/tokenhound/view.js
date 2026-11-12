@@ -4,12 +4,15 @@
 
 import { div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
+import { props, shared, closeOverlay } from "herdr";
 import { hasFraction, levelColor, percent, statusColor } from "./feed.js";
 import { countdown, duration, fill } from "./text.js";
 
 const ICON = "mods/tokenhound/gauge.svg";
 const BUSY = "#10b981";
 const SVG = (name) => `mods/tokenhound/${name}.svg`;
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the header shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 
 /** A small icon button. It stops the mouse, so a click does not reach the row or the section. */
 function iconButton(t, id, icon, tip, onClick, size = 20) {
@@ -166,7 +169,8 @@ function header(t, m) {
     .child(div().text_size(13).font_semibold().text_color(t.foreground).child(m.str.title))
     .child(statePill(t, m))
     .child(div().flex_1())
-    .child(div().flex_none().text_size(11).text_color(t.dim).child(age));
+    .child(div().flex_none().text_size(11).text_color(t.dim).child(age))
+    .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "th-close", "close", m.str.close ?? "Close", () => closeOverlay(ownDialog()), 26)));
 }
 
 /** The card width in a wide panel: columns of at least CARD_MIN px. 0: one column, full width. */

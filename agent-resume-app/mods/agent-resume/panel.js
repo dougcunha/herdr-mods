@@ -1,7 +1,7 @@
 // The panel of agent-resume: the config and the list of recorded sessions.
 // main.js shows it when the mod opens as a popup with props { panel: true }.
 
-import { div } from "gpui-kit";
+import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { theme, props, closeOverlay } from "herdr";
 import {
@@ -106,12 +106,14 @@ export class Panel {
           .child(div().size(8).rounded(4).bg(config().enabled ? t.ansi2 : t.dim))
           .child(div().font_semibold().text_size(13.5).child("Agent Resume")),
       )
-      .child(
-        div().id("close").px(6).rounded(4).text_color(t.muted).cursor_pointer()
-          .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click(() => closeOverlay(props().overlay))
-          .child("✕"),
-      );
+      // The × only in a popup or a dialog: a side panel has nothing to close.
+      .when(Boolean(props()?.overlay), (e) => e.child(
+        div().id("close").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
+          .hover((s) => s.bg(t.hover)).tooltip("Close")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(props().overlay); })
+          .child(svg("mods/agent-resume/close.svg").size(13).text_color(t.muted)),
+      ));
   }
 
   section(t, title) {

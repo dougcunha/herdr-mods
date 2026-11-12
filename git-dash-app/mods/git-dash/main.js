@@ -11,6 +11,8 @@ import { WtTab, WT_STR } from "./wt-view.js";
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-dash"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+// A dialog of this mod's own (not a panel dialog of the dock, whose title row has its own ×): the header shows an ×.
+const ownDialog = () => { const o = props()?.overlay; return o && shared("kanban.panelDialog")?.id !== o ? o : null; };
 // The Git button opens the git-client mod: it shows only while that kit mod is on.
 const gitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("git-client"); };
 /** The first node of a layout tree with the id `id`, and its parent. */
@@ -553,7 +555,8 @@ export default class GitDash extends View {
       .child(this.view === "worktrees"
         ? iconButton(t, "gd-refresh", "refresh", (cx) => { this.wt.refresh(cx); cx.notify(); }, { spin: this.wt.loading, tooltip: this.s("refresh") })
         : iconButton(t, "gd-refresh", "refresh", (cx) => { this.refresh(cx); cx.notify(); },
-          { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }));
+          { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }))
+      .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "gd-close", "close", () => closeOverlay(ownDialog()), { tooltip: "Close" })));
   }
 
   /** The header text: the name of the only folder, or `2 folders`. */

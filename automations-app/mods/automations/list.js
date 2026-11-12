@@ -156,7 +156,8 @@ export function listView(v, t, notice) {
     .child(v_flex().flex_1().min_w(0).gap(1)
       .child(div().text_size(15).font_semibold().child("Automations"))
       .child(div().text_size(11.5).text_color(t.dim).child(v.defs.length ? `${v.defs.length} automation${v.defs.length === 1 ? "" : "s"}, ${enabled} on` : "Agents on schedules and events")))
-    .child(U.button(t, "au-new", "New", (cx) => v.edit(cx, null), { kind: "primary", iconName: "plus" }));
+    .child(U.button(t, "au-new", "New", (cx) => v.edit(cx, null), { kind: "primary", iconName: "plus" }))
+    .when(Boolean(U.closeX(t)), (e) => e.child(U.closeX(t)));
 
   const band = h_flex().w_full().gap(8).px(16).pt(14)
     .child(stat(t, "on", enabled, t.accent, "zap"))
