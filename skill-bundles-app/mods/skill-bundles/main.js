@@ -233,8 +233,8 @@ export default class SkillBundles extends View {
   /**
    * When the project has Outdated skills, posts a toast once that offers to update them. A click
    * on the toast runs "skill-bundles.update-offered". The shared key KEY.offered keeps the
-   * signature of each offer, so 2 copies and later reads do not show the same offer again. A
-   * new set of Outdated skills or a new commit of the Catalog gives a new offer.
+   * signature of each offer (the names of the Outdated skills), so 2 copies and later reads do
+   * not show the same offer again. A new set of Outdated skills gives a new offer.
    */
   offerUpdate() {
     const p = this.proj;
@@ -249,7 +249,7 @@ export default class SkillBundles extends View {
       return;
     }
     const names = outdated.map((r) => r.name).sort();
-    const signature = `${this.cat.commit ?? ""}|${names.join(",")}`;
+    const signature = names.join(",");
     if (offered[where] === signature) return;
     setShared(KEY.offered, { ...offered, [where]: signature });
     const byRepo = new Map();

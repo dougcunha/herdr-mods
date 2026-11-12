@@ -48,7 +48,7 @@
       "key": "skill-bundles.offerUpdate",
       "default": true,
       "label": "Offer to update outdated skills",
-      "hint": "When the mod finds Outdated skills in a project, it shows a toast once. A click on the toast updates them. A new commit of the Catalog or a new set of Outdated skills shows a new toast."
+      "hint": "When the mod finds Outdated skills in a project, it shows a toast once. A click on the toast updates them. A new set of Outdated skills shows a new toast."
     },
     {
       "id": "open-key",

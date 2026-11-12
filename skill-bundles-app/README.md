@@ -74,7 +74,7 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 
 ### Offer to update
 
-When the mod finds Outdated skills in a project, it shows a toast: "N outdated skill(s) in <project>". A click on the toast updates these skills, as **Update all** does for Outdated skills (Missing skills stay as they are). The toast shows once for each set of Outdated skills and each commit of the Catalog: a new commit of the Catalog or a new Outdated skill shows a new toast. The mod does not show the toast while an action runs or while your own clone has a problem. Turn it off with **Offer to update outdated skills** in the Settings.
+When the mod finds Outdated skills in a project, it shows a toast: "N outdated skill(s) in <project>". A click on the toast updates these skills, as **Update all** does for Outdated skills (Missing skills stay as they are). The toast shows once for each set of Outdated skills: a new Outdated skill shows a new toast. When the project has no Outdated skills again, the next Outdated skill shows a new toast too. The mod does not show the toast while an action runs or while your own clone has a problem. Turn it off with **Offer to update outdated skills** in the Settings.
 
 ### Your own clone with a problem
 
