@@ -15,7 +15,8 @@ const git = (cwd, args) => { const r = spawnSync("git", args, { cwd, env, encodi
 // Herdr's exec: `on` is ignored here, so the sh route runs on this machine.
 const exec = (cmd, args, o) => Promise.resolve(spawnSync(cmd, args, { cwd: o.cwd, env, encoding: "utf8" })).then((r) => ({ code: r.status, stdout: r.stdout, stderr: r.stderr }));
 const dir = mkdtempSync(join(tmpdir(), "herdr-git-client-"));
-const io = { async writePatch(text) { const f = join(dir, `p-${Math.random()}.patch`); writeFileSync(f, text); return f; }, async remove(f) { unlinkSync(f); } };
+const io = { async writePatch(text) { const f = join(dir, `p-${Math.random()}.patch`); writeFileSync(f, text); return f; }, async remove(f) { unlinkSync(f); },
+  async appendLine(f, line) { const t = existsSync(f) ? readFileSync(f, "utf8") : ""; if (!t.split(/\r?\n/).includes(line)) writeFileSync(f, t + (t && !t.endsWith("\n") ? "\n" : "") + line + "\n"); } };
 const many = (n, eol = "\n") => Array.from({ length: n }, (_, i) => `line ${i}`).join(eol) + eol;
 const status = (repo) => G.parseStatus(git(repo, [...G.READ, ...G.STATUS]).stdout);
 const diff = (repo, path, cached) => git(repo, [...G.READ, "--literal-pathspecs", ...G.PATCH, ...(cached ? ["--cached"] : []), "--", path]).stdout;
@@ -107,6 +108,26 @@ await run({ type: "continueOp", op: "merge" }, {}, ctxNow());
 assert.equal(opNow(), null);
 assert.equal(git(repo, ["rev-list", "--parents", "-n1", "HEAD"]).stdout.trim().split(" ").length, 3, "a merge commit, no editor");
 assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operation/);
+
+// ---- ignore and exclude an untracked file (here, and through `sh -c` as on another machine)
+{
+  assert.equal(G.ignoreLine("a b/x*[1].txt "), "/a b/x\\*\\[1].txt\\ ");
+  const untracked = () => status(repo).filter((f) => f.untracked).map((f) => f.path);
+  const item = (path, where) => G.menuFor({ kind: "file", side: "unstaged", file: { path, untracked: true } }, ctx()).flat().find((i) => i.action?.where === where);
+  writeFileSync(join(repo, "skip.log"), "x\n"); writeFileSync(join(repo, "local.tmp"), "x\n"); writeFileSync(join(repo, "far.tmp"), "x\n");
+  writeFileSync(join(repo, ".gitignore"), "node_modules");
+  await run(item("skip.log", "gitignore").action);
+  await run(item("skip.log", "gitignore").action);
+  assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "node_modules\n/skip.log\n", "ends the last line, adds once");
+  await run(item("local.tmp", "exclude").action);
+  assert.match(readFileSync(join(repo, ".git/info/exclude"), "utf8"), /\n\/local\.tmp\n$/);
+  await run({ type: "ignore", path: "far.tmp", where: "exclude" }, {}, { ...ctx(), on: "remote" });
+  await run({ type: "ignore", path: "far.tmp", where: "exclude" }, {}, { ...ctx(), on: "remote" });
+  assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/\/far\.tmp/g).length, 1);
+  assert.deepEqual(untracked(), [".gitignore"]);
+  assert.equal(G.menuFor({ kind: "file", side: "unstaged", file: { path: "a.txt", untracked: false } }, ctx()).flat().some((i) => i.action?.type === "ignore"), false);
+  unlinkSync(join(repo, ".gitignore"));
+}
 
 // ---- the AI prompt
 {

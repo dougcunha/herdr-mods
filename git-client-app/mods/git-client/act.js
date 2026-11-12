@@ -1,5 +1,5 @@
 import * as fs from "fs/promises";
-import { exec, notify, setShared, openOverlay, appHome, run, panes, spaces } from "herdr";
+import { exec, notify, readTextFile, writeTextFile, setShared, openOverlay, appHome, run, panes, spaces } from "herdr";
 import { dialogFor, dialogHeight, doneText } from "./git.js";
 import { samePath } from "./refs.js";
 import { executeAction } from "./execute.js";
@@ -15,6 +15,13 @@ const io = {
     return file;
   },
   async remove(file) { await fs.unlink(file).catch(() => {}); },
+  // Adds the line of an ignore file when it is not there. An unfinished last line ends first.
+  async appendLine(file, line) {
+    const text = await readTextFile(file).catch(() => null);
+    if (text != null && text.split(/\r?\n/).includes(line)) return;
+    const base = text ?? "", eol = base.includes("\r\n") ? "\r\n" : "\n";
+    await writeTextFile(file, `${base}${base && !base.endsWith("\n") ? eol : ""}${line}${eol}`, text);
+  },
 };
 
 // Runs an action's git commands in order, stopping at the first failure. Every

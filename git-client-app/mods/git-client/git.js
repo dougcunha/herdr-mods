@@ -309,6 +309,9 @@ export function menuFor(target, ctx) {
         target.side === "staged" && item("Unstage", "minus", { type: "unstage", paths, unborn: !ctx.head }),
         target.side === "conflict" && item("Mark resolved (stage)", "check", { type: "stage", paths }),
         target.side === "unstaged" && item(f.untracked ? "Delete file…" : "Discard changes…", "trash", { type: "discard", paths: f.untracked ? [] : paths, untracked: f.untracked ? paths : [] })),
+      // As lazygit: an untracked file goes into the shared .gitignore or the local exclude file.
+      section(f.untracked && item("Add to .gitignore", "eye-off", { type: "ignore", path: f.path, where: "gitignore" }),
+        f.untracked && item("Add to .git/info/exclude", "eye-off", { type: "ignore", path: f.path, where: "exclude" })),
       // A file with commits: not untracked, not only added to the index.
       section(!f.untracked && f.x !== "A" && item("File history", "history", { type: "fileView", path: f.path, mode: "history" }),
         !f.untracked && f.x !== "A" && f.status !== "D" && item("Blame", "commit", { type: "fileView", path: f.path, mode: "blame" })),
@@ -430,6 +433,11 @@ export const menuHeight =(items) => 10 + items.reduce((n, i) => n + (i.separator
 const remoteChoice = (ctx) => ({ id: "remote", label: "Remote", value: ctx.remotes.includes("origin") ? "origin" : ctx.remotes[0],
   options: ctx.remotes.map((r) => ({ value: r, label: r })) });
 const mergeNote = (a) => (a.merge ? " It's a merge commit: its changes against its first parent are used." : "");
+
+/** The line of an ignore file that matches only `path` (from the top of the work tree). */
+export function ignoreLine(path) {
+  return `/${String(path).replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ")}`;
+}
 
 // The dialog an action asks first, or null when it runs at once.
 const many = (paths) => (paths.length === 1 ? paths[0] : `${paths.length} files`);
@@ -692,6 +700,7 @@ export function doneText(a, v = {}) {
     case "stage": return a.paths.length === 1 ? `Staged ${a.paths[0]}` : `Staged ${a.paths.length} files`;
     case "unstage": return a.paths.length === 1 ? `Unstaged ${a.paths[0]}` : `Unstaged ${a.paths.length} files`;
     case "discard": return "Discarded the changes";
+    case "ignore": return `Added ${a.path} to ${a.where === "exclude" ? ".git/info/exclude" : ".gitignore"}`;
     case "stageHunk": return "Staged the hunk";
     case "unstageHunk": return "Unstaged the hunk";
     case "discardHunk": return "Discarded the hunk";
