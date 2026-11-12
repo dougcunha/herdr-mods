@@ -45,6 +45,20 @@ function sectionNode(node) {
   }
   return null;
 }
+// The block of the status bar item: content.mod is this mod and props.part is "status".
+function statusNode(node) {
+  if (!node || typeof node !== "object") return null;
+  const c = node.content;
+  if (c?.mod === MOD && c?.props?.part === "status") return node;
+  for (const child of node.children ?? []) {
+    const found = statusNode(child);
+    if (found) return found;
+  }
+  return null;
+}
+// The padding of the status bar item on each side (px(10) in statusView).
+const STATUS_PAD = 10;
+
 // The file is also read on this timer: it catches a stale feed, a folder that did not exist yet,
 // and it moves the countdowns. TokenHound writes at least every 30 s.
 const REFRESH_MS = 30000;
@@ -196,6 +210,18 @@ export default class TokenHound extends View {
     };
   }
 
+  /**
+   * Makes the block of the status bar item as wide as its content: the hidden providers and the
+   * metric change the number of entries, and a fixed width leaves an empty space or cuts entries.
+   */
+  fitStatus(width) {
+    const px = Math.ceil(width / (Number(settings().zoom) || 1)) + 2 * STATUS_PAD;
+    if (!(px > 2 * STATUS_PAD)) return;
+    const node = statusNode(layout());
+    if (!node?.id || Math.abs(Number(node.size?.px) - px) <= 2) return;
+    run("layout.resize", { id: node.id, px });
+  }
+
   /** Keeps the width at zoom 1 (on_size_change reports zoomed pixels), and redraws only on a change. */
   setWidth(size, cx) {
     const width = Math.round(size.width / (Number(settings().zoom) || 1));
@@ -226,7 +252,7 @@ export default class TokenHound extends View {
     const m = this.model();
     switch (this.part) {
       case "status":
-        return statusView(t, m, () => this.openDialog());
+        return statusView(t, m, () => this.openDialog(), (width) => this.fitStatus(width));
       case "section":
         this.syncSize();
         return sectionView(t, m, this.width, () => this.openDialog())

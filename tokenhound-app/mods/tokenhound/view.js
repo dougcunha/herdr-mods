@@ -210,20 +210,26 @@ function statusEntry(t, m, p) {
     .when(p.isBusy === true, (e) => e.child(busyDot(5)));
 }
 
-/** The status bar item: one entry for each provider, or the state when there is no data. */
-export function statusView(t, m, onClick) {
+/**
+ * The status bar item: one entry for each provider, or the state when there is no data.
+ * `onFit(width, cx)` gets the width of the content (zoomed pixels), so the block can fit it.
+ */
+export function statusView(t, m, onClick, onFit = null) {
   const stale = m.state !== "live";
   const tip = SHOWS_DATA.has(m.state) && !stale ? m.str.clickHint : `${stateHint(m)} ${m.str.clickHint}`.trim();
   return h_flex().id("tokenhound-status").size_full().px(10).gap(10).items_center().overflow_hidden()
     .bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
     .cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(tip)
     .on_click((_e, cx) => onClick(cx))
-    .when(!SHOWS_DATA.has(m.state) || m.providers.length === 0, (e) => e
-      .child(svg(ICON).size(12).flex_none().text_color(stateColor(t, m.state)))
-      .child(div().truncate().child(m.providers.length === 0 && m.state === "live" ? m.str.title : m.str[m.state] ?? m.state)))
-    .when(SHOWS_DATA.has(m.state) && m.providers.length > 0, (e) => e
-      .when(stale, (el) => el.opacity(0.55).child(div().size(6).flex_none().rounded(3).bg(stateColor(t, m.state))))
-      .children(m.providers.map((p) => statusEntry(t, m, p))));
+    // The content in one row that does not shrink: its width is the width that the block needs.
+    .child(h_flex().flex_none().gap(10).items_center()
+      .when(Boolean(onFit), (e) => e.on_size_change((size, cx) => onFit(size.width, cx)))
+      .when(!SHOWS_DATA.has(m.state) || m.providers.length === 0, (e) => e
+        .child(svg(ICON).size(12).flex_none().text_color(stateColor(t, m.state)))
+        .child(div().flex_none().child(m.providers.length === 0 && m.state === "live" ? m.str.title : m.str[m.state] ?? m.state)))
+      .when(SHOWS_DATA.has(m.state) && m.providers.length > 0, (e) => e
+        .when(stale, (el) => el.opacity(0.55).child(div().size(6).flex_none().rounded(3).bg(stateColor(t, m.state))))
+        .children(m.providers.map((p) => statusEntry(t, m, p)))));
 }
 
 /**
