@@ -43,7 +43,7 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
     ![The five statuses in the Sheep style](preview-sheep.png)
 
   `herdr-app do agent-cards.style` shows the next style.
-- A style can bring its own alert sounds. When you pick a style, the cards write its sounds into Herdr's `settings.json` (`sounds.blocked`, `sounds.done`), so Herdr plays them. **Sheep** bleats "me-he-he" when an agent needs you (`sounds/sheep-blocked.mp3`). A style without a sound gives the slot back to Herdr's own sound. A sound that you chose yourself (a file outside `mods/agent-cards/sounds/`) is never taken out: only a style with its own sound for that slot replaces it.
+- A style can bring its own alert sounds. When you pick a style, the cards write its sounds into Herdr's `settings.json` (`sounds.blocked`, `sounds.done`), so Herdr plays them. **Sheep** bleats "me-he-he" when an agent needs you (`sounds/sheep-blocked.mp3`). A style without a sound, or the mod turned off in PowerMods, gives the slot back to Herdr's own sound. A sound that you chose yourself (a file outside `mods/agent-cards/sounds/`) is never taken out: only a style with its own sound for that slot replaces it.
 - The animations run inside Herdr (no timer redraws the panel).
 
 To see all five robots at once, run `herdr-app do agent-cards.demo`. Run it again to show your agents.

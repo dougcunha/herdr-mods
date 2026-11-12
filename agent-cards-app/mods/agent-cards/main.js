@@ -134,7 +134,8 @@ export default class AgentCards extends View {
       if (this.soundBusy) return;
       this.soundBusy = true;
       cx.spawn(async () => {
-        try { await syncStyleSounds(animStyle()); } catch {} finally { this.soundBusy = false; }
+        // Turned off in the mods-hub: no style, so the sounds of this mod leave settings.json.
+        try { await syncStyleSounds(modOff("agent-cards") ? "off" : animStyle()); } catch {} finally { this.soundBusy = false; }
       });
     };
     syncSounds(cx);
