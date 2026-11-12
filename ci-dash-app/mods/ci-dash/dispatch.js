@@ -299,7 +299,18 @@ export class Dispatch {
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().truncate().text_size(14).font_semibold().child(w.name))
         .child(div().truncate().text_size(11).text_color(t.dim).font_family(mono()).child(w.path)))
-      .when(withRef && Boolean(this.ref), (e) => e.child(pill(t, { label: this.ref, symbol: "branch", code: true })));
+      .when(withRef && Boolean(this.ref), (e) => e.child(pill(t, { label: this.ref, symbol: "branch", code: true })))
+      .child(this.fileButton("dsp-file", w, withRef ? this.ref : "", t));
+  }
+
+  /** Shows the YAML of `w` at `ref` (the default branch when empty). Inside a card, the click does not reach the card. */
+  fileButton(id, w, ref, t) {
+    const def = this.app.repo.defaultBranch, at = ref || def;
+    return div().id(id).h(24).px(8).flex_none().flex().items_center().rounded(6).text_size(11).border_1().border_color(t.border)
+      .text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover)).tooltip(`Show ${w.path} at ${at}`)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.stop_propagation(); this.app.showFile(w.path, at, cx, at === def ? w.yaml : null); })
+      .child("View file");
   }
 
   view(t) {
@@ -348,6 +359,7 @@ export class Dispatch {
               .child(v_flex().flex_1().min_w(0).gap(1)
                 .child(div().truncate().text_size(14).child(w.name))
                 .child(div().truncate().text_size(11).text_color(t.dim).font_family(mono()).child(w.path)))
+              .child(this.fileButton(`wf-file-${w.id}`, w, "", t))
               .child(div().flex_none().text_size(16).text_color(t.dim).child("›")))
             .child(h_flex().pl(38).flex_wrap().gap(6).items_center()
               .child(pill(t, { label: w.inputCount ? `${w.inputCount} input${w.inputCount === 1 ? "" : "s"}` : "no inputs", color: w.inputCount ? t.accent : undefined }))

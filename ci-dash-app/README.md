@@ -60,8 +60,12 @@ its `panels.json`.
   actor, trigger and `#number`, and **chips** (`All`, `Running`, `Failed`,
   `Passed`, `Other`, with counts) narrow by status. When the runs come from more
   than 1 workflow, a second chip row (`All workflows`, then 1 chip per workflow,
-  most runs first) narrows by workflow. Click a run for its jobs and
-  steps, live status, **Open** (browser), **Cancel**, and **Rerun**. Open runs
+  most runs first) narrows by workflow. A **Sort** control orders the runs of
+  each group: `Recent` (last start first, so a rerun moves to the top),
+  `Oldest`, `Workflow` or `Branch`. Click a run for its jobs and
+  steps, live status, **Workflow** (the YAML file at the commit of the run),
+  **Open** (the browser of this computer, also for a folder on another
+  machine), **Cancel**, and **Rerun**. Open runs
   poll every 5 s, backing off to 30 s. A notification fires when a run you were
   watching finishes.
 - **Dispatch**: four steps, like the TUI plugin, shown in a step indicator you
@@ -72,7 +76,9 @@ its `panels.json`.
   1. **Workflow**: a card for each active workflow that declares
      `workflow_dispatch` on the default branch, with its number of inputs and
      the status of its latest run. A filter box narrows the list. The list loads
-     the first time the tab opens, one file read per workflow.
+     the first time the tab opens, one file read per workflow. **View file**
+     shows the YAML of the workflow; on the next steps it shows the file at the
+     chosen branch. **GitHub ↗** opens the file in the browser.
   2. **Branch**: the default and the current branch come first. Tags are not
      listed.
   3. **Inputs**: a card for every input of `on.workflow_dispatch.inputs`, marked

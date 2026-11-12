@@ -132,7 +132,6 @@ export class Gh {
   async latestRuns(workflowId, perPage = 5) { return (await this.json(this.rp(`/actions/workflows/${workflowId}/runs?per_page=${perPage}`))).workflow_runs || []; }
   async cancelRun(id) { await this.json(this.rp(`/actions/runs/${id}/cancel`), { method: "POST" }); }
   async rerunRun(id) { await this.json(this.rp(`/actions/runs/${id}/rerun`), { method: "POST" }); }
-  async openRunWeb(id) { await gh(["run", "view", String(id), "--web", "-R", `${this.repo.host}/${this.repo.slug}`], { cwd: this.cwd, on: this.on }); }
 
   /** Downloads one artifact into `dir`. exec() allows 30 s, so very large artifacts can time out. */
   async downloadArtifact(runId, name, dir) {

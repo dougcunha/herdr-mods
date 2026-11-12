@@ -1,12 +1,12 @@
 // CI Dash for the Herdr app: GitHub Actions runs, dispatch and artifacts of the
 // focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState } from "gpui-base";
+import { v_flex, h_flex, InputState, TextView } from "gpui-base";
 import { spaces, panes, focused, exec, home, theme, notify, props, shared, closeOverlay } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
-import { icon, pill, section, searchBox, filterChip, busy, dialogKeys } from "./ui.js";
+import { icon, pill, section, searchBox, filterChip, busy, dialogKeys, segmented } from "./ui.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -43,6 +43,22 @@ const groupOf = (run) => {
 
 /** The workflow of a run: its id when GitHub gives one, else its name. */
 const workflowKey = (run) => String(run.workflow_id ?? run.name ?? "");
+
+// The order of the runs in each group. GitHub lists runs by creation, so a rerun stays at its old
+// place; "Recent" uses the last start instead.
+const startOf = (r) => Date.parse(r.run_started_at || r.created_at || "") || 0;
+const byName = (a, b) => (a || "").localeCompare(b || "", undefined, { sensitivity: "base" });
+const RUN_SORTS = {
+  Recent: (a, b) => startOf(b) - startOf(a),
+  Oldest: (a, b) => startOf(a) - startOf(b),
+  Workflow: (a, b) => byName(a.name, b.name) || startOf(b) - startOf(a),
+  Branch: (a, b) => byName(a.head_branch, b.head_branch) || startOf(b) - startOf(a),
+};
+const SORT_KEY = "ci-dash.runSort";
+const loadSort = () => { try { const v = localStorage.getItem(SORT_KEY); return RUN_SORTS[v] ? v : "Recent"; } catch { return "Recent"; } };
+
+/** A fence for markdown code that is longer than any run of backticks in `text`. */
+const fenceFor = (text) => "`".repeat(Math.max(3, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length + 1)));
 
 const ART_GROUPS = [
   { id: "available", filter: "Available", color: (t) => t.accent },
@@ -103,6 +119,7 @@ export default class CiDash extends View {
     this.dsp = new Dispatch(this);
     this.runFilter = this.makeFilter("Filter runs…");
     this.artFilter = this.makeFilter("Filter artifacts…");
+    this.runSort = loadSort();
     this.reset();
     cx.timer.every(POLL_MS, (cx) => kitOff() || this.tick(cx));
   }
@@ -115,7 +132,7 @@ export default class CiDash extends View {
 
   reset() {
     this.runs = []; this.runsLoading = false; this.runsError = null; this.runsLoaded = false;
-    this.detail = null;
+    this.detail = null; this.file = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
     this.runStatus = "all"; this.runWorkflow = "all"; this.artStatus = "all"; this.artType = "all";
@@ -298,9 +315,57 @@ export default class CiDash extends View {
     }, cx);
   }
 
+  /**
+   * Opens the run in the browser of this computer. `gh run view --web` runs where the folder is,
+   * so for a folder on another machine the browser opened there, not here.
+   */
   openWeb(cx) {
     const d = this.detail;
-    if (d) this.act("Open run", () => this.gh.openRunWeb(d.id), cx);
+    if (!d || !this.repo) return;
+    cx.open_url(d.run?.html_url || `https://${this.repo.host}/${this.repo.slug}/actions/runs/${d.id}`);
+  }
+
+  // ---- workflow file -----------------------------------------------------
+
+  /** Shows a workflow file at `ref` (a branch or a commit). `text` skips the download when it is known. */
+  showFile(path, ref, cx, text = null) {
+    const gh = this.gh;
+    if (!gh || !path) return;
+    const file = { path, ref: ref || this.repo.defaultBranch, text, error: null };
+    this.file = file;
+    if (text == null) {
+      cx.spawn(async (cx) => {
+        try { file.text = await gh.rawFile(path, file.ref); } catch (e) { file.error = e; }
+        cx.notify();
+      });
+    }
+    cx.notify();
+  }
+
+  fileUrl(f) {
+    const ref = String(f.ref).split("/").map(encodeURIComponent).join("/");
+    return `https://${this.repo.host}/${this.repo.slug}/blob/${ref}/${f.path}`;
+  }
+
+  fileView(t) {
+    const f = this.file;
+    const ref = /^[0-9a-f]{40}$/i.test(f.ref) ? f.ref.slice(0, 7) : f.ref;
+    let body;
+    if (f.error) body = this.errorView(t, f.error);
+    else if (f.text == null) body = busy(t, `Reading ${f.path}…`);
+    else {
+      const fence = fenceFor(f.text);
+      body = v_flex().id("file-scroll").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(8)
+        .child(TextView.markdown(`file-${f.path}-${f.ref}`, `${fence}yaml\n${f.text.replace(/\s+$/, "")}\n${fence}`)
+          .w_full().text_size(12).text_color(t.foreground).selectable(true).scrollable(false));
+    }
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(this.button("file-back", "‹ Back", (cx) => { this.file = null; cx.notify(); }, t))
+        .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(f.path))
+        .when(Boolean(ref), (e) => e.child(pill(t, { label: ref, symbol: "branch", code: true })))
+        .child(this.button("file-web", "GitHub ↗", (cx) => cx.open_url(this.fileUrl(f)), t)))
+      .child(body);
   }
 
   // ---- artifacts ---------------------------------------------------------
@@ -408,7 +473,7 @@ export default class CiDash extends View {
         .bg(active ? t.raised : t.background).border_1().border_color(active ? t.border : t.background)
         .text_color(active ? t.foreground : t.muted).cursor_pointer().hover((s) => s.bg(active ? t.raised : t.hover))
         .on_click((_e, cx) => {
-          this.tab = id; this.note = "";
+          this.tab = id; this.note = ""; this.file = null;
           if (id === "runs") this.detail = null;
           this.enterTab(cx);
           cx.notify();
@@ -507,7 +572,7 @@ export default class CiDash extends View {
 
     const rows = [];
     for (const g of RUN_GROUPS) {
-      const inGroup = shown.filter((r) => groupOf(r) === g.id);
+      const inGroup = shown.filter((r) => groupOf(r) === g.id).sort(RUN_SORTS[this.runSort]);
       if (!inGroup.length) continue;
       rows.push(section(t, g.label, inGroup.length, g.color(t)));
       for (const r of inGroup) rows.push(this.runRow(r, t));
@@ -519,7 +584,14 @@ export default class CiDash extends View {
         .child(h_flex().flex_wrap().gap(4).children(chips))
         .when(wfChips.length > 0, (e) => e.child(h_flex().flex_wrap().gap(4).items_center()
           .child(div().px(4).flex_none().text_size(11).text_color(t.dim).child("Workflow"))
-          .children(wfChips))))
+          .children(wfChips)))
+        .child(h_flex().flex_wrap().gap(4).items_center()
+          .child(div().px(4).flex_none().text_size(11).text_color(t.dim).child("Sort"))
+          .child(segmented(t, "run-sort", Object.keys(RUN_SORTS), this.runSort, (v, cx) => {
+            this.runSort = v;
+            try { localStorage.setItem(SORT_KEY, v); } catch {}
+            cx.notify();
+          }))))
       .child(v_flex().id("runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8).children(rows)
         .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
           .child(div().text_size(12).text_color(t.dim).child("No run matches the filters."))
@@ -581,6 +653,7 @@ export default class CiDash extends View {
       .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
         .child(this.button("back", "‹ Runs", (cx) => { this.detail = null; cx.notify(); }, t))
         .child(div().flex_1())
+        .when(Boolean(run.path?.startsWith(".github/workflows/")), (e) => e.child(this.button("run-file", "Workflow", (cx) => this.showFile(run.path, run.head_sha || run.head_branch, cx), t)))
         .child(this.button("web", "Open", (cx) => this.openWeb(cx), t))
         .when(!st.done, (e) => e.child(this.button("cancel", "Cancel", (cx) => this.cancel(cx), t)))
         .when(st.done, (e) => e.child(this.button("rerun", "Rerun", (cx) => this.rerun(cx), t, { primary: true }))))
@@ -672,6 +745,7 @@ export default class CiDash extends View {
     const t = theme();
     let body;
     if (!this.repo) body = this.error ? this.errorView(t, this.error) : this.message(t, "Looking for a GitHub repository…");
+    else if (this.file) body = this.fileView(t);
     else if (this.tab === "artifacts") body = this.artifactsView(t);
     else if (this.tab === "dispatch") body = this.dsp.view(t);
     else body = this.detail ? this.detailView(t) : this.runsView(t);
