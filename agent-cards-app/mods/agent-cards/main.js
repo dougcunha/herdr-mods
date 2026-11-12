@@ -9,6 +9,7 @@ import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, ne
 import { stage, STYLES } from "./robot.js";
 // A copy of kanban/waiting.js: it finds the Claude Code agents that wait for background work.
 import { WaitingTracker } from "./waiting.js";
+import { syncStyleSounds } from "./sounds.js";
 
 // The mods-hub setting "Animation": the style of the scene on each card.
 const KEY_STYLE = "agent-cards.animation";
@@ -126,6 +127,18 @@ export default class AgentCards extends View {
     });
     findNamer(cx);
     cx.timer.every(60000, (cx) => findNamer(cx));
+    // The sounds of the animation style go into settings.json when the style changes (sounds.js).
+    // The hub can change the style while the cards are hidden, so a short timer looks, not render.
+    this.soundBusy = false;
+    const syncSounds = (cx) => {
+      if (this.soundBusy) return;
+      this.soundBusy = true;
+      cx.spawn(async () => {
+        try { await syncStyleSounds(animStyle()); } catch {} finally { this.soundBusy = false; }
+      });
+    };
+    syncSounds(cx);
+    cx.timer.every(1500, (cx) => syncSounds(cx));
     cx.timer.every(30000, (cx) => cx.notify());
     // Which Claude Code agents wait for background work.
     this.tracker = new WaitingTracker({ hc, home, exec });

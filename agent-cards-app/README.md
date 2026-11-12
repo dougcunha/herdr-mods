@@ -43,6 +43,7 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
     ![The five statuses in the Sheep style](preview-sheep.png)
 
   `herdr-app do agent-cards.style` shows the next style.
+- A style can bring its own alert sounds. When you pick a style, the cards write its sounds into Herdr's `settings.json` (`sounds.blocked`, `sounds.done`), so Herdr plays them. **Sheep** bleats "me-he-he" when an agent needs you (`sounds/sheep-blocked.mp3`). A style without a sound gives the slot back to Herdr's own sound. A sound that you chose yourself (a file outside `mods/agent-cards/sounds/`) is never taken out: only a style with its own sound for that slot replaces it.
 - The animations run inside Herdr (no timer redraws the panel).
 
 To see all five robots at once, run `herdr-app do agent-cards.demo`. Run it again to show your agents.
@@ -57,6 +58,7 @@ To see all five robots at once, run `herdr-app do agent-cards.demo`. Run it agai
 - It reads the agents, terminals, panes, spaces and layout of Herdr, and sets the order of `agent.next`.
 - A click runs Herdr commands: `pane.focus`, `terminal.pin` and `terminal.peek`. The duplicate menu belongs to `kanban`, which runs `hc get` and `tab.new` or opens Herdr's worktree dialog.
 - For the **Waiting** status, it runs `hc get <terminal> --json` for the Claude Code agents that are Done or Idle, and reads the Claude Code session files: `~/.claude*/sessions/*.json` and the transcript `~/.claude*/projects/<project>/<session>.jsonl`. It reads a transcript again only when the agent takes a new turn, or every 30 seconds while the agent waits. Turn the setting off and it reads no file.
+- When you pick an animation style, it writes `sounds.blocked` and `sounds.done` in `~/.config/herdr-app/settings.json` (only those 2 keys, and only when the style changes). The last style that it wrote is in `shared("agent-cards.soundStyle")`.
 - It uses no network.
 
 ## Limits
@@ -65,3 +67,7 @@ To see all five robots at once, run `herdr-app do agent-cards.demo`. Run it agai
 - **Needs you first** looks only at the status of the agent. An agent whose sub-agent needs you stays in the lower part.
 - Tested only in the `main-dock` layout, on Windows. Untested: macOS, Linux, a remote machine's window, other layouts.
 - `RECIPE.md` has the full brief to build it from scratch.
+
+## Credits
+
+- `sounds/sheep-blocked.mp3`: one goat bleat from [Herd of goats bleating.ogg](https://commons.wikimedia.org/wiki/File:Herd_of_goats_bleating.ogg) by stephan, public domain, on Wikimedia Commons (cut, faded and made mono).

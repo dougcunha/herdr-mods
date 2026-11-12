@@ -17,7 +17,7 @@
       "key": "agent-cards.animation",
       "default": "robot",
       "label": "Animation",
-      "hint": "The style of the scene on each card. Robot: the first robot. Retro: an 8-bit robot on an old screen. Modern: a soft orb with rings. Mainframe: punched cards and tape reels of the first computer rooms. Sheep: a fluffy sheep that jumps the fence, sleeps in a nightcap, bleats, bounces with hearts and chews grass.",
+      "hint": "The style of the scene on each card. Robot: the first robot. Retro: an 8-bit robot on an old screen. Modern: a soft orb with rings. Mainframe: punched cards and tape reels of the first computer rooms. Sheep: a fluffy sheep that jumps the fence, sleeps in a nightcap, bleats, bounces with hearts and chews grass. A style can bring its own sounds: Sheep bleats when an agent needs you. Picking a style sets Herdr's alert sounds; a style without a sound gives Herdr's own sound back.",
       "options": [
         { "value": "robot", "label": "Robot" },
         { "value": "retro", "label": "Retro (8-bit)" },
