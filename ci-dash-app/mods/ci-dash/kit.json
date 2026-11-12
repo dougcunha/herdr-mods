@@ -1,5 +1,23 @@
 {
   "app": "ci-dash-app",
   "description": "A CI dashboard: the GitHub Actions runs of the repository that you work in, and a form that starts a workflow. Needs gh.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/ci-dash-app"
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/ci-dash-app",
+  "settings": [
+    {
+      "id": "downloadDir",
+      "type": "text",
+      "key": "ci-dash.downloadDir",
+      "placeholder": "D:/Downloads/ci",
+      "label": "Download folder",
+      "hint": "The folder that gets the artifacts, in <run-id>/<name> folders. Empty: <repo>/.ci-dash/artifacts. A repository on another machine always uses its own folder."
+    },
+    {
+      "id": "openAfterDownload",
+      "type": "bool",
+      "key": "ci-dash.openAfterDownload",
+      "default": false,
+      "label": "Open the folder after a download",
+      "hint": "Opens the folder of the artifact in the file manager when the download ends."
+    }
+  ]
 }

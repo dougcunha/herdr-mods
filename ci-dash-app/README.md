@@ -97,6 +97,11 @@ its `panels.json`.
   known extension at the end of the name; anything else is `other`. Click a row
   to download it to
   `<repo>/.ci-dash/artifacts/<run-id>/<name>`. `↗` opens that folder.
+  **Folder…** picks another download folder (the artifacts then go to
+  `<folder>/<run-id>/<name>`). The **Settings** tab of PowerMods has the same
+  **Download folder** field, and **Open the folder after a download** opens
+  the folder of each artifact when its download ends. A repository on another
+  machine always uses its own `.ci-dash/artifacts` folder.
 - The repository follows the focused terminal's folder, falling back to the
   other terminals of the space, then to the last repository found.
 

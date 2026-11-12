@@ -2,7 +2,7 @@
 // focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, TextView } from "gpui-base";
-import { spaces, panes, focused, exec, home, theme, notify, props, shared, closeOverlay } from "herdr";
+import { spaces, panes, focused, exec, home, theme, notify, props, shared, setShared, closeOverlay, pickFolder } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
@@ -69,6 +69,12 @@ const ART_GROUPS = [
 const isWin = () => /^[A-Za-z]:[\\/]/.test(home());
 const sep = (root) => (root.includes("\\") ? "\\" : "/");
 const join = (root, ...parts) => [root.replace(/[\\/]+$/, ""), ...parts].join(sep(root));
+
+// Download settings (the Settings tab of mods-hub writes them). An empty folder means `<repo>/.ci-dash/artifacts`.
+const DIR_KEY = "ci-dash.downloadDir";
+const OPEN_KEY = "ci-dash.openAfterDownload";
+const customDir = () => { const v = shared(DIR_KEY); return typeof v === "string" ? v.trim() : ""; };
+const openAfter = () => shared(OPEN_KEY) === true;
 
 let lastCwd = null;
 
@@ -408,7 +414,7 @@ export default class CiDash extends View {
     const key = `${runId}:${artifact.id}`;
     if (!this.gh || !this.root || this.dl[key]?.state === "busy") return;
     if (artifact.expired) { this.note = `Artifact "${artifact.name}" has expired.`; cx.notify(); return; }
-    const dir = join(this.root, ".ci-dash", "artifacts", String(runId), safeName(artifact.name));
+    const dir = join(this.artifactsRoot(), String(runId), safeName(artifact.name));
     const gh = this.gh;
     this.dl[key] = { state: "busy" };
     cx.spawn(async (cx) => {
@@ -416,6 +422,9 @@ export default class CiDash extends View {
         await gh.downloadArtifact(runId, artifact.name, dir);
         this.dl[key] = { state: "done", dir };
         this.lastDir = dir;
+        if (openAfter() && !gh.on) {
+          try { await openFolder(dir); } catch (e) { this.note = `Could not open ${dir}: ${e}`; }
+        }
       } catch (e) {
         this.dl[key] = { state: "error", msg: String(e.message || e) };
       }
@@ -424,9 +433,28 @@ export default class CiDash extends View {
     cx.notify();
   }
 
+  /**
+   * The folder that gets the artifacts: the folder of the setting, else `<repo>/.ci-dash/artifacts`.
+   * The setting is a folder of this computer, so a repository on another machine always uses its own folder.
+   */
+  artifactsRoot() {
+    const dir = this.gh?.on ? "" : customDir();
+    return dir || join(this.root, ".ci-dash", "artifacts");
+  }
+
+  /** Opens the system's folder picker and keeps the folder in the shared setting. */
+  chooseDownloadFolder(cx) {
+    pickFolder({ prompt: "Download artifacts to" }).then((p) => {
+      if (!p) return;
+      setShared(DIR_KEY, p);
+      this.note = `Artifacts go to ${p}`;
+      cx.notify();
+    });
+  }
+
   openArtifactsFolder(cx) {
     if (!this.root) return;
-    const candidates = [this.lastDir, join(this.root, ".ci-dash", "artifacts")].filter(Boolean);
+    const candidates = [this.lastDir, this.artifactsRoot()].filter(Boolean);
     cx.spawn(async (cx) => {
       for (const dir of candidates) {
         if (await dirExists(dir)) {
@@ -488,6 +516,8 @@ export default class CiDash extends View {
         .child(div().font_semibold().flex_none().child("CI Dash"))
         .when(Boolean(this.repo && this.gh?.on), (e) => e.child(machineChip(t, this.gh.on)))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.repo ? this.repo.slug : ""))
+        .when(onArtifacts && !this.gh?.on, (e) => e.child(div().id("pick-folder-tip").tooltip(`Download folder: ${this.root ? this.artifactsRoot() : "(no repository)"}`)
+          .child(this.button("pick-folder", "Folder…", (cx) => this.chooseDownloadFolder(cx), t))))
         .when(onArtifacts, (e) => e.child(this.button("folder", "↗", (cx) => this.openArtifactsFolder(cx), t, { disabled: !this.root })))
         .child(this.button("refresh", "⟳", (cx) => {
           if (this.tab === "artifacts") this.loadArtifactTab(cx);
