@@ -36,6 +36,9 @@ const KEY = {
   fetched: "skill-bundles.fetchedAt", // { "<clone dir>": time of the last fetch }
   job: "skill-bundles.job", // { project, label, at } while an action runs, else null
   changed: "skill-bundles.changed", // { project, at }: an action ended; copies read again
+  offerUpdate: "skill-bundles.offerUpdate", // false: no toast that offers to update Outdated skills
+  offered: "skill-bundles.offered", // { "<machine>|<root>": signature }: the offers already shown
+  offerNow: "skill-bundles.offerNow", // the last offer: { root, machine, host, name, groups, at }
 };
 const DEFAULT_MINUTES = 15;
 const CHECK_MS = 60 * 1000; // the timer: read the project again, and fetch when due
@@ -112,6 +115,9 @@ export default class SkillBundles extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
+        // "update-offered": a click on the toast of offerUpdate(). Every shown copy gets it; the
+        // shared job lets only one act.
+        if (c === "update-offered") { this.updateOffered(cx); continue; }
         if (this.part === "status") { if (c === "open") this.openDialog(); continue; }
         if (c === "fetch") this.reload(cx, true);
         if (c === "sync" && this.proj.state === "ready" && this.proj.manifest && this.cat.state === "ready") this.syncAll(cx);
@@ -219,6 +225,60 @@ export default class SkillBundles extends View {
       state: "ready", root, name: on ? `${baseName(root)} · ${on}` : baseName(root), machine: on, host, manifestText, manifest, probe,
       rows, groups: groupRows(rows, manifest), counts, unknown,
     };
+    this.offerUpdate();
+  }
+
+  // ---- the update offer -------------------------------------------------------------------
+
+  /**
+   * When the project has Outdated skills, posts a toast once that offers to update them. A click
+   * on the toast runs "skill-bundles.update-offered". The shared key KEY.offered keeps the
+   * signature of each offer, so 2 copies and later reads do not show the same offer again. A
+   * new set of Outdated skills or a new commit of the Catalog gives a new offer.
+   */
+  offerUpdate() {
+    const p = this.proj;
+    if (shared(KEY.offerUpdate) === false || p.state !== "ready" || !p.manifest || this.cat.state !== "ready") return;
+    if (this.job() || this.installBlock()) return;
+    const outdated = (p.rows ?? []).filter((r) => r.state === "outdated");
+    const where = `${p.machine ?? ""}|${p.root}`;
+    const offered = shared(KEY.offered) ?? {};
+    if (!outdated.length) {
+      // All up to date: forget the old offer, so the same skills give a new offer later.
+      if (offered[where]) { const { [where]: _gone, ...rest } = offered; setShared(KEY.offered, rest); }
+      return;
+    }
+    const names = outdated.map((r) => r.name).sort();
+    const signature = `${this.cat.commit ?? ""}|${names.join(",")}`;
+    if (offered[where] === signature) return;
+    setShared(KEY.offered, { ...offered, [where]: signature });
+    const byRepo = new Map();
+    for (const r of outdated) {
+      if (!byRepo.has(r.repo)) byRepo.set(r.repo, []);
+      byRepo.get(r.repo).push(r.name);
+    }
+    setShared(KEY.offerNow, {
+      root: p.root, machine: p.machine, host: p.host, name: p.name, at: Date.now(),
+      groups: [...byRepo].map(([repo, skills]) => ({ repo, skills })),
+    });
+    const s = this.str;
+    const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
+    notify({
+      title: fill(s.offerTitle, { n: names.length, project: p.name }),
+      body: fill(s.offerBody, { list }),
+      level: "warning",
+      timeout: 20000,
+      action: { name: `${MOD}.update-offered` },
+    });
+  }
+
+  /** A click on the toast of offerUpdate(): installs the Outdated skills of that offer. */
+  updateOffered(cx) {
+    const o = shared(KEY.offerNow);
+    if (!o?.root || !o.groups?.length || this.cat.state !== "ready") return;
+    const project = { state: "ready", root: o.root, machine: o.machine ?? null, host: o.host ?? null, name: o.name };
+    const n = o.groups.reduce((sum, g) => sum + g.skills.length, 0);
+    this.act(cx, fill(this.str.busyInstall, { n }), async (p) => this.install(p, o.groups), fill(this.str.offerDone, { n }), project);
   }
 
   /**
@@ -340,9 +400,8 @@ export default class SkillBundles extends View {
   }
 
   /** Runs one action for the project, then reads again and posts a toast with what changed. */
-  act(cx, label, work, doneBody = null) {
-    if (this.job() || this.proj.state !== "ready") return;
-    const project = this.proj;
+  act(cx, label, work, doneBody = null, project = this.proj) {
+    if (this.job() || project.state !== "ready") return;
     const before = project.probe?.lock ?? {};
     setShared(KEY.job, { project: project.root, label, at: Date.now() });
     this.running = true;

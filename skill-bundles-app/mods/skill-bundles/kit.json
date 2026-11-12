@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. Works in spaces on other machines too.",
+  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A toast offers to update outdated skills. Works in spaces on other machines too.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {
@@ -41,6 +41,14 @@
       "unit": "min",
       "label": "Fetch the Catalog every",
       "hint": "How often the mod fetches the Catalog to find outdated skills. The refresh button of the panel fetches at once."
+    },
+    {
+      "id": "offer-update",
+      "type": "bool",
+      "key": "skill-bundles.offerUpdate",
+      "default": true,
+      "label": "Offer to update outdated skills",
+      "hint": "When the mod finds Outdated skills in a project, it shows a toast once. A click on the toast updates them. A new commit of the Catalog or a new set of Outdated skills shows a new toast."
     },
     {
       "id": "open-key",

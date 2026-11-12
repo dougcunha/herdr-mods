@@ -72,6 +72,10 @@ A project without `skills.yaml` shows the Bundles of the Catalog with check boxe
 - A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
 - The refresh button of the header fetches the Catalog at once. The gear opens the Settings of PowerMods.
 
+### Offer to update
+
+When the mod finds Outdated skills in a project, it shows a toast: "N outdated skill(s) in <project>". A click on the toast updates these skills, as **Update all** does for Outdated skills (Missing skills stay as they are). The toast shows once for each set of Outdated skills and each commit of the Catalog: a new commit of the Catalog or a new Outdated skill shows a new toast. The mod does not show the toast while an action runs or while your own clone has a problem. Turn it off with **Offer to update outdated skills** in the Settings.
+
 ### Your own clone with a problem
 
 When your own clone cannot be pulled, the line under the header says why and shows buttons. A button in red asks for a second click.
@@ -133,6 +137,7 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - **Your own clone (optional):** a folder with your own clone of the Catalog. The mod keeps no clone of its own and keeps your clone up to date: each time it fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. So the hashes match what `npx skills` downloads from GitHub. When that clone is on a branch that is not the default one, the mod installs the Catalog's skills from that branch (`owner/name#branch`) and says so under the header. It does not install while the clone has changes that are not committed or commits that are not pushed, because `npx skills` downloads from GitHub, not from your folder. The panel then shows buttons to fix the clone (see [Your own clone with a problem](#your-own-clone-with-a-problem)).
 - **Clone URL (optional):** the URL for `git clone` when `gh` is not logged in. Empty: `git@github.com:<owner>/<name>.git`.
 - **Fetch the Catalog every:** 15 minutes by default.
+- **Offer to update outdated skills:** on by default. See [Offer to update](#offer-to-update).
 - **Shortcut of the Skill Bundles panel:** a key for `skill-bundles.open`. Only the status bar item listens for it.
 - **Language** (the kit language, `herdr-mods.lang`): English or Portuguese.
 
@@ -141,6 +146,7 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - `skill-bundles.open`: opens the panel as a dialog (the status bar item listens).
 - `skill-bundles.sync`: **Update all** in the shown panel.
 - `skill-bundles.fetch`: fetches the Catalog now.
+- `skill-bundles.update-offered`: updates the Outdated skills of the last toast (the toast runs it).
 
 ## Limits
 
