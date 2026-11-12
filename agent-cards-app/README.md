@@ -38,6 +38,10 @@ The [Dock](../dock-app) layout (`main-dock`) shows it in its `agents` block. Ins
 
     ![The five statuses in the Mainframe style](preview-mainframe.png)
 
+  - **Sheep (fluffy)**: a fluffy little sheep, seen from the side. Its wool stays cream in every theme. Working: it jumps a fence again and again, with dust in the status color where it takes off. Idle: it sleeps lying down in a blue nightcap, breathes slowly, and "z" letters rise. Blocked: it shakes and bleats "baa!" in a speech bubble ("mé!" when the kit language is Portuguese), with wide eyes. Done: it bounces in place with happy `^` eyes, hearts and sparkles. Waiting: it chews a blade of grass and looks from side to side next to an hourglass.
+
+    ![The five statuses in the Sheep style](preview-sheep.png)
+
   `herdr-app do agent-cards.style` shows the next style.
 - The animations run inside Herdr (no timer redraws the panel).
 
