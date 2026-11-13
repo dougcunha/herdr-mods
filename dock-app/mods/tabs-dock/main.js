@@ -1,5 +1,5 @@
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
@@ -224,6 +224,7 @@ export default class Tabs extends View {
     }
     this.barW = undefined; // the width of the bar, from on_size_change
     this.pressed = null;
+    this.scroll = ScrollHandle.new(); // Herdr 0.1.15 tabs: keeps the active tab in view
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
     this.entries = [];
     this.injected = new Set(JSON.parse(localStorage.getItem("injected") ?? "[]"));
@@ -670,6 +671,15 @@ export default class Tabs extends View {
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
+    // Herdr 0.1.15 tabs: scroll the strip to the active tab. The machine chip is the first child when shown.
+    const active = shown.findIndex(tab => tab.active);
+    const activeChild = active < 0 ? -1 : active + (space?.machine ? 1 : 0);
+    const selected = shown[active]?.id;
+    if (selected !== this.selected || activeChild !== this.selectedIndex) {
+      this.selected = selected;
+      this.selectedIndex = activeChild;
+      if (activeChild >= 0 && this.scroll) this.scroll.scroll_to_item(activeChild);
+    }
     const stop = (_e, cx) => cx.stop_propagation();
     const button = (id, label, action) => div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", stop).on_click(action).child(label);
@@ -677,6 +687,8 @@ export default class Tabs extends View {
       const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
       const name = /^tb\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name;
       return h_flex().id(`tab-${c.id}`).h(29).px(10).gap(7).rounded(7).items_center().flex_none().text_size(12.8)
+        // A rename or status dot on this or an earlier tab can push the active one out.
+        .when(i <= active, el => el.on_size_change((_size, cx) => { this.scroll.scroll_to_item(activeChild); cx.notify(); }))
         .border(1).border_color(c.active ? t.border : t.chrome).bg(c.active ? t.raised : t.chrome).text_color(c.active ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); })
@@ -799,7 +811,8 @@ export default class Tabs extends View {
       })
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar()
+      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().track_scroll(this.scroll)
+        .on_size_change((_size, cx) => { if (activeChild >= 0) { this.scroll.scroll_to_item(activeChild); cx.notify(); } })
         // A space on another machine: its tabs and panes run there. The same chip as in the Kanban bar.
         .when(Boolean(space?.machine), el => el.child(machineChip(t, space.machine)))
         .children(shown.map(item)))
