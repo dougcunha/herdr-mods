@@ -125,7 +125,7 @@ export async function list({ repo, on = null } = {}) {
   if (!main) throw new Error("Not a git repository.");
   const r = await git(main, ["worktree", "list", "--porcelain"], on);
   if (!r.ok) throw new Error(r.err || "git worktree list failed.");
-  const root = rootFor(on, await homeOf(on));
+  const root = rootFor(on, await homeOf(on), await windowsOn(on));
   return parseWorktrees(r.raw).map((w) => ({ ...w, central: !w.main && inside(w.path, root) }));
 }
 
@@ -133,7 +133,7 @@ export async function list({ repo, on = null } = {}) {
 export async function pathFor({ repo, branch, on = null }) {
   const main = await mainCheckout(repo, on);
   if (!main) throw new Error("Not a git repository.");
-  return `${rootFor(on, await homeOf(on))}/${repoName(main)}/${slug(branch)}`;
+  return `${rootFor(on, await homeOf(on), await windowsOn(on))}/${repoName(main)}/${slug(branch)}`;
 }
 /** The same folder as text for people, at once (the root as the Settings say it, with ~). */
 export const preview = ({ repo, branch }) => `${norm(rootSetting())}/${repoName(repo) || "<repository>"}/${slug(branch) || "<branch>"}`;
@@ -146,10 +146,10 @@ export function locate(folder, on = null) {
   const f = norm(folder);
   if (!f) return null;
   const parts = (rest) => { const p = rest.split("/").filter(Boolean); return p.length >= 2 ? { repo: p[0], leaf: p.slice(1).join("/") } : null; };
-  if (!on) {
-    const root = rootFor(null, norm(home()));
-    if (root && inside(f, root) && !samePath(f, root)) { const hit = parts(f.slice(root.length + 1)); if (hit) return hit; }
-  }
+  // This computer's root, or on another machine an absolute root of the Settings (it can apply there).
+  const set = rootSetting();
+  const root = !on ? rootFor(null, norm(home())) : set.startsWith("~") ? "" : norm(set);
+  if (root && inside(f, root) && !samePath(f, root)) { const hit = parts(f.slice(root.length + 1)); if (hit) return hit; }
   const seg = f.split("/");
   const at = seg.lastIndexOf("worktrees");
   if (at >= 1 && seg[at - 1] === ".herdr") return parts(seg.slice(at + 1).join("/"));
@@ -188,7 +188,7 @@ async function runCreate(cx, j, copy) {
   if (!(await git(main, ["check-ref-format", "--branch", branch], on)).ok) throw new Error(`"${branch}" is not a valid branch name.`);
   const homeDir = await homeOf(on);
   if (!homeDir && !r.path) throw new Error("Cannot find the home folder on that machine.");
-  const path = r.path ? norm(r.path) : `${rootFor(on, homeDir)}/${repoName(main)}/${slug(branch)}`;
+  const path = r.path ? norm(r.path) : `${rootFor(on, homeDir, await windowsOn(on))}/${repoName(main)}/${slug(branch)}`;
   record(j, { repo: repoName(main), main, path });
 
   const exists = (await git(main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], on)).ok;
@@ -281,12 +281,27 @@ async function waitSetup(cx, j, copy) {
   await removeRunner(runner.files, on);
 
   if (code === 0) {
-    // The new tab first: closing the last tab of a space closes the space.
+    // The new tab first: closing the last tab of a space closes the space. On another machine the new tab
+    // takes a moment, so the setup tab closes only when the new tab is in the space.
+    const tabsOf = () => spaces().find((s) => s.id === sp.id)?.tabs ?? [];
+    const had = new Set(tabsOf().map((t) => t.id));
     run("tab.new", { space: sp.id, folder: path, ...(agent?.argv ? { name: agent.tab, argv: agent.argv, task: agent.task } : {}) });
-    await cx.sleep(500);
-    if (setupTab) run("tab.close", { id: setupTab, confirmed: true });
-    record(j, { state: "done", log, ended: Date.now() });
-    j.finish({ ok: true });
+    let opened = false;
+    for (let i = 0; i < 80 && !opened; i++) {
+      await cx.sleep(250);
+      j.beat = Date.now();
+      opened = tabsOf().some((t) => !had.has(t.id));
+    }
+    if (opened) {
+      if (setupTab) run("tab.close", { id: setupTab, confirmed: true });
+      record(j, { state: "done", log, ended: Date.now() });
+      j.finish({ ok: true });
+      return;
+    }
+    const error = agent?.argv ? "The setup ended, but the tab of the agent did not open." : "The setup ended, but the new tab did not open.";
+    record(j, { state: "failed", error, log, ended: Date.now() });
+    notify({ title: `Worktree setup · ${branch}`, body: error, level: "error", timeout: 10000, action: { name: "space.select", args: { id: sp.id } } });
+    j.finish({ ok: false, error });
     return;
   }
   const error = code === "closed" ? "The setup tab was closed before the setup ended." : `A setup command failed (exit code ${code}).`;

@@ -83,11 +83,12 @@ export async function homeOf(on) {
 
 /**
  * The root folder of new worktrees on a machine. A value that starts with `~` is the home folder of that
- * machine. On another machine, an absolute value of this computer does not apply: the default root there.
+ * machine. On another machine, an absolute value applies when it is a path of that system (`D:/…` on a
+ * Windows machine, `/…` on another one); else the default root there. `win`: that machine runs Windows.
  */
-export function rootFor(on, homeDir) {
+export function rootFor(on, homeDir, win = false) {
   let v = rootSetting();
-  if (on && !v.startsWith("~")) v = DEFAULT_ROOT;
+  if (on && !v.startsWith("~") && (win ? !winPath(v) : !norm(v).startsWith("/"))) v = DEFAULT_ROOT;
   return norm(v.replace(/^~(?=[\\/]|$)/, homeDir ?? ""));
 }
 /** The files folder on this computer, or null when the setting is empty. */
