@@ -7,7 +7,7 @@
 // The queue and the running jobs live on globalThis, so a reload of the core keeps them.
 
 import { run, spaces, panes, notify, hc, openOverlay, shared, setShared, home } from "herdr";
-import { KEY, norm, samePath, inside, isWindows, slug, repoName, rootSetting, rootFor, homeOf, git, mainCheckout, parseWorktrees } from "./paths.js";
+import { KEY, norm, samePath, inside, slug, repoName, rootSetting, rootFor, homeOf, windowsOn, git, mainCheckout, parseWorktrees } from "./paths.js";
 import { repoConfig, trusted, trustValue, copyFilesFolder, copyIgnored, commandsOf, writeRunner, readStatus, removeRunner } from "./setup.js";
 
 export const STATE = (globalThis.__powermodsCore ??= { queue: [], jobs: new Map(), beat: 0, seq: 0 });
@@ -203,7 +203,7 @@ async function runCreate(cx, j, copy) {
     : ["worktree", "add", "-b", branch, path, r.base || "HEAD"];
   // Windows: the worktree folder is deeper than the main checkout, so a long file name can pass MAX_PATH
   // (260). Turn on long paths for the repository (worktrees share its config) unless the person set it.
-  if (!on && isWindows() && !(await git(main, ["config", "--get", "core.longpaths"], on)).out) await git(main, ["config", "core.longpaths", "true"], on);
+  if ((await windowsOn(on)) && !(await git(main, ["config", "--get", "core.longpaths"], on)).out) await git(main, ["config", "core.longpaths", "true"], on);
   const made = await git(main, add, on, 600000);
   j.beat = Date.now();
   if (!made.ok) {

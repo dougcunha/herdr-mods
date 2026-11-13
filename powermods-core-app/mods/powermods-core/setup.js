@@ -3,12 +3,12 @@
 // 1. The files of the files folder (Settings; this computer only) go into the worktree.
 // 2. The git-ignored files of the main checkout that `.herdr/worktree.json` "copy" or `.worktreeinclude` name.
 // 3. The commands of the Settings, then the commands of `.herdr/worktree.json` ("run", or "runWindows" on
-//    Windows). They run in a "setup" tab of the new space: a runner script writes the exit code to a status file.
+//    a Windows machine, this one or another). They run in a "setup" tab of the new space: a runner script writes the exit code to a status file.
 // No copy writes over a file that exists in the worktree.
 
 import * as fs from "fs/promises";
 import { exec, readTextFile, writeTextFile, appHome, shared } from "herdr";
-import { KEY, norm, git, hash, psq, shq, isWindows, filesFolder, homeOf, globalCommands } from "./paths.js";
+import { KEY, norm, git, hash, psq, shq, isWindows, windowsOn, filesFolder, homeOf, globalCommands } from "./paths.js";
 
 const MAX_FILES = 500;
 
@@ -19,8 +19,8 @@ export async function repoConfig(folder, on) {
   try {
     const j = JSON.parse(raw);
     const list = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : []);
-    // Windows runs "runWindows" when the file has it. Another machine is never Windows here.
-    const run = !on && isWindows() && Array.isArray(j.runWindows) ? list(j.runWindows) : list(j.run);
+    // A Windows machine (this one or another) runs "runWindows" when the file has it.
+    const run = Array.isArray(j.runWindows) && (await windowsOn(on)) ? list(j.runWindows) : list(j.run);
     return { copy: list(j.copy), run, text: raw, error: null };
   } catch (e) {
     return { copy: [], run: [], text: raw, error: `.herdr/worktree.json is not valid JSON: ${e?.message ?? e}` };
@@ -150,18 +150,26 @@ printf '\\n\\033[32mSetup done.\\033[0m\\n'
  * status file that gets the exit code, and the files to delete after.
  */
 export async function writeRunner(id, path, on, commands) {
-  if (!on && isWindows()) {
-    const dir = `${norm(appHome())}/data/powermods-core`;
-    await fs.mkdir(dir, { recursive: true }).catch(() => {});
-    const script = `${dir}/setup-${id}.ps1`, status = `${dir}/setup-${id}.status`;
-    await writeTextFile(script, psRunner(path, status, commands), null);
-    return { argv: ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], status, files: [script, status] };
+  // A Windows machine runs the commands in PowerShell, also another one: the commands of the Settings are
+  // PowerShell commands there (Install-Skills), and sh does not know them (exit code 127).
+  const win = await windowsOn(on);
+  let base = `${norm(appHome())}/data/powermods-core`;
+  if (on) {
+    const h = await homeOf(on);
+    if (!h) throw new Error("Cannot find the home folder on that machine.");
+    base = `${h}/.herdr/powermods-core`;
   }
-  const base = on ? `${await homeOf(on)}/.herdr/powermods-core` : `${norm(appHome())}/data/powermods-core`;
-  const script = `${base}/setup-${id}.sh`, status = `${base}/setup-${id}.status`;
-  const r = await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"', "sh", script, shRunner(path, status, commands)], { on: on ?? undefined });
-  if (r.code !== 0) throw new Error(`Cannot write the setup script: ${(r.stderr || r.stdout).trim()}`);
-  return { argv: ["sh", script], status, files: [script, status] };
+  const script = `${base}/setup-${id}.${win ? "ps1" : "sh"}`, status = `${base}/setup-${id}.status`;
+  const text = win ? psRunner(path, status, commands) : shRunner(path, status, commands);
+  if (!on && win) {
+    await fs.mkdir(base, { recursive: true }).catch(() => {});
+    await writeTextFile(script, text, null);
+  } else {
+    const r = await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"', "sh", script, text], { on: on ?? undefined });
+    if (r.code !== 0) throw new Error(`Cannot write the setup script: ${(r.stderr || r.stdout).trim()}`);
+  }
+  const argv = win ? ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] : ["sh", script];
+  return { argv, status, files: [script, status] };
 }
 
 /** The exit code in a status file, or null while the setup runs. */
@@ -175,5 +183,5 @@ export async function readStatus(status, on) {
 /** Deletes the runner files. */
 export async function removeRunner(files, on) {
   if (!on && isWindows()) { for (const f of files) await fs.unlink(f).catch(() => {}); return; }
-  await exec("rm", ["-f", ...files], { on: on ?? undefined }).catch(() => null);
+  await exec("sh", ["-c", 'rm -f "$@"', "sh", ...files], { on: on ?? undefined }).catch(() => null);
 }

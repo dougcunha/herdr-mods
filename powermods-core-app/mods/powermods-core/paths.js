@@ -30,6 +30,23 @@ export const inside = (p, dir) => {
   return a === b || a.startsWith(`${b}/`);
 };
 export const isWindows = () => { try { return appWindow().platform === "windows"; } catch { return false; } };
+const winMachines = new Map();
+/**
+ * True when a machine runs Windows: this computer from Herdr, another one from its shell (Git Bash gives
+ * MINGW from uname; with no sh there, PowerShell gives Win32NT). Kept for each machine.
+ */
+export async function windowsOn(on) {
+  if (!on) return isWindows();
+  if (winMachines.has(on)) return winMachines.get(on);
+  const r = await exec("sh", ["-c", "uname -s"], { on }).catch(() => null);
+  let win = r?.code === 0 ? /^(MINGW|MSYS|CYGWIN)/i.test(r.stdout.trim()) : null;
+  if (win == null) {
+    const p = await exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", "[Environment]::OSVersion.Platform"], { on }).catch(() => null);
+    win = p?.code === 0 && /Win32NT/i.test(p.stdout);
+  }
+  winMachines.set(on, win);
+  return win;
+}
 /** A folder name from a branch: feat/login → feat-login. */
 export const slug = (branch) => String(branch ?? "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
 export const repoName = (main) => norm(main).split("/").filter(Boolean).pop() ?? "";
