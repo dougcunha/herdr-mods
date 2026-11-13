@@ -58,9 +58,10 @@ export function globalCommands() {
 /** The home folder on a machine: this computer's from Herdr, another one's from its shell. Null when unknown. */
 export async function homeOf(on) {
   if (!on) return norm(home()) || null;
-  const r = await exec("sh", ["-c", 'printf %s "$HOME"'], { on }).catch(() => null);
+  // Git Bash on Windows says /c/Users/x: cygpath turns it into C:/Users/x, which git.exe reads.
+  const r = await exec("sh", ["-c", 'h=$HOME; command -v cygpath >/dev/null 2>&1 && h=$(cygpath -m "$h"); printf %s "$h"'], { on }).catch(() => null);
   const h = r?.code === 0 ? r.stdout.trim() : "";
-  return h.startsWith("/") ? h : null;
+  return /^(\/|[A-Za-z]:\/)/.test(h) ? h : null;
 }
 
 /**
