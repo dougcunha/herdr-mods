@@ -113,7 +113,7 @@ export function open(repoPath, { argv = null, name = undefined, reuse = true, mo
   const withArgv = (args) => (argv ? { ...args, argv } : args);
 
   if (!space) {
-    run("space.new", withArgv({ folder, ...(machine ? { machine } : {}), ...(name ? { tab: name } : {}) }));
+    run("space.new", withArgv({ folder, machine: machine ?? "", ...(name ? { tab: name } : {}) }));
     return { created: true };
   }
   // Some layouts (a board of agents, say) show the focused pane, not the
@@ -146,7 +146,7 @@ export function openFree({ argv = null, name = undefined, target = "new", mode =
   const withArgv = (args) => (argv ? { ...args, argv } : args);
   const space = target === "new" ? null : spaces().find((s) => s.id === target) ?? null;
   if (!space) {
-    run("space.new", withArgv({ ...(machine ? { machine } : {}), ...(name ? { tab: name } : {}) }));
+    run("space.new", withArgv({ machine: machine ?? "", ...(name ? { tab: name } : {}) }));
     return { created: true };
   }
   run("space.select", { id: space.id });

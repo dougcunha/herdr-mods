@@ -257,7 +257,7 @@ export default class ModsUpdate extends View {
       const before = new Set(panes().map((p) => p.terminal).filter(Boolean));
       try {
         // It starts in ~/.config/herdr-app: the AGENTS.md of the Herdr app is there.
-        run("space.new", { name: third ? `Update ${third}` : "Mods update", folder: appHome(), argv: agent.run, task });
+        run("space.new", { name: third ? `Update ${third}` : "Mods update", folder: appHome(), machine: "", argv: agent.run, task });
       } catch (e) {
         this.busy = null;
         this.launchError = errorText(e);

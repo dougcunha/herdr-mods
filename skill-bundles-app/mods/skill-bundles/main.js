@@ -390,7 +390,7 @@ export default class SkillBundles extends View {
   agentFix(agent) {
     const folder = C.native(this.cat.dir);
     const task = "This folder is a Git clone of a skill Catalog. Commit the changes that are not committed, with a clear message. Then bring in the new commits of the remote with git pull --rebase, and push. Ask me before you discard a change.";
-    run("space.new", { name: "Catalog clone", folder, ...(agent ? { argv: agent.run, task } : {}) });
+    run("space.new", { name: "Catalog clone", folder, machine: "", ...(agent ? { argv: agent.run, task } : {}) });
   }
 
   /** The package for `npx skills add`: the Catalog at the branch of the person's own clone. */

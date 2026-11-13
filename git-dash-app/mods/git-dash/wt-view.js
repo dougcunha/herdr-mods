@@ -190,7 +190,7 @@ export class WtTab {
       return;
     }
     const folder = /^[A-Za-z]:[\\/]/.test(w.path) ? w.path.replace(/\//g, "\\") : w.path;
-    run("space.new", { name: w.branch || base(w.path), folder });
+    run("space.new", { name: w.branch || base(w.path), folder, machine: "" });
   }
 
   /** True when a terminal of Herdr works inside the worktree. */

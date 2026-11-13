@@ -474,7 +474,7 @@ export default class Files extends View {
         : { label: `Show in ${manager}`, icon: "folder-open", exec: win ? ["explorer", ["/select,", native]] : mac ? ["open", ["-R", native]] : ["xdg-open", [abs.slice(0, abs.lastIndexOf("/"))]] });
       if (entry.dir) {
         items.push({ label: "Open terminal here", icon: "terminal", cmds: [["terminal.open", { folder: abs, place: "right" }]] });
-        items.push({ label: "Open in new space", icon: "square-plus", cmds: [["space.new", { folder: abs }]] });
+        items.push({ label: "Open in new space", icon: "square-plus", cmds: [["space.new", { folder: abs, machine: "" }]] });
       }
     }
     items.push(...this.editItems(entry, path, native));

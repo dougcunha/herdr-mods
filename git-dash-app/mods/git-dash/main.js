@@ -449,7 +449,7 @@ export default class GitDash extends View {
   /** Opens the repository in a terminal tab of the current space, or in a new space. */
   openTerminal(r, where, cx, argv = ["git", "status"]) {
     const name = base(r.path);
-    if (where === "space") run("space.new", { name, folder: r.path, argv });
+    if (where === "space") run("space.new", { name, folder: r.path, machine: "", argv });
     else run("tab.new", { name, folder: r.path, argv });
     // The person works in the terminal. Read the repository again later.
     for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
@@ -481,7 +481,7 @@ export default class GitDash extends View {
     const before = new Set((panes() ?? []).map((p) => p.terminal).filter(Boolean));
     const current = local.find((s) => s.active);
     if (current) run("tab.new", { name, space: current.id, folder });
-    else run("space.new", { name, folder });
+    else run("space.new", { name, folder, machine: "" });
     // The new terminal starts a moment later: focus it, so a layout that follows the focused pane shows it.
     let tries = 0;
     const focusNew = (cx) => {
