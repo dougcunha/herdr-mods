@@ -168,7 +168,14 @@ export class AgentDialog extends View {
 
   // Esc, Cancel and Start close it here; the list gets the keyboard back. Not a Herdr hook (a child
   // view never gets one): a click beside the dialog goes through the root view's close().
-  close() { closeOverlay(props().overlay); const m = props()?.mod; if (m) run(`${m}.focus`); }
+  // The list gets the keyboard back only when its space still shows: after a switch to the new space, the
+  // list is not on the screen, and "<mod>.focus" fails with "unknown command".
+  close() {
+    closeOverlay(props().overlay);
+    const m = props()?.mod;
+    const same = this.openSpace === undefined || spaces().find((s) => s.active)?.id === this.openSpace;
+    if (m && same) run(`${m}.focus`);
+  }
 
   // Shows a list of agents: the chosen one stays when it is still installed, else the last used, else the first.
   useAgents(list, cx) {

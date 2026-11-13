@@ -285,15 +285,25 @@ async function waitSetup(cx, j, copy) {
     // takes a moment, so the setup tab closes only when the new tab is in the space.
     const tabsOf = () => spaces().find((s) => s.id === sp.id)?.tabs ?? [];
     const had = new Set(tabsOf().map((t) => t.id));
-    run("tab.new", { space: sp.id, folder: path, ...(agent?.argv ? { name: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+    const gone = !spaces().some((s) => s.id === sp.id);
     let opened = false;
-    for (let i = 0; i < 80 && !opened; i++) {
-      await cx.sleep(250);
-      j.beat = Date.now();
-      opened = tabsOf().some((t) => !had.has(t.id));
+    if (gone) {
+      // The setup tab ended and closed the space with it: the agent starts in a new space in the worktree.
+      const before = new Set(spaces().map((s) => s.id));
+      run("space.new", { name: String(agent?.tab ?? branch).slice(0, 40), folder: path, machine: on ?? "", ...(agent?.argv ? { tab: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+      const made = await newSpace(cx, j, before, path);
+      opened = Boolean(made);
+      if (made) record(j, { spaceId: made.id });
+    } else {
+      run("tab.new", { space: sp.id, folder: path, ...(agent?.argv ? { name: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+      for (let i = 0; i < 80 && !opened; i++) {
+        await cx.sleep(250);
+        j.beat = Date.now();
+        opened = tabsOf().some((t) => !had.has(t.id));
+      }
     }
     if (opened) {
-      if (setupTab) run("tab.close", { id: setupTab, confirmed: true });
+      if (setupTab && !gone) run("tab.close", { id: setupTab, confirmed: true });
       record(j, { state: "done", log, ended: Date.now() });
       j.finish({ ok: true });
       return;

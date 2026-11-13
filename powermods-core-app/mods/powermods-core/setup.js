@@ -168,7 +168,10 @@ export async function writeRunner(id, path, on, commands) {
     const r = await exec("sh", ["-c", 'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"', "sh", script, text], { on: on ?? undefined });
     if (r.code !== 0) throw new Error(`Cannot write the setup script: ${(r.stderr || r.stdout).trim()}`);
   }
-  const argv = win ? ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] : ["sh", script];
+  // -NoExit: the setup terminal stays after the script. On another Windows machine, Herdr runs the argv in a
+  // wrapper that fails after the program (exit code 127): the terminal ended, the setup tab closed, and with
+  // it the space, before the agent tab opened. The core closes the setup tab when the agent tab is there.
+  const argv = win ? ["pwsh", "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] : ["sh", script];
   return { argv, status, files: [script, status] };
 }
 
