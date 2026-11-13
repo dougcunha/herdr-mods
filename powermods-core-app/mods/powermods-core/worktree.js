@@ -6,7 +6,7 @@
 //
 // The queue and the running jobs live on globalThis, so a reload of the core keeps them.
 
-import { run, spaces, panes, notify, hc, openOverlay, shared, setShared, home } from "herdr";
+import { run, spaces, panes, notify, hc, openOverlay, shared, setShared, home, exec } from "herdr";
 import { KEY, norm, samePath, inside, slug, repoName, rootSetting, rootFor, homeOf, windowsOn, git, mainCheckout, parseWorktrees } from "./paths.js";
 import { repoConfig, trusted, trustValue, copyFilesFolder, copyIgnored, commandsOf, writeRunner, readStatus, removeRunner } from "./setup.js";
 
@@ -297,6 +297,20 @@ async function waitSetup(cx, j, copy) {
 
 // ---- remove ----------------------------------------------------------------------------------------
 
+// Git for Windows does not delete a junction (the links of `npx skills` in .claude/skills) and still
+// exits with 0, so the folder stays with only links and empty folders in it. Delete such a folder.
+// `rm -rf` deletes a link, not the folder that it points to. A folder with a file in it stays.
+const LEFTOVER = 'test -e "$1" || exit 0; f=$(find "$1" -type f -print -quit 2>/dev/null); '
+  + 'if [ -n "$f" ]; then echo "file:$f"; exit 0; fi; rm -rf "$1" && echo removed';
+
+async function removeLeftover(path, on) {
+  const r = await exec("sh", ["-c", LEFTOVER, "sh", path], { on: on ?? undefined }).catch(() => null);
+  const out = (r?.stdout ?? "").trim();
+  if (out === "removed") return "Git left links in the folder: the core deleted the folder.";
+  if (out.startsWith("file:")) return `Git left files in the folder. Delete it yourself: ${path}`;
+  return "";
+}
+
 async function runRemove(cx, j) {
   const r = j.req, on = r.on ?? null;
   const path = norm(r.path);
@@ -331,7 +345,8 @@ async function runRemove(cx, j) {
     const busy = /permission denied|device or resource busy|being used by another process/i.test(res.err);
     throw new Error(busy ? `A program still uses the folder (a terminal in it?). Close it and try again. Git: ${res.err}` : res.err || "git worktree remove failed.");
   }
-  record(j, { state: "done", ended: Date.now(), log: w.prunable ? "The folder was gone: git worktree prune." : "" });
+  const leftover = w.prunable ? "" : await removeLeftover(path, on);
+  record(j, { state: "done", ended: Date.now(), log: w.prunable ? "The folder was gone: git worktree prune." : leftover });
   settle(j, { path });
   j.finish({ ok: true });
 }
