@@ -1,6 +1,8 @@
 // skill-bundles: the state of the agent skills of the focused project, and the actions that
 // change them. It reads a Catalog (a repository with bundles.yaml), the project's Manifest
 // (skills.yaml) and Lock (skills-lock.json), and runs `npx skills` to install or remove.
+// A project without a Manifest shows the skills of its Lock, by repository; `npx skills check`
+// finds their updates and `npx skills update` installs them. It needs no Catalog.
 // The words are the ones of CONTEXT.md.
 //
 // Roles (props.part):
@@ -17,7 +19,7 @@ import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, 
 import * as C from "./catalog.js";
 import { writeFileOn } from "./remote.js";
 import { parseCatalog, parseManifest, formatManifest, resolveManifest, sameRepo, withSource, withoutSource, withGitignoreBlock, orderBundles } from "./manifest.js";
-import { buildRows, groupRows, pending } from "./status.js";
+import { buildRows, groupRows, pending, lockHash } from "./status.js";
 import { STR, fill } from "./text.js";
 import { panelView, statusView } from "./view.js";
 
@@ -38,7 +40,10 @@ const KEY = {
   changed: "skill-bundles.changed", // { project, at }: an action ended; copies read again
   offerUpdate: "skill-bundles.offerUpdate", // false: no toast that offers to update Outdated skills
   offered: "skill-bundles.offered", // { "<machine>|<root>": signature }: the offers already shown
-  offerNow: "skill-bundles.offerNow", // the last offer: { root, machine, host, name, groups, at }
+  offerNow: "skill-bundles.offerNow", // the last offer: { root, machine, host, name, groups, plain, at }
+  // The last `npx skills check` of each project without a Manifest:
+  // { "<machine>|<root>": { at, outdated: { skill: Lock hash at that time }, failed: [repository], error } }
+  checks: "skill-bundles.checks",
 };
 const DEFAULT_MINUTES = 15;
 const CHECK_MS = 60 * 1000; // the timer: read the project again, and fetch when due
@@ -72,6 +77,10 @@ function cloneOnce(slug, dir, gitUrl) {
   if (!cloning.has(dir)) cloning.set(dir, C.ensureClone(slug, dir, gitUrl).finally(() => cloning.delete(dir)));
   return cloning.get(dir);
 }
+
+// One `npx skills check` at a time for each project ("<machine>|<root>"), in all copies.
+const checking = new Map();
+const whereOf = (p) => `${p.machine ?? ""}|${p.root}`;
 
 export default class SkillBundles extends View {
   init(given, cx) {
@@ -120,7 +129,7 @@ export default class SkillBundles extends View {
         if (c === "update-offered") { this.updateOffered(cx); continue; }
         if (this.part === "status") { if (c === "open") this.openDialog(); continue; }
         if (c === "fetch") this.reload(cx, true);
-        if (c === "sync" && this.proj.state === "ready" && this.proj.manifest && this.cat.state === "ready") this.syncAll(cx);
+        if (c === "sync" && this.proj.state === "ready" && (!this.proj.manifest || this.cat.state === "ready")) this.syncAll(cx);
       }
     });
   }
@@ -145,13 +154,41 @@ export default class SkillBundles extends View {
         await this.loadCatalog(cx, force);
         await this.loadProject();
       } catch (e) {
-        if (this.cat.state === "ready") this.proj = { state: "error", error: errorText(e) };
+        if (this.cat.state === "ready" || this.cat.state === "unset") this.proj = { state: "error", error: errorText(e) };
         else this.cat = { state: "error", slug: this.cat.slug, error: errorText(e) };
       } finally {
         this.reading = false;
       }
       cx.notify();
+      this.checkUpdates(cx, force);
       if (this.again) { const { force: f } = this.again; this.again = null; this.reload(cx, f); }
+    });
+  }
+
+  /**
+   * A project without a Manifest: runs `npx skills check` there when the last check is older
+   * than the fetch interval (or `force`). The check downloads each repository of the Lock, so it
+   * runs in the background. Its result goes to KEY.checks, and every copy reads the project again.
+   */
+  checkUpdates(cx, force) {
+    const p = this.proj;
+    if (p.state !== "ready" || p.manifest || this.job()) return;
+    const lock = p.probe?.lock ?? {};
+    if (!Object.values(lock).some((e) => e?.sourceType)) return;
+    const where = whereOf(p);
+    const minutes = Number(shared(KEY.minutes)) > 0 ? Number(shared(KEY.minutes)) : DEFAULT_MINUTES;
+    const last = (shared(KEY.checks) ?? {})[where];
+    if (checking.has(where) || (!force && last && Date.now() - last.at < minutes * 60 * 1000)) return;
+    const work = C.checkUpdates(p.root, p.host).finally(() => checking.delete(where));
+    checking.set(where, work);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const r = await work;
+      const outdated = {};
+      for (const name of r.names) if (lock[name]) outdated[name] = lockHash(lock[name]);
+      setShared(KEY.checks, { ...(shared(KEY.checks) ?? {}), [where]: { at: Date.now(), outdated, failed: r.failed, error: r.error } });
+      setShared(KEY.changed, { project: p.root, at: Date.now() });
+      cx.notify();
     });
   }
 
@@ -163,6 +200,7 @@ export default class SkillBundles extends View {
       try { await this.loadProject(); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
       finally { this.reading = false; }
       cx.notify();
+      this.checkUpdates(cx, false);
       if (this.again) { const { force } = this.again; this.again = null; this.reload(cx, force); }
     });
   }
@@ -218,12 +256,13 @@ export default class SkillBundles extends View {
     const catalog = this.cat.state === "ready" ? this.cat.catalog : null;
     const probe = await C.probe(root, catalog ? this.cat.dir : null, catalog?.repo ?? null, on);
     const host = on ? { on, windows: probe.platform ? probe.platform === "win32" : /^[A-Za-z]:/.test(root) } : null;
-    const { rows, unknown, counts } = buildRows({ manifest, catalog, probe: probe.error ? null : probe });
+    const check = (shared(KEY.checks) ?? {})[whereOf({ machine: on, root })] ?? null;
+    const { rows, unknown, counts } = buildRows({ manifest, catalog, probe: probe.error ? null : probe, check });
     // Another project: the Bundle choice and the mode of the old one do not apply.
     if (this.proj.root !== root || this.proj.machine !== on) { this.pick = new Set(); this.mode = "list"; this.error = null; }
     this.proj = {
       state: "ready", root, name: on ? `${baseName(root)} · ${on}` : baseName(root), machine: on, host, manifestText, manifest, probe,
-      rows, groups: groupRows(rows, manifest), counts, unknown,
+      rows, groups: groupRows(rows, manifest), counts, unknown, check,
     };
     this.offerUpdate();
   }
@@ -238,8 +277,10 @@ export default class SkillBundles extends View {
    */
   offerUpdate() {
     const p = this.proj;
-    if (shared(KEY.offerUpdate) === false || p.state !== "ready" || !p.manifest || this.cat.state !== "ready") return;
-    if (this.job() || this.installBlock()) return;
+    if (shared(KEY.offerUpdate) === false || p.state !== "ready") return;
+    // With a Manifest, the update installs from the Catalog. Without one, `npx skills update` does it.
+    if (p.manifest && (this.cat.state !== "ready" || this.installBlock())) return;
+    if (this.job()) return;
     const outdated = (p.rows ?? []).filter((r) => r.state === "outdated");
     const where = `${p.machine ?? ""}|${p.root}`;
     const offered = shared(KEY.offered) ?? {};
@@ -258,7 +299,7 @@ export default class SkillBundles extends View {
       byRepo.get(r.repo).push(r.name);
     }
     setShared(KEY.offerNow, {
-      root: p.root, machine: p.machine, host: p.host, name: p.name, at: Date.now(),
+      root: p.root, machine: p.machine, host: p.host, name: p.name, at: Date.now(), plain: !p.manifest,
       groups: [...byRepo].map(([repo, skills]) => ({ repo, skills })),
     });
     const s = this.str;
@@ -275,10 +316,11 @@ export default class SkillBundles extends View {
   /** A click on the toast of offerUpdate(): installs the Outdated skills of that offer. */
   updateOffered(cx) {
     const o = shared(KEY.offerNow);
-    if (!o?.root || !o.groups?.length || this.cat.state !== "ready") return;
+    if (!o?.root || !o.groups?.length || (!o.plain && this.cat.state !== "ready")) return;
     const project = { state: "ready", root: o.root, machine: o.machine ?? null, host: o.host ?? null, name: o.name };
     const n = o.groups.reduce((sum, g) => sum + g.skills.length, 0);
-    this.act(cx, fill(this.str.busyInstall, { n }), async (p) => this.install(p, o.groups), fill(this.str.offerDone, { n }), project);
+    const work = o.plain ? (p) => this.updateNames(p, o.groups.flatMap((g) => g.skills)) : (p) => this.install(p, o.groups);
+    this.act(cx, fill(o.plain ? this.str.busyUpdate : this.str.busyInstall, { n }), work, fill(this.str.offerDone, { n }), project);
   }
 
   /**
@@ -446,6 +488,23 @@ export default class SkillBundles extends View {
     }
   }
 
+  /**
+   * `npx skills update <names> -p -y` in a project without a Manifest. The names are given:
+   * without them, the command also installs the skills of the Lock that are not in the project.
+   */
+  async updateNames(p, names) {
+    if (!names.length) return;
+    const r = await C.npx(["skills", "update", ...names, "-p", "-y"], p.root, p.host);
+    if (r.code !== 0) throw new Error(C.tail(r) || "npx skills update");
+  }
+
+  /** Updates the Outdated rows of a project without a Manifest. */
+  updatePlain(cx, rows) {
+    const names = rows.filter((r) => r.state === "outdated").map((r) => r.name);
+    if (!names.length) return;
+    this.act(cx, fill(this.str.busyUpdate, { n: names.length }), async (p) => this.updateNames(p, names));
+  }
+
   async uninstall(p, names) {
     if (!names.length) return;
     const r = await C.npx(["skills", "remove", ...names, "-y"], p.root, p.host);
@@ -472,6 +531,7 @@ export default class SkillBundles extends View {
    * repository, as a click on Install or Update of each row. Up-to-date skills are not touched.
    */
   syncAll(cx) {
+    if (!this.proj.manifest) return this.updatePlain(cx, this.proj.rows ?? []);
     const byRepo = new Map();
     for (const r of this.proj.rows ?? []) {
       if (r.state !== "missing" && r.state !== "outdated") continue;
@@ -484,6 +544,7 @@ export default class SkillBundles extends View {
   }
 
   installOne(cx, row) {
+    if (row.plain && row.state === "outdated") return this.updatePlain(cx, [row]);
     this.act(cx, fill(this.str.busyInstall, { n: 1 }), async (p) => this.install(p, [{ repo: row.repo, skills: [row.name] }]));
   }
 
@@ -515,6 +576,7 @@ export default class SkillBundles extends View {
 
   /** Installs the Missing and Outdated skills of a group, grouped by repository. */
   updateGroup(cx, key) {
+    if (!this.proj.manifest) return this.updatePlain(cx, this.groupRowsOf(key));
     const byRepo = new Map();
     for (const r of this.groupRowsOf(key)) {
       if (r.state !== "missing" && r.state !== "outdated") continue;
@@ -659,7 +721,10 @@ export default class SkillBundles extends View {
       persist: this.persist,
       query: this.query,
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
-      pending: p.state === "ready" ? pending(p.counts) : 0,
+      // Without a Manifest, only an Outdated skill asks for action: the Lock is the list.
+      plain: p.state === "ready" && !p.manifest,
+      checking: p.state === "ready" && checking.has(whereOf(p)),
+      pending: p.state !== "ready" ? 0 : p.manifest ? pending(p.counts) : p.counts.outdated,
       blocked: this.installBlock(),
       fixes: this.cloneFixes(),
       waiting: this.waiting(),

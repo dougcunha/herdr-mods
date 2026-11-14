@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A toast offers to update outdated skills. Works in spaces on other machines too.",
+  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A project without skills.yaml shows the skills that npx skills installed in it, by repository, and updates them without a Catalog. A toast offers to update outdated skills. Works in spaces on other machines too.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {
@@ -9,7 +9,7 @@
       "key": "skill-bundles.catalog",
       "default": "",
       "label": "Skill Catalog",
-      "hint": "The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. The mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git.",
+      "hint": "Optional for projects without skills.yaml. The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. The mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git.",
       "placeholder": "your-org/agent-skills"
     },
     {
@@ -40,7 +40,7 @@
       "step": 5,
       "unit": "min",
       "label": "Fetch the Catalog every",
-      "hint": "How often the mod fetches the Catalog to find outdated skills. The refresh button of the panel fetches at once."
+      "hint": "How often the mod fetches the Catalog (and runs npx skills check in a project without skills.yaml) to find outdated skills. The refresh button of the panel fetches at once."
     },
     {
       "id": "offer-update",

@@ -1,6 +1,6 @@
 # Skill Bundles for the Herdr app
 
-The agent skills of the focused project, against your skill Catalog. The mod shows which skills are up to date, outdated, missing or extra, and installs, updates, adds and removes them with [`npx skills`](https://skills.sh/). It works on Windows and macOS: it does not need PowerShell.
+The agent skills of the focused project, against your skill Catalog. The mod shows which skills are up to date, outdated, missing or extra, and installs, updates, adds and removes them with [`npx skills`](https://skills.sh/). A project that does not use Bundles shows the skills that `npx skills` installed in it, and updates them too. It works on Windows and macOS: it does not need PowerShell.
 
 ![Skill Bundles panel](preview.png)
 
@@ -60,7 +60,22 @@ The mod reads these files with the same rules as the PowerShell scripts of the C
 | **Extra** | Installed with `npx skills add`, but not in the Manifest (a skill added for one task and not removed). | **Keep** (adds it to `sources:`), **Remove** |
 | **Local** | A skill folder that a person wrote in the project. It has no Lock entry. | **Remove** (deletes its folder from `.agents/skills` and `.claude/skills`, after a second click) |
 
-A project without `skills.yaml` shows the Bundles of the Catalog with check boxes (`core` is always on). **Create skills.yaml and install** writes `skills.yaml`, adds the generated files to `.gitignore` (`.agents/`, `.claude/skills/`, `.codex/skills/`, `skills-lock.json`) and installs the skills.
+## A project without `skills.yaml`
+
+A project without `skills.yaml` shows the skills of its `skills-lock.json`, in one group for each repository that they came from. It needs no Catalog.
+
+| State | When | Action |
+| --- | --- | --- |
+| **Up to date** | `npx skills check` found no newer version. | **Remove** |
+| **Outdated** | `npx skills check` found a newer version in the repository of the skill. | **Update** (`npx skills update <skill> -p -y`), **Remove** |
+| **Missing** | The Lock lists the skill, but its folder is not in the project. | **Install**, **Remove** |
+| **Unchecked** | No check ran yet, or the check could not read the repository of the skill. | **Remove** |
+| **Local** | A skill folder with no Lock entry. `npx skills` does not know where it came from, so the mod cannot update it. | **Remove** |
+
+- The mod runs `npx skills check -p` in the project when the last check is older than **Fetch the Catalog every** (15 minutes by default), and when you click the refresh button. The check downloads each repository of the Lock: it takes some seconds.
+- **Update all** and **Update N** on a group update only the Outdated skills. A Missing skill has its own **Install** button.
+- The status bar item counts only the Outdated skills. The update offer (the toast) works too.
+- **Use Bundles** opens the Bundles of the Catalog with check boxes (`core` is always on). **Create skills.yaml and install** writes `skills.yaml`, adds the generated files to `.gitignore` (`.agents/`, `.claude/skills/`, `.codex/skills/`, `skills-lock.json`) and installs the skills. The skills that were installed before stay and show as Extra: **Keep all** adds them to `sources:`. Without a Catalog, the button opens the Settings.
 
 ## Buttons
 
@@ -102,6 +117,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 - `gh auth status` once, then `gh repo clone <catalog>` (or `git clone <url>`) into `~/.config/herdr-app/cache/skill-bundles/<owner>/<name>`. Every 15 minutes (a setting): `git fetch` and `git reset --hard origin/HEAD` in that folder. The mod owns that folder. With your own clone: `git fetch` and `git merge --ff-only @{u}` in your folder.
 - `node mods/skill-bundles/probe.mjs` on each read: it reads the Lock and the skill folders of the project and computes the hashes of the Catalog's skill folders, the same way as `npx skills`. It writes nothing.
 - `npx --yes skills add <repo> -s <skills> -y` and `npx --yes skills remove <skills> -y` in the project folder, only when you click an action. `npx skills` downloads the skills from GitHub.
+- In a project without `skills.yaml`: `npx --yes skills check -p` on the fetch interval (it writes nothing), and `npx --yes skills update <skills> -p -y` only when you click an action.
 - It reads and writes `skills.yaml` and `.gitignore` of the project, only when you click an action.
 
 ## Install
@@ -109,7 +125,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 1. Copy `mods/skill-bundles/` to `~/.config/herdr-app/mods/skill-bundles/`. Copy `mod.json` first and `main.js` last: without `mod.json`, Herdr docks a stray copy of the mod in your layout.
 2. Run `herdr-app check ~/.config/herdr-app/mods/skill-bundles`.
 3. Add the places that you want (below). Herdr's own layouts are read-only: use `main-dock` and `kanban` of this kit, or clone a layout first (`herdr-app do layout.clone '{"name":"main","as":"my-main"}'`).
-4. Write your Catalog (`owner/name`) in PowerMods → **Settings** → **Skill Catalog**.
+4. Write your Catalog (`owner/name`) in PowerMods → **Settings** → **Skill Catalog**. Without a Catalog, the mod works only for projects without `skills.yaml`.
 
 ### Dock panel
 
@@ -145,7 +161,7 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 
 - `skill-bundles.open`: opens the panel as a dialog (the status bar item listens).
 - `skill-bundles.sync`: **Update all** in the shown panel.
-- `skill-bundles.fetch`: fetches the Catalog now.
+- `skill-bundles.fetch`: fetches the Catalog now, and checks a project without `skills.yaml` for updates.
 - `skill-bundles.update-offered`: updates the Outdated skills of the last toast (the toast runs it).
 
 ## Limits
@@ -155,4 +171,6 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - The mod writes `skills.yaml` in the form of the scripts: comments in the file are lost.
 - **Outdated** needs the hash of the Lock. A skill that `npx skills` installed without a hash shows as Unchecked.
 - **Outdated** compares content, not line endings: a text file of the Catalog that a tool wrote with LF (or CRLF) counts as the file that a git checkout gives. A change of its text still shows as Outdated.
+- In a project without `skills.yaml`, the mod reads the text that `npx skills check` prints (the command has no JSON output). A new version of `npx skills` that prints other text shows the skills as Up to date until the mod follows it.
+- In a project without `skills.yaml`, the mod cannot add a skill from a repository yet: run `npx skills add <repo>` in a terminal, then the skill shows in the list.
 - The mod does not run on a git hook. To keep the PowerShell hook (`Install-Skills.ps1 -Silent` in `post-checkout`), keep the scripts of the Catalog.

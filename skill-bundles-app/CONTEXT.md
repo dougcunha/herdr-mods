@@ -45,4 +45,4 @@ _Avoid_: custom skill
 
 **Unchecked**: an installed skill from a repository that is not the Catalog. The mod cannot compare it.
 
-**No manifest**: the project has no `skills.yaml`.
+**No manifest**: the project has no `skills.yaml`. The mod shows the skills of its Lock by repository. For these skills, the states compare with the repository of each skill (`npx skills check`), not with the Catalog: **OK** (no newer version), **Outdated** (a newer version), **Missing** (in the Lock, not in the project) and **Unchecked** (not checked).

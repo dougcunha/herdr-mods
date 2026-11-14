@@ -43,6 +43,27 @@ const at = (on, opts = {}) => (on ? { ...opts, on } : opts);
 export const npx = (args, cwd, host = null) =>
   sh((host ? host.windows : isWindows()) ? "npx.cmd" : "npx", ["--yes", ...args], at(host?.on, { cwd, timeout: 300000 }));
 
+/**
+ * `npx skills check` in a project: the installed skills that have a newer version in their
+ * repository. It writes nothing. The command has no JSON output, so this reads its lines:
+ * "↑ <skill> has an update", and for a repository that it could not read "✗ Cannot update
+ * <repo>: …" or "✗ Failed to check for deleted skills from <repo>".
+ * Returns { names, failed, error }: `error` is a text when the command did not run.
+ */
+export async function checkUpdates(root, host = null) {
+  const r = await npx(["skills", "check", "-p"], root, host);
+  const text = `${r.out}\n${r.err}`.replace(/\x1b\[[0-9;]*m/g, "");
+  const names = [];
+  const failed = [];
+  for (const line of text.split(/\r?\n/)) {
+    let m;
+    if ((m = /^\s*\S+\s+(.+?)\s+has an update\s*$/.exec(line))) names.push(m[1]);
+    else if ((m = /Cannot update (.+?): /.exec(line)) || (m = /Failed to check for deleted skills from (.+?)\s*$/.exec(line))) failed.push(m[1]);
+  }
+  const ran = /Checking|up to date|No project skills/i.test(text);
+  return { names, failed, error: r.code === -1 || !ran ? tail(r) || "npx skills check" : null };
+}
+
 /** The folder of this mod (the node helper is in it). */
 export const modDir = () => `${slash(appHome())}/mods/skill-bundles`;
 

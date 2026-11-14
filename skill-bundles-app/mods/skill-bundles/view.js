@@ -84,7 +84,7 @@ function message(t, m, title, hint, { detail = null, buttons = [], spin = false,
 }
 
 function header(t, m) {
-  const reading = m.cat.fetching || m.cat.state === "cloning";
+  const reading = m.cat.fetching || m.cat.state === "cloning" || m.checking;
   const project = m.proj.state === "ready" ? m.proj.name : "";
   return h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
     .child(svg(ICON("bundles")).size(16).text_color(t.accent))
@@ -122,7 +122,11 @@ function catalogLine(t, m) {
 function summary(t, m) {
   const c = m.proj.counts;
   const busy = Boolean(m.job);
-  const work = c.outdated + c.missing;
+  // Without a Manifest, Update all updates the Outdated skills only (npx skills update).
+  const work = m.plain ? c.outdated : c.outdated + c.missing;
+  const catalog = m.cat.state === "ready";
+  const checkError = m.plain ? m.proj.check?.error : null;
+  const failed = m.plain && !checkError ? m.proj.check?.failed ?? [] : [];
   return v_flex().flex_none().px(12).py(8).gap(8).border_b(1).border_color(t.border)
     .child(h_flex().gap(6).flex_wrap().items_center()
       .when(c.ok > 0, (e) => e.child(pill(t, `${c.ok} ${m.str.state_ok}`, stateColor(t, "ok"))))
@@ -132,10 +136,17 @@ function summary(t, m) {
       .when(c.unchecked > 0, (e) => e.child(pill(t, `${c.unchecked} ${m.str.state_unchecked}`, stateColor(t, "unchecked"))))
       .when(c.local > 0, (e) => e.child(pill(t, `${c.local} ${m.str.state_local}`, stateColor(t, "local")))))
     .child(h_flex().gap(6).items_center()
-      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: work > 0 ? "primary" : "plain", disabled: busy || work === 0 || Boolean(m.blocked), tip: m.str.syncAllTip, icon: "refresh" }))
-      .child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" }))
-      .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode("add", cx), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
-    .when(work === 0 && c.extra === 0 && c.ok > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
+      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: work > 0 ? "primary" : "plain", disabled: busy || work === 0 || (!m.plain && Boolean(m.blocked)), tip: m.plain ? m.str.syncAllTipPlain : m.str.syncAllTip, icon: "refresh" }))
+      .when(!m.plain, (e) => e
+        .child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" }))
+        .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode("add", cx), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
+      // Without a Manifest: the way to Bundles. Without a Catalog, the button opens the settings.
+      .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (catalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: catalog ? m.str.useBundlesTip : m.str.useBundlesNoCatalog, icon: "bundles" }))))
+    .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.checking ? m.str.checking : m.str.plainHint)))
+    .when(Boolean(checkError), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(fill(m.str.checkError, { error: String(checkError).split("\n").pop() }))))
+    .when(failed.length > 0, (e) => e.child(div().text_size(11).text_color(t.ansi3).child(fill(m.str.checkFailed, { list: failed.join(", ") }))))
+    .when(m.plain && Boolean(m.proj.probe?.lockError), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(fill(m.str.lockError, { error: m.proj.probe.lockError }))))
+    .when(work === 0 && c.extra === 0 && c.ok > 0 && c.unchecked === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
 }
 
 /** The actions of a row, by state. */
@@ -145,6 +156,13 @@ function rowActions(t, m, row) {
   const id = (k) => `sb-${k}-${row.name}`;
   const onlySource = row.from.length === 1 && row.from[0] === "sources";
   const list = [];
+  if (row.plain) {
+    // Without a Manifest: Install (not in the project), Update (npx skills update) and Remove.
+    if (row.state === "missing") list.push(button(t, id("install"), m.str.install, (cx) => m.a.installOne(row, cx), { disabled: busy }));
+    if (row.state === "outdated") list.push(button(t, id("update"), m.str.update, (cx) => m.a.installOne(row, cx), { disabled: busy }));
+    list.push(button(t, id("remove"), m.str.remove, (cx) => m.a.removeExtra(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeTip }));
+    return list;
+  }
   if (row.state === "missing") list.push(button(t, id("install"), m.str.install, (cx) => m.a.installOne(row, cx), { disabled: !install }));
   if (row.state === "outdated") list.push(button(t, id("update"), m.str.update, (cx) => m.a.installOne(row, cx), { disabled: !install }));
   if (row.state === "extra") {
@@ -162,7 +180,7 @@ function rowActions(t, m, row) {
 function skillRow(t, m, row, s) {
   const color = stateColor(t, row.state);
   return h_flex().id(`sb-row-${row.name}`).min_h(30).px(12).gap(8).items_center().hover((x) => x.bg(t.hover))
-    .tooltip(m.str[`tip_${row.state}`])
+    .tooltip((row.plain && m.str[`tip_plain_${row.state}`]) || m.str[`tip_${row.state}`])
     .child(div().size(7).flex_none().rounded(4).bg(color))
     .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(MONO(s)).child(row.name))
     .when(row.state !== "ok", (e) => e.child(div().flex_none().text_size(11).text_color(color).child(m.str[`state_${row.state}`])))
@@ -174,7 +192,7 @@ const groupKey = (g) => `${g.kind}:${g.key}`;
 
 function groupTitle(t, m, g) {
   const catalog = m.cat.catalog;
-  const title = g.kind === "bundle" ? g.key : m.str[`group_${g.kind}`];
+  const title = g.kind === "bundle" || g.kind === "repo" ? g.key : m.str[`group_${g.kind}`];
   const desc = g.kind === "bundle" ? catalog?.descriptions.get(g.key) ?? "" : "";
   const folded = m.collapsed.has(groupKey(g));
   return h_flex().id(`sb-group-${groupKey(g)}`).h(28).pl(8).pr(12).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
@@ -194,9 +212,10 @@ function groupActions(t, m, g) {
   const key = groupKey(g);
   const small = (id, label, onClick, opts) => button(t, `sb-all-${id}-${key}`, label, onClick, opts);
   const list = [];
-  const work = g.rows.filter((r) => r.state === "missing" || r.state === "outdated").length;
-  if (work > 0 && (g.kind === "bundle" || g.kind === "sources")) {
-    list.push(small("update", fill(m.str.updateGroup, { n: work }), (cx) => m.a.updateGroup(key, cx), { disabled: busy || Boolean(m.blocked), tip: m.str.updateGroupTip }));
+  const work = g.rows.filter((r) => r.state === "outdated" || (r.state === "missing" && !r.plain)).length;
+  if (work > 0 && (g.kind === "bundle" || g.kind === "sources" || g.kind === "repo")) {
+    const plain = g.kind === "repo";
+    list.push(small("update", fill(m.str.updateGroup, { n: work }), (cx) => m.a.updateGroup(key, cx), { disabled: busy || (!plain && Boolean(m.blocked)), tip: plain ? m.str.syncAllTipPlain : m.str.updateGroupTip }));
   }
   if (g.kind === "extra" && g.rows.length > 1) {
     list.push(small("keep", m.str.keepAll, (cx) => m.a.keepAllExtra(cx), { disabled: busy || !m.proj.manifest, tip: m.str.keepAllTip }));
@@ -213,6 +232,9 @@ function listView(t, m, s) {
   return v_flex().flex_1().min_h(0)
     .child(summary(t, m))
     .child(v_flex().id("sb-list").flex_1().min_h(0).overflow_y_scrollbar()
+      .when(m.plain && groups.length === 0, (e) => e.child(v_flex().p(16).gap(6)
+        .child(div().text_size(13).font_semibold().child(m.str.plainEmpty))
+        .child(div().text_size(12).text_color(t.muted).child(m.str.plainEmptyHint))))
       .children(groups.flatMap((g) => [groupTitle(t, m, g), ...(m.collapsed.has(groupKey(g)) ? [] : g.rows.map((r) => skillRow(t, m, r, s)))])));
 }
 
@@ -306,15 +328,20 @@ function footer(t, m, s) {
 function body(t, m, s) {
   const str = m.str;
   const c = m.cat;
-  if (c.state === "unset") return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [button(t, "sb-open-settings", str.openSettings, () => m.a.settings(), { kind: "primary", icon: "settings" })] });
+  const p = m.proj;
+  // A project without a Manifest needs no Catalog: it shows the skills of its Lock.
+  if (c.state === "unset" && p.state === "ready" && p.manifest) return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [button(t, "sb-open-settings", str.openSettings, () => m.a.settings(), { kind: "primary", icon: "settings" })] });
   if (c.state === "cloning") return message(t, m, fill(str.cloning, { repo: c.slug }), null, { spin: true });
   if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), button(t, "sb-open-settings", str.openSettings, () => m.a.settings())] });
-  const p = m.proj;
-  if (c.state !== "ready" || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
+  if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
   if (!p.manifest) {
-    return bundlePicker(t, m, { intro: `${str.noManifest}. ${str.noManifestHint}`, primary: str.start, onPrimary: (cx) => m.a.start(cx) });
+    // The list of installed skills. "Use Bundles" opens the picker, which writes skills.yaml.
+    if (m.mode === "bundles" && c.state === "ready") {
+      return bundlePicker(t, m, { intro: `${str.noManifest}. ${str.noManifestHint}`, primary: str.start, onPrimary: (cx) => m.a.start(cx), onCancel: (cx) => m.a.mode("list", cx) });
+    }
+    return listView(t, m, s);
   }
   if (m.mode === "bundles") return bundlePicker(t, m, { primary: str.save, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) });
   if (m.mode === "add") return addView(t, m, s);
@@ -341,7 +368,7 @@ export function statusView(t, m) {
   let mark = null;
   if (m.job) {
     tip = m.job.label ?? "";
-  } else if (m.cat.state === "unset") {
+  } else if (m.cat.state === "unset" && p.state === "ready" && p.manifest) {
     mark = "?";
     tip = str.noCatalog;
   } else if (m.cat.state === "error" || (p.state === "ready" && p.probe?.error)) {
@@ -349,13 +376,13 @@ export function statusView(t, m) {
     mark = "!";
     color = t.ansi1;
     tip = m.cat.state === "error" ? `${str.cloneFailed}\n${m.cat.error}` : fill(str.probeError, { error: p.probe.error });
-  } else if (p.state === "ready" && !p.manifest) {
+  } else if (p.state === "ready" && !p.manifest && p.rows.length === 0) {
     mark = "—";
-    tip = fill(str.statusTipNoManifest, { project: p.name });
+    tip = fill(str.statusTipNoSkills, { project: p.name });
   } else if (p.state === "ready") {
     if (m.pending > 0) {
       mark = String(m.pending);
-      color = p.counts.missing > 0 ? t.ansi1 : t.ansi3;
+      color = !m.plain && p.counts.missing > 0 ? t.ansi1 : t.ansi3;
       tip = `${fill(str.statusTipPending, { n: m.pending, project: p.name })}\n${fill(str.counts, p.counts)}`;
     } else {
       mark = "✓";

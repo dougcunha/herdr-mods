@@ -21,7 +21,7 @@ A panel that compares the agent skills of the focused project with a skill Catal
    - **Add skill:** **Back**, a search field (28 px, `input` border, search icon), a **Keep in skills.yaml** switch, and the skills of the Catalog that the Manifest does not cover: Bundle (96 px, dim), name (monospace), `Extra` when it is installed, and **Install**.
 4. **Footer** (only when needed): a spinner and the label of the running action on `surface`, or `Failed`, the error text (monospace) and **Dismiss** on a red tint.
 
-**Status bar item**: right-aligned in a `chrome` block with a top border, 11.8 px: the layers icon (12 px), `skills`, and a mark: `✓` (dim), the number of skills that ask for action (`ansi3`, or `ansi1` when one is missing), `—` without `skills.yaml`, `?` without a Catalog, `!` (`ansi1`) when the Catalog or the probe failed (the tooltip has the error). A spinner replaces the icon while an action runs.
+**Status bar item**: right-aligned in a `chrome` block with a top border, 11.8 px: the layers icon (12 px), `skills`, and a mark: `✓` (dim), the number of skills that ask for action (`ansi3`, or `ansi1` when one is missing), `—` without `skills.yaml` and without installed skills, `?` without a Catalog in a project with a `skills.yaml`, `!` (`ansi1`) when the Catalog or the probe failed (the tooltip has the error). A spinner replaces the icon while an action runs.
 
 ## How it behaves
 
@@ -67,7 +67,7 @@ A panel that compares the agent skills of the focused project with a skill Catal
 - `herdr-app check` passes.
 - With no Catalog set, the panel shows `Set the Catalog` and the status item shows `skills ?`.
 - With a Catalog set, the clone appears in `~/.config/herdr-app/cache/skill-bundles/<owner>/<name>` and the header shows its short commit.
-- In a project without `skills.yaml`, the panel shows the Bundle picker with `core` on.
+- In a project without `skills.yaml`, the panel shows the skills of `skills-lock.json` in one group for each repository, also without a Catalog. After `npx skills check -p` ran there, a skill with a newer version shows as Outdated, and **Update** runs `npx skills update <skill> -p -y`. **Use Bundles** shows the Bundle picker with `core` on.
 - In a project whose Lock has a changed hash for one skill, an extra skill, a hand-written skill folder and a Source that is not installed, the summary shows 1 Outdated, 1 Missing, 1 Extra and 1 Local, and `skills.yaml` with an unknown Bundle shows the warning.
 - In a clone of the Catalog with `core.autocrlf=true`, a `SKILL.md` of an Up to date skill written again with LF only keeps the skill Up to date; one more line in it makes the skill Outdated.
 - `herdr-app do skill-bundles.sync` installs the missing and outdated skills; afterwards the summary shows them as Up to date and a toast reports the counts.
