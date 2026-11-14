@@ -221,20 +221,25 @@ export default class SpecBoard extends View {
     this.refresh(cx);
   }
 
-  /** Reads the specs again. `poll`: the timer of a space on another machine (files read again too). */
-  refresh(cx, poll = false) {
+  /**
+   * Reads the specs again. `poll`: the timer of a space on another machine (files read again too).
+   * `drawing`: render() calls it. Herdr does not allow cx.notify() there, and render() shows the
+   * new state itself.
+   */
+  refresh(cx, poll = false, drawing = false) {
+    const show = () => { if (!drawing) cx.notify(); };
     if (this.loading) { if (!poll) this.again = true; return; }
     if (this.demo) {
       this.repo = this.demo.repo;
       this.specs = this.demo.specs;
       for (const [k, v] of this.demo.texts) if (!this.texts.has(k)) this.texts.set(k, v);
-      cx.notify();
+      show();
       return;
     }
-    if (!this.cwd) { cx.notify(); return; }
+    if (!this.cwd) { show(); return; }
     this.loading = true;
     if (!poll) this.error = "";
-    cx.notify();
+    show();
     const cwd = this.cwd;
     const on = this.machine;
     cx.spawn(async (cx) => {
@@ -1008,7 +1013,7 @@ export default class SpecBoard extends View {
   render(cx) {
     if (kitOff()) return offView();
     this.cx = cx;
-    if (this.due) { const { poll } = this.due; this.due = null; this.refresh(cx, poll); }
+    if (this.due) { const { poll } = this.due; this.due = null; this.refresh(cx, poll, true); }
     const t = theme();
     const wide = this.width >= WIDE;
     if (wide && !this.selected && this.specs.length) {
