@@ -118,7 +118,21 @@
             {
               "id": "panel",
               "type": "column",
+              "resizable": false,
               "children": [
+                {
+                  "id": "panel-head",
+                  "type": "block",
+                  "content": {
+                    "mod": "tabs-dock",
+                    "props": {
+                      "part": "panel-head"
+                    }
+                  },
+                  "size": {
+                    "px": 28
+                  }
+                },
                 {
                   "id": "panel-body",
                   "type": "stack",

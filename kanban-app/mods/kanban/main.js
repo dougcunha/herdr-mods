@@ -3,6 +3,8 @@
 //   "bar"   the top bar: search, column toggles, view switch, window buttons.
 //   "board" the columns with the cards.
 //   "panel-title" the title row of a panel dialog (the bar opens it, see openDialog).
+//   "panel-head" the title row of the side panel: the name of the shown panel and a button that opens it in a
+//                dialog (the bar adds this block to its layout, see ensureHead).
 //   "group-menu" the menu of a group button of the panel group, a popup (the bar opens it, see openGroup).
 //   "clone-menu" the menu of the duplicate button of a card, a popup (the board opens it, see openClone).
 //   "gear-menu" the menu of the gear button: Herdr's settings, Bar buttons or PowerMods, a popup (the bar opens it, see openGear).
@@ -36,6 +38,7 @@ const KEY_PANEL_DIALOG = "kanban.panelDialog"; // { id, panel }: the panel dialo
 const PANEL_OPENS = ["auto", "side", "dialog"];
 const PANEL_NARROW = 1600;
 const DIALOG_TITLE = 36; // px: the title row of a panel dialog
+const PANEL_HEAD = 28; // px: the title row of the side panel (the block "panel-head")
 // The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
 // name a dialog that is gone: the bar trusts it only when its id is here. On globalThis, not in the module:
 // a layout switch starts a new copy of the bar with a new module, and the dialog stays open.
@@ -199,7 +202,7 @@ const STR = {
     opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
-    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
+    toSide: "Open in the side panel", toTab: "Open in a tab", toDialog: "Open in a dialog", closeDialog: "Close",
     rename: "Rename the tab", duplicate: "Duplicate this agent", cloneHere: "Duplicate in this space", cloneWorktree: "Duplicate in a new worktree…",
     cloneTitle: "Duplicate {name}", cloneFail: "Kanban: duplicate", noCommand: "The command of this agent is not known.",
   },
@@ -242,7 +245,7 @@ const STR = {
     opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
     opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
-    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
+    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", toDialog: "Abrir num diálogo", closeDialog: "Fechar",
     rename: "Renomear a tab", duplicate: "Duplicar este agente", cloneHere: "Duplicar neste espaço", cloneWorktree: "Duplicar num novo worktree…",
     cloneTitle: "Duplicar {name}", cloneFail: "Kanban: duplicar", noCommand: "O comando deste agente não é conhecido.",
   },
@@ -287,6 +290,15 @@ const find = (node, id) => {
 // leaves the layout (the shell under the board, when its terminal ends), Herdr removes each column that keeps only
 // one child, and "panel" is one of them. Then the stack itself is the panel.
 const sidePanel = (root) => find(root, "panel") ?? find(root, "panel-body");
+// The node that has the node `id` as a direct child, or null.
+const parentOf = (node, id) => {
+  for (const child of node?.children ?? []) {
+    if (child?.id === id) return node;
+    const hit = parentOf(child, id);
+    if (hit) return hit;
+  }
+  return null;
+};
 // The name of a layout file as a button label: "main-dock" -> "Main dock".
 const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
 // The panel buttons in the order of the bar, with the entries of a group put together: an item stays as it is,
@@ -307,7 +319,22 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
+    this.part = ["bar", "panel-title", "panel-head", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
+    if (this.part === "panel-head") {
+      // The names and the icons of the panels, from dock/panels.json. A save of the file shows at once.
+      this.info = new Map(PANELS.map((p) => [p.id, p]));
+      cx.spawn(async (cx) => {
+        for (;;) {
+          try {
+            const list = JSON.parse((await readTextFile(`${appHome()}/dock/panels.json`)) ?? "{}")?.panels;
+            this.info = new Map([...PANELS, ...(Array.isArray(list) ? list : [])].filter((e) => e?.id).map((e) => [e.id, e]));
+          } catch {}
+          cx.notify();
+          try { await watchFolder(`${appHome()}/dock`); } catch { return; }
+        }
+      });
+      return;
+    }
     if (["panel-title", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
       if (this.part === "panel-title") this.takeKeys(cx);
@@ -353,7 +380,8 @@ export default class Kanban extends View {
       // "kanban.panel-open" steps where the panels open, as the button does. "kanban.panel-<id>" opens or
       // closes the panel <id> (files, changes, or an id of dock/panels.json), as its button does.
       // "kanban.group-<id>" opens the menu of a group button (kanban.group-git). "kanban.gear" does what the
-      // gear button does. "kanban.buttons" opens the editor of the bar buttons.
+      // gear button does. "kanban.buttons" opens the editor of the bar buttons. "kanban.dialog-<id>" moves the
+      // panel <id> from the side panel to a dialog, as the button of its title row does.
       cx.spawn(async (cx) => {
         for (;;) {
           const cmd = String(await nextCommand());
@@ -362,6 +390,7 @@ export default class Kanban extends View {
           else if (cmd === "buttons") this.openButtons();
           else if (cmd.startsWith("group-")) this.openGroup(cmd.slice(6));
           else if (cmd.startsWith("panel-")) this.togglePanel(cmd.slice(6));
+          else if (cmd.startsWith("dialog-")) this.panelToDialog(cmd.slice(7));
           cx.notify();
         }
       });
@@ -744,6 +773,54 @@ export default class Kanban extends View {
     });
     liveDialogs().add(overlay);
     setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id });
+  }
+
+  /** Moves the panel `id` from the side panel to a dialog: hides the side panel and opens the dialog. */
+  panelToDialog(id) {
+    const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
+    const node = (body?.children ?? []).find((c) => c.id === id && !c.hidden);
+    if (!node || (!this.liveEntries().some((e) => e.id === id) && !PANELS.some((p) => p.id === id))) return;
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id) { closeOverlay(open.id); setShared(KEY_PANEL_DIALOG, null); }
+    if (panel && !panel.hidden) run("layout.hide", { id: panel.id });
+    this.openDialog(id, node.content);
+  }
+
+  /** The title row of the side panel: the icon and the name of the shown panel, and a button that opens it in
+   *  a dialog. The same as panelHead in mods/tabs-dock. */
+  panelHead(t) {
+    const id = find(layout(), "panel-body")?.active, entry = this.info.get(id);
+    const path = String(entry?.icon || "");
+    const glyph = !path ? div().size(13) : path.endsWith(".svg") ? svg(path).size(13).text_color(t.accent) : image(path).size(13);
+    return h_flex().id("kb-panel-head").size_full().pl(12).pr(4).gap(7).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(glyph.flex_none())
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().text_color(t.foreground).child(String(entry?.label ?? id ?? "")))
+      .when(Boolean(id), (e) => e.child(iconButton(t, "kb-head-dialog", "dialog", () => run(`kanban.dialog-${id}`), { tooltip: this.s("toDialog"), size: 22, glyph: 13 })));
+  }
+
+  /** Adds the title row of the side panel (the block "panel-head") over the panel stack, when the layout has
+   *  none. A layout where Herdr took the column "panel" away (see sidePanel) gets the column again, with the
+   *  size and the shown state of the stack. One attempt per layout. Returns true when it edits the layout. */
+  ensureHead(root) {
+    if (find(root, "panel-head")) return false;
+    const name = shared("layout");
+    if (this.headTry === name) return false;
+    this.headTry = name;
+    const tree = JSON.parse(JSON.stringify(root)), panel = find(tree, "panel"), body = find(tree, "panel-body");
+    const lang = this.props?.lang ? { lang: this.props.lang } : {};
+    const head = { id: "panel-head", type: "block", size: { px: PANEL_HEAD }, content: { mod: "kanban", props: { part: "panel-head", ...lang } } };
+    if (panel?.type === "column" && panel.children?.includes(body)) {
+      panel.children.unshift(head);
+      panel.resizable = false;
+    } else {
+      const parent = parentOf(tree, "panel-body");
+      if (panel || !parent) return false;
+      const column = { id: "panel", type: "column", children: [head, body], resizable: false };
+      for (const k of ["size", "min", "max", "hidden"]) if (k in body) { column[k] = body[k]; delete body[k]; }
+      parent.children[parent.children.indexOf(body)] = column;
+    }
+    run("layout.set", { layout: tree });
+    return true;
   }
 
   /** The panel that shows in a dialog now, or null. */
@@ -1355,9 +1432,10 @@ export default class Kanban extends View {
     for (const c of body.children ?? []) taken.delete(c.id);
     const live = this.liveEntries();
     const usable = live.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
-    // One layout edit for each render: the off mods wait for the panel edit.
+    // One layout edit for each render: the title row of the side panel and the off mods wait for the panel edit.
     const injecting = this.loaded ? this.inject(root, body, usable.filter((e) => e.opens === "panel")) : false;
-    if (!injecting) this.reconcile(root);
+    const heading = !injecting && this.loaded ? this.ensureHead(root) : false;
+    if (!injecting && !heading) this.reconcile(root);
     // A panel dialog that shows a mod that is now off closes.
     const openDialog = shared(KEY_PANEL_DIALOG);
     if (openDialog?.id && liveDialogs().has(openDialog.id)) {
@@ -1557,6 +1635,7 @@ export default class Kanban extends View {
   render(cx) {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
+    if (this.part === "panel-head") return this.panelHead(t);
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "clone-menu") return this.cloneMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);

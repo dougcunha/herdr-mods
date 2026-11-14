@@ -24,6 +24,8 @@ import * as fs from "fs/promises";
 // A panel button (side panel or tab entry) opens its panel in the side panel (a tab entry: in its tab) or in a
 // dialog. The first button of the panel group sets where: Auto, Side panel or Dialog. Auto opens a dialog when
 // the window is narrower than PANEL_NARROW px. The setting and the open dialog are shared with the Kanban bar.
+// The side panel has a title row too (props.part "panel-head"): the name of the shown panel and a button that opens
+// it in a dialog. The bar adds this block to its layout by itself (see ensureHead).
 // This mod has more parts: props.part "panel-title" (the title row of a panel dialog), props.part "group-menu"
 // (the menu of a group button, a popup), props.part "gear-menu" (the menu of the gear button, a popup) and
 // props.part "buttons-menu" (the editor of the order and the visibility of the panel buttons, a popup).
@@ -53,6 +55,7 @@ const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(
 const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);
 const PANEL_NARROW = 1600; // px of window: below it, Auto opens a dialog
 const DIALOG_TITLE = 36; // px: the title row of a panel dialog
+const PANEL_HEAD = 28; // px: the title row of the side panel (the block "panel-head")
 // The dialogs opened since the app started. shared() is saved to disk, so after a restart KEY_PANEL_DIALOG can
 // name a dialog that is gone: the bar trusts it only when its id is here. The same registry as in mods/kanban.
 const liveDialogs = () => (globalThis.__kanbanPanelDialogs ??= new Set());
@@ -87,7 +90,7 @@ const STR = {
     opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
     opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
-    toSide: "Open in the side panel", toTab: "Open in a tab", closeDialog: "Close",
+    toSide: "Open in the side panel", toTab: "Open in a tab", toDialog: "Open in a dialog", closeDialog: "Close",
     gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
     hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset" },
   pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
@@ -98,7 +101,7 @@ const STR = {
     opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
     opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
-    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", closeDialog: "Fechar",
+    toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", toDialog: "Abrir num diálogo", closeDialog: "Fechar",
     gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
     moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar" },
 };
@@ -185,6 +188,16 @@ function find(node, id) {
   return null;
 }
 
+// The node that has the node `id` as a direct child, or null.
+function parentOf(node, id) {
+  for (const child of node?.children ?? []) {
+    if (child?.id === id) return node;
+    const found = parentOf(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+
 function ids(node, out = new Set()) {
   if (node?.id) out.add(node.id);
   for (const child of node?.children ?? []) ids(child, out);
@@ -209,7 +222,22 @@ export default class Tabs extends View {
     // Read props once: props() in a later callback can answer for another copy.
     const p = (given && Object.keys(given).length ? given : props()) || {};
     this.props = p;
-    this.part = ["panel-title", "group-menu", "gear-menu", "buttons-menu"].includes(p.part) ? p.part : "bar";
+    this.part = ["panel-title", "panel-head", "group-menu", "gear-menu", "buttons-menu"].includes(p.part) ? p.part : "bar";
+    if (this.part === "panel-head") {
+      // The names and the icons of the panels, from dock/panels.json. A save of the file shows at once.
+      this.info = new Map(BUILTIN.map(b => [b.id, b]));
+      cx.spawn(async (cx) => {
+        for (;;) {
+          try {
+            const list = JSON.parse(await readTextFile(`${appHome()}/dock/panels.json`) ?? "{}")?.panels;
+            this.info = new Map([...BUILTIN, ...(Array.isArray(list) ? list : [])].filter(e => e?.id).map(e => [e.id, e]));
+          } catch {}
+          cx.notify();
+          try { await watchFolder(`${appHome()}/dock`); } catch { return; }
+        }
+      });
+      return;
+    }
     if (this.part !== "bar") {
       this.overlay = p.overlay ?? props()?.overlay;
       if (this.part === "panel-title") {
@@ -337,6 +365,8 @@ export default class Tabs extends View {
     if (id === "gear") return this.openGear();
     // "tabs-dock.buttons" opens the editor of the bar buttons, as the row of the gear menu does.
     if (id === "buttons") return this.openButtons();
+    // "tabs-dock.dialog-<id>" moves the panel <id> from the side panel to a dialog, as the button of its title row does.
+    if (String(id).startsWith("dialog-")) return this.panelToDialog(String(id).slice(7));
     const live = this.liveEntries();
     // A key of a panel whose mod is off does nothing.
     if (live.length < this.entries.length && this.entries.some(e => e.id === id) && !live.some(e => e.id === id)) return;
@@ -396,6 +426,29 @@ export default class Tabs extends View {
     });
     liveDialogs().add(overlay);
     setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id });
+  }
+
+  // Moves the panel `id` from the side panel to a dialog: hides the side panel and opens the dialog.
+  panelToDialog(id) {
+    const root = layout(), panel = find(root, "panel") ?? find(root, "panel-body"), body = find(root, "panel-body");
+    const node = (body?.children ?? []).find(c => c.id === id && !c.hidden);
+    if (!node || !this.liveEntries().some(e => e.id === id) && !BUILTIN.some(b => b.id === id)) return;
+    const open = shared(KEY_PANEL_DIALOG);
+    if (open?.id) { closeOverlay(open.id); setShared(KEY_PANEL_DIALOG, null); }
+    if (panel && !panel.hidden) run("layout.hide", { id: panel.id });
+    this.openDialog(id, node.content);
+  }
+
+  // The title row of the side panel: the icon and the name of the shown panel, and a button that opens it in a
+  // dialog. The same as panelHead in mods/kanban.
+  panelHead(t) {
+    const id = find(layout(), "panel-body")?.active, entry = this.info.get(id);
+    const path = String(entry?.icon || "");
+    const glyph = !path ? div().size(13) : path.endsWith(".svg") ? svg(path).size(13).text_color(t.accent) : image(path).size(13);
+    return h_flex().id("panel-head").size_full().pl(12).pr(4).gap(7).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .child(glyph.flex_none())
+      .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().text_color(t.foreground).child(String(entry?.label ?? id ?? "")))
+      .when(Boolean(id), (e) => e.child(iconButton(t, "head-dialog", "dialog", () => run(`tabs-dock.dialog-${id}`), { tooltip: this.s("toDialog"), size: 22, glyph: 13 })));
   }
 
   // The panel that shows in a dialog now, or null.
@@ -583,6 +636,32 @@ export default class Tabs extends View {
     return true;
   }
 
+  // Adds the title row of the side panel (the block "panel-head") over the panel stack, when the layout has none.
+  // A layout where Herdr took the column "panel" away (it removes a column that keeps only one child) gets the
+  // column again, with the size and the shown state of the stack. One attempt per layout. Returns true when it
+  // edits the layout.
+  ensureHead(root) {
+    if (find(root, "panel-head")) return false;
+    const name = shared("layout");
+    if (this.headTry === name) return false;
+    this.headTry = name;
+    const tree = JSON.parse(JSON.stringify(root)), panel = find(tree, "panel"), body = find(tree, "panel-body");
+    const lang = this.props?.lang ? { lang: this.props.lang } : {};
+    const head = { id: "panel-head", type: "block", size: { px: PANEL_HEAD }, content: { mod: "tabs-dock", props: { part: "panel-head", ...lang } } };
+    if (panel?.type === "column" && panel.children?.includes(body)) {
+      panel.children.unshift(head);
+      panel.resizable = false;
+    } else {
+      const parent = parentOf(tree, "panel-body");
+      if (panel || !parent) return false;
+      const column = { id: "panel", type: "column", children: [head, body], resizable: false };
+      for (const k of ["size", "min", "max", "hidden"]) if (k in body) { column[k] = body[k]; delete body[k]; }
+      parent.children[parent.children.indexOf(body)] = column;
+    }
+    run("layout.set", { layout: tree });
+    return true;
+  }
+
   // The entries of panels.json whose mod is on.
   liveEntries() {
     const off = offMods();
@@ -665,6 +744,7 @@ export default class Tabs extends View {
   render() {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
+    if (this.part === "panel-head") return this.panelHead(t);
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
@@ -707,8 +787,10 @@ export default class Tabs extends View {
     const commands = live.filter(e => e.opens === "command");
     const panelEntries = wanted.filter(e => e.opens === "panel");
     const injecting = panel && body ? this.inject(root, body, panelEntries) : false;
-    // One layout edit for each render: the agents swap and the off mods wait for the panel edit.
-    if (!injecting) this.reconcile(root);
+    // One layout edit for each render: the title row of the side panel, the agents swap and the off mods wait
+    // for the panel edit.
+    const heading = !injecting && body ? this.ensureHead(root) : false;
+    if (!injecting && !heading) this.reconcile(root);
     // A panel dialog that shows a mod that is now off closes.
     const openDialog = shared(KEY_PANEL_DIALOG);
     if (openDialog?.id && liveDialogs().has(openDialog.id)) {
