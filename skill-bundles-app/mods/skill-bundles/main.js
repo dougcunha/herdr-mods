@@ -89,7 +89,7 @@ export default class SkillBundles extends View {
     this.part = this.props.part ?? "panel";
     this.cat = { state: "loading" }; // see loadCatalog
     this.proj = { state: "loading" }; // see loadProject
-    this.mode = "list"; // "list" | "bundles" | "add"
+    this.mode = "list"; // "list" | "bundles" | "add" | "repo"
     this.pick = new Set(); // the Bundles chosen in the "bundles" mode and the start view
     this.persist = false; // "Keep in skills.yaml" of the "add" mode
     this.error = null; // { text } of the last failed action of this copy
@@ -104,6 +104,9 @@ export default class SkillBundles extends View {
     if (this.part !== "status") {
       this.query = InputState.new({ placeholder: this.str.search });
       this.query.on("change", (_e, cx) => cx.notify());
+      // The "repo" mode: a repository to install a skill from, and the skills that it offers.
+      this.repoInput = InputState.new({ placeholder: this.str.repoPlaceholder });
+      this.repoList = null; // { repo, state: "loading" | "ready" | "error", skills: [{ name, desc }], error }
       cx.spawn(async (cx) => {
         try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length); } catch {}
         cx.notify();
@@ -129,6 +132,7 @@ export default class SkillBundles extends View {
         if (c === "update-offered") { this.updateOffered(cx); continue; }
         if (this.part === "status") { if (c === "open") this.openDialog(); continue; }
         if (c === "fetch") this.reload(cx, true);
+        if (c === "add" && this.proj.state === "ready") this.setMode("repo", cx);
         if (c === "sync" && this.proj.state === "ready" && (!this.proj.manifest || this.cat.state === "ready")) this.syncAll(cx);
       }
     });
@@ -478,10 +482,11 @@ export default class SkillBundles extends View {
 
   /** `npx skills add` for each repository: [{ repo, skills }], in project `p` (on its machine). */
   async install(p, groups) {
+    // A problem of the person's own clone stops only an install from the Catalog.
     const blocked = this.installBlock();
-    if (blocked) throw new Error(blocked);
     for (const g of groups) {
       if (!g.skills.length) continue;
+      if (blocked && sameRepo(g.repo, this.cat.catalog?.repo)) throw new Error(blocked);
       setShared(KEY.job, { ...(shared(KEY.job) ?? {}), label: fill(this.str.busyInstall, { n: g.skills.length }), at: Date.now() });
       const r = await C.npx(["skills", "add", this.pkg(g.repo), "-s", ...g.skills, "-y"], p.root, p.host);
       if (r.code !== 0) throw new Error(C.tail(r) || `npx skills add ${g.repo}`);
@@ -678,6 +683,35 @@ export default class SkillBundles extends View {
     });
   }
 
+  /** The "repo" mode: reads the skills of the repository in the field (`npx skills add <repo> --list`). */
+  listRepo(cx) {
+    const repo = String(this.repoInput?.value?.() ?? "").trim();
+    const p = this.proj;
+    if (!repo || p.state !== "ready" || this.repoList?.state === "loading") return;
+    if (!C.validRepo(repo)) { this.repoList = { repo, state: "error", skills: [], error: this.str.repoInvalid }; cx.notify(); return; }
+    this.repoList = { repo, state: "loading", skills: [] };
+    this.query?.set_value?.("");
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const r = await C.listRepo(repo, p.root, p.host);
+      // Another repository was asked in the meantime: this answer is old.
+      if (this.repoList?.repo !== repo) return;
+      this.repoList = r.error ? { repo, state: "error", skills: [], error: r.error } : { repo, state: "ready", skills: r.skills };
+      cx.notify();
+    });
+  }
+
+  /** The "repo" mode: installs one skill of the listed repository, and keeps it in sources: when asked. */
+  addFromRepo(cx, name) {
+    const repo = this.repoList?.repo;
+    if (!repo) return;
+    const persist = this.persist && Boolean(this.proj.manifest);
+    this.act(cx, fill(this.str.busyInstall, { n: 1 }), async (p) => {
+      await this.install(p, [{ repo, skills: [name] }]);
+      if (persist) await this.writeManifest(p, withSource(p.manifest, repo, [name]));
+    });
+  }
+
   // ---- views ------------------------------------------------------------------------------
 
   openDialog() {
@@ -695,7 +729,7 @@ export default class SkillBundles extends View {
     this.error = null;
     // As Configure-Skills.ps1: only the Bundles of the Catalog are kept; an unknown one drops on save.
     if (mode === "bundles") this.pick = new Set((this.proj.manifest?.bundles ?? ["core"]).filter((b) => this.cat.catalog?.bundles.has(b)));
-    if (mode === "add") { this.persist = false; this.query?.set_value?.(""); }
+    if (mode === "add" || mode === "repo") { this.persist = false; this.query?.set_value?.(""); }
     cx.notify();
   }
 
@@ -720,6 +754,8 @@ export default class SkillBundles extends View {
       pick: this.pick,
       persist: this.persist,
       query: this.query,
+      repoInput: this.repoInput,
+      repoList: this.repoList,
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       // Without a Manifest, only an Outdated skill asks for action: the Lock is the list.
       plain: p.state === "ready" && !p.manifest,
@@ -751,6 +787,8 @@ export default class SkillBundles extends View {
         applyBundles: (cx) => this.applyBundles(cx),
         start: (cx) => this.start(cx),
         addSkill: (name, cx) => this.addSkill(cx, name),
+        listRepo: (cx) => this.listRepo(cx),
+        addFromRepo: (name, cx) => this.addFromRepo(cx, name),
         open: () => this.openDialog(),
         startPick: (cx) => { if (!this.pick.size) this.pick = new Set(["core"]); cx.notify(); },
       },

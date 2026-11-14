@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A project without skills.yaml shows the skills that npx skills installed in it, by repository, and updates them without a Catalog. A toast offers to update outdated skills. Works in spaces on other machines too.",
+  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A project without skills.yaml shows the skills that npx skills installed in it, by repository, and updates them without a Catalog. Add skill installs a skill from any repository of skills. A toast offers to update outdated skills. Works in spaces on other machines too.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {

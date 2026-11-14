@@ -141,6 +141,7 @@ function summary(t, m) {
         .child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" }))
         .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode("add", cx), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
       // Without a Manifest: the way to Bundles. Without a Catalog, the button opens the settings.
+      .when(m.plain, (e) => e.child(button(t, "sb-add-repo", m.str.addSkill, (cx) => m.a.mode("repo", cx), { disabled: busy, tip: m.str.addRepoTip, icon: "plus" })))
       .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (catalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: catalog ? m.str.useBundlesTip : m.str.useBundlesNoCatalog, icon: "bundles" }))))
     .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.checking ? m.str.checking : m.str.plainHint)))
     .when(Boolean(checkError), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(fill(m.str.checkError, { error: String(checkError).split("\n").pop() }))))
@@ -292,13 +293,9 @@ function addView(t, m, s) {
             if (e.key !== "escape") return;
             if (m.query.value()) { m.query.set_value(""); cx.stop_propagation(); cx.notify(); }
             else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
-          }))))
-    .child(h_flex().id("sb-persist").flex_none().px(12).py(6).gap(8).items_center().cursor_pointer().border_b(1).border_color(t.border)
-      .tooltip(m.str.persistTip)
-      .on_click((_e, cx) => m.a.persist(cx))
-      .child(div().w(28).h(16).flex_none().rounded(8).p(2).bg(m.persist ? t.accent : t.raised).border_1().border_color(m.persist ? t.accent : t.border)
-        .child(div().size(10).rounded(5).bg(m.persist ? t.accent_foreground : t.muted).when(m.persist, (e) => e.ml(12))))
-      .child(div().text_size(12).child(m.str.persist)))
+          })))
+      .child(button(t, "sb-other-repo", m.str.addRepo, (cx) => m.a.mode("repo", cx), { tip: m.str.addRepoTip })))
+    .child(persistToggle(t, m))
     .child(v_flex().id("sb-add-list").flex_1().min_h(0).overflow_y_scrollbar()
       .when(items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(m.str.nothingToAdd)))
       .children(items.map((it) => h_flex().id(`sb-cand-${it.bundle}-${it.name}`).min_h(30).px(12).gap(8).items_center().hover((x) => x.bg(t.hover))
@@ -306,6 +303,61 @@ function addView(t, m, s) {
         .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(MONO(s)).child(it.name))
         .when(it.installed, (e) => e.child(div().flex_none().text_size(11).text_color(stateColor(t, "extra")).child(m.str.state_extra)))
         .child(button(t, `sb-addone-${it.bundle}-${it.name}`, m.str.install, (cx) => m.a.addSkill(it.name, cx), { disabled: busy })))));
+}
+
+/** A text field in a box. Esc clears the text, then closes the dialog. Enter runs `onEnter`. */
+function field(t, state, icon, onEnter = null) {
+  return h_flex().flex_1().min_w(0).h(28).px(8).gap(6).items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
+    .child(svg(ICON(icon)).size(13).flex_none().text_color(t.dim))
+    .child(Input.new(state).flex_1().h_full().text_size(12)
+      .on_key_down((e, cx) => {
+        if (e.key === "enter" && onEnter) { onEnter(cx); cx.stop_propagation(); return; }
+        if (e.key !== "escape") return;
+        if (state.value()) { state.set_value(""); cx.stop_propagation(); cx.notify(); }
+        else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
+      }));
+}
+
+/** Add skill from any repository: a repository field, then the skills that the repository offers. */
+function repoView(t, m, s) {
+  const str = m.str;
+  const list = m.repoList;
+  const busy = Boolean(m.job);
+  const installed = new Set(m.proj.rows.filter((r) => r.state !== "missing").map((r) => r.name));
+  const items = (list?.skills ?? []).filter((it) => !m.filter || `${it.name} ${it.desc}`.toLowerCase().includes(m.filter));
+  return v_flex().flex_1().min_h(0)
+    .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
+      .child(button(t, "sb-back", str.back, (cx) => m.a.mode(m.plain ? "list" : "add", cx), { icon: "back" }))
+      .child(field(t, m.repoInput, "bundles", (cx) => m.a.listRepo(cx)))
+      .child(button(t, "sb-list-repo", str.listSkills, (cx) => m.a.listRepo(cx), { kind: "primary", disabled: list?.state === "loading", tip: str.listSkillsTip })))
+    .when(!m.plain, (e) => e.child(persistToggle(t, m)))
+    .when(list?.state === "ready" && list.skills.length > 0, (e) => e.child(h_flex().flex_none().px(12).py(6).border_b(1).border_color(t.border).child(field(t, m.query, "search"))))
+    .child(v_flex().id("sb-repo-list").flex_1().min_h(0).overflow_y_scrollbar()
+      .when(!list, (e) => e.child(div().p(16).text_size(12).text_color(t.muted).child(str.repoHint)))
+      .when(list?.state === "loading", (e) => e.child(h_flex().p(16).gap(8).items_center()
+        .child(svg(ICON("spinner")).size(14).spin(900).text_color(t.accent))
+        .child(div().text_size(12).child(fill(str.repoReading, { repo: list.repo })))))
+      .when(list?.state === "error", (e) => e.child(v_flex().p(16).gap(8)
+        .child(div().text_size(12).font_semibold().text_color(t.ansi1).child(fill(str.repoError, { repo: list.repo })))
+        .child(div().p(10).rounded(8).bg(t.raised).border_1().border_color(t.border).text_size(11).font_family(MONO(s)).text_color(t.muted).child(list.error ?? ""))))
+      .when(list?.state === "ready" && items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(fill(str.repoEmpty, { repo: list.repo }))))
+      .children(list?.state === "ready" ? items.map((it) => h_flex().id(`sb-repo-${it.name}`).min_h(40).px(12).py(4).gap(8).items_center().hover((x) => x.bg(t.hover))
+        .when(Boolean(it.desc), (e) => e.tooltip(it.desc))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12).font_family(MONO(s)).child(it.name))
+          .when(Boolean(it.desc), (e) => e.child(div().truncate().text_size(11).text_color(t.muted).child(it.desc))))
+        .when(installed.has(it.name), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(str.installed)))
+        .child(button(t, `sb-repo-add-${it.name}`, installed.has(it.name) ? str.reinstall : str.install, (cx) => m.a.addFromRepo(it.name, cx), { disabled: busy }))) : []));
+}
+
+/** The "Keep in skills.yaml" switch of the add views. */
+function persistToggle(t, m) {
+  return h_flex().id("sb-persist").flex_none().px(12).py(6).gap(8).items_center().cursor_pointer().border_b(1).border_color(t.border)
+    .tooltip(m.str.persistTip)
+    .on_click((_e, cx) => m.a.persist(cx))
+    .child(div().w(28).h(16).flex_none().rounded(8).p(2).bg(m.persist ? t.accent : t.raised).border_1().border_color(m.persist ? t.accent : t.border)
+      .child(div().size(10).rounded(5).bg(m.persist ? t.accent_foreground : t.muted).when(m.persist, (e) => e.ml(12))))
+    .child(div().text_size(12).child(m.str.persist));
 }
 
 /** The bottom line: the running action, or the error of the last one. */
@@ -336,6 +388,7 @@ function body(t, m, s) {
   if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
+  if (m.mode === "repo") return repoView(t, m, s);
   if (!p.manifest) {
     // The list of installed skills. "Use Bundles" opens the picker, which writes skills.yaml.
     if (m.mode === "bundles" && c.state === "ready") {

@@ -75,6 +75,7 @@ A project without `skills.yaml` shows the skills of its `skills-lock.json`, in o
 - The mod runs `npx skills check -p` in the project when the last check is older than **Fetch the Catalog every** (15 minutes by default), and when you click the refresh button. The check downloads each repository of the Lock: it takes some seconds.
 - **Update all** and **Update N** on a group update only the Outdated skills. A Missing skill has its own **Install** button.
 - The status bar item counts only the Outdated skills. The update offer (the toast) works too.
+- **Add skill** opens the same view as **Another repository**: write a repository, click **List skills**, then **Install**.
 - **Use Bundles** opens the Bundles of the Catalog with check boxes (`core` is always on). **Create skills.yaml and install** writes `skills.yaml`, adds the generated files to `.gitignore` (`.agents/`, `.claude/skills/`, `.codex/skills/`, `skills-lock.json`) and installs the skills. The skills that were installed before stay and show as Extra: **Keep all** adds them to `sources:`. Without a Catalog, the button opens the Settings.
 
 ## Buttons
@@ -82,6 +83,7 @@ A project without `skills.yaml` shows the skills of its `skills-lock.json`, in o
 - **Update all:** installs only the Missing and Outdated skills (`npx skills add` for each repository), as a click on **Install** or **Update** of each row. Up-to-date, Unchecked, Extra and Local skills stay as they are. The button is off when no skill differs.
 - **Bundles:** the Bundles of the Catalog with check boxes. **Save and apply** writes `skills.yaml`, installs the skills of the new Bundles and removes the skills of the Bundles that you took out.
 - **Add skill:** the skills of the Catalog that the Manifest does not cover, with a search field. **Install** installs one skill. With **Keep in skills.yaml** off, the skill is for now and shows as Extra; with it on, the skill goes to `sources:`.
+- **Another repository** (in **Add skill**): write a repository of skills (`owner/repo` on GitHub, or a Git URL) and click **List skills**. The mod shows the skills of that repository with their descriptions and a search field. **Install** installs one skill from it. **Keep in skills.yaml** works here too.
 - **Remove** on a Source: takes the skill out of `sources:` and uninstalls it.
 - **Batch buttons on the title of a group:** **Update N** on a Bundle or Sources group installs its Missing and Outdated skills. The Extra group (2 or more skills) has **Keep all** (adds all to `sources:` in one write) and **Remove all** (one `npx skills remove`, after a second click). The Local group (2 or more skills) has **Remove all** (deletes all their folders, after a second click).
 - A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
@@ -118,6 +120,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 - `node mods/skill-bundles/probe.mjs` on each read: it reads the Lock and the skill folders of the project and computes the hashes of the Catalog's skill folders, the same way as `npx skills`. It writes nothing.
 - `npx --yes skills add <repo> -s <skills> -y` and `npx --yes skills remove <skills> -y` in the project folder, only when you click an action. `npx skills` downloads the skills from GitHub.
 - In a project without `skills.yaml`: `npx --yes skills check -p` on the fetch interval (it writes nothing), and `npx --yes skills update <skills> -p -y` only when you click an action.
+- `npx --yes skills add <repo> --list` when you click **List skills** (it installs nothing).
 - It reads and writes `skills.yaml` and `.gitignore` of the project, only when you click an action.
 
 ## Install
@@ -162,6 +165,7 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - `skill-bundles.open`: opens the panel as a dialog (the status bar item listens).
 - `skill-bundles.sync`: **Update all** in the shown panel.
 - `skill-bundles.fetch`: fetches the Catalog now, and checks a project without `skills.yaml` for updates.
+- `skill-bundles.add`: opens the view that installs a skill from a repository, in the shown panel.
 - `skill-bundles.update-offered`: updates the Outdated skills of the last toast (the toast runs it).
 
 ## Limits
@@ -172,5 +176,5 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - **Outdated** needs the hash of the Lock. A skill that `npx skills` installed without a hash shows as Unchecked.
 - **Outdated** compares content, not line endings: a text file of the Catalog that a tool wrote with LF (or CRLF) counts as the file that a git checkout gives. A change of its text still shows as Outdated.
 - In a project without `skills.yaml`, the mod reads the text that `npx skills check` prints (the command has no JSON output). A new version of `npx skills` that prints other text shows the skills as Up to date until the mod follows it.
-- In a project without `skills.yaml`, the mod cannot add a skill from a repository yet: run `npx skills add <repo>` in a terminal, then the skill shows in the list.
+- **List skills** reads the text of `npx skills add <repo> --list` too (no JSON output). The mod installs one skill at a time from a repository.
 - The mod does not run on a git hook. To keep the PowerShell hook (`Install-Skills.ps1 -Silent` in `post-checkout`), keep the scripts of the Catalog.

@@ -64,6 +64,35 @@ export async function checkUpdates(root, host = null) {
   return { names, failed, error: r.code === -1 || !ran ? tail(r) || "npx skills check" : null };
 }
 
+/** A repository for `npx skills add`: owner/name, or a Git URL. No spaces and no shell characters. */
+export const validRepo = (text) => /^[\w.@:/#~+-]+$/.test(String(text ?? "")) && /[\w]/.test(String(text ?? ""));
+
+/**
+ * `npx skills add <repo> --list` in a project: the skills that a repository offers. It installs
+ * nothing. The command has no JSON output with --list, so this reads its lines: after
+ * "Available Skills", a name is a line "│    <name>" and its description "│      <text>".
+ * Returns { skills: [{ name, desc }], error }.
+ */
+export async function listRepo(repo, root, host = null) {
+  const r = await npx(["skills", "add", repo, "--list"], root, host);
+  const text = `${r.out}\n${r.err}`.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
+  const at = text.indexOf("Available Skills");
+  const skills = [];
+  if (at >= 0) {
+    for (const line of text.slice(at).split(/\r?\n/)) {
+      const m = /^\s*\S( +)(\S.*?)\s*$/.exec(line);
+      if (!m) continue;
+      if (m[1].length === 4 && /^[\w.@-]+$/.test(m[2])) skills.push({ name: m[2], desc: "" });
+      else if (m[1].length >= 6 && skills.length && !skills[skills.length - 1].desc) skills[skills.length - 1].desc = m[2];
+    }
+  }
+  if (at < 0 || r.code === -1) {
+    const lines = text.split(/\r?\n/).map((l) => l.replace(/^[\s│■◇●└┌▲]+/, "").trim()).filter((l) => l && !/^Cloning repository|^Canceled|^Tip:|Agent detected/.test(l));
+    return { skills: [], error: lines.slice(-6).join("\n") || "npx skills add --list" };
+  }
+  return { skills, error: null };
+}
+
 /** The folder of this mod (the node helper is in it). */
 export const modDir = () => `${slash(appHome())}/mods/skill-bundles`;
 
