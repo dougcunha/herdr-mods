@@ -70,6 +70,8 @@ export function place(on = null) {
         const made = await sh("node", ["-e", "require('fs').mkdirSync(process.argv[1], { recursive: true })", cache], { on });
         if (made.code !== 0) throw new Error(tail(made) || `node does not run on ${on}`);
         await writeFileOn(on, p.script, text);
+        // 2 copies of the mod can write at the same time: the file must be whole before a run.
+        if ((await readOn(p.script, on).catch(() => null)) !== text) throw new Error(`Could not write link-skills.mjs on ${on}. Try again.`);
       }
       try { p.shared = JSON.parse(await readOn(`${home}/shared.json`, on)) ?? {}; } catch {}
       return p;

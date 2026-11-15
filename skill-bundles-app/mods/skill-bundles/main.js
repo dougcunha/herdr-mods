@@ -279,6 +279,7 @@ export default class SkillBundles extends View {
     const on = location().machine ?? null;
     if (on !== this.on) this.cat = { state: "loading" };
     this.on = on;
+    this.place = null;
     // The refresh button reads the settings of the other machine again.
     if (force && on) C.forgetPlace(on);
     this.place = await C.place(on);
@@ -784,7 +785,7 @@ export default class SkillBundles extends View {
       fixes: this.cloneFixes(),
       waiting: this.waiting(),
       collapsed: this.collapsed,
-      settingSlug: C.repoSlug(shared(KEY.catalog)),
+      settingSlug: this.cat.slug ?? null, // the Catalog setting of the machine of the project
       a: {
         reload: (cx) => this.reload(cx, true),
         settings: () => this.openSettings(),

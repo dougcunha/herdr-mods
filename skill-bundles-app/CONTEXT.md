@@ -11,7 +11,7 @@ A Git repository of agent skills with a `bundles.yaml` at its root.
 _Avoid_: skills repo, skill store
 
 **Clone**:
-The folder on this computer with a checkout of the Catalog. It is the only place where the skills have version control. It is the person's own clone (a setting) or, without that setting, a clone that the mod keeps in its cache.
+The folder with a checkout of the Catalog, on the computer of the project (this computer, or the machine of a remote space). It is the only place where the skills have version control. It is the person's own clone (a setting) or, without that setting, a clone that the mod keeps in its cache.
 _Avoid_: copy, checkout
 
 **Bundle**:
