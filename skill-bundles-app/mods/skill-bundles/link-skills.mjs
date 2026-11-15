@@ -4,7 +4,7 @@
 //
 // A Catalog is a Git repository with a bundles.yaml at its root. A project names its Bundles
 // in skills.yaml (the Manifest). This script makes, for each skill, one link in each agent
-// folder of the project (.agents/skills, .claude/skills, .codex/skills) that points to the
+// folder of the project (.agents/skills, .claude/skills, .windsurf/skills) that points to the
 // folder of the skill in the clone: a directory junction on Windows, a symbolic link on
 // macOS and Linux. It hides the links from Git in .git/info/exclude. That block is also the
 // record of the links that this script made: it never removes a link that is not in it.
@@ -21,6 +21,9 @@
 //   { op: "apply", project, clone, catalogRepo, sourcesRoot, link, remove, replace, deleteLocal, extra, repos, dropGitignore }
 //   { op: "source", sourcesRoot, repo }          → { dir, url, exists }: the clone of another repository
 //   { op: "list", dir }                          → { skills: [{ name, desc }] } of a clone
+//   { op: "details", clone }                     → { catalog, skills: [{ name, desc, bundles }], orphans }
+//   { op: "curate", clone, createBundle, assign, unassign, deleteBundle, deleteSkill }
+//                                                → { changed, errors }: changes bundles.yaml (see curate())
 //                                                → { linked, removed, converted, backedUp, errors }
 // It prints JSON on stdout.
 
@@ -31,7 +34,10 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-const AGENT_DIRS = [".agents/skills", ".claude/skills", ".codex/skills"];
+// The agent folders of a project. Codex, Cursor, GitHub Copilot and OpenCode read .agents/skills.
+const AGENT_DIRS = [".agents/skills", ".claude/skills", ".windsurf/skills"];
+// Folders that an older version of this script linked into. Its links there are removed on the next change.
+const RETIRED_DIRS = [".codex/skills"];
 const BACKUP_DIR = ".agents/skills-backup";
 const BLOCK_START = "# >>> skill-bundles links (link-skills.mjs writes this block)";
 const BLOCK_END = "# <<< skill-bundles links";
@@ -71,19 +77,30 @@ export function parseCatalog(text) {
   return { repo, bundles: [...bundles], descriptions };
 }
 
-/** skills.yaml: { bundles: string[], sources: [{ repo, skills: string[] }] }. */
+/**
+ * skills.yaml: { bundles: string[], skills: string[], sources: [{ repo, skills: string[] }] }.
+ * `skills:` lists skills of the Catalog that are not in a Bundle of the project; `sources:` lists
+ * skills by repository (the Catalog too, in older files).
+ */
 export function parseManifest(text) {
   const bundles = [];
+  const skills = [];
   const sources = [];
+  const inline = (list, into) => { for (const item of list.split(",")) if (unquote(item)) into.push(unquote(item)); };
   let current = null;
   let section = null;
   for (const raw of String(text ?? "").split(/\r?\n/)) {
     const line = uncomment(raw);
     if (!line.trim()) continue;
-    if (/^bundles:\s*$/i.test(line)) { section = "bundles"; continue; }
-    if (/^sources:\s*$/i.test(line)) { section = "sources"; continue; }
     let m;
+    // A list on one line: `bundles: [core, dotnet]`.
+    if ((m = /^(bundles|skills):\s*\[(.*)\]\s*$/i.exec(line))) { inline(m[2], m[1].toLowerCase() === "bundles" ? bundles : skills); section = null; continue; }
+    if (/^bundles:\s*$/i.test(line)) { section = "bundles"; continue; }
+    if (/^skills:\s*$/i.test(line)) { section = "skills"; continue; }
+    if (/^sources:\s*$/i.test(line)) { section = "sources"; continue; }
+    if (/^\S/.test(line)) { section = null; continue; } // another key at the top
     if (section === "bundles" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { bundles.push(unquote(m[1])); continue; }
+    if (section === "skills" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { skills.push(unquote(m[1])); continue; }
     if (section === "sources") {
       if ((m = /^\s*-\s*repo:\s*(.+?)\s*$/i.exec(line))) { if (current) sources.push(current); current = { repo: unquote(m[1]), skills: [] }; continue; }
       if (/^\s*skills:\s*$/i.test(line)) continue;
@@ -91,7 +108,7 @@ export function parseManifest(text) {
     }
   }
   if (current) sources.push(current);
-  return { bundles, sources };
+  return { bundles, skills, sources };
 }
 
 /** "owner/name" of a repository text (a GitHub URL too), in lower case, without "#branch" and ".git". */
@@ -316,7 +333,7 @@ const OLD_GITIGNORE_LINES = new Set([".agents/", ".claude/skills/", ".codex/skil
  *   state: "linked" | "missing" | "stale" | "copy" | "conflict" | "absent" | "unsupported" | "extra" | "local"
  */
 function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
-  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false };
+  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0 };
   const clones = clonesOf({ clone, catalogRepo, sourcesRoot });
   const { catalog, error } = clones;
   result.catalog = catalog;
@@ -334,6 +351,8 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
   const block = readBlock(project);
   const tracked = trackedNames(project);
   const cloneRoot = clone ? real(clone) : null;
+  // The links of this tool in a folder that it no longer uses: the next change removes them.
+  result.retired = [...block.links].filter((line) => RETIRED_DIRS.some((dir) => line.startsWith(`/${dir}/`)) && lstat(join(project, line))?.isSymbolicLink()).length;
 
   // What the Manifest asks for: Map<skill, { repo, from }>.
   const required = new Map();
@@ -348,6 +367,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
       for (const s of bundles.get(b)) want(repo, s, b);
     }
   }
+  if (catalog) for (const s of result.manifest?.skills ?? []) want(repo, s, "sources");
   for (const src of result.manifest?.sources ?? []) for (const s of src.skills) want(src.repo, s, "sources");
 
   // What is in the project: Map<name, [entry of each agent folder]>.
@@ -449,7 +469,7 @@ function backup(project, path, name) {
  */
 function apply(input) {
   const { project, clone, dryRun = false } = input;
-  const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], errors: [] };
+  const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [] };
   const state = read(input);
   if (!state.git) throw new Error(`${slashed(project)} is not in a Git repository.`);
   const rows = new Map(state.rows.map((r) => [r.name, r]));
@@ -531,6 +551,18 @@ function apply(input) {
     });
     if (ok) done.deleted.push(name);
   }
+  // The links of this tool in the folders that it no longer uses (.codex/skills).
+  for (const line of [...block.links]) {
+    const dir = RETIRED_DIRS.find((d) => line.startsWith(`/${d}/`));
+    if (!dir) continue;
+    const path = join(project, line);
+    const ok = attempt(line, () => {
+      if (lstat(path)?.isSymbolicLink()) unlink(path);
+      block.links.delete(line);
+      try { fs.rmdirSync(join(project, dir)); fs.rmdirSync(dirname(join(project, dir))); } catch {} // only when empty
+    });
+    if (ok) done.retired.push(line.slice(1));
+  }
   if (dryRun) return done;
 
   // A name that the Manifest asks for is not Extra.
@@ -560,6 +592,106 @@ function apply(input) {
       fs.writeFileSync(path, kept.join(nl));
     } catch (e) { done.errors.push(`.gitignore: ${e.message ?? e}`); }
   }
+  return done;
+}
+
+// ---- the Catalog: which skill is in which Bundle -----------------------------------------------
+
+const CATALOG_NAME = /^[a-z0-9][a-z0-9_-]*$/;
+
+/**
+ * The skills of a clone for its curation: { catalog, skills: [{ name, desc, bundles }], orphans, error }.
+ * An orphan is a skill folder that no Bundle lists.
+ */
+function catalogDetails(clone) {
+  const { catalog, error } = readClone(clone);
+  if (!catalog) return { catalog: null, skills: [], orphans: [], error };
+  const skills = listSkills(clone).map((s) => ({ ...s, bundles: catalog.bundles.filter(([, names]) => names.includes(s.name)).map(([b]) => b) }));
+  return { catalog, skills, orphans: skills.filter((s) => !s.bundles.length).map((s) => s.name), error: null };
+}
+
+/**
+ * Changes bundles.yaml of a clone line by line, so that its comments and its order stay.
+ *   createBundle  [{ name, description }]   a new Bundle at the end, with no skills
+ *   assign        [{ skill, bundle }]       adds the skill to the Bundle
+ *   unassign      [{ skill, bundle }]       takes the skill out of the Bundle
+ *   deleteBundle  [name]                    removes the Bundle (not its skill folders; not core)
+ *   deleteSkill   [name]                    deletes the skill folder and takes it out of every Bundle
+ * It commits nothing: the person reviews the clone and commits.
+ * Returns { changed: [text of each change], errors }.
+ */
+function curate(input) {
+  const { clone } = input;
+  const done = { changed: [], errors: [] };
+  const path = join(clone, "bundles.yaml");
+  const before = fs.readFileSync(path, "utf8");
+  const nl = before.includes("\r\n") ? "\r\n" : "\n";
+  let lines = before.split(/\r?\n/);
+  const skills = cloneSkills(clone);
+  const header = (name) => lines.findIndex((l) => new RegExp(`^  ${name}:\\s*$`).test(uncomment(l)));
+  // The lines of a Bundle: [its header, the line after its last one).
+  const span = (at) => {
+    let end = at + 1;
+    while (end < lines.length && !/^ {0,2}\S/.test(lines[end])) end++;
+    while (end > at + 1 && !lines[end - 1].trim()) end--; // the blank lines before the next Bundle stay
+    return [at, end];
+  };
+  const skillsLine = (at, end) => { for (let i = at + 1; i < end; i++) if (/^\s*skills:/i.test(uncomment(lines[i]))) return i; return -1; };
+  const items = (at, end) => { const out = []; const from = skillsLine(at, end); for (let i = from + 1; from >= 0 && i < end; i++) { const m = /^(\s*)-\s*(.+?)\s*$/.exec(uncomment(lines[i])); if (m) out.push({ i, name: unquote(m[2]), indent: m[1] }); } return out; };
+  const fail = (text) => { done.errors.push(text); };
+
+  for (const b of input.createBundle ?? []) {
+    if (!CATALOG_NAME.test(b?.name ?? "")) { fail(`${b?.name}: a Bundle name has lower-case letters, digits, "-" and "_".`); continue; }
+    if (header(b.name) >= 0) { fail(`${b.name}: this Bundle is there already.`); continue; }
+    const description = String(b.description ?? "").replace(/[\r\n]+/g, " ").trim() || b.name;
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    lines.push("", `  ${b.name}:`, `    description: ${JSON.stringify(description)}`, "    skills: []", "");
+    done.changed.push(`new Bundle ${b.name}`);
+  }
+  for (const a of input.assign ?? []) {
+    const at = header(a?.bundle ?? "");
+    if (at < 0) { fail(`${a?.bundle}: no such Bundle.`); continue; }
+    if (!skills.has(a.skill)) { fail(`${a.skill}: the clone has no skill folder with this name.`); continue; }
+    const [, end] = span(at);
+    const list = items(at, end);
+    if (list.some((x) => x.name === a.skill)) continue;
+    const from = skillsLine(at, end);
+    if (from < 0) { fail(`${a.bundle}: no "skills:" line.`); continue; }
+    if (list.length) lines.splice(list[list.length - 1].i + 1, 0, `${list[0].indent}- ${a.skill}`);
+    else { lines[from] = lines[from].replace(/skills:.*$/i, "skills:"); lines.splice(from + 1, 0, `${/^\s*/.exec(lines[from])[0]}  - ${a.skill}`); }
+    done.changed.push(`${a.skill} → ${a.bundle}`);
+  }
+  const takeOut = (skill, bundle) => {
+    const at = header(bundle);
+    if (at < 0) return false;
+    const [, end] = span(at);
+    const list = items(at, end);
+    const found = list.find((x) => x.name === skill);
+    if (!found) return false;
+    lines.splice(found.i, 1);
+    // An empty block list is null in YAML: write an empty list.
+    if (list.length === 1) { const from = skillsLine(at, end - 1); lines[from] = lines[from].replace(/skills:.*$/i, "skills: []"); }
+    return true;
+  };
+  for (const u of input.unassign ?? []) if (takeOut(u?.skill, u?.bundle)) done.changed.push(`${u.skill} out of ${u.bundle}`);
+  for (const name of input.deleteBundle ?? []) {
+    if (name === "core") { fail("core: this Bundle is in every project and stays."); continue; }
+    const at = header(name);
+    if (at < 0) { fail(`${name}: no such Bundle.`); continue; }
+    const [, end] = span(at);
+    lines.splice(at, end - at);
+    while (at > 0 && at < lines.length && !lines[at - 1].trim() && !lines[at].trim()) lines.splice(at, 1);
+    done.changed.push(`Bundle ${name} removed`);
+  }
+  for (const name of input.deleteSkill ?? []) {
+    const folder = skills.get(name);
+    if (!SAFE_NAME.test(name ?? "") || !folder) { fail(`${name}: the clone has no skill folder with this name.`); continue; }
+    if (!lstat(folder)?.isDirectory() || lstat(folder).isSymbolicLink() || !real(folder)?.startsWith(real(clone) + sep)) { fail(`${name}: its folder is not a plain folder of the clone.`); continue; }
+    for (const [bundle] of parseCatalog(lines.join("\n")).bundles) takeOut(name, bundle);
+    try { fs.rmSync(folder, { recursive: true, force: true }); done.changed.push(`skill ${name} deleted`); } catch (e) { fail(`${name}: ${e.message ?? e}`); }
+  }
+  const after = lines.join(nl);
+  if (after !== before && !input.dryRun) fs.writeFileSync(path, after);
   return done;
 }
 
@@ -601,11 +733,12 @@ function cli(args) {
   say("Copies changed to links", done.converted);
   say(`Moved to ${BACKUP_DIR}`, done.backedUp);
   say("Links removed", done.removed);
+  say("Links removed from folders that are not used anymore", done.retired);
   say("Conflict (a folder of the project has this name; not changed)", of("conflict"));
   say("Not in the clone", of("absent"));
   say("From a repository that is not cloned", of("unsupported"));
   say("Errors", done.errors);
-  if (!done.linked.length && !done.converted.length && !done.removed.length && !done.errors.length) console.log("Nothing to do.");
+  if (!done.linked.length && !done.converted.length && !done.removed.length && !done.retired.length && !done.errors.length) console.log("Nothing to do.");
   if (done.errors.length) process.exit(1);
 }
 
@@ -620,6 +753,8 @@ function main() {
   } else if (input.op === "read") out = read(input);
   else if (input.op === "source") out = sourceClone(input.sourcesRoot, input.repo);
   else if (input.op === "list") out = { skills: listSkills(input.dir) };
+  else if (input.op === "details") out = catalogDetails(input.clone);
+  else if (input.op === "curate") out = curate(input);
   else if (input.op === "apply") out = apply(input);
   else throw new Error(`unknown op: ${input.op}`);
   process.stdout.write(JSON.stringify(out));

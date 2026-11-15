@@ -32,12 +32,15 @@ bundles:
       - csharp-tests
 ```
 
-`core` is in every project. Each project commits a `skills.yaml` (the Manifest) that names its Bundles, and optional Sources: skills that are not in its Bundles, from the Catalog or from another repository.
+`core` is in every project. Each project commits a `skills.yaml` (the Manifest) that names its Bundles. `skills:` (optional) lists skills of the Catalog that are not in its Bundles, and `sources:` (optional) lists skills of other repositories.
 
 ```yaml
 bundles:
   - core
   - dotnet
+
+skills:
+  - code-review
 
 sources:
   - repo: someone/skills
@@ -45,7 +48,7 @@ sources:
       - deslop
 ```
 
-The Clone is the folder on your computer with a checkout of the Catalog: your own clone (a setting), or a clone that the mod keeps in `~/.config/herdr-app/cache/skill-bundles/`. The mod makes, for each skill of the Manifest, a link in `.agents/skills/`, `.claude/skills/` and `.codex/skills/` of the project that points to the folder of the skill in the Clone.
+The Clone is the folder on your computer with a checkout of the Catalog: your own clone (a setting), or a clone that the mod keeps in `~/.config/herdr-app/cache/skill-bundles/`. The mod makes, for each skill of the Manifest, a link in `.agents/skills/`, `.claude/skills/` and `.windsurf/skills/` of the project (Codex, Cursor, GitHub Copilot and OpenCode read `.agents/skills`) that points to the folder of the skill in the Clone.
 
 - The links are not committed. The mod writes one line for each link into `.git/info/exclude` of the project. It does not change `.gitignore`.
 - The projects see the Clone as it is: its branch, and also its changes that are not committed. So you can test a change of a skill before you commit it.
@@ -62,7 +65,7 @@ The Clone is the folder on your computer with a checkout of the Catalog: your ow
 | **Stale** | A link that the mod made, but the Manifest no longer asks for the skill, or the Clone no longer has it. | **Remove** |
 | **Conflict** | The Manifest asks for the skill, but the project has its own folder with that name, or Git tracks the folder. The folder of the project wins. | **Replace by link** (moves the folder to the Backup, after a second click) |
 | **Not in the clone** | The Manifest asks for a skill that the Clone does not have. | — |
-| **Extra** | Linked, but not in the Manifest: a skill added for one task, or a project without a Manifest. | **Keep** (adds it to `sources:`), **Remove** |
+| **Extra** | Linked, but not in the Manifest: a skill added for one task, or a project without a Manifest. | **Keep** (adds it to `skills:`, or to `sources:` for another repository), **Remove** |
 | **Local** | A skill folder that you wrote in the project, or a link that the mod did not make. | **Remove** (after a second click; a link is only removed, never its target) |
 | **Not cloned** | A skill of another repository, and the mod has no clone of that repository yet (it clones it at once), or could not clone it. | The refresh button tries again |
 
@@ -76,6 +79,17 @@ A Source can name a repository that is not the Catalog (`owner/repo` on GitHub, 
 - **Update** on the group title brings the clone to its remote (`git reset --hard origin/HEAD`). Every project that links to it sees the new version.
 - **Add skill** → **Another repository**: write a repository and click **List skills**. The mod clones it (when it is not in the cache) and shows its skills with their descriptions. **Link** links one skill: as Extra, or into `sources:` with **Keep in skills.yaml**.
 - The mod owns these clones: do not edit them.
+
+## The curation of the Catalog
+
+**Catalog** opens the skills of your clone, each with its Bundles. It needs **Your own clone**: the mod discards changes in the clone of its cache.
+
+- **Without a Bundle (N):** shows only the skills that no Bundle lists.
+- **Bundles** on a skill: check boxes for every Bundle, and 2 fields to make a new Bundle. **Save** changes `bundles.yaml`.
+- **Delete** on a skill (after a second click): deletes its folder from the clone and takes it out of every Bundle.
+- **Delete** on a Bundle (after a second click; not `core`): removes it from `bundles.yaml`. Its skill folders stay.
+
+The mod changes `bundles.yaml` line by line, so comments stay. It commits nothing: the line under the header then says that your clone has changes, with **Commit and push with <agent>**. The projects see the change at once.
 
 ## A project on another machine
 
@@ -94,8 +108,9 @@ A project without a Manifest can have links too. **Add skill** links one skill o
 
 - **Link all:** makes the Missing links, changes the Copies to links and removes the Stale links. The button is off when there is nothing to do.
 - **Bundles:** the Bundles of the Catalog with check boxes. **Save and apply** writes `skills.yaml`, links the skills of the new Bundles and removes the links of the Bundles that you took out.
-- **Add skill:** the skills of the Clone that the project does not have, with a search field. **Link** links one skill. With **Keep in skills.yaml** off, the skill shows as Extra; with it on, the skill goes to `sources:`.
-- **Remove** on a Source: takes the skill out of `sources:` and removes its links.
+- **Add skill:** the skills of the Clone that the project does not have, with a search field. **Link** links one skill. With **Keep in skills.yaml** off, the skill shows as Extra; with it on, the skill goes to `skills:` of `skills.yaml`.
+- **Remove** on a skill of `skills:` or `sources:`: takes it out of `skills.yaml` and removes its links.
+- **Catalog:** see [The curation of the Catalog](#the-curation-of-the-catalog).
 - **Another repository** (in **Add skill**): see [Skills of other repositories](#skills-of-other-repositories).
 - **Batch buttons on the title of a group:** **Link N** makes the Missing links of the group. The Extra group (2 or more skills) has **Keep all** and **Remove all** (after a second click). The Stale group has **Remove all**. The Local group has **Remove all** (after a second click).
 - A click on the title of a group folds or unfolds it. Each copy of the panel keeps its folded groups.
@@ -132,7 +147,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 
 ## Without Herdr: the link script
 
-`mods/skill-bundles/link-skills.mjs` is one Node file without dependencies. It has all the rules, and the mod only shows what it reads. Copy it to the root of your Catalog, so that a person without Herdr (or a git hook) can link a project:
+`mods/skill-bundles/link-skills.mjs` is one Node file without dependencies. It has all the rules, and the mod only shows what it reads. Its tests are in `tests/` (`node skill-bundles-app/tests/links.test.mjs`, `sources.test.mjs`, `curate.test.mjs`). Copy it to the root of your Catalog, so that a person without Herdr (or a git hook) can link a project:
 
 ```sh
 cd my-project
@@ -200,12 +215,14 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 - `skill-bundles.sync`: **Link all** in the shown panel.
 - `skill-bundles.fetch`: fetches the Catalog now.
 - `skill-bundles.add`: opens **Add skill** in the shown panel (the repository view without a Catalog).
+- `skill-bundles.catalog`: opens the curation of the Catalog in the shown panel.
 - `skill-bundles.update-offered`: applies the last toast (the toast runs it).
 
 ## Limits
 
 - A skill is found by the name of its folder. When 2 repositories of a project have a skill with one name, the first one of the Manifest wins.
 - A Source clone follows the default branch of its remote. A `#branch` in `repo:` is not used.
+- Earlier versions also linked into `.codex/skills`. The next action in a project removes those links.
 - The project is the Git root of the focused terminal. A worktree is its own project, with its own links; it shares `.git/info/exclude` with its repository.
 - `git clean -fdx` in a project removes its links (not the skill files). The mod offers them again.
 - The mod writes `skills.yaml` in its own form: comments in the file are lost.

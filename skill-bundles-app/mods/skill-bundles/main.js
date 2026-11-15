@@ -23,7 +23,7 @@ import { InputState } from "gpui-base";
 import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
 import * as C from "./catalog.js";
 import { writeFileOn } from "./remote.js";
-import { formatManifest, withSource, withoutSource, orderBundles } from "./manifest.js";
+import { formatManifest, sameRepo, withSource, withSkills, withoutSource, orderBundles } from "./manifest.js";
 import { groupRows, countRows, pending, toLink, toRemove } from "./status.js";
 import { STR, fill } from "./text.js";
 import { panelView, statusView } from "./view.js";
@@ -98,7 +98,10 @@ export default class SkillBundles extends View {
     this.on = null; // the machine of this.cat and this.place (null: this computer)
     this.place = null; // the folders of the mod on that machine (C.place)
     this.proj = { state: "loading" }; // see loadProject
-    this.mode = "list"; // "list" | "bundles" | "add" | "repo"
+    this.mode = "list"; // "list" | "bundles" | "add" | "repo" | "catalog"
+    // The "catalog" mode (the curation of the Clone): its skills with their Bundles, the skill
+    // whose Bundles are edited, and the Bundles chosen for it.
+    this.cur = { details: null, skill: null, pick: new Set(), orphans: false };
     this.srcErrors = {}; // { "<repo>": text }: a repository that could not be cloned
     this.pick = new Set(); // the Bundles chosen in the "bundles" mode
     this.persist = false; // "Keep in skills.yaml" of the "add" mode
@@ -116,6 +119,8 @@ export default class SkillBundles extends View {
       this.query.on("change", (_e, cx) => cx.notify());
       // The "repo" mode: a repository to link a skill from, and the skills that it has.
       this.repoInput = InputState.new({ placeholder: this.str.repoPlaceholder });
+      this.bundleName = InputState.new({ placeholder: this.str.newBundleName });
+      this.bundleDesc = InputState.new({ placeholder: this.str.newBundleDesc });
       this.repoList = null; // { repo, state: "loading" | "ready" | "error", skills: [{ name, desc }], error }
       cx.spawn(async (cx) => {
         try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length); } catch {}
@@ -144,6 +149,7 @@ export default class SkillBundles extends View {
         if (c === "fetch") this.reload(cx, true);
         if (c === "add" && this.linkable()) this.setMode(this.cat.state === "ready" ? "add" : "repo", cx);
         if (c === "sync" && this.linkable()) this.syncAll(cx);
+        if (c === "catalog" && this.cat.state === "ready") this.setMode("catalog", cx);
       }
     });
   }
@@ -360,22 +366,23 @@ export default class SkillBundles extends View {
     if (shared(KEY.offerUpdate) === false || !this.linkable() || this.job()) return;
     const link = toLink(p.rows).sort();
     const remove = toRemove(p.rows).sort();
+    const retired = p.info?.retired ?? 0; // links in a folder that the mod no longer uses (.codex/skills)
     const offered = shared(KEY.offered) ?? {};
     const where = `${p.machine ?? ""}|${p.root}`;
-    if (!link.length && !remove.length) {
+    if (!link.length && !remove.length && !retired) {
       // Nothing to do: forget the old offer, so the same skills give a new offer later.
       if (offered[where]) { const { [where]: _gone, ...rest } = offered; setShared(KEY.offered, rest); }
       return;
     }
-    const signature = `${link.join(",")}|${remove.join(",")}`;
+    const signature = `${link.join(",")}|${remove.join(",")}|${retired}`;
     if (offered[where] === signature) return;
     setShared(KEY.offered, { ...offered, [where]: signature });
-    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, at: Date.now() });
-    const names = [...link, ...remove];
+    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, retired, at: Date.now() });
+    const names = [...link, ...remove, ...(retired ? [".codex/skills"] : [])];
     const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
     notify({
       title: fill(this.str.offerTitle, { project: p.name }),
-      body: fill(this.str.offerBody, { create: link.length, remove: remove.length, list }),
+      body: fill(this.str.offerBody, { create: link.length, remove: remove.length + retired, list }),
       level: "warning",
       timeout: 20000,
       action: { name: `${MOD}.update-offered` },
@@ -386,7 +393,7 @@ export default class SkillBundles extends View {
   applyOffered(cx) {
     const o = shared(KEY.offerNow);
     // The clones of this copy are the ones of this.on: an offer of another machine waits for a copy that shows it.
-    if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0))) return;
+    if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0) + (o.retired ?? 0))) return;
     const project = { state: "ready", root: o.root, machine: o.machine ?? null, name: o.name };
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link: o.link, remove: o.remove }), project);
   }
@@ -511,7 +518,7 @@ export default class SkillBundles extends View {
     setShared(KEY.job, { project: project.root, label, at: Date.now() });
     this.running = true;
     this.error = null;
-    this.done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], errors: [] };
+    this.done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [] };
     cx.notify();
     cx.spawn(async (cx) => {
       let failed = null;
@@ -534,7 +541,7 @@ export default class SkillBundles extends View {
         notify({ title, body: `${s.failed}: ${failed.split("\n").pop()}`, level: "error", timeout: 8000 });
       } else {
         const parts = [
-          [done.linked.length + done.converted.length, s.doneLinked], [done.removed.length, s.doneRemoved],
+          [done.linked.length + done.converted.length, s.doneLinked], [done.removed.length + done.retired.length, s.doneRemoved],
           [done.deleted.length, s.doneDeleted], [done.backedUp.length, s.doneBackedUp],
         ].filter(([n]) => n > 0).map(([n, text]) => fill(text, { n }));
         notify({ title, body: parts.join(" ") || s.doneSaved, timeout: done.backedUp.length ? 9000 : 5000 });
@@ -572,7 +579,8 @@ export default class SkillBundles extends View {
     const rows = this.proj.rows ?? [];
     const link = toLink(rows);
     const remove = toRemove(rows);
-    if (!link.length && !remove.length) return;
+    // Every apply also removes the links of the folders that the mod no longer uses.
+    if (!link.length && !remove.length && !this.proj.info?.retired) return;
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link, remove }));
   }
 
@@ -625,7 +633,7 @@ export default class SkillBundles extends View {
     if (!rows.length || !this.proj.manifest) return;
     this.act(cx, this.str.busyWrite, async (p) => {
       let next = p.manifest;
-      for (const r of rows) next = withSource(next, r.repo, [r.name]);
+      for (const r of rows) next = this.kept(next, r);
       await this.writeManifest(p, next);
       await this.apply(p, { link: rows.map((r) => r.name) });
     });
@@ -653,11 +661,17 @@ export default class SkillBundles extends View {
     cx.notify();
   }
 
-  /** Keep: adds an Extra skill to sources: in skills.yaml. */
+  /** The Manifest with a skill kept: in `skills:` for the Catalog, in `sources:` for another repository. */
+  kept(manifest, row) {
+    const catalog = this.cat.catalog?.repo;
+    return catalog && sameRepo(row.repo, catalog) ? withSkills(manifest, [row.name]) : withSource(manifest, row.repo, [row.name]);
+  }
+
+  /** Keep: adds an Extra skill to skills.yaml. */
   keepExtra(cx, row) {
     if (!this.proj.manifest || !row.repo) return;
     this.act(cx, this.str.busyWrite, async (p) => {
-      await this.writeManifest(p, withSource(p.manifest, row.repo, [row.name]));
+      await this.writeManifest(p, this.kept(p.manifest, row));
       await this.apply(p, { link: [row.name] });
     });
   }
@@ -681,7 +695,7 @@ export default class SkillBundles extends View {
     this.act(cx, this.str.busyWrite, async (p) => {
       // A project without a Manifest keeps its links: they are Extra skills on purpose.
       const extra = p.manifest ? [] : (p.rows ?? []).filter((r) => r.state === "extra").map((r) => r.name);
-      await this.writeManifest(p, { bundles, sources: p.manifest?.sources ?? [] });
+      await this.writeManifest(p, { bundles, skills: p.manifest?.skills ?? [], sources: p.manifest?.sources ?? [] });
       const rows = await this.rowsNow(p);
       await this.apply(p, { link: toLink(rows), remove: toRemove(rows).filter((n) => !extra.includes(n)), extra });
     });
@@ -691,7 +705,7 @@ export default class SkillBundles extends View {
   addSkill(cx, name) {
     const persist = this.persist && Boolean(this.proj.manifest);
     this.act(cx, this.str.busyLink, async (p) => {
-      if (persist) await this.writeManifest(p, withSource(p.manifest, this.cat.catalog.repo, [name]));
+      if (persist) await this.writeManifest(p, withSkills(p.manifest, [name]));
       await this.apply(p, persist ? { link: [name] } : { link: [name], extra: [name] });
     });
   }
@@ -726,6 +740,90 @@ export default class SkillBundles extends View {
     });
   }
 
+  // ---- the curation of the Catalog ---------------------------------------------------------
+
+  /** Reads the skills of the Clone with their Bundles, for the "catalog" mode. */
+  loadDetails(cx) {
+    if (this.cat.state !== "ready") return;
+    const { dir } = this.cat;
+    const on = this.on;
+    cx.spawn(async (cx) => {
+      const d = await C.linkScript({ op: "details", clone: dir }, on);
+      if (this.cat.dir !== dir) return;
+      this.cur.details = d.error ? { skills: [], orphans: [], error: d.error } : d;
+      cx.notify();
+    });
+  }
+
+  /**
+   * Changes bundles.yaml (or deletes a skill folder) in the person's own clone. The mod commits
+   * nothing: the line under the header then says that the clone has changes, with its buttons.
+   * A clone of the mod's cache is not changed: the next fetch would discard the change.
+   */
+  curate(cx, input, after = null) {
+    if (this.job() || this.cat.state !== "ready") return;
+    if (!this.cat.own) { this.error = { text: this.str.curateOwnOnly }; cx.notify(); return; }
+    const { dir } = this.cat;
+    const on = this.on;
+    setShared(KEY.job, { project: null, label: this.str.busyCurate, at: Date.now() });
+    this.running = true;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let failed = null;
+      try {
+        const r = await C.linkScript({ op: "curate", clone: dir, ...input }, on);
+        failed = r.error ?? (r.errors?.length ? r.errors.join("\n") : null);
+      } catch (e) { failed = errorText(e); }
+      this.running = false;
+      setShared(KEY.job, null);
+      if (failed) this.error = { text: failed };
+      else after?.();
+      // Every copy reads the Catalog again: a Bundle has other skills now.
+      setShared(KEY.changed, { project: this.proj.root ?? null, at: Date.now() });
+      cx.notify();
+      this.loadDetails(cx);
+      this.reload(cx, false);
+    });
+  }
+
+  /** Opens (or closes, with null) the Bundles of one skill of the Clone. */
+  curateSkill(name, cx) {
+    const skill = this.cur.details?.skills.find((s) => s.name === name) ?? null;
+    this.cur.skill = skill?.name ?? null;
+    this.cur.pick = new Set(skill?.bundles ?? []);
+    this.error = null;
+    cx.notify();
+  }
+
+  /** Saves the Bundles chosen for the skill of the "catalog" mode. */
+  saveSkillBundles(cx) {
+    const skill = this.cur.details?.skills.find((s) => s.name === this.cur.skill);
+    if (!skill) return;
+    const assign = [...this.cur.pick].filter((b) => !skill.bundles.includes(b)).map((bundle) => ({ skill: skill.name, bundle }));
+    const unassign = skill.bundles.filter((b) => !this.cur.pick.has(b)).map((bundle) => ({ skill: skill.name, bundle }));
+    if (!assign.length && !unassign.length) { this.cur.skill = null; cx.notify(); return; }
+    this.curate(cx, { assign, unassign }, () => { this.cur.skill = null; });
+  }
+
+  /** Creates the Bundle of the 2 fields, and chooses it for the skill that is open. */
+  createBundle(cx) {
+    const name = String(this.bundleName?.value?.() ?? "").trim();
+    const description = String(this.bundleDesc?.value?.() ?? "").trim();
+    if (!name) return;
+    this.curate(cx, { createBundle: [{ name, description }] }, () => {
+      if (this.cur.skill) this.cur.pick.add(name);
+      this.bundleName.set_value("");
+      this.bundleDesc.set_value("");
+    });
+  }
+
+  /** Deletes a Bundle (not its skills) or a skill folder of the Clone. Asks for a second click. */
+  curateDelete(cx, kind, name) {
+    if (this.job() || !this.armed(cx, `${kind}:${name}`)) return;
+    this.curate(cx, kind === "bundle" ? { deleteBundle: [name] } : { deleteSkill: [name] });
+  }
+
   // ---- views ------------------------------------------------------------------------------
 
   openDialog() {
@@ -743,7 +841,8 @@ export default class SkillBundles extends View {
     this.error = null;
     // Only the Bundles of the Catalog are kept; an unknown one drops on save.
     if (mode === "bundles") this.pick = new Set((this.proj.manifest?.bundles ?? ["core"]).filter((b) => b === "core" || this.cat.catalog?.bundles.has(b)));
-    if (mode === "add" || mode === "repo") { this.persist = false; this.query?.set_value?.(""); }
+    if (mode === "add" || mode === "repo" || mode === "catalog") { this.persist = false; this.query?.set_value?.(""); }
+    if (mode === "catalog") { this.cur.skill = null; this.loadDetails(cx); }
     cx.notify();
   }
 
@@ -770,6 +869,9 @@ export default class SkillBundles extends View {
       persist: this.persist,
       query: this.query,
       repoInput: this.repoInput,
+      cur: this.cur,
+      bundleName: this.bundleName,
+      bundleDesc: this.bundleDesc,
       repoList: this.repoList,
       hasCatalog: this.cat.state === "ready",
       sources: shared(KEY.sources) ?? {},
@@ -779,7 +881,7 @@ export default class SkillBundles extends View {
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       plain: ready && !p.manifest, // no Manifest: the links of the project are Extra skills
       linkable: this.linkable(),
-      work: ready ? toLink(p.rows).length + toRemove(p.rows).length : 0,
+      work: ready ? toLink(p.rows).length + toRemove(p.rows).length + (p.info?.retired ?? 0) : 0,
       pending: ready ? pending(p.counts) : 0,
       cloneNote: this.cloneNote(),
       fixes: this.cloneFixes(),
@@ -810,6 +912,12 @@ export default class SkillBundles extends View {
         listRepo: (cx) => this.listRepo(cx),
         addFromRepo: (name, cx) => this.addFromRepo(cx, name),
         updateSource: (repo, cx) => this.updateSource(cx, repo),
+        curateSkill: (name, cx) => this.curateSkill(name, cx),
+        curatePick: (bundle, cx) => { if (this.cur.pick.has(bundle)) this.cur.pick.delete(bundle); else this.cur.pick.add(bundle); cx.notify(); },
+        curateSave: (cx) => this.saveSkillBundles(cx),
+        curateOrphans: (cx) => { this.cur.orphans = !this.cur.orphans; cx.notify(); },
+        createBundle: (cx) => this.createBundle(cx),
+        curateDelete: (kind, name, cx) => this.curateDelete(cx, kind, name),
         dropGitignore: (cx) => this.dropGitignore(cx),
         open: () => this.openDialog(),
       },

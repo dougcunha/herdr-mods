@@ -8,9 +8,15 @@ export function orderBundles(names) {
   return ["core", ...rest];
 }
 
-/** skills.yaml text. Comments of the old file are lost. */
-export function formatManifest({ bundles, sources }) {
+/**
+ * skills.yaml text. Comments and unknown keys of the old file are lost.
+ * `skills:` has the skills of the Catalog that are not in a Bundle of the project; `sources:` has
+ * the skills of other repositories.
+ */
+export function formatManifest({ bundles, skills, sources }) {
   const lines = ["bundles:", ...orderBundles(bundles).map((b) => `  - ${b}`)];
+  const own = [...new Set(skills ?? [])].sort();
+  if (own.length) lines.push("", "skills:", ...own.map((s) => `  - ${s}`));
   const kept = (sources ?? []).filter((s) => s.repo && s.skills.length);
   if (kept.length) {
     lines.push("", "sources:");
@@ -31,13 +37,19 @@ export function withSource(manifest, repo, skills) {
   let entry = sources.find((s) => sameRepo(s.repo, repo));
   if (!entry) { entry = { repo, skills: [] }; sources.push(entry); }
   for (const s of skills) if (!entry.skills.includes(s)) entry.skills.push(s);
-  return { bundles: [...manifest.bundles], sources };
+  return { bundles: [...manifest.bundles], skills: [...(manifest.skills ?? [])], sources };
 }
 
-/** Removes a skill from every Source of a Manifest (a copy). */
+/** Adds skills of the Catalog to `skills:` of a Manifest (a copy). */
+export function withSkills(manifest, names) {
+  return { bundles: [...manifest.bundles], skills: [...new Set([...(manifest.skills ?? []), ...names])], sources: manifest.sources.map((s) => ({ repo: s.repo, skills: [...s.skills] })) };
+}
+
+/** Removes a skill from `skills:` and from every Source of a Manifest (a copy). */
 export function withoutSource(manifest, skill) {
   return {
     bundles: [...manifest.bundles],
+    skills: (manifest.skills ?? []).filter((x) => x !== skill),
     sources: manifest.sources.map((s) => ({ repo: s.repo, skills: s.skills.filter((x) => x !== skill) })).filter((s) => s.skills.length),
   };
 }

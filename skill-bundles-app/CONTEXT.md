@@ -23,7 +23,7 @@ The `skills.yaml` of a project: the Bundles and the Sources that the project use
 _Avoid_: config, skills file
 
 **Source**:
-One entry of `sources:` in the Manifest: a repository and skills from it that are not in a Bundle of the project.
+One entry of `sources:` in the Manifest: a repository that is not the Catalog, and skills from it. A skill of the Catalog that is not in a Bundle of the project is in `skills:` of the Manifest (older files have it in `sources:` with the name of the Catalog).
 _Avoid_: ad hoc bundle
 
 **Source clone**:
@@ -31,7 +31,7 @@ A clone of a repository that is not the Catalog, which a Source (or an Extra ski
 _Avoid_: vendor, mirror
 
 **Link**:
-A directory junction (Windows) or a symbolic link (macOS, Linux) in an agent folder of a project (`.agents/skills`, `.claude/skills`, `.codex/skills`) that points to the folder of one skill in the Clone (or in a Source clone). A project has no files of a linked skill: it reads the clone.
+A directory junction (Windows) or a symbolic link (macOS, Linux) in an agent folder of a project (`.agents/skills`, `.claude/skills`, `.windsurf/skills`) that points to the folder of one skill in the Clone (or in a Source clone). A project has no files of a linked skill: it reads the clone.
 _Avoid_: shortcut, install, copy
 
 **Exclude block**:
@@ -43,6 +43,12 @@ _Avoid_: gitignore block
 
 **Lock**:
 The `skills-lock.json` that `npx skills` wrote in a project, before the mod used Links. The mod reads it only to find Copies.
+
+**Curation**:
+The changes of the Catalog itself, in the person's own Clone: which skill is in which Bundle, new and removed Bundles, removed skills. The tools change `bundles.yaml` and commit nothing.
+
+**Orphan**:
+A skill folder of the Clone that no Bundle lists.
 
 ### Skills in a project
 

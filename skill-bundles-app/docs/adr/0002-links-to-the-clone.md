@@ -9,7 +9,7 @@ The mod installed skills with `npx skills add`: each project got a copy of each 
 ## Decision
 
 - The Clone of the Catalog is the only place with the skill files. It is the person's own clone (setting), else a clone in the cache of the mod.
-- A project gets one Link for each skill in each agent folder (`.agents/skills`, `.claude/skills`, `.codex/skills`): a directory junction on Windows, a symbolic link on macOS and Linux.
+- A project gets one Link for each skill in each agent folder (`.agents/skills`, `.claude/skills`, `.codex/skills`; changed to `.windsurf/skills` in place of `.codex/skills` by [0003](0003-one-engine-for-the-mod-and-the-terminal.md)): a directory junction on Windows, a symbolic link on macOS and Linux.
 - The mod does not use `npx skills`. The Lock and the Outdated and Unchecked states are gone.
 - The Manifest (`skills.yaml`) stays committed in the project. A project without a Manifest can have Links: they show as Extra.
 - The Links are hidden from Git with one line for each Link in `.git/info/exclude` (found with `git rev-parse --git-path info/exclude`). That block is also the record of the Links that the mod made. The old block of the committed `.gitignore` is removed only with a button.

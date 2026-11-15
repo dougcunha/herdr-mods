@@ -131,12 +131,13 @@ function summary(t, m) {
   return v_flex().flex_none().px(12).py(8).gap(8).border_b(1).border_color(t.border)
     .child(h_flex().gap(6).flex_wrap().items_center()
       .children(STATES.filter((st) => c[st] > 0).map((st) => pill(t, `${c[st]} ${m.str[`state_${st}`]}`, stateColor(t, st)))))
-    .child(h_flex().gap(6).items_center()
+    .child(h_flex().gap(6).items_center().flex_wrap()
       .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: m.work > 0 ? "primary" : "plain", disabled: !can || m.work === 0, tip: m.str.syncAllTip, icon: "refresh" }))
       .when(!m.plain, (e) => e.child(button(t, "sb-bundles", m.str.bundles, (cx) => (m.hasCatalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" })))
       .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (m.hasCatalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.hasCatalog ? m.str.useBundlesTip : m.str.useBundlesNoCatalog, icon: "bundles" })))
       // Without a Catalog, Add skill goes to the repository view.
-      .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode(m.hasCatalog ? "add" : "repo", cx), { disabled: !can, tip: m.hasCatalog ? m.str.addSkillTip : m.str.addRepoTip, icon: "plus" })))
+      .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode(m.hasCatalog ? "add" : "repo", cx), { disabled: !can, tip: m.hasCatalog ? m.str.addSkillTip : m.str.addRepoTip, icon: "plus" }))
+      .when(m.hasCatalog, (e) => e.child(button(t, "sb-catalog", m.str.catalog, (cx) => m.a.mode("catalog", cx), { disabled: busy, tip: m.str.catalogTip, icon: "settings" }))))
     .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.plainHint)))
     .when(m.work === 0 && c.linked > 0 && c.conflict === 0 && c.absent === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
 }
@@ -353,6 +354,87 @@ function repoView(t, m, s) {
         .child(button(t, `sb-repo-add-${it.name}`, str.link, (cx) => m.a.addFromRepo(it.name, cx), { disabled: busy || have.has(it.name) }))) : []));
 }
 
+/** A small check box. */
+function checkBox(t, on) {
+  return div().size(16).flex_none().flex().items_center().justify_center().rounded(4).border_1()
+    .border_color(on ? t.accent : t.input).bg(on ? t.accent : t.background)
+    .text_size(11).text_color(t.accent_foreground).child(on ? "✓" : "");
+}
+
+/**
+ * The curation of the Catalog: every skill of the Clone with its Bundles, and the Bundles.
+ * With a skill open (m.cur.skill): the Bundles of that skill with check boxes, and a new Bundle.
+ */
+function catalogView(t, m, s) {
+  const str = m.str;
+  const d = m.cur.details;
+  const busy = Boolean(m.job);
+  const can = !busy && m.cat.own;
+  const catalog = m.cat.catalog;
+  const notice = !m.cat.own ? div().flex_none().px(12).py(6).text_size(11).text_color(t.ansi3).border_b(1).border_color(t.border).child(str.curateOwnOnly) : null;
+  if (!d) return message(t, m, str.loading, null, { spin: true });
+  const open = d.skills.find((x) => x.name === m.cur.skill);
+  if (open) {
+    const names = [...catalog.bundles.keys()];
+    return v_flex().flex_1().min_h(0)
+      .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(button(t, "sb-cur-back", str.back, (cx) => m.a.curateSkill(null, cx), { icon: "back" }))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12.5).font_semibold().font_family(MONO(s)).child(open.name))
+          .when(Boolean(open.desc), (e) => e.child(div().truncate().text_size(11).text_color(t.muted).child(open.desc)))))
+      .when(Boolean(notice), (e) => e.child(notice))
+      .child(v_flex().id("sb-cur-bundles").flex_1().min_h(0).overflow_y_scrollbar()
+        .children(names.map((n) => h_flex().id(`sb-cur-pick-${n}`).min_h(34).px(12).py(4).gap(10).items_center().cursor_pointer().hover((x) => x.bg(t.hover))
+          .on_click((_e, cx) => m.a.curatePick(n, cx))
+          .child(checkBox(t, m.cur.pick.has(n)))
+          .child(v_flex().flex_1().min_w(0)
+            .child(div().text_size(12.5).font_semibold().child(n))
+            .when(Boolean(catalog.descriptions.get(n)), (e) => e.child(div().truncate().text_size(11).text_color(t.muted).child(catalog.descriptions.get(n)))))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(String(catalog.bundles.get(n)?.length ?? 0))))))
+      .child(v_flex().flex_none().px(12).py(8).gap(6).border_t(1).border_color(t.border)
+        .child(div().text_size(11).text_color(t.dim).child(str.newBundle))
+        .child(h_flex().gap(6).items_center()
+          .child(h_flex().w(150).flex_none().child(field(t, m.bundleName, "plus", (cx) => m.a.createBundle(cx))))
+          .child(field(t, m.bundleDesc, "bundles", (cx) => m.a.createBundle(cx)))
+          .child(button(t, "sb-cur-create", str.create, (cx) => m.a.createBundle(cx), { disabled: !can, tip: str.createTip }))))
+      .child(h_flex().flex_none().px(12).py(10).gap(8).justify_end().border_t(1).border_color(t.border)
+        .child(button(t, "sb-cur-cancel", str.cancel, (cx) => m.a.curateSkill(null, cx)))
+        .child(button(t, "sb-cur-save", str.saveBundles, (cx) => m.a.curateSave(cx), { kind: "primary", disabled: !can })));
+  }
+  const rows = d.skills.filter((x) => (!m.cur.orphans || !x.bundles.length) && (!m.filter || `${x.name} ${x.bundles.join(" ")} ${x.desc}`.toLowerCase().includes(m.filter)));
+  return v_flex().flex_1().min_h(0)
+    .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
+      .child(button(t, "sb-back", str.back, (cx) => m.a.mode("list", cx), { icon: "back" }))
+      .child(field(t, m.query, "search"))
+      .child(h_flex().id("sb-cur-orphans").flex_none().h(24).px(8).gap(6).items_center().rounded(6).cursor_pointer().border_1()
+        .border_color(m.cur.orphans ? t.accent : t.border).bg(m.cur.orphans ? tint(t.accent, "22") : t.raised).text_size(12)
+        .tooltip(str.orphansTip)
+        .on_click((_e, cx) => m.a.curateOrphans(cx))
+        .child(fill(str.orphans, { n: d.orphans.length }))))
+    .when(Boolean(notice), (e) => e.child(notice))
+    .when(Boolean(d.error), (e) => e.child(div().px(12).py(6).text_size(11).text_color(t.ansi1).child(d.error ?? "")))
+    .child(v_flex().id("sb-cur-list").flex_1().min_h(0).overflow_y_scrollbar()
+      .when(rows.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(m.cur.orphans ? str.noOrphans : str.repoEmptyCatalog)))
+      .children(rows.map((x) => h_flex().id(`sb-cur-${x.name}`).min_h(34).px(12).py(3).gap(8).items_center().hover((h) => h.bg(t.hover))
+        .when(Boolean(x.desc), (e) => e.tooltip(x.desc))
+        .child(div().size(7).flex_none().rounded(4).bg(x.bundles.length ? t.ansi2 : t.ansi3))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12).font_family(MONO(s)).child(x.name))
+          .child(div().truncate().text_size(11).text_color(x.bundles.length ? t.dim : t.ansi3).child(x.bundles.length ? x.bundles.join(" · ") : str.noBundle)))
+        .child(button(t, `sb-cur-edit-${x.name}`, str.bundles, (cx) => m.a.curateSkill(x.name, cx), { disabled: busy, tip: str.skillBundlesTip }))
+        .child(button(t, `sb-cur-del-${x.name}`, m.waiting === `skill:${x.name}` ? str.confirmAgain : str.deleteSkill, (cx) => m.a.curateDelete("skill", x.name, cx), { kind: "danger", disabled: !can, tip: str.deleteSkillTip }))))
+      .when(!m.cur.orphans && !m.filter, (e) => e
+        .child(h_flex().h(28).px(12).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
+          .child(div().flex_1().text_size(11.5).font_semibold().text_color(t.muted).child(str.bundles))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(String(catalog.bundles.size))))
+        .children([...catalog.bundles.keys()].map((n) => h_flex().id(`sb-cur-bundle-${n}`).min_h(34).px(12).py(3).gap(8).items_center().hover((h) => h.bg(t.hover))
+          .child(v_flex().flex_1().min_w(0)
+            .child(div().text_size(12).font_semibold().child(n))
+            .child(div().truncate().text_size(11).text_color(t.muted).child(catalog.descriptions.get(n) ?? "")))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(String(catalog.bundles.get(n)?.length ?? 0)))
+          .when(n !== "core", (h) => h.child(button(t, `sb-cur-delb-${n}`, m.waiting === `bundle:${n}` ? str.confirmAgain : str.deleteBundle, (cx) => m.a.curateDelete("bundle", n, cx), { kind: "danger", disabled: !can, tip: str.deleteBundleTip })))))));
+}
+
 /** The "Keep in skills.yaml" switch of the add views. */
 function persistToggle(t, m) {
   return h_flex().id("sb-persist").flex_none().px(12).py(6).gap(8).items_center().cursor_pointer().border_b(1).border_color(t.border)
@@ -399,6 +481,7 @@ function body(t, m, s) {
       : bundlePicker(t, m, { primary: str.save, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) });
   }
   if (m.mode === "add" && m.hasCatalog) return addView(t, m, s);
+  if (m.mode === "catalog" && m.hasCatalog) return catalogView(t, m, s);
   return listView(t, m, s);
 }
 
