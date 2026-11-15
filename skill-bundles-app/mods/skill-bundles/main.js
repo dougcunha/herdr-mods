@@ -41,6 +41,8 @@ const KEY = {
   offerUpdate: "skill-bundles.offerUpdate", // false: no toast that offers to make and remove links
   offered: "skill-bundles.offered", // { "<root>": signature }: the offers already shown
   offerNow: "skill-bundles.offerNow", // the last offer: { root, name, link, remove, at }
+  // The clones of the repositories that are not the Catalog: { "<repo in lower case>": { at, dir, behind, error } }
+  sources: "skill-bundles.sources",
 };
 const DEFAULT_MINUTES = 15;
 const CHECK_MS = 60 * 1000; // the timer: read the project again, and fetch when due
@@ -75,6 +77,10 @@ function cloneOnce(slug, dir, gitUrl) {
   return cloning.get(dir);
 }
 
+// One clone or fetch at a time for each repository that is not the Catalog, in all copies of this window.
+const sourcing = new Map();
+const repoId = (repo) => String(repo ?? "").split("#")[0].toLowerCase();
+
 export default class SkillBundles extends View {
   init(given, cx) {
     // Read props once: props() in a later callback can answer for another copy.
@@ -82,7 +88,8 @@ export default class SkillBundles extends View {
     this.part = this.props.part ?? "panel";
     this.cat = { state: "loading" }; // see loadCatalog
     this.proj = { state: "loading" }; // see loadProject
-    this.mode = "list"; // "list" | "bundles" | "add"
+    this.mode = "list"; // "list" | "bundles" | "add" | "repo"
+    this.srcErrors = {}; // { "<repo>": text }: a repository that could not be cloned
     this.pick = new Set(); // the Bundles chosen in the "bundles" mode
     this.persist = false; // "Keep in skills.yaml" of the "add" mode
     this.error = null; // { text } of the last failed action of this copy
@@ -97,6 +104,9 @@ export default class SkillBundles extends View {
     if (this.part !== "status") {
       this.query = InputState.new({ placeholder: this.str.search });
       this.query.on("change", (_e, cx) => cx.notify());
+      // The "repo" mode: a repository to link a skill from, and the skills that it has.
+      this.repoInput = InputState.new({ placeholder: this.str.repoPlaceholder });
+      this.repoList = null; // { repo, state: "loading" | "ready" | "error", skills: [{ name, desc }], error }
       cx.spawn(async (cx) => {
         try { this.agents = (await knownAgents()).filter((a) => a.installed && a.run?.length); } catch {}
         cx.notify();
@@ -122,7 +132,7 @@ export default class SkillBundles extends View {
         if (c === "update-offered") { this.applyOffered(cx); continue; }
         if (this.part === "status") { if (c === "open") this.openDialog(); continue; }
         if (c === "fetch") this.reload(cx, true);
-        if (c === "add" && this.linkable()) this.setMode("add", cx);
+        if (c === "add" && this.linkable()) this.setMode(this.cat.state === "ready" ? "add" : "repo", cx);
         if (c === "sync" && this.linkable()) this.syncAll(cx);
       }
     });
@@ -137,14 +147,15 @@ export default class SkillBundles extends View {
     return STR[this.lang];
   }
 
-  /** True when the mod can make links: a project on this computer and a Clone. */
+  /** True when the mod can make links: a project on this computer. Bundles also need the Catalog. */
   linkable() {
-    return this.proj.state === "ready" && this.cat.state === "ready";
+    return this.proj.state === "ready";
   }
 
-  /** The Clone for link-skills.mjs: its folder, and the Catalog name for a bundles.yaml without `repo:`. */
+  /** The clones for link-skills.mjs: the Clone of the Catalog (and its name, for a bundles.yaml without `repo:`) and the sources cache. */
   cloneInput() {
-    return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo } : { clone: null };
+    const sourcesRoot = C.sourcesRoot();
+    return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo, sourcesRoot } : { clone: null, sourcesRoot };
   }
 
   // ---- reading ----------------------------------------------------------------------------
@@ -164,7 +175,69 @@ export default class SkillBundles extends View {
         this.reading = false;
       }
       cx.notify();
+      this.syncSources(cx, force);
       if (this.again) { const { force: f } = this.again; this.again = null; this.reload(cx, f); }
+    });
+  }
+
+  /**
+   * The repositories of the project that are not the Catalog: clones the ones that are not in
+   * the sources cache, and fetches the others when the last fetch is older than the interval
+   * (or `force`). A fetch only counts the new commits: the person updates a clone with a button.
+   */
+  syncSources(cx, force) {
+    const p = this.proj;
+    if (p.state !== "ready") return;
+    if (force) this.srcErrors = {};
+    const catalog = repoId(this.cat.catalog?.repo);
+    const minutes = Number(shared(KEY.minutes)) > 0 ? Number(shared(KEY.minutes)) : DEFAULT_MINUTES;
+    const repos = new Map();
+    for (const r of p.rows) {
+      if (!r.repo || r.state === "local" || repoId(r.repo) === catalog) continue;
+      const id = repoId(r.repo);
+      repos.set(id, { repo: r.repo, missing: (repos.get(id)?.missing ?? false) || r.state === "unsupported" });
+    }
+    for (const [id, { repo, missing }] of repos) {
+      if (sourcing.has(id) || (missing && this.srcErrors[id])) continue;
+      const last = (shared(KEY.sources) ?? {})[id];
+      if (!missing && !force && last && Date.now() - (last.at ?? 0) < minutes * 60 * 1000) continue;
+      const work = (async () => {
+        const s = await C.ensureSource(repo);
+        if (s.error) return { error: s.error, cloned: false };
+        const b = await C.sourceBehind(s.dir);
+        return { dir: s.dir, behind: b.behind, error: b.error, cloned: missing };
+      })().finally(() => sourcing.delete(id));
+      sourcing.set(id, work);
+      cx.notify();
+      cx.spawn(async (cx) => {
+        const r = await work;
+        if (!r.dir) this.srcErrors[id] = r.error;
+        else setShared(KEY.sources, { ...(shared(KEY.sources) ?? {}), [id]: { at: Date.now(), dir: r.dir, behind: r.behind, error: r.error } });
+        // A new clone changes the state of its skills: every copy reads the project again.
+        if (r.cloned) setShared(KEY.changed, { project: p.root, at: Date.now() });
+        cx.notify();
+      });
+    }
+  }
+
+  /** Update on a repository group: brings the clone of that repository to its remote. Every project sees the new version. */
+  updateSource(cx, repo) {
+    const id = repoId(repo);
+    const dir = (shared(KEY.sources) ?? {})[id]?.dir;
+    if (!dir || this.job()) return;
+    setShared(KEY.job, { project: null, label: fill(this.str.busySource, { repo }), at: Date.now() });
+    this.running = true;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let failed = null;
+      try { failed = await C.updateOwnClone(dir); } catch (e) { failed = errorText(e); }
+      this.running = false;
+      setShared(KEY.job, null);
+      if (failed) this.error = { text: failed };
+      else setShared(KEY.sources, { ...(shared(KEY.sources) ?? {}), [id]: { at: Date.now(), dir, behind: 0, error: null } });
+      setShared(KEY.changed, { project: this.proj.root ?? null, at: Date.now() });
+      cx.notify();
     });
   }
 
@@ -176,6 +249,7 @@ export default class SkillBundles extends View {
       try { await this.loadProject(); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
       finally { this.reading = false; }
       cx.notify();
+      this.syncSources(cx, false);
       if (this.again) { const { force } = this.again; this.again = null; this.reload(cx, force); }
     });
   }
@@ -240,7 +314,7 @@ export default class SkillBundles extends View {
     const rows = info.rows ?? [];
     this.proj = {
       state: "ready", root, name: baseName(root), manifestText, manifest: info.manifest ?? null,
-      rows, groups: groupRows(rows, info.manifest), counts: countRows(rows), unknown: info.unknown ?? [], info,
+      rows, groups: groupRows(rows, info.manifest, this.cat.catalog?.repo ?? ""), counts: countRows(rows), unknown: info.unknown ?? [], info,
     };
     this.offerLinks();
   }
@@ -282,7 +356,7 @@ export default class SkillBundles extends View {
   /** A click on the toast of offerLinks(): makes and removes the links of that offer. */
   applyOffered(cx) {
     const o = shared(KEY.offerNow);
-    if (!o?.root || this.cat.state !== "ready" || !((o.link?.length ?? 0) + (o.remove?.length ?? 0))) return;
+    if (!o?.root || !((o.link?.length ?? 0) + (o.remove?.length ?? 0))) return;
     const project = { state: "ready", root: o.root, name: o.name };
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link: o.link, remove: o.remove }), project);
   }
@@ -444,7 +518,6 @@ export default class SkillBundles extends View {
    * It also changes every Copy of the project to a link. Adds the result to the toast of act().
    */
   async apply(p, input = {}) {
-    if (this.cat.state !== "ready") throw new Error(this.str.noCatalog);
     const r = await C.linkScript({ op: "apply", project: p.root, ...this.cloneInput(), ...input });
     if (r.error) throw new Error(r.error);
     for (const k of Object.keys(this.done)) this.done[k].push(...(r[k] ?? []));
@@ -516,11 +589,13 @@ export default class SkillBundles extends View {
 
   /** Keep all: adds every Extra skill to sources: in skills.yaml, in one write. */
   keepAllExtra(cx) {
-    const names = this.groupRowsOf("extra:extra").map((r) => r.name);
-    if (!names.length || !this.proj.manifest || this.cat.state !== "ready") return;
+    const rows = this.groupRowsOf("extra:extra").filter((r) => r.repo);
+    if (!rows.length || !this.proj.manifest) return;
     this.act(cx, this.str.busyWrite, async (p) => {
-      await this.writeManifest(p, withSource(p.manifest, this.cat.catalog.repo, names));
-      await this.apply(p, { link: names });
+      let next = p.manifest;
+      for (const r of rows) next = withSource(next, r.repo, [r.name]);
+      await this.writeManifest(p, next);
+      await this.apply(p, { link: rows.map((r) => r.name) });
     });
   }
 
@@ -548,9 +623,9 @@ export default class SkillBundles extends View {
 
   /** Keep: adds an Extra skill to sources: in skills.yaml. */
   keepExtra(cx, row) {
-    if (!this.proj.manifest || this.cat.state !== "ready") return;
+    if (!this.proj.manifest || !row.repo) return;
     this.act(cx, this.str.busyWrite, async (p) => {
-      await this.writeManifest(p, withSource(p.manifest, this.cat.catalog.repo, [row.name]));
+      await this.writeManifest(p, withSource(p.manifest, row.repo, [row.name]));
       await this.apply(p, { link: [row.name] });
     });
   }
@@ -559,7 +634,6 @@ export default class SkillBundles extends View {
   dropSource(cx, row) {
     this.act(cx, fill(this.str.busyRemove, { list: row.name }), async (p) => {
       await this.writeManifest(p, withoutSource(p.manifest, row.name));
-      if (this.cat.state !== "ready") return;
       // Without the Source, the skill is Stale (or Extra, when it was added as one before).
       const now = (await this.rowsNow(p)).find((r) => r.name === row.name);
       if (now && (now.state === "stale" || now.state === "extra")) await this.apply(p, { remove: [row.name] });
@@ -590,6 +664,35 @@ export default class SkillBundles extends View {
     });
   }
 
+  /** The "repo" mode: clones the repository of the field (when it is not in the sources cache) and reads its skills. */
+  listRepo(cx) {
+    const repo = String(this.repoInput?.value?.() ?? "").trim();
+    if (!repo || this.proj.state !== "ready" || this.repoList?.state === "loading") return;
+    if (!C.validRepo(repo)) { this.repoList = { repo, state: "error", skills: [], error: this.str.repoInvalid }; cx.notify(); return; }
+    this.repoList = { repo, state: "loading", skills: [] };
+    this.query?.set_value?.("");
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const s = await C.ensureSource(repo);
+      const r = s.error ? { error: s.error } : await C.linkScript({ op: "list", dir: s.dir });
+      // Another repository was asked in the meantime: this answer is old.
+      if (this.repoList?.repo !== repo) return;
+      this.repoList = r.error ? { repo, state: "error", skills: [], error: r.error } : { repo, state: "ready", skills: r.skills ?? [] };
+      cx.notify();
+    });
+  }
+
+  /** The "repo" mode: links one skill of the listed repository. It goes to sources: when asked, else it is an Extra skill. */
+  addFromRepo(cx, name) {
+    const repo = this.repoList?.repo;
+    if (!repo) return;
+    const persist = this.persist && Boolean(this.proj.manifest);
+    this.act(cx, this.str.busyLink, async (p) => {
+      if (persist) await this.writeManifest(p, withSource(p.manifest, repo, [name]));
+      await this.apply(p, { link: [name], repos: { [name]: repo }, ...(persist ? {} : { extra: [name] }) });
+    });
+  }
+
   // ---- views ------------------------------------------------------------------------------
 
   openDialog() {
@@ -607,7 +710,7 @@ export default class SkillBundles extends View {
     this.error = null;
     // Only the Bundles of the Catalog are kept; an unknown one drops on save.
     if (mode === "bundles") this.pick = new Set((this.proj.manifest?.bundles ?? ["core"]).filter((b) => b === "core" || this.cat.catalog?.bundles.has(b)));
-    if (mode === "add") { this.persist = false; this.query?.set_value?.(""); }
+    if (mode === "add" || mode === "repo") { this.persist = false; this.query?.set_value?.(""); }
     cx.notify();
   }
 
@@ -633,6 +736,12 @@ export default class SkillBundles extends View {
       pick: this.pick,
       persist: this.persist,
       query: this.query,
+      repoInput: this.repoInput,
+      repoList: this.repoList,
+      hasCatalog: this.cat.state === "ready",
+      sources: shared(KEY.sources) ?? {},
+      sourcing: new Set(sourcing.keys()),
+      srcErrors: this.srcErrors,
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       plain: ready && !p.manifest, // no Manifest: the links of the project are Extra skills
       linkable: this.linkable(),
@@ -664,6 +773,9 @@ export default class SkillBundles extends View {
         dropSource: (row, cx) => this.dropSource(cx, row),
         applyBundles: (cx) => this.applyBundles(cx),
         addSkill: (name, cx) => this.addSkill(cx, name),
+        listRepo: (cx) => this.listRepo(cx),
+        addFromRepo: (name, cx) => this.addFromRepo(cx, name),
+        updateSource: (repo, cx) => this.updateSource(cx, repo),
         dropGitignore: (cx) => this.dropGitignore(cx),
         open: () => this.openDialog(),
       },

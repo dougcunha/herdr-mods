@@ -153,6 +153,40 @@ export async function fixClone(dir, fix, current) {
   return null;
 }
 
+/** Where the mod keeps the clones of the repositories that are not the Catalog (Sources of other repositories). */
+export const sourcesRoot = () => `${slash(appHome())}/cache/skill-bundles/sources`;
+
+/** A repository of skills: owner/name, or a Git URL. No spaces and no shell characters. */
+export const validRepo = (text) => /^[\w.@:/#~+-]+$/.test(String(text ?? "")) && /[\w]/.test(String(text ?? ""));
+
+/**
+ * The clone of a repository that is not the Catalog, in the sources cache. Clones it when it
+ * is not there (gh for owner/name when it is logged in, else git). Returns { dir, error }.
+ */
+export async function ensureSource(repo) {
+  const s = await linkScript({ op: "source", sourcesRoot: sourcesRoot(), repo });
+  if (s.error) return { dir: null, error: s.error };
+  if (s.exists) return { dir: slash(s.dir), error: null };
+  const name = String(repo).trim().split("#")[0];
+  const r = /^[\w.-]+\/[\w.-]+$/.test(name) && (await hasGh())
+    ? await sh("gh", ["repo", "clone", name, s.dir], { timeout: 300000 })
+    : await sh("git", ["clone", "--quiet", s.url, s.dir], { timeout: 300000 });
+  return r.code === 0 ? { dir: slash(s.dir), error: null } : { dir: null, error: tail(r) || `git clone ${s.url}` };
+}
+
+/**
+ * Fetches a source clone and counts the commits of its remote that it does not have yet.
+ * It does not change the files of the clone: updateOwnClone() does, when the person asks.
+ * Returns { behind, error }.
+ */
+export async function sourceBehind(dir) {
+  const f = await sh("git", ["-C", dir, "fetch", "--quiet", "--prune", "origin"], { timeout: 120000 });
+  if (f.code !== 0) return { behind: 0, error: tail(f) };
+  await sh("git", ["-C", dir, "remote", "set-head", "origin", "--auto"]);
+  const n = await sh("git", ["-C", dir, "rev-list", "--count", "HEAD..origin/HEAD"]);
+  return { behind: Number(n.out.trim()) || 0, error: null };
+}
+
 /**
  * Runs link-skills.mjs with one JSON input (see the top of that file) on this computer.
  * Returns its JSON, or { error }.

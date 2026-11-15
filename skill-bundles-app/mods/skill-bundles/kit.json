@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project as links to one clone of a skill Catalog (bundles.yaml): a directory junction on Windows, a symbolic link on macOS and Linux. Only the clone has the skill files and version control, so a change there shows in every project at once. The panel shows linked, missing, stale and extra skills, with buttons to choose Bundles and to link, add and remove skills. A toast offers to make missing links and remove stale ones. Copies that npx skills installed become links.",
+  "description": "The agent skills of the focused project as links to one clone of a skill Catalog (bundles.yaml): a directory junction on Windows, a symbolic link on macOS and Linux. Only the clone has the skill files and version control, so a change there shows in every project at once. The panel shows linked, missing, stale and extra skills, with buttons to choose Bundles and to link, add and remove skills. A toast offers to make missing links and remove stale ones. A skill of another repository links to a clone of that repository in the cache of the mod, which you update with a button. Copies that npx skills installed become links.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {
@@ -40,7 +40,7 @@
       "step": 5,
       "unit": "min",
       "label": "Fetch the Catalog every",
-      "hint": "How often the mod fetches the Catalog and brings the clone to the remote. The refresh button of the panel fetches at once."
+      "hint": "How often the mod fetches the Catalog and brings its clone to the remote, and fetches the clones of other repositories (it only counts their new commits). The refresh button of the panel fetches at once."
     },
     {
       "id": "offer-update",

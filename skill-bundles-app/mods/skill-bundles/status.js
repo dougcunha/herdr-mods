@@ -21,9 +21,11 @@ export const pending = (c) => (c?.missing ?? 0) + (c?.copy ?? 0) + (c?.stale ?? 
 
 /**
  * The groups of the panel, in order: one for each Bundle of the Manifest (in its order), then
- * Sources, Extra, Stale, Other repositories and Local. A skill in 2 Bundles shows in the first one.
+ * Sources (of the Catalog), one for each other repository of the Sources, Extra, Stale,
+ * Other repositories (not cloned) and Local. A skill in 2 Bundles shows in the first one.
  */
-export function groupRows(rows, manifest) {
+export function groupRows(rows, manifest, catalogRepo = "") {
+  const same = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
   const groups = [];
   const byKey = new Map();
   const group = (key, kind) => {
@@ -35,12 +37,14 @@ export function groupRows(rows, manifest) {
   for (const r of rows) {
     if (r.from.length) {
       const first = r.from.find((f) => f !== "sources") ?? "sources";
-      group(first, first === "sources" ? "sources" : "bundle").rows.push(r);
+      // A Source of another repository has a group of its own, with the state of the clone of that repository.
+      if (first === "sources" && r.repo && !same(r.repo, catalogRepo)) group(r.repo, "repo").rows.push(r);
+      else group(first, first === "sources" ? "sources" : "bundle").rows.push(r);
     } else if (r.state === "local") group("local", "local").rows.push(r);
     else if (r.state === "stale") group("stale", "stale").rows.push(r);
     else if (r.state === "unsupported") group("other", "other").rows.push(r);
     else group("extra", "extra").rows.push(r);
   }
-  const order = { bundle: 0, sources: 1, extra: 2, stale: 3, other: 4, local: 5 };
+  const order = { bundle: 0, sources: 1, repo: 2, extra: 3, stale: 4, other: 5, local: 6 };
   return groups.filter((g) => g.rows.length).sort((a, b) => order[a.kind] - order[b.kind]);
 }

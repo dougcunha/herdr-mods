@@ -133,9 +133,10 @@ function summary(t, m) {
       .children(STATES.filter((st) => c[st] > 0).map((st) => pill(t, `${c[st]} ${m.str[`state_${st}`]}`, stateColor(t, st)))))
     .child(h_flex().gap(6).items_center()
       .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: m.work > 0 ? "primary" : "plain", disabled: !can || m.work === 0, tip: m.str.syncAllTip, icon: "refresh" }))
-      .when(!m.plain, (e) => e.child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: !can, tip: m.str.bundlesTip, icon: "bundles" })))
-      .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (m.linkable ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.str.useBundlesTip, icon: "bundles" })))
-      .child(button(t, "sb-add", m.str.addSkill, (cx) => (m.linkable ? m.a.mode("add", cx) : m.a.settings()), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
+      .when(!m.plain, (e) => e.child(button(t, "sb-bundles", m.str.bundles, (cx) => (m.hasCatalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" })))
+      .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (m.hasCatalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.hasCatalog ? m.str.useBundlesTip : m.str.useBundlesNoCatalog, icon: "bundles" })))
+      // Without a Catalog, Add skill goes to the repository view.
+      .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode(m.hasCatalog ? "add" : "repo", cx), { disabled: !can, tip: m.hasCatalog ? m.str.addSkillTip : m.str.addRepoTip, icon: "plus" })))
     .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.plainHint)))
     .when(m.work === 0 && c.linked > 0 && c.conflict === 0 && c.absent === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
 }
@@ -178,8 +179,8 @@ const groupKey = (g) => `${g.kind}:${g.key}`;
 
 function groupTitle(t, m, g) {
   const catalog = m.cat.catalog;
-  const title = g.kind === "bundle" ? g.key : m.str[`group_${g.kind}`];
-  const desc = g.kind === "bundle" ? catalog?.descriptions.get(g.key) ?? "" : "";
+  const title = g.kind === "bundle" || g.kind === "repo" ? g.key : m.str[`group_${g.kind}`];
+  const desc = g.kind === "bundle" ? catalog?.descriptions.get(g.key) ?? "" : g.kind === "repo" ? sourceNote(m, g.key) : "";
   const folded = m.collapsed.has(groupKey(g));
   return h_flex().id(`sb-group-${groupKey(g)}`).h(28).pl(8).pr(12).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
     .cursor_pointer().hover((x) => x.bg(t.hover))
@@ -192,6 +193,17 @@ function groupTitle(t, m, g) {
     .child(div().flex_none().text_size(11).text_color(t.dim).child(String(g.rows.length)));
 }
 
+/** What the title of a repository group says about the clone of that repository. */
+function sourceNote(m, repo) {
+  const id = String(repo).split("#")[0].toLowerCase();
+  const src = m.sources[id];
+  if (m.srcErrors[id]) return fill(m.str.sourceCloneFailed, { error: String(m.srcErrors[id]).split("\n").pop() });
+  if (m.sourcing.has(id)) return src ? m.str.sourceFetching : m.str.sourceCloning;
+  if (!src) return "";
+  if (src.error) return fill(m.str.sourceFetchFailed, { error: String(src.error).split("\n").pop() });
+  return src.behind > 0 ? fill(m.str.sourceBehind, { n: src.behind }) : m.str.sourceCurrent;
+}
+
 /** The batch buttons of a group title: act on every skill of the group. */
 function groupActions(t, m, g) {
   const can = m.linkable && !m.job;
@@ -200,6 +212,10 @@ function groupActions(t, m, g) {
   const list = [];
   const work = toLink(g.rows).length;
   if (work > 0) list.push(small("link", fill(m.str.linkGroup, { n: work }), (cx) => m.a.linkGroup(key, cx), { disabled: !can, tip: m.str.linkGroupTip }));
+  if (g.kind === "repo") {
+    const src = m.sources[String(g.key).split("#")[0].toLowerCase()];
+    if (src?.behind > 0) list.push(small("source", m.str.sourceUpdate, (cx) => m.a.updateSource(g.key, cx), { kind: "primary", disabled: Boolean(m.job), tip: m.str.sourceUpdateTip }));
+  }
   if (g.kind === "extra" && g.rows.length > 1) {
     list.push(small("keep", m.str.keepAll, (cx) => m.a.keepAllExtra(cx), { disabled: !can || m.plain, tip: m.str.keepAllTip }));
     list.push(small("remove", m.waiting === "all:extra" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllLinks("extra", cx), { kind: "danger", disabled: !can, tip: m.str.removeAllTip }));
@@ -281,7 +297,8 @@ function addView(t, m, s) {
             if (e.key !== "escape") return;
             if (m.query.value()) { m.query.set_value(""); cx.stop_propagation(); cx.notify(); }
             else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
-          }))))
+          })))
+      .child(button(t, "sb-other-repo", m.str.addRepo, (cx) => m.a.mode("repo", cx), { tip: m.str.addRepoTip })))
     .when(!m.plain, (e) => e.child(persistToggle(t, m)))
     .child(v_flex().id("sb-add-list").flex_1().min_h(0).overflow_y_scrollbar()
       .when(items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(m.str.nothingToAdd)))
@@ -291,7 +308,52 @@ function addView(t, m, s) {
         .child(button(t, `sb-addone-${it.bundle}-${it.name}`, m.str.link, (cx) => m.a.addSkill(it.name, cx), { disabled: busy })))));
 }
 
-/** The "Keep in skills.yaml" switch of the add view. */
+/** A text field in a box. Esc clears the text, then closes the dialog. Enter runs `onEnter`. */
+function field(t, state, icon, onEnter = null) {
+  return h_flex().flex_1().min_w(0).h(28).px(8).gap(6).items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
+    .child(svg(ICON(icon)).size(13).flex_none().text_color(t.dim))
+    .child(Input.new(state).flex_1().h_full().text_size(12)
+      .on_key_down((e, cx) => {
+        if (e.key === "enter" && onEnter) { onEnter(cx); cx.stop_propagation(); return; }
+        if (e.key !== "escape") return;
+        if (state.value()) { state.set_value(""); cx.stop_propagation(); cx.notify(); }
+        else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
+      }));
+}
+
+/** Add skill from any repository: a repository field, then the skills of the clone of that repository. */
+function repoView(t, m, s) {
+  const str = m.str;
+  const list = m.repoList;
+  const busy = Boolean(m.job);
+  const have = new Set(m.proj.rows.map((r) => r.name));
+  const items = (list?.skills ?? []).filter((it) => !m.filter || `${it.name} ${it.desc}`.toLowerCase().includes(m.filter));
+  return v_flex().flex_1().min_h(0)
+    .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
+      .child(button(t, "sb-back", str.back, (cx) => m.a.mode(m.hasCatalog ? "add" : "list", cx), { icon: "back" }))
+      .child(field(t, m.repoInput, "bundles", (cx) => m.a.listRepo(cx)))
+      .child(button(t, "sb-list-repo", str.listSkills, (cx) => m.a.listRepo(cx), { kind: "primary", disabled: list?.state === "loading", tip: str.listSkillsTip })))
+    .when(!m.plain, (e) => e.child(persistToggle(t, m)))
+    .when(list?.state === "ready" && list.skills.length > 0, (e) => e.child(h_flex().flex_none().px(12).py(6).border_b(1).border_color(t.border).child(field(t, m.query, "search"))))
+    .child(v_flex().id("sb-repo-list").flex_1().min_h(0).overflow_y_scrollbar()
+      .when(!list, (e) => e.child(div().p(16).text_size(12).text_color(t.muted).child(str.repoHint)))
+      .when(list?.state === "loading", (e) => e.child(h_flex().p(16).gap(8).items_center()
+        .child(svg(ICON("spinner")).size(14).spin(900).text_color(t.accent))
+        .child(div().text_size(12).child(fill(str.repoReading, { repo: list.repo })))))
+      .when(list?.state === "error", (e) => e.child(v_flex().p(16).gap(8)
+        .child(div().text_size(12).font_semibold().text_color(t.ansi1).child(fill(str.repoError, { repo: list.repo })))
+        .child(div().p(10).rounded(8).bg(t.raised).border_1().border_color(t.border).text_size(11).font_family(MONO(s)).text_color(t.muted).child(list.error ?? ""))))
+      .when(list?.state === "ready" && items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(fill(str.repoEmpty, { repo: list.repo }))))
+      .children(list?.state === "ready" ? items.map((it) => h_flex().id(`sb-repo-${it.name}`).min_h(40).px(12).py(4).gap(8).items_center().hover((x) => x.bg(t.hover))
+        .when(Boolean(it.desc), (e) => e.tooltip(it.desc))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().truncate().text_size(12).font_family(MONO(s)).child(it.name))
+          .when(Boolean(it.desc), (e) => e.child(div().truncate().text_size(11).text_color(t.muted).child(it.desc))))
+        .when(have.has(it.name), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(str.inProject)))
+        .child(button(t, `sb-repo-add-${it.name}`, str.link, (cx) => m.a.addFromRepo(it.name, cx), { disabled: busy || have.has(it.name) }))) : []));
+}
+
+/** The "Keep in skills.yaml" switch of the add views. */
 function persistToggle(t, m) {
   return h_flex().id("sb-persist").flex_none().px(12).py(6).gap(8).items_center().cursor_pointer().border_b(1).border_color(t.border)
     .tooltip(m.str.persistTip)
@@ -329,14 +391,15 @@ function body(t, m, s) {
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
   if (p.state === "remote") return message(t, m, str.remoteTitle, fill(str.remoteHint, { project: p.name }));
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
-  // Without a Catalog there is nothing to link to. A project that has skills still shows them.
-  if (c.state === "unset" && (p.manifest || p.rows.length === 0)) return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [settingsButton("primary")] });
-  if (m.mode === "bundles" && m.linkable) {
+  // A Manifest with only Bundles needs the Catalog. A project with skills or Sources still shows them.
+  if (m.mode === "repo") return repoView(t, m, s);
+  if (c.state === "unset" && p.manifest && p.rows.length === 0) return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [settingsButton("primary")] });
+  if (m.mode === "bundles" && m.hasCatalog) {
     return m.plain
       ? bundlePicker(t, m, { intro: `${str.noManifest}. ${str.noManifestHint}.`, primary: str.start, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) })
       : bundlePicker(t, m, { primary: str.save, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) });
   }
-  if (m.mode === "add" && m.linkable) return addView(t, m, s);
+  if (m.mode === "add" && m.hasCatalog) return addView(t, m, s);
   return listView(t, m, s);
 }
 

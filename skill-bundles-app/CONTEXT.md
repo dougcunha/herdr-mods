@@ -26,8 +26,12 @@ _Avoid_: config, skills file
 One entry of `sources:` in the Manifest: a repository and skills from it that are not in a Bundle of the project.
 _Avoid_: ad hoc bundle
 
+**Source clone**:
+A clone of a repository that is not the Catalog, which a Source (or an Extra skill) names. The mod keeps it in its cache (`cache/skill-bundles/sources/<owner>/<name>`). The mod fetches it on the timer but changes its files only when the person clicks **Update**.
+_Avoid_: vendor, mirror
+
 **Link**:
-A directory junction (Windows) or a symbolic link (macOS, Linux) in an agent folder of a project (`.agents/skills`, `.claude/skills`, `.codex/skills`) that points to the folder of one skill in the Clone. A project has no files of a linked skill: it reads the Clone.
+A directory junction (Windows) or a symbolic link (macOS, Linux) in an agent folder of a project (`.agents/skills`, `.claude/skills`, `.codex/skills`) that points to the folder of one skill in the Clone (or in a Source clone). A project has no files of a linked skill: it reads the clone.
 _Avoid_: shortcut, install, copy
 
 **Exclude block**:
@@ -73,4 +77,4 @@ A real skill folder that `npx skills` installed (it has a Lock entry). The mod c
 
 **Not in the Clone**: the Manifest asks for a skill that the Clone does not have.
 
-**Not supported yet**: a skill of a repository that is not the Catalog. Links for other repositories come in a later version.
+**Not cloned**: a skill of a repository that is not the Catalog, and the mod has no Source clone of that repository yet (or could not clone it).
