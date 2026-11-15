@@ -1,0 +1,4 @@
+catalog: dougcunha/agent-skills
+
+bundles:
+  - core
