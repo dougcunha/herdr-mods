@@ -77,6 +77,15 @@ A Source can name a repository that is not the Catalog (`owner/repo` on GitHub, 
 - **Add skill** → **Another repository**: write a repository and click **List skills**. The mod clones it (when it is not in the cache) and shows its skills with their descriptions. **Link** links one skill: as Extra, or into `sources:` with **Keep in skills.yaml**.
 - The mod owns these clones: do not edit them.
 
+## A project on another machine
+
+A project in a space on another machine (`hc machine ls`) works too. A link must point to a folder of the same computer, so the clones are on that machine:
+
+- **Settings:** the mod reads the settings of the Herdr app of that machine (`~/.config/herdr-app/shared.json` there). **Skill Catalog** and **Clone URL** that it does not have come from this computer. **Your own clone** comes only from that machine.
+- **Clone:** your own clone on that machine, else a clone in `~/.config/herdr-app/cache/skill-bundles/` there. The clones of other repositories are in that cache too.
+- **Script:** the mod writes `link-skills.mjs` into that cache and runs it there. That machine needs `git` and `node`; a private Catalog needs `gh auth login` or a Git credential there.
+- The header shows `<project> · <machine>`. The refresh button reads the settings of that machine again.
+
 ## A project without `skills.yaml`
 
 A project without a Manifest can have links too. **Add skill** links one skill of the Clone (or of another repository), and the panel shows it as Extra. Without a Catalog, **Add skill** opens the repository view. **Use Bundles** opens the Bundles of the Catalog with check boxes (`core` is always on): **Create skills.yaml and link** writes `skills.yaml` and links the skills. The skills that were linked before stay as Extra.
@@ -146,6 +155,7 @@ It links the Missing skills, changes the Copies to links and removes the Stale l
 - The same script when you click an action: it makes and removes links, deletes or moves Copies, and writes `.git/info/exclude` and `skills-lock.json`. `.gitignore` only with **Remove the old block**.
 - For each repository of a project that is not the Catalog: `gh repo clone` (or `git clone`) into `~/.config/herdr-app/cache/skill-bundles/sources/` once, then `git fetch` on the fetch interval. `git reset --hard origin/HEAD` there only when you click **Update**.
 - It reads and writes `skills.yaml` of the project, only when you click an action.
+- For a project on another machine, it runs all of the above on that machine. It writes its `link-skills.mjs` into `~/.config/herdr-app/cache/skill-bundles/` there, and reads `~/.config/herdr-app/shared.json` there.
 
 ## Install
 
@@ -196,7 +206,6 @@ The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 
 - A skill is found by the name of its folder. When 2 repositories of a project have a skill with one name, the first one of the Manifest wins.
 - A Source clone follows the default branch of its remote. A `#branch` in `repo:` is not used.
-- **Other machines:** a project in a space on another machine (`hc machine ls`) shows a message only. Links there come in a later version.
 - The project is the Git root of the focused terminal. A worktree is its own project, with its own links; it shares `.git/info/exclude` with its repository.
 - `git clean -fdx` in a project removes its links (not the skill files). The mod offers them again.
 - The mod writes `skills.yaml` in its own form: comments in the file are lost.

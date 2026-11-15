@@ -13,11 +13,16 @@
 // Every copy reads on its own (a node run of link-skills.mjs takes about 0.2 s). The fetch of
 // the Catalog and the running action are shared() keys, so that 2 copies do not do them twice.
 // A read writes nothing in a project: only a click makes, changes or removes a link.
+//
+// A project in a space on another machine (`hc machine ls`) has its links, its Clone and its
+// Source clones on that machine. The settings come from the Herdr app there (shared.json),
+// and a setting that it does not have comes from this computer. this.on is that machine.
 
 import { View, div } from "gpui-kit";
 import { InputState } from "gpui-base";
-import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, writeTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
+import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
 import * as C from "./catalog.js";
+import { writeFileOn } from "./remote.js";
 import { formatManifest, withSource, withoutSource, orderBundles } from "./manifest.js";
 import { groupRows, countRows, pending, toLink, toRemove } from "./status.js";
 import { STR, fill } from "./text.js";
@@ -35,13 +40,13 @@ const KEY = {
   clone: "skill-bundles.clone", // optional: the person's own clone of the Catalog
   gitUrl: "skill-bundles.gitUrl", // optional: the URL for `git clone` (default: GitHub SSH)
   minutes: "skill-bundles.fetchMinutes", // minutes between 2 fetches of the Catalog
-  fetched: "skill-bundles.fetchedAt", // { "<clone dir>": time of the last fetch }
+  fetched: "skill-bundles.fetchedAt", // { "<clone dir>" | "<machine>|<clone dir>": time of the last fetch }
   job: "skill-bundles.job", // { project, label, at } while an action runs, else null
   changed: "skill-bundles.changed", // { project, at }: an action ended; copies read again
   offerUpdate: "skill-bundles.offerUpdate", // false: no toast that offers to make and remove links
-  offered: "skill-bundles.offered", // { "<root>": signature }: the offers already shown
-  offerNow: "skill-bundles.offerNow", // the last offer: { root, name, link, remove, at }
-  // The clones of the repositories that are not the Catalog: { "<repo in lower case>": { at, dir, behind, error } }
+  offered: "skill-bundles.offered", // { "<machine>|<root>": signature }: the offers already shown
+  offerNow: "skill-bundles.offerNow", // the last offer: { root, machine, name, link, remove, at }
+  // The clones of the repositories that are not the Catalog: { "<machine>|<repo in lower case>": { at, dir, behind, error } }
   sources: "skill-bundles.sources",
 };
 const DEFAULT_MINUTES = 15;
@@ -72,14 +77,17 @@ const errorText = (e) => String(e?.message ?? e);
 
 // One clone at a time for each folder, when 2 copies start together.
 const cloning = new Map();
-function cloneOnce(slug, dir, gitUrl) {
-  if (!cloning.has(dir)) cloning.set(dir, C.ensureClone(slug, dir, gitUrl).finally(() => cloning.delete(dir)));
-  return cloning.get(dir);
+function cloneOnce(slug, dir, gitUrl, on = null) {
+  const key = `${on ?? ""}|${dir}`;
+  if (!cloning.has(key)) cloning.set(key, C.ensureClone(slug, dir, gitUrl, on).finally(() => cloning.delete(key)));
+  return cloning.get(key);
 }
 
 // One clone or fetch at a time for each repository that is not the Catalog, in all copies of this window.
 const sourcing = new Map();
 const repoId = (repo) => String(repo ?? "").split("#")[0].toLowerCase();
+/** The key of the clone of a repository on a machine, for KEY.sources and `sourcing`. */
+const sourceId = (on, repo) => `${on ?? ""}|${repoId(repo)}`;
 
 export default class SkillBundles extends View {
   init(given, cx) {
@@ -87,6 +95,8 @@ export default class SkillBundles extends View {
     this.props = (given && Object.keys(given).length ? given : props()) || {};
     this.part = this.props.part ?? "panel";
     this.cat = { state: "loading" }; // see loadCatalog
+    this.on = null; // the machine of this.cat and this.place (null: this computer)
+    this.place = null; // the folders of the mod on that machine (C.place)
     this.proj = { state: "loading" }; // see loadProject
     this.mode = "list"; // "list" | "bundles" | "add" | "repo"
     this.srcErrors = {}; // { "<repo>": text }: a repository that could not be cloned
@@ -154,7 +164,7 @@ export default class SkillBundles extends View {
 
   /** The clones for link-skills.mjs: the Clone of the Catalog (and its name, for a bundles.yaml without `repo:`) and the sources cache. */
   cloneInput() {
-    const sourcesRoot = C.sourcesRoot();
+    const sourcesRoot = this.place?.sourcesRoot ?? null;
     return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo, sourcesRoot } : { clone: null, sourcesRoot };
   }
 
@@ -197,14 +207,16 @@ export default class SkillBundles extends View {
       const id = repoId(r.repo);
       repos.set(id, { repo: r.repo, missing: (repos.get(id)?.missing ?? false) || r.state === "unsupported" });
     }
-    for (const [id, { repo, missing }] of repos) {
+    const on = p.machine;
+    for (const [name, { repo, missing }] of repos) {
+      const id = sourceId(on, name);
       if (sourcing.has(id) || (missing && this.srcErrors[id])) continue;
       const last = (shared(KEY.sources) ?? {})[id];
       if (!missing && !force && last && Date.now() - (last.at ?? 0) < minutes * 60 * 1000) continue;
       const work = (async () => {
-        const s = await C.ensureSource(repo);
+        const s = await C.ensureSource(repo, on);
         if (s.error) return { error: s.error, cloned: false };
-        const b = await C.sourceBehind(s.dir);
+        const b = await C.sourceBehind(s.dir, on);
         return { dir: s.dir, behind: b.behind, error: b.error, cloned: missing };
       })().finally(() => sourcing.delete(id));
       sourcing.set(id, work);
@@ -222,7 +234,8 @@ export default class SkillBundles extends View {
 
   /** Update on a repository group: brings the clone of that repository to its remote. Every project sees the new version. */
   updateSource(cx, repo) {
-    const id = repoId(repo);
+    const on = this.on;
+    const id = sourceId(on, repo);
     const dir = (shared(KEY.sources) ?? {})[id]?.dir;
     if (!dir || this.job()) return;
     setShared(KEY.job, { project: null, label: fill(this.str.busySource, { repo }), at: Date.now() });
@@ -231,7 +244,7 @@ export default class SkillBundles extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       let failed = null;
-      try { failed = await C.updateOwnClone(dir); } catch (e) { failed = errorText(e); }
+      try { failed = await C.updateOwnClone(dir, on); } catch (e) { failed = errorText(e); }
       this.running = false;
       setShared(KEY.job, null);
       if (failed) this.error = { text: failed };
@@ -246,7 +259,8 @@ export default class SkillBundles extends View {
     if (this.reading) { this.again ??= { force: false }; return; }
     this.reading = true;
     cx.spawn(async (cx) => {
-      try { await this.loadProject(); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
+      // The focus moved to a space of another machine: the Catalog is the one of that machine.
+      try { if ((location().machine ?? null) !== this.on) await this.loadCatalog(cx, false); await this.loadProject(); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
       finally { this.reading = false; }
       cx.notify();
       this.syncSources(cx, false);
@@ -257,29 +271,40 @@ export default class SkillBundles extends View {
   /**
    * this.cat: { state: "unset" } | { state: "cloning", slug } | { state: "error", slug, error } |
    * { state: "ready", slug, dir, own, catalog, commit, ref, fetchError }
+   * It is the Catalog of the machine of the focused space (this.on). There, a setting comes from
+   * the shared.json of that machine, else from this computer; "Your own clone" only from there.
    * catalog: { repo, bundles: Map<name, skills>, descriptions: Map<name, text>, skills: [every skill of the Clone] }
    */
   async loadCatalog(cx, force) {
-    const slug = C.repoSlug(shared(KEY.catalog));
+    const on = location().machine ?? null;
+    if (on !== this.on) this.cat = { state: "loading" };
+    this.on = on;
+    // The refresh button reads the settings of the other machine again.
+    if (force && on) C.forgetPlace(on);
+    this.place = await C.place(on);
+    const there = this.place.shared;
+    const setting = (key) => { const v = String(there[key] ?? "").trim(); return v || String(shared(key) ?? "").trim(); };
+    const slug = C.repoSlug(setting(KEY.catalog));
     if (!slug) { this.cat = { state: "unset" }; return; }
-    const own = String(shared(KEY.clone) ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
-    const dir = own || C.ownCloneDir(slug);
+    const own = String((on ? there[KEY.clone] : shared(KEY.clone)) ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    const dir = own || `${this.place.cache}/${slug}`;
     const previous = this.cat.dir === dir ? this.cat : null;
     if (!own) {
-      const there = (await readTextFile(`${dir}/bundles.yaml`).catch(() => null)) !== null;
-      if (!there) { this.cat = { state: "cloning", slug }; cx.notify(); }
-      const error = await cloneOnce(slug, dir, String(shared(KEY.gitUrl) ?? "").trim());
+      const here = (await (on ? readTextFile(`${dir}/bundles.yaml`, { on }) : readTextFile(`${dir}/bundles.yaml`)).catch(() => null)) !== null;
+      if (!here) { this.cat = { state: "cloning", slug }; cx.notify(); }
+      const error = await cloneOnce(slug, dir, setting(KEY.gitUrl), on);
       if (error) { this.cat = { state: "error", slug, error }; return; }
     }
     let fetchError = previous?.fetchError ?? null;
     const minutes = Number(shared(KEY.minutes)) > 0 ? Number(shared(KEY.minutes)) : DEFAULT_MINUTES;
     const times = shared(KEY.fetched) ?? {};
-    if (force || Date.now() - (times[dir] ?? 0) > minutes * 60 * 1000) {
-      setShared(KEY.fetched, { ...times, [dir]: Date.now() });
+    const fetchKey = on ? `${on}|${dir}` : dir;
+    if (force || Date.now() - (times[fetchKey] ?? 0) > minutes * 60 * 1000) {
+      setShared(KEY.fetched, { ...times, [fetchKey]: Date.now() });
       if (force) { this.cat = { ...(previous ?? { state: "loading" }), fetching: true }; cx.notify(); }
-      fetchError = own ? await C.pullOwnClone(dir) : await C.updateOwnClone(dir);
+      fetchError = own ? await C.pullOwnClone(dir, on) : await C.updateOwnClone(dir, on);
     }
-    const read = await C.linkScript({ op: "catalog", clone: dir });
+    const read = await C.linkScript({ op: "catalog", clone: dir }, on);
     if (read.error || !read.catalog) { this.cat = { state: "error", slug, error: read.error ?? `${dir}/bundles.yaml was not found.` }; return; }
     const catalog = {
       repo: read.catalog.repo || slug,
@@ -289,8 +314,8 @@ export default class SkillBundles extends View {
     };
     this.cat = {
       state: "ready", slug, dir, own: Boolean(own), catalog, fetchError,
-      commit: await C.headCommit(dir),
-      ref: own ? await C.ownCloneRef(dir) : { branch: null },
+      commit: await C.headCommit(dir, on),
+      ref: own ? await C.ownCloneRef(dir, on) : { branch: null },
     };
   }
 
@@ -305,15 +330,17 @@ export default class SkillBundles extends View {
     const loc = location();
     const root = await C.gitRoot(loc.cwd, loc.machine);
     if (!root) { this.proj = { state: "none" }; return; }
-    if (loc.machine) { this.proj = { state: "remote", name: `${baseName(root)} · ${loc.machine}` }; return; }
-    const manifestText = await readTextFile(`${root}/skills.yaml`).catch(() => null);
-    const info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() });
+    const on = loc.machine ?? null;
+    // The Catalog of another machine is in this.cat: the next read brings the one of this project.
+    if (on !== this.on) { this.proj = { state: "loading" }; return; }
+    const manifestText = await (on ? readTextFile(`${root}/skills.yaml`, { on }) : readTextFile(`${root}/skills.yaml`)).catch(() => null);
+    const info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
     if (info.error) { this.proj = { state: "error", error: info.error }; return; }
     // Another project: the Bundle choice and the mode of the old one do not apply.
-    if (this.proj.root !== root) { this.pick = new Set(); this.mode = "list"; this.error = null; }
+    if (this.proj.root !== root || this.proj.machine !== on) { this.pick = new Set(); this.mode = "list"; this.error = null; }
     const rows = info.rows ?? [];
     this.proj = {
-      state: "ready", root, name: baseName(root), manifestText, manifest: info.manifest ?? null,
+      state: "ready", root, machine: on, name: on ? `${baseName(root)} · ${on}` : baseName(root), manifestText, manifest: info.manifest ?? null,
       rows, groups: groupRows(rows, info.manifest, this.cat.catalog?.repo ?? ""), counts: countRows(rows), unknown: info.unknown ?? [], info,
     };
     this.offerLinks();
@@ -333,15 +360,16 @@ export default class SkillBundles extends View {
     const link = toLink(p.rows).sort();
     const remove = toRemove(p.rows).sort();
     const offered = shared(KEY.offered) ?? {};
+    const where = `${p.machine ?? ""}|${p.root}`;
     if (!link.length && !remove.length) {
       // Nothing to do: forget the old offer, so the same skills give a new offer later.
-      if (offered[p.root]) { const { [p.root]: _gone, ...rest } = offered; setShared(KEY.offered, rest); }
+      if (offered[where]) { const { [where]: _gone, ...rest } = offered; setShared(KEY.offered, rest); }
       return;
     }
     const signature = `${link.join(",")}|${remove.join(",")}`;
-    if (offered[p.root] === signature) return;
-    setShared(KEY.offered, { ...offered, [p.root]: signature });
-    setShared(KEY.offerNow, { root: p.root, name: p.name, link, remove, at: Date.now() });
+    if (offered[where] === signature) return;
+    setShared(KEY.offered, { ...offered, [where]: signature });
+    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, at: Date.now() });
     const names = [...link, ...remove];
     const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
     notify({
@@ -356,8 +384,9 @@ export default class SkillBundles extends View {
   /** A click on the toast of offerLinks(): makes and removes the links of that offer. */
   applyOffered(cx) {
     const o = shared(KEY.offerNow);
-    if (!o?.root || !((o.link?.length ?? 0) + (o.remove?.length ?? 0))) return;
-    const project = { state: "ready", root: o.root, name: o.name };
+    // The clones of this copy are the ones of this.on: an offer of another machine waits for a copy that shows it.
+    if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0))) return;
+    const project = { state: "ready", root: o.root, machine: o.machine ?? null, name: o.name };
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link: o.link, remove: o.remove }), project);
   }
 
@@ -447,13 +476,14 @@ export default class SkillBundles extends View {
     if (this.job() || this.cat.state !== "ready") return;
     if (danger && !this.armed(cx, fix)) return;
     const { dir, ref } = this.cat;
+    const on = this.on;
     setShared(KEY.job, { project: null, label: this.str.busyFix, at: Date.now() });
     this.running = true;
     this.error = null;
     cx.notify();
     cx.spawn(async (cx) => {
       let failed = null;
-      try { failed = await C.fixClone(dir, fix, ref?.current ?? ""); } catch (e) { failed = errorText(e); }
+      try { failed = await C.fixClone(dir, fix, ref?.current ?? "", on); } catch (e) { failed = errorText(e); }
       this.running = false;
       setShared(KEY.job, null);
       if (failed) this.error = { text: failed };
@@ -464,9 +494,9 @@ export default class SkillBundles extends View {
 
   /** Opens a new space in the clone with an agent that commits and pushes (or a plain terminal). */
   agentFix(agent) {
-    const folder = C.native(this.cat.dir);
+    const folder = this.on ? this.cat.dir : C.native(this.cat.dir);
     const task = "This folder is a Git clone of a skill Catalog. Commit the changes that are not committed, with a clear message. Then bring in the new commits of the remote with git pull --rebase, and push. Ask me before you discard a change.";
-    run("space.new", { name: "Catalog clone", folder, machine: "", ...(agent ? { argv: agent.run, task } : {}) });
+    run("space.new", { name: "Catalog clone", folder, machine: this.on ?? "", ...(agent ? { argv: agent.run, task } : {}) });
   }
 
   // ---- actions ----------------------------------------------------------------------------
@@ -518,7 +548,8 @@ export default class SkillBundles extends View {
    * It also changes every Copy of the project to a link. Adds the result to the toast of act().
    */
   async apply(p, input = {}) {
-    const r = await C.linkScript({ op: "apply", project: p.root, ...this.cloneInput(), ...input });
+    if ((p.machine ?? null) !== this.on) throw new Error(this.str.otherMachine);
+    const r = await C.linkScript({ op: "apply", project: p.root, ...this.cloneInput(), ...input }, this.on);
     if (r.error) throw new Error(r.error);
     for (const k of Object.keys(this.done)) this.done[k].push(...(r[k] ?? []));
     return r;
@@ -526,13 +557,13 @@ export default class SkillBundles extends View {
 
   /** The state of the project `p` now (after a write of the Manifest): the rows of link-skills.mjs. */
   async rowsNow(p) {
-    const info = await C.linkScript({ op: "read", project: p.root, ...this.cloneInput() });
+    const info = await C.linkScript({ op: "read", project: p.root, ...this.cloneInput() }, this.on);
     if (info.error) throw new Error(info.error);
     return info.rows ?? [];
   }
 
   async writeManifest(project, manifest) {
-    await writeTextFile(`${project.root}/skills.yaml`, formatManifest(manifest), project.manifestText);
+    await writeFileOn(project.machine ?? null, `${project.root}/skills.yaml`, formatManifest(manifest), project.manifestText);
   }
 
   /** Link all: makes the Missing links, changes the Copies to links and removes the Stale links. */
@@ -673,8 +704,9 @@ export default class SkillBundles extends View {
     this.query?.set_value?.("");
     cx.notify();
     cx.spawn(async (cx) => {
-      const s = await C.ensureSource(repo);
-      const r = s.error ? { error: s.error } : await C.linkScript({ op: "list", dir: s.dir });
+      const on = this.on;
+      const s = await C.ensureSource(repo, on);
+      const r = s.error ? { error: s.error } : await C.linkScript({ op: "list", dir: s.dir }, on);
       // Another repository was asked in the meantime: this answer is old.
       if (this.repoList?.repo !== repo) return;
       this.repoList = r.error ? { repo, state: "error", skills: [], error: r.error } : { repo, state: "ready", skills: r.skills ?? [] };
@@ -742,6 +774,7 @@ export default class SkillBundles extends View {
       sources: shared(KEY.sources) ?? {},
       sourcing: new Set(sourcing.keys()),
       srcErrors: this.srcErrors,
+      srcId: (repo) => sourceId(this.on, repo),
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       plain: ready && !p.manifest, // no Manifest: the links of the project are Extra skills
       linkable: this.linkable(),

@@ -25,7 +25,9 @@ The mod installed skills with `npx skills add`: each project got a copy of each 
 2. Skills of other repositories (`sources:`): one clone for each repository in the cache; the mod fetches on the timer and updates with a button.
 3. Spaces on other machines: the settings of that machine (`shared.json` there), with the values of this computer as the fallback, and a cache there.
 
-Phase 2 is done (2026-11-15): the clones of other repositories are in `<appHome>/cache/skill-bundles/sources/<owner>/<name>`; the mod only counts the new commits of their remotes, and **Update** on the repository group brings a clone to its remote. Until phase 3, a project on another machine shows a message only.
+Phase 2 is done (2026-11-15): the clones of other repositories are in `<appHome>/cache/skill-bundles/sources/<owner>/<name>`; the mod only counts the new commits of their remotes, and **Update** on the repository group brings a clone to its remote.
+
+Phase 3 is done (2026-11-15): for a project on another machine, the mod writes `link-skills.mjs` into `~/.config/herdr-app/cache/skill-bundles/` of that machine and runs it there with `node`. The Catalog name and the clone URL come from the `shared.json` of that machine, else from this computer; "Your own clone" comes only from that machine, else the Clone is in the cache there. The Source clones are in the cache there too.
 
 ## Consequences
 

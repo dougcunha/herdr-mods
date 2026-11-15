@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project as links to one clone of a skill Catalog (bundles.yaml): a directory junction on Windows, a symbolic link on macOS and Linux. Only the clone has the skill files and version control, so a change there shows in every project at once. The panel shows linked, missing, stale and extra skills, with buttons to choose Bundles and to link, add and remove skills. A toast offers to make missing links and remove stale ones. A skill of another repository links to a clone of that repository in the cache of the mod, which you update with a button. Copies that npx skills installed become links.",
+  "description": "The agent skills of the focused project as links to one clone of a skill Catalog (bundles.yaml): a directory junction on Windows, a symbolic link on macOS and Linux. Only the clone has the skill files and version control, so a change there shows in every project at once. The panel shows linked, missing, stale and extra skills, with buttons to choose Bundles and to link, add and remove skills. A toast offers to make missing links and remove stale ones. A skill of another repository links to a clone of that repository in the cache of the mod, which you update with a button. Copies that npx skills installed become links. Works in spaces on other machines too, with the clones on that machine.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {
@@ -18,7 +18,7 @@
       "key": "skill-bundles.clone",
       "default": "",
       "label": "Your own clone (optional)",
-      "hint": "A folder with your own clone of the Catalog. The projects link to this folder, so they see its branch and also its changes that are not committed. The mod pulls it (git pull --ff-only) each time it fetches the Catalog, when it has no changes. When the mod cannot pull it, the panel says why and shows buttons (stash, discard, push, commit with an agent). Empty: the mod keeps a clone of its own.",
+      "hint": "A folder with your own clone of the Catalog. The projects link to this folder, so they see its branch and also its changes that are not committed. The mod pulls it (git pull --ff-only) each time it fetches the Catalog, when it has no changes. When the mod cannot pull it, the panel says why and shows buttons (stash, discard, push, commit with an agent). Empty: the mod keeps a clone of its own. For a project on another machine, the mod uses this setting of the Herdr app of that machine, not of this computer.",
       "placeholder": "D:/repos/agent-skills"
     },
     {

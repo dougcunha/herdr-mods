@@ -86,7 +86,7 @@ function message(t, m, title, hint, { detail = null, buttons = [], spin = false,
 
 function header(t, m) {
   const reading = m.cat.fetching || m.cat.state === "cloning";
-  const project = m.proj.state === "ready" || m.proj.state === "remote" ? m.proj.name : "";
+  const project = m.proj.state === "ready" ? m.proj.name : "";
   return h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
     .child(svg(ICON("bundles")).size(16).text_color(t.accent))
     .child(div().flex_none().font_semibold().child(m.str.title))
@@ -195,7 +195,7 @@ function groupTitle(t, m, g) {
 
 /** What the title of a repository group says about the clone of that repository. */
 function sourceNote(m, repo) {
-  const id = String(repo).split("#")[0].toLowerCase();
+  const id = m.srcId(repo);
   const src = m.sources[id];
   if (m.srcErrors[id]) return fill(m.str.sourceCloneFailed, { error: String(m.srcErrors[id]).split("\n").pop() });
   if (m.sourcing.has(id)) return src ? m.str.sourceFetching : m.str.sourceCloning;
@@ -213,7 +213,7 @@ function groupActions(t, m, g) {
   const work = toLink(g.rows).length;
   if (work > 0) list.push(small("link", fill(m.str.linkGroup, { n: work }), (cx) => m.a.linkGroup(key, cx), { disabled: !can, tip: m.str.linkGroupTip }));
   if (g.kind === "repo") {
-    const src = m.sources[String(g.key).split("#")[0].toLowerCase()];
+    const src = m.sources[m.srcId(g.key)];
     if (src?.behind > 0) list.push(small("source", m.str.sourceUpdate, (cx) => m.a.updateSource(g.key, cx), { kind: "primary", disabled: Boolean(m.job), tip: m.str.sourceUpdateTip }));
   }
   if (g.kind === "extra" && g.rows.length > 1) {
@@ -389,7 +389,6 @@ function body(t, m, s) {
   if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), settingsButton("plain")] });
   if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
-  if (p.state === "remote") return message(t, m, str.remoteTitle, fill(str.remoteHint, { project: p.name }));
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
   // A Manifest with only Bundles needs the Catalog. A project with skills or Sources still shows them.
   if (m.mode === "repo") return repoView(t, m, s);
@@ -423,9 +422,6 @@ export function statusView(t, m) {
   let mark = null;
   if (m.job) {
     tip = m.job.label ?? "";
-  } else if (p.state === "remote") {
-    mark = "—";
-    tip = fill(str.statusTipRemote, { project: p.name });
   } else if (m.cat.state === "error" || p.state === "error") {
     // Without the Catalog or the read, the counts would be wrong: show the error instead.
     mark = "!";
