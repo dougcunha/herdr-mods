@@ -481,7 +481,12 @@ function body(t, m, s) {
   const p = m.proj;
   const settingsButton = (kind) => button(t, "sb-open-settings", str.openSettings, () => m.a.settings(), { kind, icon: "settings" });
   if (c.state === "cloning") return message(t, m, fill(str.cloning, { repo: c.slug }), null, { spin: true });
-  if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), settingsButton("plain")] });
+  if (c.state === "error") {
+    // The Catalog was chosen in the Bundle picker for a project without skills.yaml: a way back to the default one.
+    const back = m.plain && m.defaultSlug && String(c.slug ?? "").toLowerCase() !== m.defaultSlug.toLowerCase()
+      ? [button(t, "sb-default-catalog", fill(str.useDefaultCatalog, { catalog: m.defaultSlug }), (cx) => m.a.chooseCatalog(m.defaultSlug, cx))] : [];
+    return message(t, m, c.missing ? fill(str.noBundlesFile, { repo: c.slug }) : str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), ...back, settingsButton("plain")] });
+  }
   if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });

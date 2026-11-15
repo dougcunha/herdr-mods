@@ -292,7 +292,8 @@ export default class SkillBundles extends View {
    */
   async loadCatalog(cx, force) {
     const on = location().machine ?? null;
-    if (on !== this.on) this.cat = { state: "loading" };
+    // Another machine: the Catalog that a project of the old machine named does not apply there.
+    if (on !== this.on) { this.cat = { state: "loading" }; this.want = null; }
     this.on = on;
     this.place = null;
     // The refresh button reads the settings of the other machine again.
@@ -331,7 +332,8 @@ export default class SkillBundles extends View {
       fetchError = own ? await C.pullOwnClone(dir, on) : await C.updateOwnClone(dir, on);
     }
     const read = await C.linkScript({ op: "catalog", clone: dir }, on);
-    if (read.error || !read.catalog) { this.cat = { state: "error", slug, error: read.error ?? `${dir}/bundles.yaml was not found.` }; return; }
+    // `missing`: the person's own clone has no bundles.yaml yet (it is not a Catalog yet).
+    if (read.error || !read.catalog) { this.cat = { state: "error", slug, dir, own: Boolean(own), missing: Boolean(own) && !read.catalog, error: read.error ?? `${dir}/bundles.yaml was not found.` }; return; }
     const catalog = {
       repo: read.catalog.repo || slug,
       bundles: new Map(read.catalog.bundles),
@@ -360,7 +362,8 @@ export default class SkillBundles extends View {
     // The Catalog of another machine is in this.cat: the next read brings the one of this project.
     if (on !== this.on) { this.proj = { state: "loading" }; return; }
     const manifestText = await (on ? readTextFile(`${root}/skills.yaml`, { on }) : readTextFile(`${root}/skills.yaml`)).catch(() => null);
-    let info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
+    let clones = this.cloneInput();
+    let info = await C.linkScript({ op: "read", project: root, ...clones }, on);
     if (info.error) { this.proj = { state: "error", error: info.error }; return; }
     // The Catalog of the project: `catalog:` of its skills.yaml, else the one chosen for it in the
     // Bundle picker (no skills.yaml yet), else the default one. this.cat is of another Catalog:
@@ -373,9 +376,12 @@ export default class SkillBundles extends View {
       this.want = want;
       await this.loadCatalog(cx, false);
       if (this.on !== on) { this.proj = { state: "loading" }; return; }
-      info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
+      clones = this.cloneInput();
+      info = await C.linkScript({ op: "read", project: root, ...clones }, on);
       if (info.error) { this.proj = { state: "error", error: info.error }; return; }
     }
+    // The Catalog of that read (another read can change this.cat while this one waits).
+    const catalogRepo = clones.catalogRepo ?? "";
     if (info.catalogProblem) {
       this.proj = { state: "error", error: fill(this.str[invalid ? "catalogInvalid" : "catalogOther"], { catalog: info.catalogProblem.wanted }) };
       return;
@@ -385,9 +391,9 @@ export default class SkillBundles extends View {
     const rows = info.rows ?? [];
     this.proj = {
       state: "ready", root, machine: on, name: on ? `${baseName(root)} · ${on}` : baseName(root), manifestText, manifest: info.manifest ?? null,
-      rows, groups: groupRows(rows, info.manifest, this.cat.catalog?.repo ?? ""), counts: countRows(rows), unknown: info.unknown ?? [], info,
+      rows, groups: groupRows(rows, info.manifest, catalogRepo), counts: countRows(rows), unknown: info.unknown ?? [], info,
       // The clones that this project was read with. A change uses them, not the ones of a later focus.
-      clones: this.cloneInput(), catalogRepo: this.cat.catalog?.repo ?? "", catalogSlug: this.cat.state === "ready" ? this.cat.slug : null,
+      clones, catalogRepo, catalogSlug: clones.catalogAs ?? null,
     };
     this.offerLinks();
   }
@@ -420,7 +426,8 @@ export default class SkillBundles extends View {
     const names = [...link, ...remove, ...(retired ? [".codex/skills"] : [])];
     const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
     notify({
-      title: fill(this.str.offerTitle, { project: p.name }),
+      // `catalog:` is text that another person can write: the toast names a Catalog that is not the default one.
+      title: fill(this.str.offerTitle, { project: p.catalogSlug && !sameSlug(p.catalogSlug, this.defaultSlug) ? `${p.name} · ${p.catalogSlug}` : p.name }),
       body: fill(this.str.offerBody, { create: link.length, remove: remove.length + retired, list }),
       level: "warning",
       timeout: 20000,
@@ -755,7 +762,7 @@ export default class SkillBundles extends View {
   /** The Bundle picker of a project without skills.yaml: the Catalog that its Bundles come from. Every copy reads the project again. */
   chooseCatalog(slug, cx) {
     const p = this.proj;
-    if (p.state !== "ready" || p.manifest || this.job() || sameSlug(slug, this.cat.slug)) return;
+    if (p.state !== "ready" || p.manifest || this.job() || !slug || sameSlug(slug, this.cat.slug)) return;
     const all = { ...(shared(KEY.choice) ?? {}) };
     if (sameSlug(slug, this.defaultSlug)) delete all[projectKey(p.machine, p.root)];
     else all[projectKey(p.machine, p.root)] = slug;
@@ -962,6 +969,7 @@ export default class SkillBundles extends View {
       settingSlug: this.cat.slug ?? null, // the name by which the mod found the Catalog (the setting, or catalog: of skills.yaml)
       // The Bundle picker of a project without skills.yaml offers these Catalogs, when there is more than one.
       catalogs: ready && !p.manifest ? this.knownCatalogs() : [],
+      defaultSlug: this.defaultSlug,
       a: {
         reload: (cx) => this.reload(cx, true),
         settings: () => this.openSettings(),
