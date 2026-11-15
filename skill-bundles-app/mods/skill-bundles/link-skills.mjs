@@ -17,7 +17,7 @@
 //
 // The skill-bundles mod of the Herdr app runs it with one JSON argument:
 //   { op: "catalog", clone }                     → { catalog, skills }
-//   { op: "read", project, clone, catalogRepo, sourcesRoot }  → the state (see read())
+//   { op: "read", project, clone, catalogRepo, sourcesRoot, manifestText }  → the state (see read())
 //   { op: "apply", project, clone, catalogRepo, sourcesRoot, link, remove, replace, deleteLocal, extra, repos, dropGitignore }
 //   { op: "source", sourcesRoot, repo }          → { dir, url, exists }: the clone of another repository
 //   { op: "list", dir }                          → { skills: [{ name, desc }] } of a clone
@@ -334,7 +334,7 @@ const OLD_GITIGNORE_LINES = new Set([".agents/", ".claude/skills/", ".codex/skil
  * A row: { name, state, repo, from: [Bundle | "sources"], tracked }.
  *   state: "linked" | "missing" | "stale" | "copy" | "conflict" | "absent" | "unsupported" | "extra" | "local"
  */
-function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
+function read({ project, clone, catalogRepo = null, sourcesRoot = null, manifestText = undefined }) {
   const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0 };
   const clones = clonesOf({ clone, catalogRepo, sourcesRoot });
   const { catalog, error } = clones;
@@ -342,7 +342,9 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
   result.catalogError = error;
   const repo = catalog?.repo ?? "";
 
-  try { result.manifest = parseManifest(fs.readFileSync(join(project, "skills.yaml"), "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
+  // `manifestText`: the text of a skills.yaml that is not written yet (a preview of a change); null: no Manifest.
+  if (manifestText !== undefined) result.manifest = manifestText === null ? null : parseManifest(manifestText);
+  else try { result.manifest = parseManifest(fs.readFileSync(join(project, "skills.yaml"), "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
   let lock = {};
   try { lock = JSON.parse(fs.readFileSync(join(project, "skills-lock.json"), "utf8")).skills ?? {}; } catch (e) { if (e.code !== "ENOENT") result.lockError = String(e.message ?? e); }
   try {
@@ -482,7 +484,7 @@ function apply(input) {
   const { project, clone, dryRun = false } = input;
   // errors: English texts. problems: the same errors as { code, name, text }, for a tool in another language.
   const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [], problems: [] };
-  const state = read(input);
+  const state = read({ ...input, manifestText: undefined }); // a change works on the files as they are
   if (!state.git) throw new Error(`${slashed(project)} is not in a Git repository.`);
   const rows = new Map(state.rows.map((r) => [r.name, r]));
   const clones = clonesOf(input);

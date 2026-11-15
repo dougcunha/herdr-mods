@@ -147,6 +147,10 @@ w(join(proj, "skills.yaml"), "bundles:\n- core\n- extra-b\nskills:\n- t\n");
 r = run({ op: "read", project: proj, clone: clone2 });
 ok(r.manifest.bundles.join() === "core,extra-b" && r.manifest.skills.join() === "t", "list items without indent are read");
 w(join(proj, "skills.yaml"), "bundles: [core]\nskills:\n  - c\n");
+// manifestText: the state for a skills.yaml that is not written yet.
+r = run({ op: "read", project: proj, clone: clone2, manifestText: "bundles:\n  - core\n  - extra-b\n" });
+ok(states(r).c === "missing" && r.manifest.bundles.join() === "core,extra-b" && fs.readFileSync(join(proj, "skills.yaml"), "utf8").startsWith("bundles: [core]"), "manifestText gives the state of a Manifest that is not on disk");
+ok(run({ op: "read", project: proj, clone: clone2, manifestText: null }).manifest === null, "manifestText null: no Manifest");
 // A link of an older version in .codex/skills is removed by the next change, with its line of the block.
 const ex = join(proj, ".git/info/exclude");
 fs.mkdirSync(join(proj, ".codex/skills"), { recursive: true });
