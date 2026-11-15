@@ -142,6 +142,11 @@ export default class SkillBundles extends View {
     return this.proj.state === "ready" && this.cat.state === "ready";
   }
 
+  /** The Clone for link-skills.mjs: its folder, and the Catalog name for a bundles.yaml without `repo:`. */
+  cloneInput() {
+    return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo } : { clone: null };
+  }
+
   // ---- reading ----------------------------------------------------------------------------
 
   /** Reads the Catalog (and fetches it when due or forced), then the project. */
@@ -228,7 +233,7 @@ export default class SkillBundles extends View {
     if (!root) { this.proj = { state: "none" }; return; }
     if (loc.machine) { this.proj = { state: "remote", name: `${baseName(root)} · ${loc.machine}` }; return; }
     const manifestText = await readTextFile(`${root}/skills.yaml`).catch(() => null);
-    const info = await C.linkScript({ op: "read", project: root, clone: this.cat.state === "ready" ? this.cat.dir : null });
+    const info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() });
     if (info.error) { this.proj = { state: "error", error: info.error }; return; }
     // Another project: the Bundle choice and the mode of the old one do not apply.
     if (this.proj.root !== root) { this.pick = new Set(); this.mode = "list"; this.error = null; }
@@ -440,7 +445,7 @@ export default class SkillBundles extends View {
    */
   async apply(p, input = {}) {
     if (this.cat.state !== "ready") throw new Error(this.str.noCatalog);
-    const r = await C.linkScript({ op: "apply", project: p.root, clone: this.cat.dir, ...input });
+    const r = await C.linkScript({ op: "apply", project: p.root, ...this.cloneInput(), ...input });
     if (r.error) throw new Error(r.error);
     for (const k of Object.keys(this.done)) this.done[k].push(...(r[k] ?? []));
     return r;
@@ -448,7 +453,7 @@ export default class SkillBundles extends View {
 
   /** The state of the project `p` now (after a write of the Manifest): the rows of link-skills.mjs. */
   async rowsNow(p) {
-    const info = await C.linkScript({ op: "read", project: p.root, clone: this.cat.dir });
+    const info = await C.linkScript({ op: "read", project: p.root, ...this.cloneInput() });
     if (info.error) throw new Error(info.error);
     return info.rows ?? [];
   }

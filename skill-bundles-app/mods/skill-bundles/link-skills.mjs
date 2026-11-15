@@ -16,8 +16,8 @@
 //
 // The skill-bundles mod of the Herdr app runs it with one JSON argument:
 //   { op: "catalog", clone }                     → { catalog, skills }
-//   { op: "read", project, clone }               → the state (see read())
-//   { op: "apply", project, clone, link, remove, replace, deleteLocal, extra, dropGitignore }
+//   { op: "read", project, clone, catalogRepo }  → the state (see read())
+//   { op: "apply", project, clone, catalogRepo, link, remove, replace, deleteLocal, extra, dropGitignore }
 //                                                → { linked, removed, converted, backedUp, errors }
 // It prints JSON on stdout.
 
@@ -243,9 +243,11 @@ const OLD_GITIGNORE_LINES = new Set([".agents/", ".claude/skills/", ".codex/skil
  * A row: { name, state, repo, from: [Bundle | "sources"], tracked }.
  *   state: "linked" | "missing" | "stale" | "copy" | "conflict" | "absent" | "unsupported" | "extra" | "local"
  */
-function read({ project, clone }) {
+function read({ project, clone, catalogRepo = null }) {
   const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false };
   const { catalog, skills, error } = readClone(clone);
+  // A bundles.yaml without `repo:` takes the name that the caller gives (the setting of the mod).
+  if (catalog && !catalog.repo) catalog.repo = catalogRepo || null;
   result.catalog = catalog;
   result.catalogError = error;
   const repo = catalog?.repo ?? "";
@@ -364,7 +366,7 @@ function backup(project, path, name) {
 function apply(input) {
   const { project, clone, dryRun = false } = input;
   const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], errors: [] };
-  const state = read({ project, clone });
+  const state = read({ project, clone, catalogRepo: input.catalogRepo });
   if (!state.git) throw new Error(`${slashed(project)} is not in a Git repository.`);
   const rows = new Map(state.rows.map((r) => [r.name, r]));
   const { skills } = readClone(clone);
