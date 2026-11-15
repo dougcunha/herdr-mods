@@ -85,6 +85,22 @@ const before = yaml();
 d = run({ op: "curate", clone, dryRun: true, deleteBundle: ["data"] });
 ok(d.changed.length === 1 && yaml() === before, "dryRun writes nothing");
 
+// init: a first bundles.yaml in a clone that is not a Catalog yet.
+const fresh = join(base, "fresh");
+for (const s of ["one", "two"]) w(join(fresh, "skills", s, "SKILL.md"), `---\nname: ${s}\n---\n`);
+const fail = (input) => { try { run(input); return null; } catch (e) { return String(e.stderr ?? e.message); } };
+ok(/not a Catalog name/.test(fail({ op: "init", clone: fresh, repo: "../x" }) ?? ""), "init refuses a name that is not owner/name");
+const made = run({ op: "init", clone: fresh, repo: "me/fresh" });
+ok(made.skills.join() === "one,two" && fs.existsSync(join(fresh, "bundles.yaml")), "init writes bundles.yaml and lists the skills of the clone");
+let fc = run({ op: "details", clone: fresh });
+ok(fc.catalog.repo === "me/fresh" && fc.orphans.join() === "one,two" && JSON.stringify(fc.catalog.bundles) === '[["core",[]]]', "the new Catalog has an empty core, and every skill is without a Bundle");
+ok(/is there already/.test(fail({ op: "init", clone: fresh, repo: "me/fresh" }) ?? ""), "init never replaces a bundles.yaml");
+run({ op: "curate", clone: fresh, assign: [{ skill: "one", bundle: "core" }], createBundle: [{ name: "more", description: "More." }] });
+run({ op: "curate", clone: fresh, assign: [{ skill: "two", bundle: "more" }] });
+fc = run({ op: "details", clone: fresh });
+ok(JSON.stringify(fc.catalog.bundles) === '[["core",["one"]],["more",["two"]]]' && fc.orphans.length === 0, "the curation fills the new Catalog");
+ok(fs.readFileSync(join(fresh, "bundles.yaml"), "utf8").startsWith("# The skill Catalog"), "the header comment stays");
+
 fs.rmSync(join(clone, "SKILLS", "linked"));
 fs.rmSync(base, { recursive: true, force: true });
 console.log(fails ? `${fails} FAILED` : "ALL OK");

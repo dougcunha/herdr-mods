@@ -117,6 +117,15 @@ bundles:
 - **Safety:** the mod and the link script never read or change a project with the clone of another Catalog. 2 Catalogs can have skills with the same name.
 - `catalog:` is in the committed file, so the project uses the same Catalog on another computer and for another person.
 
+### A repository of skills that is not a Catalog yet
+
+A Catalog needs only a `bundles.yaml` at its root. To make one from a repository of skills that you have:
+
+1. Add a row for it in **Your own clones of other Catalogs**: its name (`owner/name`) and the folder of your clone.
+2. In a project without `skills.yaml`, click **Use Bundles** and choose that Catalog.
+3. The panel says that your clone has no `bundles.yaml`. Click **Create bundles.yaml**. The mod writes the file with an empty `core` Bundle and opens the curation with the skills that have no Bundle.
+4. Put each skill in a Bundle (see [The curation of the Catalog](#the-curation-of-the-catalog)), then commit and push the clone. The mod commits nothing.
+
 ## A project without `skills.yaml`
 
 A project without a Manifest can have links too. **Add skill** links one skill of the Clone (or of another repository), and the panel shows it as Extra. Without a Catalog, **Add skill** opens the repository view. **Use Bundles** opens the Bundles of the Catalog with check boxes (`core` is always on): **Create skills.yaml and link** writes `skills.yaml` and links the skills. The skills that were linked before stay as Extra.

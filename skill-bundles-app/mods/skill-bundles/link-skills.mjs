@@ -24,6 +24,7 @@
 //   { op: "source", sourcesRoot, repo }          → { dir, url, exists }: the clone of another repository
 //   { op: "list", dir }                          → { skills: [{ name, desc }] } of a clone
 //   { op: "details", clone }                     → { catalog, skills: [{ name, desc, bundles }], orphans }
+//   { op: "init", clone, repo }                  → { created, skills }: writes a first bundles.yaml (an empty `core`) into a clone that has none
 //   { op: "curate", clone, createBundle, assign, unassign, deleteBundle, deleteSkill }
 //                                                → { changed, errors }: changes bundles.yaml (see curate())
 //                                                → { linked, removed, converted, backedUp, errors }
@@ -768,6 +769,31 @@ function curate(input) {
   return done;
 }
 
+/**
+ * Makes a clone a Catalog: writes a first bundles.yaml with the name of the repository and an
+ * empty `core` Bundle. It never replaces a file, and it commits nothing.
+ * Returns { created, skills: [the skills of the clone, which have no Bundle yet] }.
+ */
+function initCatalog({ clone, repo }) {
+  if (!validCatalog(repo)) throw fault("catalog_invalid", `"${repo}" is not a Catalog name (owner/name).`);
+  if (!lstat(clone)?.isDirectory()) throw fault("no_clone", `${slashed(String(clone))} is not a folder.`);
+  const path = join(clone, "bundles.yaml");
+  const text = [
+    "# The skill Catalog of this repository: the Bundles that a project can use.",
+    "# A project names its Bundles in skills.yaml. The Bundle `core` is in every project.",
+    "",
+    `repo: ${String(repo).trim()}`,
+    "",
+    "bundles:",
+    "  core:",
+    "    description: \"Every project.\"",
+    "    skills: []",
+    "",
+  ].join("\n");
+  try { fs.writeFileSync(path, text, { flag: "wx" }); } catch (e) { if (e.code === "EEXIST") throw fault("catalog_exists", `${slashed(path)} is there already.`); throw e; }
+  return { created: slashed(path), skills: [...cloneSkills(clone).keys()].sort() };
+}
+
 // ---- entry -----------------------------------------------------------------------------------
 
 function cli(args) {
@@ -830,6 +856,7 @@ function main() {
   else if (input.op === "source") out = sourceClone(input.sourcesRoot, input.repo);
   else if (input.op === "list") out = { skills: listSkills(input.dir) };
   else if (input.op === "details") out = catalogDetails(input.clone);
+  else if (input.op === "init") out = initCatalog(input);
   else if (input.op === "curate") out = curate(input);
   else if (input.op === "apply") out = apply(input);
   else throw new Error(`unknown op: ${input.op}`);

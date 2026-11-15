@@ -81,7 +81,7 @@ function message(t, m, title, hint, { detail = null, buttons = [], spin = false,
     .when(Boolean(hint), (e) => e.child(div().max_w(420).text_center().text_size(12).text_color(t.muted).child(hint)))
     .when(Boolean(detail), (e) => e.child(div().max_w(480).w_full().p(10).rounded(8).bg(t.raised).border_1().border_color(t.border)
       .text_size(11).font_family(MONO(s)).text_color(t.ansi1).child(detail)))
-    .when(buttons.length > 0, (e) => e.child(h_flex().gap(8).children(buttons)));
+    .when(buttons.length > 0, (e) => e.child(h_flex().gap(8).flex_wrap().justify_center().children(buttons)));
 }
 
 function header(t, m) {
@@ -485,7 +485,12 @@ function body(t, m, s) {
     // The Catalog was chosen in the Bundle picker for a project without skills.yaml: a way back to the default one.
     const back = m.plain && m.defaultSlug && String(c.slug ?? "").toLowerCase() !== m.defaultSlug.toLowerCase()
       ? [button(t, "sb-default-catalog", fill(str.useDefaultCatalog, { catalog: m.defaultSlug }), (cx) => m.a.chooseCatalog(m.defaultSlug, cx))] : [];
-    return message(t, m, c.missing ? fill(str.noBundlesFile, { repo: c.slug }) : str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), ...back, settingsButton("plain")] });
+    return message(t, m, c.missing ? fill(str.noBundlesFile, { repo: c.slug }) : str.cloneFailed, c.missing ? fill(str.noBundlesFileHint, { dir: c.dir }) : null, {
+      detail: c.missing ? null : c.error, s,
+      buttons: c.missing
+        ? [button(t, "sb-init-catalog", str.createBundlesFile, (cx) => m.a.createCatalogFile(cx), { kind: "primary", disabled: Boolean(m.job), tip: str.createBundlesFileTip }), button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx)), ...back, settingsButton("plain")]
+        : [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), ...back, settingsButton("plain")],
+    });
   }
   if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);

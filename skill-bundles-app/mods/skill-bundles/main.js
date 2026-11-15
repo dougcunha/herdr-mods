@@ -866,6 +866,34 @@ export default class SkillBundles extends View {
     });
   }
 
+  /**
+   * Create bundles.yaml: makes the person's own clone a Catalog (an empty `core` Bundle), then
+   * opens the curation on the skills without a Bundle. The mod commits nothing.
+   */
+  createCatalogFile(cx) {
+    const c = this.cat;
+    if (this.job() || c.state !== "error" || !c.missing || !c.own) return;
+    const on = this.on;
+    setShared(KEY.job, { project: null, label: this.str.busyCurate, at: Date.now() });
+    this.running = true;
+    this.error = null;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      let failed = null;
+      try {
+        const r = await C.linkScript({ op: "init", clone: c.dir, repo: c.slug }, on);
+        failed = r.error ?? null;
+        if (!failed) { await this.loadCatalog(cx, false); await this.loadProject(cx); }
+      } catch (e) { failed = errorText(e); }
+      this.running = false;
+      setShared(KEY.job, null);
+      if (failed) this.error = { text: failed };
+      setShared(KEY.changed, { project: this.proj.root ?? null, at: Date.now() });
+      if (!failed && this.cat.state === "ready") { this.cur.orphans = true; this.setMode("catalog", cx); }
+      cx.notify();
+    });
+  }
+
   /** Opens (or closes, with null) the Bundles of one skill of the Clone. */
   curateSkill(name, cx) {
     const skill = this.cur.details?.skills.find((s) => s.name === name) ?? null;
@@ -1000,6 +1028,7 @@ export default class SkillBundles extends View {
         curateSave: (cx) => this.saveSkillBundles(cx),
         curateOrphans: (cx) => { this.cur.orphans = !this.cur.orphans; cx.notify(); },
         createBundle: (cx) => this.createBundle(cx),
+        createCatalogFile: (cx) => this.createCatalogFile(cx),
         curateDelete: (kind, name, cx) => this.curateDelete(cx, kind, name),
         dropGitignore: (cx) => this.dropGitignore(cx),
         open: () => this.openDialog(),
