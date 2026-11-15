@@ -37,7 +37,10 @@ const MOD = "skill-bundles";
 const KEY = {
   lang: "herdr-mods.lang", // the kit language, set in mods-hub
   catalog: "skill-bundles.catalog", // "owner/name" of the Catalog
-  clone: "skill-bundles.clone", // optional: the person's own clone of the Catalog
+  clone: "skill-bundles.clone", // optional: the person's own clone of the default Catalog
+  clones: "skill-bundles.clones", // [{ name: "owner/name", folder }]: the person's own clones, by Catalog
+  // { "<machine>|<root>": "owner/name" }: the Catalog chosen for a project that has no skills.yaml yet
+  choice: "skill-bundles.choice",
   gitUrl: "skill-bundles.gitUrl", // optional: the URL for `git clone` (default: GitHub SSH)
   minutes: "skill-bundles.fetchMinutes", // minutes between 2 fetches of the Catalog
   fetched: "skill-bundles.fetchedAt", // { "<clone dir>" | "<machine>|<clone dir>": time of the last fetch }
@@ -72,6 +75,10 @@ function location() {
   return { cwd, machine };
 }
 
+/** True when 2 Catalog names ("owner/name") are the same. Null and "" are the same: no Catalog. */
+const sameSlug = (a, b) => String(a ?? "").toLowerCase() === String(b ?? "").toLowerCase();
+const projectKey = (machine, root) => `${machine ?? ""}|${root}`;
+
 const baseName = (p) => String(p ?? "").replace(/[\\/]+$/, "").split(/[\\/]/).pop();
 const errorText = (e) => String(e?.message ?? e);
 
@@ -96,6 +103,8 @@ export default class SkillBundles extends View {
     this.part = this.props.part ?? "panel";
     this.cat = { state: "loading" }; // see loadCatalog
     this.on = null; // the machine of this.cat and this.place (null: this computer)
+    this.want = null; // the Catalog of the focused project ("owner/name"), when it is not the default one
+    this.defaultSlug = null; // the default Catalog of the machine this.on (the setting)
     this.place = null; // the folders of the mod on that machine (C.place)
     this.proj = { state: "loading" }; // see loadProject
     this.mode = "list"; // "list" | "bundles" | "add" | "repo" | "catalog"
@@ -171,7 +180,7 @@ export default class SkillBundles extends View {
   /** The clones for link-skills.mjs: the Clone of the Catalog (and its name, for a bundles.yaml without `repo:`) and the sources cache. */
   cloneInput() {
     const sourcesRoot = this.place?.sourcesRoot ?? null;
-    return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo, sourcesRoot } : { clone: null, sourcesRoot };
+    return this.cat.state === "ready" ? { clone: this.cat.dir, catalogRepo: this.cat.catalog.repo, catalogAs: this.cat.slug, sourcesRoot } : { clone: null, sourcesRoot };
   }
 
   // ---- reading ----------------------------------------------------------------------------
@@ -183,7 +192,7 @@ export default class SkillBundles extends View {
     cx.spawn(async (cx) => {
       try {
         await this.loadCatalog(cx, force);
-        await this.loadProject();
+        await this.loadProject(cx);
       } catch (e) {
         if (this.cat.state === "ready" || this.cat.state === "unset") this.proj = { state: "error", error: errorText(e) };
         else this.cat = { state: "error", slug: this.cat.slug, error: errorText(e) };
@@ -205,7 +214,7 @@ export default class SkillBundles extends View {
     const p = this.proj;
     if (p.state !== "ready") return;
     if (force) this.srcErrors = {};
-    const catalog = repoId(this.cat.catalog?.repo);
+    const catalog = repoId(p.catalogRepo);
     const minutes = Number(shared(KEY.minutes)) > 0 ? Number(shared(KEY.minutes)) : DEFAULT_MINUTES;
     const repos = new Map();
     for (const r of p.rows) {
@@ -266,7 +275,7 @@ export default class SkillBundles extends View {
     this.reading = true;
     cx.spawn(async (cx) => {
       // The focus moved to a space of another machine: the Catalog is the one of that machine.
-      try { if ((location().machine ?? null) !== this.on) await this.loadCatalog(cx, false); await this.loadProject(); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
+      try { if ((location().machine ?? null) !== this.on) await this.loadCatalog(cx, false); await this.loadProject(cx); } catch (e) { this.proj = { state: "error", error: errorText(e) }; }
       finally { this.reading = false; }
       cx.notify();
       this.syncSources(cx, false);
@@ -291,15 +300,25 @@ export default class SkillBundles extends View {
     this.place = await C.place(on);
     const there = this.place.shared;
     const setting = (key) => { const v = String(there[key] ?? "").trim(); return v || String(shared(key) ?? "").trim(); };
-    const slug = C.repoSlug(setting(KEY.catalog));
+    // The Catalog of the focused project (loadProject sets this.want), else the default one of the machine.
+    const def = C.repoSlug(setting(KEY.catalog));
+    this.defaultSlug = def;
+    const slug = this.want ?? def;
     if (!slug) { this.cat = { state: "unset" }; return; }
-    const own = String((on ? there[KEY.clone] : shared(KEY.clone)) ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    if (!sameSlug(this.cat.slug, slug)) this.cat = { state: "loading" };
+    // The person's own clone: the row of the table for this Catalog, else the old setting (the default Catalog only).
+    const isDefault = sameSlug(slug, def);
+    const table = on ? there[KEY.clones] : shared(KEY.clones);
+    const row = (Array.isArray(table) ? table : []).find((r) => r && sameSlug(C.repoSlug(r.name), slug) && String(r.folder ?? "").trim());
+    const old = isDefault ? (on ? there[KEY.clone] : shared(KEY.clone)) : "";
+    const own = String(row?.folder ?? old ?? "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
     const dir = own || `${this.place.cache}/${slug}`;
     const previous = this.cat.dir === dir ? this.cat : null;
     if (!own) {
       const here = (await (on ? readTextFile(`${dir}/bundles.yaml`, { on }) : readTextFile(`${dir}/bundles.yaml`)).catch(() => null)) !== null;
       if (!here) { this.cat = { state: "cloning", slug }; cx.notify(); }
-      const error = await cloneOnce(slug, dir, setting(KEY.gitUrl), on);
+      // "Clone URL" is the URL of the default Catalog.
+      const error = await cloneOnce(slug, dir, isDefault ? setting(KEY.gitUrl) : "", on);
       if (error) { this.cat = { state: "error", slug, error }; return; }
     }
     let fetchError = previous?.fetchError ?? null;
@@ -333,7 +352,7 @@ export default class SkillBundles extends View {
    * A project on another machine is not supported yet (phase 3 of docs/adr/0002): a link must
    * point to a folder of the same computer.
    */
-  async loadProject() {
+  async loadProject(cx) {
     const loc = location();
     const root = await C.gitRoot(loc.cwd, loc.machine);
     if (!root) { this.proj = { state: "none" }; return; }
@@ -341,14 +360,34 @@ export default class SkillBundles extends View {
     // The Catalog of another machine is in this.cat: the next read brings the one of this project.
     if (on !== this.on) { this.proj = { state: "loading" }; return; }
     const manifestText = await (on ? readTextFile(`${root}/skills.yaml`, { on }) : readTextFile(`${root}/skills.yaml`)).catch(() => null);
-    const info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
+    let info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
     if (info.error) { this.proj = { state: "error", error: info.error }; return; }
+    // The Catalog of the project: `catalog:` of its skills.yaml, else the one chosen for it in the
+    // Bundle picker (no skills.yaml yet), else the default one. this.cat is of another Catalog:
+    // nothing of this read is shown or offered. The Catalog of the project loads, and the read runs again.
+    const invalid = info.catalogProblem?.code === "catalog_invalid";
+    const named = !invalid && info.manifest?.catalog ? C.repoSlug(info.manifest.catalog) : null;
+    const chosen = info.manifest ? null : C.repoSlug((shared(KEY.choice) ?? {})[projectKey(on, root)]);
+    const want = named ?? chosen;
+    if (!invalid && !sameSlug(want ?? this.defaultSlug, this.cat.slug)) {
+      this.want = want;
+      await this.loadCatalog(cx, false);
+      if (this.on !== on) { this.proj = { state: "loading" }; return; }
+      info = await C.linkScript({ op: "read", project: root, ...this.cloneInput() }, on);
+      if (info.error) { this.proj = { state: "error", error: info.error }; return; }
+    }
+    if (info.catalogProblem) {
+      this.proj = { state: "error", error: fill(this.str[invalid ? "catalogInvalid" : "catalogOther"], { catalog: info.catalogProblem.wanted }) };
+      return;
+    }
     // Another project: the Bundle choice and the mode of the old one do not apply.
     if (this.proj.root !== root || this.proj.machine !== on) { this.pick = new Set(); this.mode = "list"; this.error = null; }
     const rows = info.rows ?? [];
     this.proj = {
       state: "ready", root, machine: on, name: on ? `${baseName(root)} · ${on}` : baseName(root), manifestText, manifest: info.manifest ?? null,
       rows, groups: groupRows(rows, info.manifest, this.cat.catalog?.repo ?? ""), counts: countRows(rows), unknown: info.unknown ?? [], info,
+      // The clones that this project was read with. A change uses them, not the ones of a later focus.
+      clones: this.cloneInput(), catalogRepo: this.cat.catalog?.repo ?? "", catalogSlug: this.cat.state === "ready" ? this.cat.slug : null,
     };
     this.offerLinks();
   }
@@ -377,7 +416,7 @@ export default class SkillBundles extends View {
     const signature = `${link.join(",")}|${remove.join(",")}|${retired}`;
     if (offered[where] === signature) return;
     setShared(KEY.offered, { ...offered, [where]: signature });
-    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, retired, at: Date.now() });
+    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, retired, clones: p.clones, at: Date.now() });
     const names = [...link, ...remove, ...(retired ? [".codex/skills"] : [])];
     const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
     notify({
@@ -394,7 +433,9 @@ export default class SkillBundles extends View {
     const o = shared(KEY.offerNow);
     // The clones of this copy are the ones of this.on: an offer of another machine waits for a copy that shows it.
     if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0) + (o.retired ?? 0))) return;
-    const project = { state: "ready", root: o.root, machine: o.machine ?? null, name: o.name };
+    // The offer was read with the clones of its project: the focus can be on a project of another Catalog now.
+    if (!o.clones?.clone && !o.clones?.sourcesRoot) return;
+    const project = { state: "ready", root: o.root, machine: o.machine ?? null, name: o.name, clones: o.clones };
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link: o.link, remove: o.remove }), project);
   }
 
@@ -405,7 +446,7 @@ export default class SkillBundles extends View {
   watchChanges(cx) {
     const loc = location();
     const locKey = `${loc.machine ?? ""}|${loc.cwd ?? ""}`;
-    const settingsKey = [shared(KEY.catalog), shared(KEY.clone), shared(KEY.gitUrl)].map((v) => String(v ?? "")).join("|");
+    const settingsKey = [shared(KEY.catalog), shared(KEY.clone), shared(KEY.gitUrl), JSON.stringify(shared(KEY.clones) ?? null), JSON.stringify(shared(KEY.choice) ?? null)].map((v) => String(v ?? "")).join("|");
     const changed = shared(KEY.changed)?.at ?? 0;
     if (settingsKey !== this.settingsKey) {
       this.settingsKey = settingsKey;
@@ -531,7 +572,7 @@ export default class SkillBundles extends View {
       if (!failed && done.errors.length) failed = done.errors.join("\n");
       this.running = false;
       setShared(KEY.job, null);
-      try { await this.loadProject(); } catch (e) { failed ??= errorText(e); }
+      try { await this.loadProject(cx); } catch (e) { failed ??= errorText(e); }
       this.changedAt = Date.now();
       setShared(KEY.changed, { project: project.root, at: this.changedAt });
       const s = this.str;
@@ -557,7 +598,7 @@ export default class SkillBundles extends View {
    */
   async apply(p, input = {}) {
     if ((p.machine ?? null) !== this.on) throw new Error(this.str.otherMachine);
-    const r = await C.linkScript({ op: "apply", project: p.root, ...this.cloneInput(), ...input }, this.on);
+    const r = await C.linkScript({ op: "apply", project: p.root, ...(p.clones ?? this.cloneInput()), ...input }, this.on);
     if (r.error) throw new Error(r.error);
     for (const k of Object.keys(this.done)) this.done[k].push(...(r[k] ?? []));
     return r;
@@ -565,7 +606,7 @@ export default class SkillBundles extends View {
 
   /** The state of the project `p` now (after a write of the Manifest): the rows of link-skills.mjs. */
   async rowsNow(p) {
-    const info = await C.linkScript({ op: "read", project: p.root, ...this.cloneInput() }, this.on);
+    const info = await C.linkScript({ op: "read", project: p.root, ...(p.clones ?? this.cloneInput()) }, this.on);
     if (info.error) throw new Error(info.error);
     return info.rows ?? [];
   }
@@ -633,7 +674,7 @@ export default class SkillBundles extends View {
     if (!rows.length || !this.proj.manifest) return;
     this.act(cx, this.str.busyWrite, async (p) => {
       let next = p.manifest;
-      for (const r of rows) next = this.kept(next, r);
+      for (const r of rows) next = this.kept(next, r, p);
       await this.writeManifest(p, next);
       await this.apply(p, { link: rows.map((r) => r.name) });
     });
@@ -662,8 +703,8 @@ export default class SkillBundles extends View {
   }
 
   /** The Manifest with a skill kept: in `skills:` for the Catalog, in `sources:` for another repository. */
-  kept(manifest, row) {
-    const catalog = this.cat.catalog?.repo;
+  kept(manifest, row, p = this.proj) {
+    const catalog = p.catalogRepo;
     return catalog && sameRepo(row.repo, catalog) ? withSkills(manifest, [row.name]) : withSource(manifest, row.repo, [row.name]);
   }
 
@@ -671,7 +712,7 @@ export default class SkillBundles extends View {
   keepExtra(cx, row) {
     if (!this.proj.manifest || !row.repo) return;
     this.act(cx, this.str.busyWrite, async (p) => {
-      await this.writeManifest(p, this.kept(p.manifest, row));
+      await this.writeManifest(p, this.kept(p.manifest, row, p));
       await this.apply(p, { link: [row.name] });
     });
   }
@@ -695,10 +736,41 @@ export default class SkillBundles extends View {
     this.act(cx, this.str.busyWrite, async (p) => {
       // A project without a Manifest keeps its links: they are Extra skills on purpose.
       const extra = p.manifest ? [] : (p.rows ?? []).filter((r) => r.state === "extra").map((r) => r.name);
-      await this.writeManifest(p, { bundles, skills: p.manifest?.skills ?? [], sources: p.manifest?.sources ?? [] });
+      // `catalog:` stays when the file has it. A new file gets it when the Catalog is not the default one of the machine.
+      const catalog = p.manifest?.catalog ?? (p.catalogSlug && !sameSlug(p.catalogSlug, this.defaultSlug) ? p.catalogSlug : null);
+      await this.writeManifest(p, { catalog, bundles, skills: p.manifest?.skills ?? [], sources: p.manifest?.sources ?? [] });
+      this.forgetChoice(p);
       const rows = await this.rowsNow(p);
       await this.apply(p, { link: toLink(rows), remove: toRemove(rows).filter((n) => !extra.includes(n)), extra });
     });
+  }
+
+  /** The Catalogs that this machine knows: the default one and the ones of the table of own clones. */
+  knownCatalogs() {
+    const table = this.on ? this.place?.shared?.[KEY.clones] : shared(KEY.clones);
+    const names = [this.defaultSlug, ...(Array.isArray(table) ? table : []).map((r) => C.repoSlug(r?.name))].filter(Boolean);
+    return names.filter((n, i) => names.findIndex((x) => sameSlug(x, n)) === i);
+  }
+
+  /** The Bundle picker of a project without skills.yaml: the Catalog that its Bundles come from. Every copy reads the project again. */
+  chooseCatalog(slug, cx) {
+    const p = this.proj;
+    if (p.state !== "ready" || p.manifest || this.job() || sameSlug(slug, this.cat.slug)) return;
+    const all = { ...(shared(KEY.choice) ?? {}) };
+    if (sameSlug(slug, this.defaultSlug)) delete all[projectKey(p.machine, p.root)];
+    else all[projectKey(p.machine, p.root)] = slug;
+    this.pick = new Set(["core"]);
+    setShared(KEY.choice, all);
+    cx.notify();
+  }
+
+  /** The choice of chooseCatalog() is not needed anymore: skills.yaml names the Catalog now. */
+  forgetChoice(p) {
+    const all = shared(KEY.choice) ?? {};
+    const key = projectKey(p.machine, p.root);
+    if (!(key in all)) return;
+    const { [key]: _gone, ...rest } = all;
+    setShared(KEY.choice, rest);
   }
 
   /** Add skill: links one skill of the Clone. It goes to sources: when asked, else it is an Extra skill. */
@@ -887,12 +959,15 @@ export default class SkillBundles extends View {
       fixes: this.cloneFixes(),
       waiting: this.waiting(),
       collapsed: this.collapsed,
-      settingSlug: this.cat.slug ?? null, // the Catalog setting of the machine of the project
+      settingSlug: this.cat.slug ?? null, // the name by which the mod found the Catalog (the setting, or catalog: of skills.yaml)
+      // The Bundle picker of a project without skills.yaml offers these Catalogs, when there is more than one.
+      catalogs: ready && !p.manifest ? this.knownCatalogs() : [],
       a: {
         reload: (cx) => this.reload(cx, true),
         settings: () => this.openSettings(),
         mode: (m, cx) => this.setMode(m, cx),
         toggle: (name, cx) => this.togglePick(name, cx),
+        chooseCatalog: (slug, cx) => this.chooseCatalog(slug, cx),
         persist: (cx) => { this.persist = !this.persist; cx.notify(); },
         dismiss: (cx) => { this.error = null; cx.notify(); },
         syncAll: (cx) => this.syncAll(cx),

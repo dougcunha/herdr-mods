@@ -421,14 +421,33 @@ export default class ModsUpdate extends View {
   prepareInputs() {
     for (const s of this.sections()) {
       s.fields.forEach((f, i) => {
-        if (f.type !== "text") return;
+        if (f.type !== "text" && f.type !== "folder-map") return;
         const id = this.fieldId(s.id, f, i);
         if (this.inputs.has(id)) return;
-        const input = InputState.new({ placeholder: f.placeholder ?? "", value: String(readField(f) ?? "") });
-        input.on("change", () => writeField(f, input.value()));
+        // The field of a folder-map holds the name of the next row: "Add folder…" reads it.
+        const input = InputState.new({ placeholder: f.placeholder ?? "", value: f.type === "text" ? String(readField(f) ?? "") : "" });
+        if (f.type === "text") input.on("change", () => writeField(f, input.value()));
         this.inputs.set(id, input);
       });
     }
+  }
+
+  /** A folder-map field: adds the row { name of the text field, picked folder }. A row with that name is replaced. */
+  addMapRow(f, id, cx) {
+    const input = this.inputs.get(id);
+    const name = String(input?.value?.() ?? "").trim();
+    if (!name) {
+      notify({ title: "Write the name first.", body: f.placeholder ?? f.label, level: "info" });
+      return;
+    }
+    cx.spawn(async (cx) => {
+      const dir = await pickFolder({ prompt: "Use this folder" }).catch(() => null);
+      if (!dir) return;
+      const rows = readField(f).filter((r) => r.name.toLowerCase() !== name.toLowerCase());
+      writeField(f, [...rows, { name, folder: normFolder(dir) }]);
+      input.set_value?.("");
+      cx.notify();
+    });
   }
 
   addFolder(f, cx) {
@@ -824,7 +843,7 @@ export default class ModsUpdate extends View {
   /** 1 field: the label and the hint at the left, the control at the right (or below, for the wide ones). */
   fieldRow(t, section, f, i) {
     const id = this.fieldId(section, f, i);
-    const wide = ["folder-list", "key", "text", "enum"].includes(f.type);
+    const wide = ["folder-list", "folder-map", "key", "text", "enum"].includes(f.type);
     const control = this.fieldControl(t, id, f);
     return v_flex().w_full().flex_none().py(9).gap(6).border_b(1).border_color(t.border)
       .child(h_flex().w_full().gap(12).items_center()
@@ -868,6 +887,27 @@ export default class ModsUpdate extends View {
             }))))
           .when(!list.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No folder.")))
           .child(h_flex().pt(2).child(textButton(t, `${id}-add`, "Add folder…", (cx) => this.addFolder(f, cx), { tone: "primary" })));
+      }
+      case "folder-map": {
+        const rows = readField(f);
+        const input = this.inputs.get(id);
+        const native = (p) => p.replace(/\//g, appHome().includes("\\") ? "\\" : "/");
+        return v_flex().w_full().gap(4)
+          .children(rows.map((r, i) => h_flex().w_full().min_h(30).px(8).gap(8).items_center().rounded(6)
+            .bg(t.popover).border_1().border_color(t.border)
+            .child(div().w(150).flex_none().truncate().text_size(12).font_semibold().child(r.name))
+            .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.dim).child(native(r.folder)))
+            .child(textButton(t, `${id}-rm-${i}`, "Remove", (cx) => {
+              writeField(f, rows.filter((x) => x.name.toLowerCase() !== r.name.toLowerCase()));
+              cx.notify();
+            }))))
+          .when(!rows.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No row.")))
+          .child(h_flex().w_full().pt(2).gap(8).items_center()
+            .child(input
+              ? h_flex().id(`${id}-box`).flex_1().min_w(0).h(30).px(10).items_center().rounded(7).bg(t.popover).border_1()
+                .border_color(t.input).cursor_text().child(Input.new(input).h_full().flex_1().min_w(0).text_size(12))
+              : div().flex_1().text_size(12).text_color(t.dim).child("Loading…"))
+            .child(textButton(t, `${id}-add`, "Add folder…", (cx) => this.addMapRow(f, id, cx), { tone: "primary" })));
       }
       case "key": {
         const bound = boundKeys(f.action);

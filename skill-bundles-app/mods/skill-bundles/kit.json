@@ -9,7 +9,7 @@
       "key": "skill-bundles.catalog",
       "default": "",
       "label": "Skill Catalog",
-      "hint": "The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. Without your own clone, the mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git, and links the skills of your projects to that clone.",
+      "hint": "The GitHub repository of your default skill Catalog, as owner/name. It must have a bundles.yaml at its root. A project uses it when its skills.yaml does not name another Catalog (catalog: owner/name). Without your own clone, the mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git, and links the skills of your projects to that clone.",
       "placeholder": "your-org/agent-skills"
     },
     {
@@ -17,9 +17,17 @@
       "type": "text",
       "key": "skill-bundles.clone",
       "default": "",
-      "label": "Your own clone (optional)",
-      "hint": "A folder with your own clone of the Catalog. The projects link to this folder, so they see its branch and also its changes that are not committed. The mod pulls it (git pull --ff-only) each time it fetches the Catalog, when it has no changes. When the mod cannot pull it, the panel says why and shows buttons (stash, discard, push, commit with an agent). Empty: the mod keeps a clone of its own. For a project on another machine, the mod uses this setting of the Herdr app of that machine, not of this computer.",
+      "label": "Your own clone of the default Catalog (optional)",
+      "hint": "A folder with your own clone of the default Catalog. The projects link to this folder, so they see its branch and also its changes that are not committed. The mod pulls it (git pull --ff-only) each time it fetches the Catalog, when it has no changes. When the mod cannot pull it, the panel says why and shows buttons (stash, discard, push, commit with an agent). Empty: the mod keeps a clone of its own. For a project on another machine, the mod uses this setting of the Herdr app of that machine, not of this computer.",
       "placeholder": "D:/repos/agent-skills"
+    },
+    {
+      "id": "clones",
+      "type": "folder-map",
+      "key": "skill-bundles.clones",
+      "label": "Your own clones of other Catalogs (optional)",
+      "hint": "One row for each Catalog: its name (owner/name) and the folder of your own clone of it. A project whose skills.yaml names that Catalog (catalog: owner/name) links to this folder, and the Bundle picker of a project without skills.yaml offers the Catalogs of this table. A Catalog without a row gets a clone of the mod. A row for the default Catalog wins over the setting above. For a project on another machine, the mod uses the table of the Herdr app of that machine.",
+      "placeholder": "owner/name of the Catalog"
     },
     {
       "id": "git-url",
@@ -27,7 +35,7 @@
       "key": "skill-bundles.gitUrl",
       "default": "",
       "label": "Clone URL (optional)",
-      "hint": "The URL for git clone when gh is not logged in, or when you want another URL. Empty: git@github.com:<owner>/<name>.git.",
+      "hint": "The URL for git clone of the default Catalog when gh is not logged in, or when you want another URL. Empty: git@github.com:<owner>/<name>.git. Another Catalog is always cloned with gh or from that address.",
       "placeholder": "https://github.com/your-org/agent-skills.git"
     },
     {

@@ -17,8 +17,10 @@
 //
 // The skill-bundles mod of the Herdr app runs it with one JSON argument:
 //   { op: "catalog", clone }                     → { catalog, skills }
-//   { op: "read", project, clone, catalogRepo, sourcesRoot, manifestText }  → the state (see read())
-//   { op: "apply", project, clone, catalogRepo, sourcesRoot, link, remove, replace, deleteLocal, extra, repos, dropGitignore }
+//   { op: "read", project, clone, catalogRepo, catalogAs, sourcesRoot, manifestText }  → the state (see read())
+//   { op: "apply", project, clone, catalogRepo, catalogAs, sourcesRoot, link, remove, replace, deleteLocal, extra, repos, dropGitignore }
+//       catalogAs: the name by which the caller found the clone. A skills.yaml with `catalog:` is
+//       read and changed only with the clone of that Catalog (see `catalogProblem` of read()).
 //   { op: "source", sourcesRoot, repo }          → { dir, url, exists }: the clone of another repository
 //   { op: "list", dir }                          → { skills: [{ name, desc }] } of a clone
 //   { op: "details", clone }                     → { catalog, skills: [{ name, desc, bundles }], orphans }
@@ -82,11 +84,13 @@ export function parseCatalog(text) {
 }
 
 /**
- * skills.yaml: { bundles: string[], skills: string[], sources: [{ repo, skills: string[] }] }.
- * `skills:` lists skills of the Catalog that are not in a Bundle of the project; `sources:` lists
- * skills by repository (the Catalog too, in older files).
+ * skills.yaml: { catalog: string | null, bundles: string[], skills: string[], sources: [{ repo, skills: string[] }] }.
+ * `catalog:` names the Catalog of the project ("owner/name"); without it, the project uses the
+ * Catalog of the caller. `skills:` lists skills of the Catalog that are not in a Bundle of the
+ * project; `sources:` lists skills by repository (the Catalog too, in older files).
  */
 export function parseManifest(text) {
+  let catalog = null;
   const bundles = [];
   const skills = [];
   const sources = [];
@@ -102,6 +106,7 @@ export function parseManifest(text) {
     if (/^bundles:\s*$/i.test(line)) { section = "bundles"; continue; }
     if (/^skills:\s*$/i.test(line)) { section = "skills"; continue; }
     if (/^sources:\s*$/i.test(line)) { section = "sources"; continue; }
+    if ((m = /^catalog:\s*(.*?)\s*$/i.exec(line))) { catalog = unquote(m[1]) || null; section = null; continue; }
     if (/^[A-Za-z_][\w-]*\s*:/.test(line)) { section = null; continue; } // another key at the top
     if (section === "bundles" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { bundles.push(unquote(m[1])); continue; }
     if (section === "skills" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { skills.push(unquote(m[1])); continue; }
@@ -112,7 +117,18 @@ export function parseManifest(text) {
     }
   }
   if (current) sources.push(current);
-  return { bundles, skills, sources };
+  return { catalog, bundles, skills, sources };
+}
+
+/**
+ * True when a text names a Catalog: "owner/name" (a GitHub URL too). The text comes from a
+ * skills.yaml that another person can write, and a caller clones it: no option (a leading "-")
+ * and no "." or ".." part.
+ */
+export function validCatalog(text) {
+  const s = String(text ?? "").trim().split("#")[0].replace(/\.git$/i, "").replace(/\/+$/, "");
+  const m = /^(?:(?:https?:\/\/|ssh:\/\/git@|git@)?github\.com[:/])?([^/:]+)\/([^/:]+)$/i.exec(s);
+  return Boolean(m) && [m[1], m[2]].every((p) => /^[A-Za-z0-9_][\w.-]*$/.test(p));
 }
 
 /** "owner/name" of a repository text (a GitHub URL too), in lower case, without "#branch" and ".git". */
@@ -179,10 +195,10 @@ function sourceClone(sourcesRoot, repo) {
  * The clones that a project can link to: the Catalog and the clones of `sourcesRoot`.
  * `of(repo)` gives { dir, skills } of the clone of a repository, or null when it is not cloned.
  */
-function clonesOf({ clone, catalogRepo, sourcesRoot }) {
+function clonesOf({ clone, catalogRepo, catalogAs, sourcesRoot }) {
   const { catalog, skills, error } = readClone(clone);
   // A bundles.yaml without `repo:` takes the name that the caller gives (the setting of the mod).
-  if (catalog && !catalog.repo) catalog.repo = catalogRepo || null;
+  if (catalog && !catalog.repo) catalog.repo = catalogRepo || catalogAs || null;
   const cache = new Map();
   const of = (repo) => {
     if (catalog && sameRepo(repo, catalog.repo)) return { dir: clone, skills };
@@ -336,17 +352,27 @@ const OLD_GITIGNORE_LINES = new Set([".agents/", ".claude/skills/", ".codex/skil
  * A row: { name, state, repo, from: [Bundle | "sources"], tracked }.
  *   state: "linked" | "missing" | "stale" | "copy" | "conflict" | "absent" | "unsupported" | "extra" | "local"
  */
-function read({ project, clone, catalogRepo = null, sourcesRoot = null, manifestText = undefined }) {
-  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0 };
-  const clones = clonesOf({ clone, catalogRepo, sourcesRoot });
-  const { catalog, error } = clones;
-  result.catalog = catalog;
+function read({ project, clone, catalogRepo = null, catalogAs = null, sourcesRoot = null, manifestText = undefined }) {
+  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, catalogProblem: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0 };
+  const clones = clonesOf({ clone, catalogRepo, catalogAs, sourcesRoot });
+  const { error } = clones;
+  result.catalog = clones.catalog;
   result.catalogError = error;
-  const repo = catalog?.repo ?? "";
 
   // `manifestText`: the text of a skills.yaml that is not written yet (a preview of a change); null: no Manifest.
   if (manifestText !== undefined) result.manifest = manifestText === null ? null : parseManifest(manifestText);
   else try { result.manifest = parseManifest(fs.readFileSync(join(project, "skills.yaml"), "utf8")); } catch (e) { if (e.code !== "ENOENT") throw e; }
+
+  // `catalog:` of the Manifest: the clone must be of that Catalog. `catalogAs` is the name by which
+  // the caller found the clone (its setting, or its `origin`): a fork has another `repo:` in bundles.yaml.
+  // With a problem, nothing of this clone is asked for: apply() and the terminal refuse to change the project.
+  const asked = result.manifest?.catalog ?? null;
+  if (asked && !validCatalog(asked)) result.catalogProblem = { code: "catalog_invalid", wanted: asked, have: null };
+  else if (asked && !(clones.catalog && (sameRepo(asked, clones.catalog.repo) || (catalogAs && sameRepo(asked, catalogAs))))) {
+    result.catalogProblem = { code: "catalog_other", wanted: asked, have: clones.catalog?.repo ?? null };
+  }
+  const catalog = result.catalogProblem ? null : clones.catalog;
+  const repo = catalog?.repo ?? "";
   let lock = {};
   try { lock = JSON.parse(fs.readFileSync(join(project, "skills-lock.json"), "utf8")).skills ?? {}; } catch (e) { if (e.code !== "ENOENT") result.lockError = String(e.message ?? e); }
   try {
@@ -447,6 +473,11 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null, manifest
   return result;
 }
 
+/** The English text of a `catalogProblem` of read(). */
+const catalogProblemText = (p) => (p.code === "catalog_invalid"
+  ? `skills.yaml: "catalog: ${p.wanted}" is not a Catalog (owner/name).`
+  : `skills.yaml names the Catalog ${p.wanted}, and the clone is ${p.have ? `of ${p.have}` : "not a Catalog"}. Nothing was changed.`);
+
 // ---- changes ---------------------------------------------------------------------------------
 
 /** Removes a link (never what it points to). */
@@ -488,6 +519,7 @@ function apply(input) {
   const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [], problems: [] };
   const state = read({ ...input, manifestText: undefined }); // a change works on the files as they are
   if (!state.git) throw new Error(`${slashed(project)} is not in a Git repository.`);
+  if (state.catalogProblem) throw fault(state.catalogProblem.code, catalogProblemText(state.catalogProblem));
   const rows = new Map(state.rows.map((r) => [r.name, r]));
   const clones = clonesOf(input);
   // The folder of a skill in the clone of its repository: `repos` (a new skill), else the row, else the Catalog.
@@ -751,8 +783,11 @@ function cli(args) {
   }
   if (!project) { console.error(`${start} is not in a Git repository.`); process.exit(1); }
   const sourcesRoot = resolve(opt("--sources") ?? DEFAULT_SOURCES);
-  let state = read({ project, clone, sourcesRoot });
+  // The name of the clone: its `origin`. A project with `catalog:` in skills.yaml links only to its own Catalog.
+  const catalogAs = repoOfFolder(clone);
+  let state = read({ project, clone, catalogAs, sourcesRoot });
   if (state.catalogError) { console.error(`${state.catalogError} Give the clone of the Catalog with --clone.`); process.exit(1); }
+  if (state.catalogProblem) { console.error(`${catalogProblemText(state.catalogProblem)} Give the clone of that Catalog with --clone.`); process.exit(1); }
   // A Source of another repository: clone that repository once.
   const cloneErrors = [];
   for (const repo of new Set(state.rows.filter((r) => r.state === "unsupported" && r.from.length).map((r) => r.repo))) {
@@ -763,9 +798,9 @@ function cli(args) {
     try { fs.mkdirSync(dirname(s.dir), { recursive: true }); execFileSync("git", ["clone", "--quiet", "--", s.url, s.dir], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" }); }
     catch (e) { cloneErrors.push(`${repo}: ${String(e.stderr || e.message).trim().split("\n").pop()}`); }
   }
-  state = read({ project, clone, sourcesRoot });
+  state = read({ project, clone, catalogAs, sourcesRoot });
   const of = (st) => state.rows.filter((r) => r.state === st).map((r) => r.name);
-  const done = apply({ project, clone, sourcesRoot, link: of("missing"), remove: of("stale"), dryRun });
+  const done = apply({ project, clone, catalogAs, sourcesRoot, link: of("missing"), remove: of("stale"), dryRun });
   done.errors.push(...cloneErrors);
   const say = (label, list) => { if (list.length) console.log(`${label}: ${list.join(", ")}`); };
   console.log(`${dryRun ? "[dry run] " : ""}${slashed(project)} → ${slashed(clone)}`);

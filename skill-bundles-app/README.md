@@ -32,7 +32,7 @@ bundles:
       - csharp-tests
 ```
 
-`core` is in every project. Each project commits a `skills.yaml` (the Manifest) that names its Bundles. `skills:` (optional) lists skills of the Catalog that are not in its Bundles, and `sources:` (optional) lists skills of other repositories.
+`core` is in every project. Each project commits a `skills.yaml` (the Manifest) that names its Bundles. `skills:` (optional) lists skills of the Catalog that are not in its Bundles, and `sources:` (optional) lists skills of other repositories. `catalog:` (optional) names the Catalog of the project (see [More than one Catalog](#more-than-one-catalog)).
 
 ```yaml
 bundles:
@@ -95,10 +95,27 @@ The mod changes `bundles.yaml` line by line, so comments stay. It commits nothin
 
 A project in a space on another machine (`hc machine ls`) works too. A link must point to a folder of the same computer, so the clones are on that machine:
 
-- **Settings:** the mod reads the settings of the Herdr app of that machine (`~/.config/herdr-app/shared.json` there). **Skill Catalog** and **Clone URL** that it does not have come from this computer. **Your own clone** comes only from that machine.
+- **Settings:** the mod reads the settings of the Herdr app of that machine (`~/.config/herdr-app/shared.json` there). **Skill Catalog** and **Clone URL** that it does not have come from this computer. **Your own clone** and the table of own clones come only from that machine.
 - **Clone:** your own clone on that machine, else a clone in `~/.config/herdr-app/cache/skill-bundles/` there. The clones of other repositories are in that cache too.
 - **Script:** the mod writes `link-skills.mjs` into that cache and runs it there. That machine needs `git` and `node`; a private Catalog needs `gh auth login` or a Git credential there.
 - The header shows `<project> · <machine>`. The refresh button reads the settings of that machine again.
+
+## More than one Catalog
+
+A computer has one default Catalog (the **Skill Catalog** setting). A project can use another one: its `skills.yaml` names it.
+
+```yaml
+catalog: you/agent-skills
+
+bundles:
+  - core
+```
+
+- **Without `catalog:`** the project uses the default Catalog of the computer.
+- **With `catalog:`** the mod uses a clone of that Catalog: your own clone of it (a row of **Your own clones of other Catalogs** in the settings), else a clone that the mod makes in its cache with `gh` or `git`. The name is `owner/name` of a GitHub repository.
+- **A new project:** when the settings name more than one Catalog, **Use Bundles** shows them. Choose the Catalog, then its Bundles. The mod writes `catalog:` when the Catalog is not the default one.
+- **Safety:** the mod and the link script never read or change a project with the clone of another Catalog. 2 Catalogs can have skills with the same name.
+- `catalog:` is in the committed file, so the project uses the same Catalog on another computer and for another person.
 
 ## A project without `skills.yaml`
 
@@ -147,7 +164,7 @@ Each action runs in the background. The bottom of the panel shows what runs; a t
 
 ## Without Herdr: the link script
 
-`mods/skill-bundles/link-skills.mjs` is one Node file without dependencies. It has all the rules, and the mod only shows what it reads. Its tests are in `tests/` (`node skill-bundles-app/tests/links.test.mjs`, `sources.test.mjs`, `curate.test.mjs`). Copy it to the root of your Catalog, so that a person without Herdr (or a git hook) can link a project:
+`mods/skill-bundles/link-skills.mjs` is one Node file without dependencies. It has all the rules, and the mod only shows what it reads. Its tests are in `tests/` (`node skill-bundles-app/tests/links.test.mjs`, `sources.test.mjs`, `curate.test.mjs`, `catalogs.test.mjs`). Copy it to the root of your Catalog, so that a person without Herdr (or a git hook) can link a project:
 
 ```sh
 cd my-project
@@ -155,7 +172,7 @@ node ../agent-skills/link-skills.mjs            # the clone is the folder of the
 node ../agent-skills/link-skills.mjs --dry-run  # says what it would do
 ```
 
-It links the Missing skills, changes the Copies to links and removes the Stale links. It does not change a Conflict. For a Source of another repository, it clones that repository with `git clone` into `--sources <dir>` (default: `~/.config/herdr-app/cache/skill-bundles/sources`, the folder of the mod) when it is not there. Options: `--project <dir>`, `--clone <dir>`, `--sources <dir>`.
+It links the Missing skills, changes the Copies to links and removes the Stale links. It does not change a Conflict. When `skills.yaml` names a Catalog (`catalog:`) that is not the one of the clone (its `repo:` in `bundles.yaml`, or its `origin`), it stops and changes nothing: give the clone of that Catalog with `--clone`. For a Source of another repository, it clones that repository with `git clone` into `--sources <dir>` (default: `~/.config/herdr-app/cache/skill-bundles/sources`, the folder of the mod) when it is not there. Options: `--project <dir>`, `--clone <dir>`, `--sources <dir>`.
 
 ## What it needs
 
@@ -201,9 +218,10 @@ Add this block to the `children` of `status-row`, after the `status` block:
 
 The **Settings** tab of the PowerMods dialog (`mods-hub`) shows:
 
-- **Skill Catalog:** `owner/name` of the Catalog on GitHub.
-- **Your own clone (optional):** a folder with your own clone of the Catalog. The projects link to this folder. Each time the mod fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. Empty: the mod keeps a clone of its own in its cache. When you change this setting, the links of each project show as Missing, and the offer points them to the new folder.
-- **Clone URL (optional):** the URL for `git clone` when `gh` is not logged in. Empty: `git@github.com:<owner>/<name>.git`.
+- **Skill Catalog:** `owner/name` of the default Catalog on GitHub. A project uses it when its `skills.yaml` has no `catalog:`.
+- **Your own clone of the default Catalog (optional):** a folder with your own clone of the default Catalog. The projects link to this folder. Each time the mod fetches the Catalog, it runs `git fetch` and, when the clone has no changes that are not committed, `git merge --ff-only @{u}`. Empty: the mod keeps a clone of its own in its cache. When you change this setting, the links of each project show as Missing, and the offer points them to the new folder.
+- **Your own clones of other Catalogs (optional):** a table with one row for each Catalog: its name (`owner/name`) and the folder of your own clone. Write the name, then click **Add folder…**. A row for the default Catalog wins over the setting above.
+- **Clone URL (optional):** the URL for `git clone` of the default Catalog when `gh` is not logged in. Empty: `git@github.com:<owner>/<name>.git`.
 - **Fetch the Catalog every:** 15 minutes by default.
 - **Offer to make and remove links:** on by default. See [Offer to link](#offer-to-link).
 - **Shortcut of the Skill Bundles panel:** a key for `skill-bundles.open`. Only the status bar item listens for it.

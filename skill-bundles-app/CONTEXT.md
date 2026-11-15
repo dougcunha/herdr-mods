@@ -7,11 +7,11 @@ The words that the `skill-bundles` mod, its README and the link script use for a
 ### Files
 
 **Catalog**:
-A Git repository of agent skills with a `bundles.yaml` at its root.
+A Git repository of agent skills with a `bundles.yaml` at its root. A computer has one default Catalog (a setting). A project uses the default Catalog, or the one that `catalog:` of its Manifest names.
 _Avoid_: skills repo, skill store
 
 **Clone**:
-The folder with a checkout of the Catalog, on the computer of the project (this computer, or the machine of a remote space). It is the only place where the skills have version control. It is the person's own clone (a setting) or, without that setting, a clone that the mod keeps in its cache.
+The folder with a checkout of the Catalog, on the computer of the project (this computer, or the machine of a remote space). It is the only place where the skills have version control. Each Catalog has one Clone: the person's own clone (a setting for the default Catalog, a row of a table for another one) or, without that, a clone that the mod keeps in its cache. A project is never read or changed with the Clone of another Catalog.
 _Avoid_: copy, checkout
 
 **Bundle**:
@@ -19,7 +19,7 @@ A named group of skills of the Catalog, listed in `bundles.yaml`. The bundle `co
 _Avoid_: pack, set
 
 **Manifest**:
-The `skills.yaml` of a project: the Bundles and the Sources that the project uses. It is committed with the project.
+The `skills.yaml` of a project: the Bundles and the Sources that the project uses, and its Catalog (`catalog:`) when that is not the default one. It is committed with the project.
 _Avoid_: config, skills file
 
 **Source**:

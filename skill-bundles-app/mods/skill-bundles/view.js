@@ -262,8 +262,21 @@ function bundlePicker(t, m, { intro, primary, onPrimary, onCancel }) {
   const catalog = m.cat.catalog;
   const names = [...catalog.bundles.keys()];
   if (!names.includes("core")) names.unshift("core");
+  // A project without skills.yaml on a machine with more than one Catalog: the Catalog of the Bundles.
+  const others = m.catalogs.length > 1;
+  const current = String(m.cat.slug ?? "").toLowerCase();
   return v_flex().flex_1().min_h(0)
     .when(Boolean(intro), (e) => e.child(div().flex_none().px(12).py(10).text_size(12).text_color(t.muted).border_b(1).border_color(t.border).child(intro)))
+    .when(others, (e) => e.child(v_flex().flex_none().px(12).py(8).gap(6).border_b(1).border_color(t.border)
+      .child(div().text_size(11.5).font_semibold().text_color(t.muted).child(m.str.catalogPick))
+      .child(h_flex().gap(6).flex_wrap().children(m.catalogs.map((slug, i) => {
+        const on = slug.toLowerCase() === current;
+        return div().id(`sb-catalog-${i}`).h(24).px(10).flex().items_center().rounded(6).text_size(12).border_1()
+          .border_color(on ? t.accent : t.border).bg(on ? tint(t.accent, "22") : t.background).text_color(on ? t.accent : t.foreground)
+          .when(!on && !m.job, (x) => x.cursor_pointer().hover((h) => h.bg(t.hover)).on_click((_e, cx) => m.a.chooseCatalog(slug, cx)))
+          .child(slug);
+      })))
+      .child(div().text_size(11).text_color(t.dim).child(m.str.catalogPickHint))))
     .child(v_flex().id("sb-picker").flex_1().min_h(0).overflow_y_scrollbar()
       .children(names.map((n) => bundleChoice(t, m, n, catalog.descriptions.get(n) ?? ""))))
     .child(h_flex().flex_none().px(12).py(10).gap(8).justify_end().border_t(1).border_color(t.border)

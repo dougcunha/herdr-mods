@@ -9,12 +9,13 @@
 //   number      min, max, step, scale? (shown = stored / scale), unit?
 //   text        placeholder?
 //   folder-list (an array of folders with forward slashes)
+//   folder-map  (a table: an array of { name, folder }, 1 row for each name); placeholder?: of the name field
 //   key         action: the keys.json action ("mod.open:mods-hub")
 //   action      command, args?, button: the text of the button
 
 import { shared, setShared } from "herdr";
 
-export const TYPES = ["bool", "enum", "number", "text", "folder-list", "key", "action"];
+export const TYPES = ["bool", "enum", "number", "text", "folder-list", "folder-map", "key", "action"];
 
 /** The valid fields of a `settings` list. Unknown types and fields without a key are left out. */
 export function cleanFields(list) {
@@ -51,6 +52,8 @@ export function readField(f) {
       return typeof v === "string" ? v : (f.default ?? "");
     case "folder-list":
       return Array.isArray(v) ? v.filter((p) => typeof p === "string") : [];
+    case "folder-map":
+      return Array.isArray(v) ? v.filter((r) => r && typeof r.name === "string" && r.name && typeof r.folder === "string" && r.folder) : [];
     default:
       return v;
   }

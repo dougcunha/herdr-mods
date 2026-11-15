@@ -87,7 +87,8 @@ export function place(on = null) {
 export function repoSlug(value) {
   const s = String(value ?? "").trim().replace(/\.git$/i, "");
   const m = /(?:github\.com[:/])?([\w.-]+)\/([\w.-]+)$/i.exec(s);
-  return m ? `${m[1]}/${m[2]}` : null;
+  // The name goes to `gh repo clone` and into a path of the cache: no option (a leading "-"), no "." or ".." part.
+  return m && [m[1], m[2]].every((p) => /^[A-Za-z0-9_][\w.-]*$/.test(p)) ? `${m[1]}/${m[2]}` : null;
 }
 
 /** The git root of a folder on the machine `on` (null: this computer), or null. */
@@ -117,7 +118,7 @@ export async function ensureClone(slug, dir, gitUrl, on = null) {
   if (head.code === 0) return `${dir} is a clone without bundles.yaml. Is ${slug} a Catalog?`;
   const r = (await hasGh(on)) && !gitUrl
     ? await sh("gh", ["repo", "clone", slug, dir], at(on))
-    : await sh("git", ["clone", gitUrl || `git@github.com:${slug}.git`, dir], at(on));
+    : await sh("git", ["clone", "--", gitUrl || `git@github.com:${slug}.git`, dir], at(on));
   if (r.code !== 0) return tail(r);
   if ((await readOn(`${dir}/bundles.yaml`, on).catch(() => null)) === null) return `${slug} has no bundles.yaml at its root.`;
   return null;
