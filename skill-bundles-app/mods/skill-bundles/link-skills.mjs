@@ -73,6 +73,8 @@ export function parseCatalog(text) {
     if ((m = /^repo:\s*(.+?)\s*$/i.exec(line))) { repo = unquote(m[1]); continue; }
     if ((m = /^\s{2}([\w-]+):\s*$/i.exec(line))) { current = m[1]; bundles.set(current, []); inSkills = false; continue; }
     if ((m = /^\s*description:\s*(.+?)\s*$/i.exec(line))) { if (current) descriptions[current] = unquote(m[1]); inSkills = false; continue; }
+    // A list on one line: `skills: [a, b]`.
+    if ((m = /^\s*skills:\s*\[(.*)\]\s*$/i.exec(line))) { if (current) for (const item of m[1].split(",")) if (unquote(item)) bundles.get(current).push(unquote(item)); inSkills = false; continue; }
     if (/^\s*skills:\s*$/i.test(line)) { inSkills = true; continue; }
     if (inSkills && current && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) bundles.get(current).push(unquote(m[1]));
   }
@@ -667,6 +669,14 @@ function curate(input) {
   };
   const skillsLine = (at, end) => { for (let i = at + 1; i < end; i++) if (/^\s*skills:/i.test(uncomment(lines[i]))) return i; return -1; };
   const items = (at, end) => { const out = []; const from = skillsLine(at, end); for (let i = from + 1; from >= 0 && i < end; i++) { const m = /^(\s*)-\s*(.+?)\s*$/.exec(uncomment(lines[i])); if (m) out.push({ i, name: unquote(m[2]), indent: m[1] }); } return out; };
+  // A list on one line (`skills: [a, b]`) becomes a block list, so that one skill is one line.
+  const expand = (at) => {
+    const from = skillsLine(at, span(at)[1]);
+    const m = from < 0 ? null : /^(\s*)skills:\s*\[(.*)\]\s*$/i.exec(uncomment(lines[from]));
+    if (!m) return;
+    const names = m[2].split(",").map(unquote).filter(Boolean);
+    lines.splice(from, 1, names.length ? `${m[1]}skills:` : `${m[1]}skills: []`, ...names.map((n) => `${m[1]}  - ${n}`));
+  };
   const fail = (code, name, text) => { done.errors.push(`${name}: ${text}`); done.problems.push({ code, name: String(name), text }); };
 
   for (const b of input.createBundle ?? []) {
@@ -681,6 +691,7 @@ function curate(input) {
     const at = header(a?.bundle ?? "");
     if (at < 0) { fail("no_bundle", a?.bundle, "no such Bundle."); continue; }
     if (!skills.has(a.skill)) { fail("no_skill", a.skill, "the clone has no skill folder with this name."); continue; }
+    expand(at);
     const [, end] = span(at);
     const list = items(at, end);
     if (list.some((x) => x.name === a.skill)) continue;
@@ -693,6 +704,7 @@ function curate(input) {
   const takeOut = (skill, bundle) => {
     const at = header(bundle);
     if (at < 0) return false;
+    expand(at);
     const [, end] = span(at);
     const list = items(at, end);
     const found = list.find((x) => x.name === skill);

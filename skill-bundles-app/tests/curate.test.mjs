@@ -71,6 +71,11 @@ d = run({ op: "curate", clone, deleteSkill: ["d", "c"] });
 b = bundles();
 ok(b.core.join() === "a,b" && !fs.existsSync(join(clone, "SKILLS/d")) && !fs.existsSync(join(clone, "SKILLS/c")) && fs.existsSync(join(clone, "SKILLS/a/SKILL.md")), "a deleted skill leaves every Bundle and its folder is gone");
 
+// A list on one line is read, and a change makes it a block list.
+w(join(clone, "bundles.yaml"), "repo: me/cat\nbundles:\n  core:\n    description: Core\n    skills: [a, b]\n  data:\n    description: Data\n    skills: []\n");
+ok(bundles().core.join() === "a,b" && bundles().data.length === 0, "a list on one line is read");
+d = run({ op: "curate", clone, assign: [{ skill: "e", bundle: "core" }], unassign: [{ skill: "a", bundle: "core" }] });
+ok(bundles().core.join() === "b,e" && yaml().includes("    skills:\n      - b\n      - e\n") && !d.errors.length, "a change of a one-line list keeps its other skills");
 // A skill folder that is a link out of the clone is never deleted.
 const outside = join(base, "outside"); w(join(outside, "SKILL.md"), "x\n");
 fs.symlinkSync(outside, join(clone, "SKILLS", "linked"), process.platform === "win32" ? "junction" : "dir");
