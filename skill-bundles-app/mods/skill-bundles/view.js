@@ -5,6 +5,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
 import { props, shared, closeOverlay } from "herdr";
 import { fill } from "./text.js";
+import { STATES, toLink } from "./status.js";
 
 const ICON = (name) => `mods/skill-bundles/${name}.svg`;
 const MONO = (s) => s?.font_family ?? "JetBrains Mono";
@@ -16,9 +17,9 @@ const stop = (_e, cx) => cx.stop_propagation();
 
 function stateColor(t, state) {
   switch (state) {
-    case "ok": return t.ansi2;
-    case "outdated": return t.ansi3;
-    case "missing": return t.ansi1;
+    case "linked": return t.ansi2;
+    case "copy": case "stale": return t.ansi3;
+    case "missing": case "conflict": case "absent": return t.ansi1;
     case "extra": return t.ansi5;
     default: return t.dim;
   }
@@ -84,8 +85,8 @@ function message(t, m, title, hint, { detail = null, buttons = [], spin = false,
 }
 
 function header(t, m) {
-  const reading = m.cat.fetching || m.cat.state === "cloning" || m.checking;
-  const project = m.proj.state === "ready" ? m.proj.name : "";
+  const reading = m.cat.fetching || m.cat.state === "cloning";
+  const project = m.proj.state === "ready" || m.proj.state === "remote" ? m.proj.name : "";
   return h_flex().h(40).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
     .child(svg(ICON("bundles")).size(16).text_color(t.accent))
     .child(div().flex_none().font_semibold().child(m.str.title))
@@ -95,96 +96,80 @@ function header(t, m) {
     .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "sb-close", "close", m.str.close ?? "Close", () => closeOverlay(ownDialog()))));
 }
 
-/** The line under the header: the Catalog, its commit and its warnings. */
+/** The line under the header: the Catalog, its commit and what the person must know about the clone and the project. */
 function catalogLine(t, m) {
   if (m.cat.state !== "ready") return null;
   const c = m.cat;
+  const p = m.proj.state === "ready" ? m.proj : null;
   const notes = [];
-  if (c.ref?.branch && !c.ref.problem) notes.push([t.accent, fill(m.str.branchWarn, { branch: c.ref.branch })]);
-  if (m.blocked) notes.push([t.ansi1, m.blocked]);
+  if (c.ref?.branch) notes.push([t.accent, fill(m.str.branchWarn, { branch: c.ref.branch })]);
+  if (m.cloneNote) notes.push([t.ansi3, m.cloneNote]);
   if (c.fetchError) notes.push([t.ansi3, c.fetchError.split("\n").pop()]);
   if (m.settingSlug && c.catalog.repo && c.catalog.repo.toLowerCase() !== m.settingSlug.toLowerCase()) {
     notes.push([t.ansi3, fill(m.str.repoMismatch, { catalog: c.catalog.repo, setting: m.settingSlug })]);
   }
-  if (m.proj.state === "ready" && m.proj.unknown?.length) notes.push([t.ansi3, fill(m.str.unknownBundles, { list: m.proj.unknown.join(", ") })]);
-  if (m.proj.state === "ready" && m.proj.probe?.lockError) notes.push([t.ansi1, fill(m.str.lockError, { error: m.proj.probe.lockError })]);
-  if (m.proj.state === "ready" && m.proj.probe?.error) notes.push([t.ansi1, fill(m.str.probeError, { error: m.proj.probe.error })]);
+  if (p?.unknown?.length) notes.push([t.ansi3, fill(m.str.unknownBundles, { list: p.unknown.join(", ") })]);
+  if (p?.info?.lockError) notes.push([t.ansi1, fill(m.str.lockError, { error: p.info.lockError })]);
+  if (p?.info?.lockOther > 0) notes.push([t.dim, fill(m.str.lockOther, { n: p.info.lockOther })]);
   const at = fill(m.str.catalogAt, { repo: c.catalog.repo, commit: c.commit || "?" }) + (c.own ? ` · ${m.str.ownClone}` : "");
   const busy = Boolean(m.job);
   return v_flex().flex_none().px(12).py(6).gap(3).border_b(1).border_color(t.border).text_size(11)
     .child(div().truncate().text_color(t.dim).child(at))
     .children(notes.map(([color, text]) => div().text_color(color).child(text)))
     .when(m.fixes.length > 0, (e) => e.child(h_flex().pt(3).gap(6).flex_wrap()
-      .children(m.fixes.map((f) => button(t, `sb-fix-${f.id}`, f.label, f.run, { kind: f.kind, disabled: busy, tip: f.tip })))));
+      .children(m.fixes.map((f) => button(t, `sb-fix-${f.id}`, f.label, f.run, { kind: f.kind, disabled: busy, tip: f.tip })))))
+    .when(Boolean(p?.info?.oldGitignore), (e) => e.child(h_flex().pt(3).gap(8).items_center()
+      .child(div().flex_1().min_w(0).text_color(t.dim).child(m.str.oldGitignore))
+      .child(button(t, "sb-old-gitignore", m.str.oldGitignoreFix, (cx) => m.a.dropGitignore(cx), { disabled: busy, tip: m.str.oldGitignoreTip }))));
 }
 
 /** The counts and the main buttons of the list. */
 function summary(t, m) {
   const c = m.proj.counts;
   const busy = Boolean(m.job);
-  // Without a Manifest, Update all updates the Outdated skills only (npx skills update).
-  const work = m.plain ? c.outdated : c.outdated + c.missing;
-  const catalog = m.cat.state === "ready";
-  const checkError = m.plain ? m.proj.check?.error : null;
-  const failed = m.plain && !checkError ? m.proj.check?.failed ?? [] : [];
+  const can = m.linkable && !busy;
   return v_flex().flex_none().px(12).py(8).gap(8).border_b(1).border_color(t.border)
     .child(h_flex().gap(6).flex_wrap().items_center()
-      .when(c.ok > 0, (e) => e.child(pill(t, `${c.ok} ${m.str.state_ok}`, stateColor(t, "ok"))))
-      .when(c.outdated > 0, (e) => e.child(pill(t, `${c.outdated} ${m.str.state_outdated}`, stateColor(t, "outdated"))))
-      .when(c.missing > 0, (e) => e.child(pill(t, `${c.missing} ${m.str.state_missing}`, stateColor(t, "missing"))))
-      .when(c.extra > 0, (e) => e.child(pill(t, `${c.extra} ${m.str.state_extra}`, stateColor(t, "extra"))))
-      .when(c.unchecked > 0, (e) => e.child(pill(t, `${c.unchecked} ${m.str.state_unchecked}`, stateColor(t, "unchecked"))))
-      .when(c.local > 0, (e) => e.child(pill(t, `${c.local} ${m.str.state_local}`, stateColor(t, "local")))))
+      .children(STATES.filter((st) => c[st] > 0).map((st) => pill(t, `${c[st]} ${m.str[`state_${st}`]}`, stateColor(t, st)))))
     .child(h_flex().gap(6).items_center()
-      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: work > 0 ? "primary" : "plain", disabled: busy || work === 0 || (!m.plain && Boolean(m.blocked)), tip: m.plain ? m.str.syncAllTipPlain : m.str.syncAllTip, icon: "refresh" }))
-      .when(!m.plain, (e) => e
-        .child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: busy, tip: m.str.bundlesTip, icon: "bundles" }))
-        .child(button(t, "sb-add", m.str.addSkill, (cx) => m.a.mode("add", cx), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
-      // Without a Manifest: the way to Bundles. Without a Catalog, the button opens the settings.
-      .when(m.plain, (e) => e.child(button(t, "sb-add-repo", m.str.addSkill, (cx) => m.a.mode("repo", cx), { disabled: busy, tip: m.str.addRepoTip, icon: "plus" })))
-      .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (catalog ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: catalog ? m.str.useBundlesTip : m.str.useBundlesNoCatalog, icon: "bundles" }))))
-    .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.checking ? m.str.checking : m.str.plainHint)))
-    .when(Boolean(checkError), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(fill(m.str.checkError, { error: String(checkError).split("\n").pop() }))))
-    .when(failed.length > 0, (e) => e.child(div().text_size(11).text_color(t.ansi3).child(fill(m.str.checkFailed, { list: failed.join(", ") }))))
-    .when(m.plain && Boolean(m.proj.probe?.lockError), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(fill(m.str.lockError, { error: m.proj.probe.lockError }))))
-    .when(work === 0 && c.extra === 0 && c.ok > 0 && c.unchecked === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
+      .child(button(t, "sb-sync", m.str.syncAll, (cx) => m.a.syncAll(cx), { kind: m.work > 0 ? "primary" : "plain", disabled: !can || m.work === 0, tip: m.str.syncAllTip, icon: "refresh" }))
+      .when(!m.plain, (e) => e.child(button(t, "sb-bundles", m.str.bundles, (cx) => m.a.mode("bundles", cx), { disabled: !can, tip: m.str.bundlesTip, icon: "bundles" })))
+      .when(m.plain, (e) => e.child(button(t, "sb-use-bundles", m.str.useBundles, (cx) => (m.linkable ? m.a.mode("bundles", cx) : m.a.settings()), { disabled: busy, tip: m.str.useBundlesTip, icon: "bundles" })))
+      .child(button(t, "sb-add", m.str.addSkill, (cx) => (m.linkable ? m.a.mode("add", cx) : m.a.settings()), { disabled: busy, tip: m.str.addSkillTip, icon: "plus" })))
+    .when(m.plain, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.plainHint)))
+    .when(m.work === 0 && c.linked > 0 && c.conflict === 0 && c.absent === 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(m.str.allGood)));
 }
 
 /** The actions of a row, by state. */
 function rowActions(t, m, row) {
   const busy = Boolean(m.job);
-  const install = !busy && !m.blocked;
+  const can = m.linkable && !busy;
   const id = (k) => `sb-${k}-${row.name}`;
   const onlySource = row.from.length === 1 && row.from[0] === "sources";
   const list = [];
-  if (row.plain) {
-    // Without a Manifest: Install (not in the project), Update (npx skills update) and Remove.
-    if (row.state === "missing") list.push(button(t, id("install"), m.str.install, (cx) => m.a.installOne(row, cx), { disabled: busy }));
-    if (row.state === "outdated") list.push(button(t, id("update"), m.str.update, (cx) => m.a.installOne(row, cx), { disabled: busy }));
-    list.push(button(t, id("remove"), m.str.remove, (cx) => m.a.removeExtra(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeTip }));
-    return list;
+  if (row.state === "missing") list.push(button(t, id("link"), m.str.link, (cx) => m.a.linkOne(row, cx), { disabled: !can }));
+  if (row.state === "copy") list.push(button(t, id("convert"), m.str.convert, (cx) => m.a.linkOne(row, cx), { disabled: !can, tip: m.str.tip_copy }));
+  if (row.state === "conflict") {
+    const label = m.waiting === `replace:${row.name}` ? m.str.confirmAgain : m.str.replace;
+    list.push(button(t, id("replace"), label, (cx) => m.a.replace(row, cx), { kind: "danger", disabled: !can, tip: m.str.replaceTip }));
   }
-  if (row.state === "missing") list.push(button(t, id("install"), m.str.install, (cx) => m.a.installOne(row, cx), { disabled: !install }));
-  if (row.state === "outdated") list.push(button(t, id("update"), m.str.update, (cx) => m.a.installOne(row, cx), { disabled: !install }));
-  if (row.state === "extra") {
-    list.push(button(t, id("keep"), m.str.keep, (cx) => m.a.keepExtra(row, cx), { disabled: busy || !m.proj.manifest, tip: m.str.keepTip }));
-    list.push(button(t, id("remove"), m.str.remove, (cx) => m.a.removeExtra(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeTip }));
-  }
+  if (row.state === "extra") list.push(button(t, id("keep"), m.str.keep, (cx) => m.a.keepExtra(row, cx), { disabled: !can || m.plain, tip: m.str.keepTip }));
+  if (row.state === "extra" || row.state === "stale") list.push(button(t, id("remove"), m.str.remove, (cx) => m.a.removeLinks(row, cx), { kind: "danger", disabled: !can, tip: m.str.removeTip }));
   if (row.state === "local") {
     const label = m.waiting === `local:${row.name}` ? m.str.confirmAgain : m.str.remove;
-    list.push(button(t, id("delete"), label, (cx) => m.a.removeLocal(row, cx), { kind: "danger", disabled: busy, tip: m.str.removeLocalTip }));
+    list.push(button(t, id("delete"), label, (cx) => m.a.removeLocal(row, cx), { kind: "danger", disabled: !can, tip: m.str.removeLocalTip }));
   }
-  if (onlySource && row.state !== "extra") list.push(button(t, id("drop"), m.str.dropSource, (cx) => m.a.dropSource(row, cx), { kind: "danger", disabled: busy, tip: m.str.dropSourceTip }));
+  if (onlySource && !m.plain) list.push(button(t, id("drop"), m.str.dropSource, (cx) => m.a.dropSource(row, cx), { kind: "danger", disabled: busy, tip: m.str.dropSourceTip }));
   return list;
 }
 
 function skillRow(t, m, row, s) {
   const color = stateColor(t, row.state);
   return h_flex().id(`sb-row-${row.name}`).min_h(30).px(12).gap(8).items_center().hover((x) => x.bg(t.hover))
-    .tooltip((row.plain && m.str[`tip_plain_${row.state}`]) || m.str[`tip_${row.state}`])
+    .tooltip(m.str[`tip_${row.state}`])
     .child(div().size(7).flex_none().rounded(4).bg(color))
     .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(MONO(s)).child(row.name))
-    .when(row.state !== "ok", (e) => e.child(div().flex_none().text_size(11).text_color(color).child(m.str[`state_${row.state}`])))
+    .when(row.state !== "linked", (e) => e.child(div().flex_none().text_size(11).text_color(color).child(m.str[`state_${row.state}`])))
     .children(rowActions(t, m, row));
 }
 
@@ -193,7 +178,7 @@ const groupKey = (g) => `${g.kind}:${g.key}`;
 
 function groupTitle(t, m, g) {
   const catalog = m.cat.catalog;
-  const title = g.kind === "bundle" || g.kind === "repo" ? g.key : m.str[`group_${g.kind}`];
+  const title = g.kind === "bundle" ? g.key : m.str[`group_${g.kind}`];
   const desc = g.kind === "bundle" ? catalog?.descriptions.get(g.key) ?? "" : "";
   const folded = m.collapsed.has(groupKey(g));
   return h_flex().id(`sb-group-${groupKey(g)}`).h(28).pl(8).pr(12).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
@@ -209,21 +194,21 @@ function groupTitle(t, m, g) {
 
 /** The batch buttons of a group title: act on every skill of the group. */
 function groupActions(t, m, g) {
-  const busy = Boolean(m.job);
+  const can = m.linkable && !m.job;
   const key = groupKey(g);
   const small = (id, label, onClick, opts) => button(t, `sb-all-${id}-${key}`, label, onClick, opts);
   const list = [];
-  const work = g.rows.filter((r) => r.state === "outdated" || (r.state === "missing" && !r.plain)).length;
-  if (work > 0 && (g.kind === "bundle" || g.kind === "sources" || g.kind === "repo")) {
-    const plain = g.kind === "repo";
-    list.push(small("update", fill(m.str.updateGroup, { n: work }), (cx) => m.a.updateGroup(key, cx), { disabled: busy || (!plain && Boolean(m.blocked)), tip: plain ? m.str.syncAllTipPlain : m.str.updateGroupTip }));
-  }
+  const work = toLink(g.rows).length;
+  if (work > 0) list.push(small("link", fill(m.str.linkGroup, { n: work }), (cx) => m.a.linkGroup(key, cx), { disabled: !can, tip: m.str.linkGroupTip }));
   if (g.kind === "extra" && g.rows.length > 1) {
-    list.push(small("keep", m.str.keepAll, (cx) => m.a.keepAllExtra(cx), { disabled: busy || !m.proj.manifest, tip: m.str.keepAllTip }));
-    list.push(small("remove", m.waiting === "all:extra" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllExtra(cx), { kind: "danger", disabled: busy, tip: m.str.removeAllTip }));
+    list.push(small("keep", m.str.keepAll, (cx) => m.a.keepAllExtra(cx), { disabled: !can || m.plain, tip: m.str.keepAllTip }));
+    list.push(small("remove", m.waiting === "all:extra" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllLinks("extra", cx), { kind: "danger", disabled: !can, tip: m.str.removeAllTip }));
+  }
+  if (g.kind === "stale" && g.rows.length > 1) {
+    list.push(small("remove", m.str.removeAll, (cx) => m.a.removeAllLinks("stale", cx), { kind: "danger", disabled: !can, tip: m.str.removeAllTip }));
   }
   if (g.kind === "local" && g.rows.length > 1) {
-    list.push(small("delete", m.waiting === "all:local" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllLocal(cx), { kind: "danger", disabled: busy, tip: m.str.removeAllLocalTip }));
+    list.push(small("delete", m.waiting === "all:local" ? m.str.confirmAgain : m.str.removeAll, (cx) => m.a.removeAllLocal(cx), { kind: "danger", disabled: !can, tip: m.str.removeAllLocalTip }));
   }
   return list;
 }
@@ -233,7 +218,7 @@ function listView(t, m, s) {
   return v_flex().flex_1().min_h(0)
     .child(summary(t, m))
     .child(v_flex().id("sb-list").flex_1().min_h(0).overflow_y_scrollbar()
-      .when(m.plain && groups.length === 0, (e) => e.child(v_flex().p(16).gap(6)
+      .when(groups.length === 0, (e) => e.child(v_flex().p(16).gap(6)
         .child(div().text_size(13).font_semibold().child(m.str.plainEmpty))
         .child(div().text_size(12).text_color(t.muted).child(m.str.plainEmptyHint))))
       .children(groups.flatMap((g) => [groupTitle(t, m, g), ...(m.collapsed.has(groupKey(g)) ? [] : g.rows.map((r) => skillRow(t, m, r, s)))])));
@@ -266,23 +251,26 @@ function bundlePicker(t, m, { intro, primary, onPrimary, onCancel }) {
       .children(names.map((n) => bundleChoice(t, m, n, catalog.descriptions.get(n) ?? ""))))
     .child(h_flex().flex_none().px(12).py(10).gap(8).justify_end().border_t(1).border_color(t.border)
       .when(Boolean(onCancel), (e) => e.child(button(t, "sb-cancel", m.str.cancel, onCancel)))
-      .child(button(t, "sb-apply", primary, onPrimary, { kind: "primary", disabled: Boolean(m.job) || Boolean(m.blocked) })));
+      .child(button(t, "sb-apply", primary, onPrimary, { kind: "primary", disabled: Boolean(m.job) })));
 }
 
-/** Add skill: the skills of the Catalog that skills.yaml does not cover, with a search field. */
+/** Add skill: the skills of the Clone that the project does not have, with a search field. */
 function addView(t, m, s) {
   const catalog = m.cat.catalog;
-  const covered = new Set(m.proj.rows.filter((r) => r.state !== "extra" && r.state !== "local").map((r) => r.name));
-  const installed = new Set(m.proj.rows.map((r) => r.name));
+  const have = new Set(m.proj.rows.map((r) => r.name));
   const items = [];
-  for (const [bundle, skills] of catalog.bundles) {
-    for (const name of skills) {
-      if (covered.has(name)) continue;
-      if (m.filter && !`${bundle} ${name}`.toLowerCase().includes(m.filter)) continue;
-      items.push({ bundle, name, installed: installed.has(name) });
-    }
-  }
-  const busy = Boolean(m.job) || Boolean(m.blocked);
+  const seen = new Set();
+  const offer = (bundle, name) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    if (have.has(name) || !catalog.skills.includes(name)) return;
+    if (m.filter && !`${bundle} ${name}`.toLowerCase().includes(m.filter)) return;
+    items.push({ bundle, name });
+  };
+  for (const [bundle, skills] of catalog.bundles) for (const name of skills) offer(bundle, name);
+  // The skills of the Clone that no Bundle lists.
+  for (const name of [...catalog.skills].sort()) offer(m.str.noBundle, name);
+  const busy = Boolean(m.job);
   return v_flex().flex_1().min_h(0)
     .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
       .child(button(t, "sb-back", m.str.back, (cx) => m.a.mode("list", cx), { icon: "back" }))
@@ -293,64 +281,17 @@ function addView(t, m, s) {
             if (e.key !== "escape") return;
             if (m.query.value()) { m.query.set_value(""); cx.stop_propagation(); cx.notify(); }
             else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
-          })))
-      .child(button(t, "sb-other-repo", m.str.addRepo, (cx) => m.a.mode("repo", cx), { tip: m.str.addRepoTip })))
-    .child(persistToggle(t, m))
+          }))))
+    .when(!m.plain, (e) => e.child(persistToggle(t, m)))
     .child(v_flex().id("sb-add-list").flex_1().min_h(0).overflow_y_scrollbar()
       .when(items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(m.str.nothingToAdd)))
       .children(items.map((it) => h_flex().id(`sb-cand-${it.bundle}-${it.name}`).min_h(30).px(12).gap(8).items_center().hover((x) => x.bg(t.hover))
         .child(div().flex_none().w(96).truncate().text_size(11).text_color(t.dim).child(it.bundle))
         .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(MONO(s)).child(it.name))
-        .when(it.installed, (e) => e.child(div().flex_none().text_size(11).text_color(stateColor(t, "extra")).child(m.str.state_extra)))
-        .child(button(t, `sb-addone-${it.bundle}-${it.name}`, m.str.install, (cx) => m.a.addSkill(it.name, cx), { disabled: busy })))));
+        .child(button(t, `sb-addone-${it.bundle}-${it.name}`, m.str.link, (cx) => m.a.addSkill(it.name, cx), { disabled: busy })))));
 }
 
-/** A text field in a box. Esc clears the text, then closes the dialog. Enter runs `onEnter`. */
-function field(t, state, icon, onEnter = null) {
-  return h_flex().flex_1().min_w(0).h(28).px(8).gap(6).items_center().rounded(6).bg(t.background).border_1().border_color(t.input)
-    .child(svg(ICON(icon)).size(13).flex_none().text_color(t.dim))
-    .child(Input.new(state).flex_1().h_full().text_size(12)
-      .on_key_down((e, cx) => {
-        if (e.key === "enter" && onEnter) { onEnter(cx); cx.stop_propagation(); return; }
-        if (e.key !== "escape") return;
-        if (state.value()) { state.set_value(""); cx.stop_propagation(); cx.notify(); }
-        else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
-      }));
-}
-
-/** Add skill from any repository: a repository field, then the skills that the repository offers. */
-function repoView(t, m, s) {
-  const str = m.str;
-  const list = m.repoList;
-  const busy = Boolean(m.job);
-  const installed = new Set(m.proj.rows.filter((r) => r.state !== "missing").map((r) => r.name));
-  const items = (list?.skills ?? []).filter((it) => !m.filter || `${it.name} ${it.desc}`.toLowerCase().includes(m.filter));
-  return v_flex().flex_1().min_h(0)
-    .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(button(t, "sb-back", str.back, (cx) => m.a.mode(m.plain ? "list" : "add", cx), { icon: "back" }))
-      .child(field(t, m.repoInput, "bundles", (cx) => m.a.listRepo(cx)))
-      .child(button(t, "sb-list-repo", str.listSkills, (cx) => m.a.listRepo(cx), { kind: "primary", disabled: list?.state === "loading", tip: str.listSkillsTip })))
-    .when(!m.plain, (e) => e.child(persistToggle(t, m)))
-    .when(list?.state === "ready" && list.skills.length > 0, (e) => e.child(h_flex().flex_none().px(12).py(6).border_b(1).border_color(t.border).child(field(t, m.query, "search"))))
-    .child(v_flex().id("sb-repo-list").flex_1().min_h(0).overflow_y_scrollbar()
-      .when(!list, (e) => e.child(div().p(16).text_size(12).text_color(t.muted).child(str.repoHint)))
-      .when(list?.state === "loading", (e) => e.child(h_flex().p(16).gap(8).items_center()
-        .child(svg(ICON("spinner")).size(14).spin(900).text_color(t.accent))
-        .child(div().text_size(12).child(fill(str.repoReading, { repo: list.repo })))))
-      .when(list?.state === "error", (e) => e.child(v_flex().p(16).gap(8)
-        .child(div().text_size(12).font_semibold().text_color(t.ansi1).child(fill(str.repoError, { repo: list.repo })))
-        .child(div().p(10).rounded(8).bg(t.raised).border_1().border_color(t.border).text_size(11).font_family(MONO(s)).text_color(t.muted).child(list.error ?? ""))))
-      .when(list?.state === "ready" && items.length === 0, (e) => e.child(div().p(16).text_size(12).text_color(t.dim).child(fill(str.repoEmpty, { repo: list.repo }))))
-      .children(list?.state === "ready" ? items.map((it) => h_flex().id(`sb-repo-${it.name}`).min_h(40).px(12).py(4).gap(8).items_center().hover((x) => x.bg(t.hover))
-        .when(Boolean(it.desc), (e) => e.tooltip(it.desc))
-        .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().text_size(12).font_family(MONO(s)).child(it.name))
-          .when(Boolean(it.desc), (e) => e.child(div().truncate().text_size(11).text_color(t.muted).child(it.desc))))
-        .when(installed.has(it.name), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(str.installed)))
-        .child(button(t, `sb-repo-add-${it.name}`, installed.has(it.name) ? str.reinstall : str.install, (cx) => m.a.addFromRepo(it.name, cx), { disabled: busy }))) : []));
-}
-
-/** The "Keep in skills.yaml" switch of the add views. */
+/** The "Keep in skills.yaml" switch of the add view. */
 function persistToggle(t, m) {
   return h_flex().id("sb-persist").flex_none().px(12).py(6).gap(8).items_center().cursor_pointer().border_b(1).border_color(t.border)
     .tooltip(m.str.persistTip)
@@ -381,23 +322,21 @@ function body(t, m, s) {
   const str = m.str;
   const c = m.cat;
   const p = m.proj;
-  // A project without a Manifest needs no Catalog: it shows the skills of its Lock.
-  if (c.state === "unset" && p.state === "ready" && p.manifest) return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [button(t, "sb-open-settings", str.openSettings, () => m.a.settings(), { kind: "primary", icon: "settings" })] });
+  const settingsButton = (kind) => button(t, "sb-open-settings", str.openSettings, () => m.a.settings(), { kind, icon: "settings" });
   if (c.state === "cloning") return message(t, m, fill(str.cloning, { repo: c.slug }), null, { spin: true });
-  if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), button(t, "sb-open-settings", str.openSettings, () => m.a.settings())] });
+  if (c.state === "error") return message(t, m, str.cloneFailed, null, { detail: c.error, s, buttons: [button(t, "sb-retry", str.retry, (cx) => m.a.reload(cx), { kind: "primary" }), settingsButton("plain")] });
   if ((c.state !== "ready" && c.state !== "unset") || p.state === "loading") return message(t, m, str.loading, null, { spin: true });
   if (p.state === "none") return message(t, m, str.noProject, str.noProjectHint);
+  if (p.state === "remote") return message(t, m, str.remoteTitle, fill(str.remoteHint, { project: p.name }));
   if (p.state === "error") return message(t, m, str.failed, null, { detail: p.error, s });
-  if (m.mode === "repo") return repoView(t, m, s);
-  if (!p.manifest) {
-    // The list of installed skills. "Use Bundles" opens the picker, which writes skills.yaml.
-    if (m.mode === "bundles" && c.state === "ready") {
-      return bundlePicker(t, m, { intro: `${str.noManifest}. ${str.noManifestHint}`, primary: str.start, onPrimary: (cx) => m.a.start(cx), onCancel: (cx) => m.a.mode("list", cx) });
-    }
-    return listView(t, m, s);
+  // Without a Catalog there is nothing to link to. A project that has skills still shows them.
+  if (c.state === "unset" && (p.manifest || p.rows.length === 0)) return message(t, m, str.noCatalog, str.noCatalogHint, { buttons: [settingsButton("primary")] });
+  if (m.mode === "bundles" && m.linkable) {
+    return m.plain
+      ? bundlePicker(t, m, { intro: `${str.noManifest}. ${str.noManifestHint}.`, primary: str.start, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) })
+      : bundlePicker(t, m, { primary: str.save, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) });
   }
-  if (m.mode === "bundles") return bundlePicker(t, m, { primary: str.save, onPrimary: (cx) => m.a.applyBundles(cx), onCancel: (cx) => m.a.mode("list", cx) });
-  if (m.mode === "add") return addView(t, m, s);
+  if (m.mode === "add" && m.linkable) return addView(t, m, s);
   return listView(t, m, s);
 }
 
@@ -415,27 +354,30 @@ export function panelView(t, m, keys, s) {
 export function statusView(t, m) {
   const p = m.proj;
   const str = m.str;
-  let text = str.statusLabel;
+  const text = str.statusLabel;
   let color = t.dim;
   let tip = str.statusTipNone;
   let mark = null;
   if (m.job) {
     tip = m.job.label ?? "";
+  } else if (p.state === "remote") {
+    mark = "—";
+    tip = fill(str.statusTipRemote, { project: p.name });
+  } else if (m.cat.state === "error" || p.state === "error") {
+    // Without the Catalog or the read, the counts would be wrong: show the error instead.
+    mark = "!";
+    color = t.ansi1;
+    tip = m.cat.state === "error" ? `${str.cloneFailed}\n${m.cat.error}` : `${str.failed}\n${p.error}`;
   } else if (m.cat.state === "unset" && p.state === "ready" && p.manifest) {
     mark = "?";
     tip = str.noCatalog;
-  } else if (m.cat.state === "error" || (p.state === "ready" && p.probe?.error)) {
-    // Without the Catalog or the probe, the counts would be wrong: show the error instead.
-    mark = "!";
-    color = t.ansi1;
-    tip = m.cat.state === "error" ? `${str.cloneFailed}\n${m.cat.error}` : fill(str.probeError, { error: p.probe.error });
-  } else if (p.state === "ready" && !p.manifest && p.rows.length === 0) {
+  } else if (p.state === "ready" && p.rows.length === 0) {
     mark = "—";
     tip = fill(str.statusTipNoSkills, { project: p.name });
   } else if (p.state === "ready") {
     if (m.pending > 0) {
       mark = String(m.pending);
-      color = !m.plain && p.counts.missing > 0 ? t.ansi1 : t.ansi3;
+      color = p.counts.missing + p.counts.conflict > 0 ? t.ansi1 : t.ansi3;
       tip = `${fill(str.statusTipPending, { n: m.pending, project: p.name })}\n${fill(str.counts, p.counts)}`;
     } else {
       mark = "✓";

@@ -1,6 +1,6 @@
 {
   "app": "skill-bundles-app",
-  "description": "The agent skills of the focused project against a skill Catalog (bundles.yaml): up to date, outdated, missing and extra skills, with buttons to start, install, update, add and remove them through npx skills. A project without skills.yaml shows the skills that npx skills installed in it, by repository, and updates them without a Catalog. Add skill installs a skill from any repository of skills. A toast offers to update outdated skills. Works in spaces on other machines too.",
+  "description": "The agent skills of the focused project as links to one clone of a skill Catalog (bundles.yaml): a directory junction on Windows, a symbolic link on macOS and Linux. Only the clone has the skill files and version control, so a change there shows in every project at once. The panel shows linked, missing, stale and extra skills, with buttons to choose Bundles and to link, add and remove skills. A toast offers to make missing links and remove stale ones. Copies that npx skills installed become links.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/skill-bundles-app",
   "settings": [
     {
@@ -9,7 +9,7 @@
       "key": "skill-bundles.catalog",
       "default": "",
       "label": "Skill Catalog",
-      "hint": "Optional for projects without skills.yaml. The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. The mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git.",
+      "hint": "The GitHub repository of your skill Catalog, as owner/name. It must have a bundles.yaml at its root. Without your own clone, the mod clones it into ~/.config/herdr-app/cache/skill-bundles/ with gh (when you are logged in) or git, and links the skills of your projects to that clone.",
       "placeholder": "your-org/agent-skills"
     },
     {
@@ -18,7 +18,7 @@
       "key": "skill-bundles.clone",
       "default": "",
       "label": "Your own clone (optional)",
-      "hint": "A folder with your own clone of the Catalog. The mod does not keep a clone of its own: it pulls your clone (git pull --ff-only) each time it fetches the Catalog, so your clone always stays up to date. When the clone has changes that are not committed or commits that are not pushed, the panel shows buttons to fix it (stash, discard, push, commit with an agent, or use a clone of the mod). On a branch that is not the default one, the mod installs from that branch, as Install-Skills.ps1 does.",
+      "hint": "A folder with your own clone of the Catalog. The projects link to this folder, so they see its branch and also its changes that are not committed. The mod pulls it (git pull --ff-only) each time it fetches the Catalog, when it has no changes. When the mod cannot pull it, the panel says why and shows buttons (stash, discard, push, commit with an agent). Empty: the mod keeps a clone of its own.",
       "placeholder": "D:/repos/agent-skills"
     },
     {
@@ -40,15 +40,15 @@
       "step": 5,
       "unit": "min",
       "label": "Fetch the Catalog every",
-      "hint": "How often the mod fetches the Catalog (and runs npx skills check in a project without skills.yaml) to find outdated skills. The refresh button of the panel fetches at once."
+      "hint": "How often the mod fetches the Catalog and brings the clone to the remote. The refresh button of the panel fetches at once."
     },
     {
       "id": "offer-update",
       "type": "bool",
       "key": "skill-bundles.offerUpdate",
       "default": true,
-      "label": "Offer to update outdated skills",
-      "hint": "When the mod finds Outdated skills in a project, it shows a toast once. A click on the toast updates them. A new set of Outdated skills shows a new toast."
+      "label": "Offer to make and remove links",
+      "hint": "When a project has missing skills, copies of npx skills or stale links, the mod shows a toast once. A click on the toast makes and removes the links. A new set of skills shows a new toast. The mod never changes a project without a click."
     },
     {
       "id": "open-key",

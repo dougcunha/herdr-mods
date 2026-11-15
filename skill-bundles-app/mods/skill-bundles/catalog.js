@@ -1,15 +1,12 @@
-// The programs that the mod runs (git, gh, node, npx) and the clone of the Catalog.
+// The programs that the mod runs (git, gh, node) and the Clone of the Catalog.
 //
-// The mod keeps its own clone of the Catalog in <appHome>/cache/skill-bundles/<owner>/<name>
-// and fetches it on a timer. A person can point the mod to a clone of their own instead
-// (setting "skill-bundles.clone"): the mod then pulls it (fast-forward only) on the same timer,
-// reads its working tree, and installs from its branch when that branch is not the default one,
-// as Install-Skills.ps1 does. A clone that it cannot pull gets a problem and fixes (ownCloneRef).
-//
-// The clone uses the person's own git settings (core.autocrlf): `npx skills` downloads with the
-// same settings, so the folder hashes match the Lock.
+// The Clone is the only place with the skill files: a project gets links to it (see
+// link-skills.mjs and docs/adr/0002). The mod keeps a clone of the Catalog in
+// <appHome>/cache/skill-bundles/<owner>/<name> and brings it to the remote on a timer. A
+// person can point the mod to a clone of their own instead (setting "skill-bundles.clone"):
+// the mod then pulls it (fast-forward only) on the same timer, when it has no changes.
 
-import { exec, appHome, window, readTextFile, writeTextFile } from "herdr";
+import { exec, appHome, window, readTextFile } from "herdr";
 
 const isWindows = () => window()?.platform === "windows";
 const slash = (p) => String(p ?? "").replace(/\\/g, "/");
@@ -36,64 +33,7 @@ export function tail(r, lines = 6) {
 /** exec options on the machine `on` (null: this computer). */
 const at = (on, opts = {}) => (on ? { ...opts, on } : opts);
 
-/**
- * `npx` is `npx.cmd` on Windows; exec does not find a .cmd without its extension.
- * `host`: { on, windows } of the project's machine (null: this computer).
- */
-export const npx = (args, cwd, host = null) =>
-  sh((host ? host.windows : isWindows()) ? "npx.cmd" : "npx", ["--yes", ...args], at(host?.on, { cwd, timeout: 300000 }));
-
-/**
- * `npx skills check` in a project: the installed skills that have a newer version in their
- * repository. It writes nothing. The command has no JSON output, so this reads its lines:
- * "↑ <skill> has an update", and for a repository that it could not read "✗ Cannot update
- * <repo>: …" or "✗ Failed to check for deleted skills from <repo>".
- * Returns { names, failed, error }: `error` is a text when the command did not run.
- */
-export async function checkUpdates(root, host = null) {
-  const r = await npx(["skills", "check", "-p"], root, host);
-  const text = `${r.out}\n${r.err}`.replace(/\x1b\[[0-9;]*m/g, "");
-  const names = [];
-  const failed = [];
-  for (const line of text.split(/\r?\n/)) {
-    let m;
-    if ((m = /^\s*\S+\s+(.+?)\s+has an update\s*$/.exec(line))) names.push(m[1]);
-    else if ((m = /Cannot update (.+?): /.exec(line)) || (m = /Failed to check for deleted skills from (.+?)\s*$/.exec(line))) failed.push(m[1]);
-  }
-  const ran = /Checking|up to date|No project skills/i.test(text);
-  return { names, failed, error: r.code === -1 || !ran ? tail(r) || "npx skills check" : null };
-}
-
-/** A repository for `npx skills add`: owner/name, or a Git URL. No spaces and no shell characters. */
-export const validRepo = (text) => /^[\w.@:/#~+-]+$/.test(String(text ?? "")) && /[\w]/.test(String(text ?? ""));
-
-/**
- * `npx skills add <repo> --list` in a project: the skills that a repository offers. It installs
- * nothing. The command has no JSON output with --list, so this reads its lines: after
- * "Available Skills", a name is a line "│    <name>" and its description "│      <text>".
- * Returns { skills: [{ name, desc }], error }.
- */
-export async function listRepo(repo, root, host = null) {
-  const r = await npx(["skills", "add", repo, "--list"], root, host);
-  const text = `${r.out}\n${r.err}`.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
-  const at = text.indexOf("Available Skills");
-  const skills = [];
-  if (at >= 0) {
-    for (const line of text.slice(at).split(/\r?\n/)) {
-      const m = /^\s*\S( +)(\S.*?)\s*$/.exec(line);
-      if (!m) continue;
-      if (m[1].length === 4 && /^[\w.@-]+$/.test(m[2])) skills.push({ name: m[2], desc: "" });
-      else if (m[1].length >= 6 && skills.length && !skills[skills.length - 1].desc) skills[skills.length - 1].desc = m[2];
-    }
-  }
-  if (at < 0 || r.code === -1) {
-    const lines = text.split(/\r?\n/).map((l) => l.replace(/^[\s│■◇●└┌▲]+/, "").trim()).filter((l) => l && !/^Cloning repository|^Canceled|^Tip:|Agent detected/.test(l));
-    return { skills: [], error: lines.slice(-6).join("\n") || "npx skills add --list" };
-  }
-  return { skills, error: null };
-}
-
-/** The folder of this mod (the node helper is in it). */
+/** The folder of this mod (the link script is in it). */
 export const modDir = () => `${slash(appHome())}/mods/skill-bundles`;
 
 /** "owner/name" from a setting, or null. Accepts a GitHub URL too. */
@@ -149,9 +89,9 @@ export async function updateOwnClone(dir) {
 }
 
 /**
- * Fetches the person's own clone and brings its branch to the remote (fast-forward only), so
- * the hashes match what `npx skills add` installs. A clone with changes that are not committed,
- * or a branch with no upstream, is only fetched. Returns null or an error.
+ * Fetches the person's own clone and brings its branch to the remote (fast-forward only). A
+ * clone with changes that are not committed, or a branch with no upstream, is only fetched.
+ * Returns null or an error.
  */
 export async function pullOwnClone(dir) {
   const f = await sh("git", ["-C", dir, "fetch", "--quiet", "origin"]);
@@ -172,9 +112,10 @@ export async function headCommit(dir) {
 }
 
 /**
- * The branch to install from, for the person's own clone (Resolve-SkillsRef of the scripts):
- * { branch: null } for the default branch, { branch } for another pushed branch, or
- * { branch, problem } when the mod must not install (changes not committed, not pushed).
+ * The state of the person's own clone: { branch, current, problem }. `branch` is set when the
+ * clone is not on its default branch. `problem` says why the mod cannot pull it: "dirty"
+ * (changes that are not committed), "ahead" or "unpushed" (not on the remote), "diverged".
+ * The projects see the clone as it is, so a problem does not stop the links.
  */
 export async function ownCloneRef(dir) {
   const cur = (await sh("git", ["-C", dir, "branch", "--show-current"])).out.trim();
@@ -203,12 +144,6 @@ export const CLONE_FIXES = {
   reset: (current) => [["reset", "--hard", "--quiet", `refs/remotes/origin/${current}`]],
 };
 
-/** Deletes a folder (or a link to a folder) and all in it, with node, on the machine `on`. Returns null or an error. */
-export async function removeFolder(path, on = null) {
-  const r = await sh("node", ["-e", "require('fs').rmSync(process.argv[1], { recursive: true, force: true })", path], at(on));
-  return r.code === 0 ? null : tail(r) || `could not delete ${path}`;
-}
-
 /** Runs a fix of CLONE_FIXES in the clone. Returns null or an error. */
 export async function fixClone(dir, fix, current) {
   for (const args of CLONE_FIXES[fix](current)) {
@@ -218,43 +153,16 @@ export async function fixClone(dir, fix, current) {
   return null;
 }
 
-const parse = (r) => {
-  if (r.code !== 0) return { error: tail(r) || "node failed" };
+/**
+ * Runs link-skills.mjs with one JSON input (see the top of that file) on this computer.
+ * Returns its JSON, or { error }.
+ */
+export async function linkScript(input) {
+  const r = await sh("node", [`${modDir()}/link-skills.mjs`, JSON.stringify(input)], { timeout: 120000 });
+  if (r.code !== 0) return { error: tail(r) || "node failed (is Node.js installed?)" };
   try {
     return JSON.parse(r.out);
   } catch (e) {
-    return { error: `probe.mjs: ${e}` };
+    return { error: `link-skills.mjs: ${e}` };
   }
-};
-
-/**
- * Runs the node helper (probe.mjs) for a project. Returns its JSON, or { error }.
- * `on`: the project's machine. The helper runs there for the Lock and the skill folders
- * (node must be installed there), and here for the hashes of the Catalog clone.
- */
-export async function probe(project, clone, catalogRepo, on = null) {
-  if (!on) return parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project, clone, catalogRepo })]));
-  const code = await readTextFile(`${modDir()}/probe.mjs`);
-  if (!code) return { error: "probe.mjs was not found" };
-  const there = parse(await sh("node", ["--input-type=module", "-e", code, JSON.stringify({ project })], { on, timeout: 60000 }));
-  if (there.error || !clone || !Object.keys(there.lock ?? {}).length) return there;
-  // The Lock goes to the helper here in a file: a command line on Windows is short.
-  // 2 copies of the mod (status item, panel, dialog) can write the same Lock at the same time.
-  const dir = `${slash(appHome())}/cache/skill-bundles`;
-  const lockFile = `${dir}/remote-lock.json`;
-  const want = JSON.stringify(there.lock);
-  for (let i = 0; i < 3; i++) {
-    const old = await readTextFile(lockFile).catch(() => null);
-    if (old === want) break;
-    try {
-      await writeTextFile(lockFile, want, old);
-      break;
-    } catch (e) {
-      if (i === 0 && old === null) await sh("node", ["-e", "require('fs').mkdirSync(process.argv[1], { recursive: true })", dir]);
-      else if (i === 2) return { ...there, error: `remote-lock.json: ${e?.message ?? e}` };
-    }
-  }
-  // `npx skills` installs on that machine with its git settings: the hashes use its core.autocrlf.
-  const here = parse(await sh("node", [`${modDir()}/probe.mjs`, JSON.stringify({ project: null, clone, catalogRepo, lockFile, autocrlf: there.autocrlf ?? "" })]));
-  return here.error ? { ...there, error: here.error } : { ...there, hashes: here.hashes };
 }
