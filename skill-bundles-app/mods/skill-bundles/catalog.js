@@ -166,11 +166,12 @@ export const validRepo = (text) => /^[\w.@:/#~+-]+$/.test(String(text ?? "")) &&
 export async function ensureSource(repo) {
   const s = await linkScript({ op: "source", sourcesRoot: sourcesRoot(), repo });
   if (s.error) return { dir: null, error: s.error };
+  if (!s.dir) return { dir: null, error: "not a repository" };
   if (s.exists) return { dir: slash(s.dir), error: null };
   const name = String(repo).trim().split("#")[0];
   const r = /^[\w.-]+\/[\w.-]+$/.test(name) && (await hasGh())
     ? await sh("gh", ["repo", "clone", name, s.dir], { timeout: 300000 })
-    : await sh("git", ["clone", "--quiet", s.url, s.dir], { timeout: 300000 });
+    : await sh("git", ["clone", "--quiet", "--", s.url, s.dir], { timeout: 300000 });
   return r.code === 0 ? { dir: slash(s.dir), error: null } : { dir: null, error: tail(r) || `git clone ${s.url}` };
 }
 

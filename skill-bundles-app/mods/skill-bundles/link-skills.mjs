@@ -27,7 +27,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -140,6 +140,12 @@ function readClone(clone) {
  * { dir, url, exists }. It is in `sourcesRoot`, in "<owner>/<name>" (a safe name for another URL).
  */
 function sourceClone(sourcesRoot, repo) {
+  // The text comes from a skills.yaml that another person can write. It goes to `git clone` and
+  // into a path: no option (a leading "-"), no "." or ".." part, no space or shell character.
+  const given = String(repo ?? "").trim().split("#")[0];
+  if (!/^[\w.@:/~+-]+$/.test(given) || given.startsWith("-") || given.split(/[/:]/).some((part) => part === "." || part === ".." || part.startsWith("-"))) {
+    return { dir: null, url: null, exists: false, error: `"${given}" is not a repository of skills (owner/name or a Git URL).` };
+  }
   const key = repoKey(repo);
   const slug = /^[\w.-]+\/[\w.-]+$/.test(key);
   const dir = join(sourcesRoot, slug ? key : key.replace(/[^\w.-]+/g, "_"));
@@ -163,7 +169,7 @@ function clonesOf({ clone, catalogRepo, sourcesRoot }) {
     const key = repoKey(repo);
     if (!cache.has(key)) {
       const s = sourceClone(sourcesRoot, repo);
-      cache.set(key, s.exists ? { dir: s.dir, skills: cloneSkills(s.dir) } : null);
+      cache.set(key, s.dir && s.exists ? { dir: s.dir, skills: cloneSkills(s.dir) } : null);
     }
     return cache.get(key);
   };
@@ -327,6 +333,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
 
   const block = readBlock(project);
   const tracked = trackedNames(project);
+  const cloneRoot = clone ? real(clone) : null;
 
   // What the Manifest asks for: Map<skill, { repo, from }>.
   const required = new Map();
@@ -364,7 +371,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
     const hasDir = entries.some((e) => e.kind === "dir");
     if (wanted) {
       const from = clones.of(wanted.repo);
-      if (!from) return [sameRepo(wanted.repo, repo) || !repo ? "absent" : "unsupported", wanted.repo];
+      if (!from) return [repo && sameRepo(wanted.repo, repo) ? "absent" : "unsupported", wanted.repo];
       const target = from.skills.get(name);
       const to = target ? real(target) : null;
       if (!to) return ["absent", wanted.repo];
@@ -384,7 +391,9 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
     // An Extra skill: every link points to one skill folder that is still there.
     const to = links[0].to;
     const good = Boolean(to) && links.every((e) => e.to === to) && fs.existsSync(join(to, "SKILL.md"));
-    const from = good ? repoOfFolder(to) ?? repo : repo;
+    // A target in the Clone of the Catalog is of the Catalog, also when the `origin` of that clone has another name.
+    const inCatalog = good && cloneRoot && (to === cloneRoot || to.startsWith(cloneRoot + sep));
+    const from = good && !inCatalog ? repoOfFolder(to) ?? repo : repo;
     // Without a Catalog to compare with, a link of this tool is never Stale: nothing is offered for removal.
     if (!catalog) return ["extra", from];
     return [good && (block.extra.has(name) || !result.manifest) ? "extra" : "stale", from];
@@ -575,9 +584,10 @@ function cli(args) {
   const cloneErrors = [];
   for (const repo of new Set(state.rows.filter((r) => r.state === "unsupported" && r.from.length).map((r) => r.repo))) {
     const s = sourceClone(sourcesRoot, repo);
+    if (!s.dir) { cloneErrors.push(s.error); continue; }
     console.log(`${dryRun ? "[dry run] " : ""}git clone ${s.url} ${slashed(s.dir)}`);
     if (dryRun) continue;
-    try { fs.mkdirSync(dirname(s.dir), { recursive: true }); execFileSync("git", ["clone", "--quiet", s.url, s.dir], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" }); }
+    try { fs.mkdirSync(dirname(s.dir), { recursive: true }); execFileSync("git", ["clone", "--quiet", "--", s.url, s.dir], { stdio: ["ignore", "ignore", "pipe"], encoding: "utf8" }); }
     catch (e) { cloneErrors.push(`${repo}: ${String(e.stderr || e.message).trim().split("\n").pop()}`); }
   }
   state = read({ project, clone, sourcesRoot });
