@@ -47,6 +47,8 @@ const SAFE_NAME = /^(?!\.+$)[\w.-]+$/;
 const DEFAULT_SOURCES = join(os.homedir(), ".config", "herdr-app", "cache", "skill-bundles", "sources");
 
 const slashed = (p) => String(p).split("\\").join("/");
+/** An error with a stable code. A tool in another language shows its own text for the code (see `problems` of apply and curate). */
+const fault = (code, text) => Object.assign(new Error(text), { code });
 const git = (dir, args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 << 20 });
 const tryGit = (dir, args) => { try { return git(dir, args).trim(); } catch { return null; } };
 
@@ -98,7 +100,7 @@ export function parseManifest(text) {
     if (/^bundles:\s*$/i.test(line)) { section = "bundles"; continue; }
     if (/^skills:\s*$/i.test(line)) { section = "skills"; continue; }
     if (/^sources:\s*$/i.test(line)) { section = "sources"; continue; }
-    if (/^\S/.test(line)) { section = null; continue; } // another key at the top
+    if (/^[A-Za-z_][\w-]*\s*:/.test(line)) { section = null; continue; } // another key at the top
     if (section === "bundles" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { bundles.push(unquote(m[1])); continue; }
     if (section === "skills" && (m = /^\s*-\s*(.+?)\s*$/i.exec(line))) { skills.push(unquote(m[1])); continue; }
     if (section === "sources") {
@@ -385,6 +387,15 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
   }
 
   const none = AGENT_DIRS.map(() => ({ kind: "none" }));
+  // The repository of a Lock entry. A wizard that installed from a folder of the Clone wrote that
+  // folder as the source (type "local"): such a copy is a copy of the Catalog.
+  const lockSource = (entry) => {
+    if (!entry?.source) return null;
+    if (entry.sourceType !== "local" || !cloneRoot) return entry.source;
+    const at = real(resolve(project, entry.source));
+    return at && (at === cloneRoot || at.startsWith(cloneRoot + sep)) ? repo : entry.source;
+  };
+
   // The state of a skill, and the repository that it comes from: [state, repo].
   const stateOf = (name, wanted) => {
     const entries = found.get(name) ?? none;
@@ -400,7 +411,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
       return [entries.every((e) => e.kind === "link" && e.to === to) ? "linked" : "missing", wanted.repo];
     }
     if (hasDir) {
-      const source = lock[name]?.source;
+      const source = lockSource(lock[name]);
       if (!source) return ["local", ""];
       const from = clones.of(source);
       if (!from) return ["unsupported", source];
@@ -428,7 +439,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
     const [state, from] = stateOf(name, null);
     result.rows.push({ name, state, repo: from, from: [], tracked: tracked.has(name) });
   }
-  result.lockOther = Object.values(lock).filter((e) => !clones.of(e?.source)).length;
+  result.lockOther = Object.values(lock).filter((e) => !clones.of(lockSource(e))).length;
   return result;
 }
 
@@ -436,7 +447,7 @@ function read({ project, clone, catalogRepo = null, sourcesRoot = null }) {
 
 /** Removes a link (never what it points to). */
 function unlink(path) {
-  if (!lstat(path)?.isSymbolicLink()) throw new Error(`${slashed(path)} is not a link.`);
+  if (!lstat(path)?.isSymbolicLink()) throw fault("not_a_link", `${slashed(path)} is not a link.`);
   try { fs.unlinkSync(path); } catch { fs.rmdirSync(path); }
 }
 
@@ -469,7 +480,8 @@ function backup(project, path, name) {
  */
 function apply(input) {
   const { project, clone, dryRun = false } = input;
-  const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [] };
+  // errors: English texts. problems: the same errors as { code, name, text }, for a tool in another language.
+  const done = { linked: [], removed: [], converted: [], backedUp: [], deleted: [], retired: [], errors: [], problems: [] };
   const state = read(input);
   if (!state.git) throw new Error(`${slashed(project)} is not in a Git repository.`);
   const rows = new Map(state.rows.map((r) => [r.name, r]));
@@ -481,11 +493,12 @@ function apply(input) {
   let lockText = null;
   try { lockText = fs.readFileSync(join(project, "skills-lock.json"), "utf8"); lock = JSON.parse(lockText); } catch {}
   const names = (list) => [...new Set(list ?? [])].filter((n) => SAFE_NAME.test(n));
-  const attempt = (name, work) => { try { if (!dryRun) work(); return true; } catch (e) { done.errors.push(`${name}: ${e.message ?? e}`); return false; } };
+  const report = (code, name, text) => { done.errors.push(`${name}: ${text}`); done.problems.push({ code, name, text }); };
+  const attempt = (name, work) => { try { if (!dryRun) work(); return true; } catch (e) { report(e.code && !/^E[A-Z]+$/.test(e.code) ? e.code : "io", name, String(e.message ?? e)); return false; } };
 
   const linkOne = (name, force) => {
     const target = targetOf(name);
-    if (!target) throw new Error("the clone does not have this skill.");
+    if (!target) throw fault("not_in_clone", "the clone does not have this skill.");
     const to = real(target);
     const entry = lock?.skills?.[name];
     for (const sub of AGENT_DIRS) {
@@ -493,7 +506,7 @@ function apply(input) {
       const e = entryAt(path);
       if (e.kind === "link") {
         if (e.to === to) { block.links.add(linkLine(sub, name)); continue; }
-        if (!force && !block.links.has(linkLine(sub, name)) && rows.get(name)?.state !== "copy") throw new Error(`${sub}/${name} is a link that this tool did not make.`);
+        if (!force && !block.links.has(linkLine(sub, name)) && rows.get(name)?.state !== "copy") throw fault("foreign_link", `${sub}/${name} is a link that this tool did not make.`);
         unlink(path);
       }
     }
@@ -504,7 +517,7 @@ function apply(input) {
       if (e.kind === "dir") {
         if (!force && unchanged(path, entry, target)) fs.rmSync(path, { recursive: true, force: true });
         else { backup(project, path, name); block.backup = true; if (!done.backedUp.includes(name)) done.backedUp.push(name); }
-      } else if (e.kind === "file") throw new Error(`${sub}/${name} is a file.`);
+      } else if (e.kind === "file") throw fault("is_file", `${sub}/${name} is a file.`);
       if (entryAt(path).kind === "none") makeLink(target, path);
       block.links.add(linkLine(sub, name));
     }
@@ -576,9 +589,20 @@ function apply(input) {
       const text = JSON.stringify(lock, null, 2) + "\n";
       if (JSON.stringify(JSON.parse(lockText)) !== JSON.stringify(lock)) fs.writeFileSync(path, text);
     } else if (tryGit(project, ["ls-files", "--", "skills-lock.json"])) {
-      done.errors.push("skills-lock.json is empty now, but Git tracks it. Delete it with git rm.");
+      report("lock_tracked", "skills-lock.json", "it is empty now, but Git tracks it. Delete it with git rm.");
     } else fs.rmSync(path, { force: true });
   }
+
+  // The state file of an older terminal tool of a Catalog (.colibri-skills.json): the skills that are
+  // links now leave it, and an empty file is deleted (with its lock file).
+  const statePath = join(project, ".colibri-skills.json");
+  try {
+    const state0 = JSON.parse(fs.readFileSync(statePath, "utf8"));
+    let changed = false;
+    for (const name of [...done.linked, ...done.converted]) if (state0?.skills?.[name]) { delete state0.skills[name]; changed = true; }
+    if (changed && Object.keys(state0.skills).length) fs.writeFileSync(statePath, JSON.stringify(state0, null, 2) + "\n");
+    else if (changed && !tryGit(project, ["ls-files", "--", ".colibri-skills.json"])) { fs.rmSync(statePath, { force: true }); fs.rmSync(`${statePath}.lock`, { force: true }); }
+  } catch {}
 
   if (input.dropGitignore) {
     const path = join(project, ".gitignore");
@@ -590,7 +614,7 @@ function apply(input) {
       const kept = lines.filter((l, i) => !(OLD_GITIGNORE_LINES.has(l.trim()) || (at >= 0 && (i === at || (i === at + 1 && l.trim().startsWith("#"))))));
       while (kept.length > 1 && !kept[kept.length - 1].trim() && !kept[kept.length - 2].trim()) kept.pop();
       fs.writeFileSync(path, kept.join(nl));
-    } catch (e) { done.errors.push(`.gitignore: ${e.message ?? e}`); }
+    } catch (e) { report("io", ".gitignore", String(e.message ?? e)); }
   }
   return done;
 }
@@ -618,17 +642,20 @@ function catalogDetails(clone) {
  *   deleteBundle  [name]                    removes the Bundle (not its skill folders; not core)
  *   deleteSkill   [name]                    deletes the skill folder and takes it out of every Bundle
  * It commits nothing: the person reviews the clone and commits.
- * Returns { changed: [text of each change], errors }.
+ * Returns { changed, errors, problems } (see the top of the function).
  */
 function curate(input) {
   const { clone } = input;
-  const done = { changed: [], errors: [] };
+  // changed: [{ action, skill, bundle }] with action "create" | "assign" | "unassign" | "delete_bundle" | "delete_skill".
+  // errors: English texts. problems: the same errors as { code, name, text }.
+  const done = { changed: [], errors: [], problems: [] };
   const path = join(clone, "bundles.yaml");
   const before = fs.readFileSync(path, "utf8");
   const nl = before.includes("\r\n") ? "\r\n" : "\n";
   let lines = before.split(/\r?\n/);
   const skills = cloneSkills(clone);
-  const header = (name) => lines.findIndex((l) => new RegExp(`^  ${name}:\\s*$`).test(uncomment(l)));
+  // A name goes into a pattern: only a valid Bundle name is looked for.
+  const header = (name) => (CATALOG_NAME.test(name ?? "") ? lines.findIndex((l) => new RegExp(`^  ${name}:\\s*$`).test(uncomment(l))) : -1);
   // The lines of a Bundle: [its header, the line after its last one).
   const span = (at) => {
     let end = at + 1;
@@ -638,28 +665,28 @@ function curate(input) {
   };
   const skillsLine = (at, end) => { for (let i = at + 1; i < end; i++) if (/^\s*skills:/i.test(uncomment(lines[i]))) return i; return -1; };
   const items = (at, end) => { const out = []; const from = skillsLine(at, end); for (let i = from + 1; from >= 0 && i < end; i++) { const m = /^(\s*)-\s*(.+?)\s*$/.exec(uncomment(lines[i])); if (m) out.push({ i, name: unquote(m[2]), indent: m[1] }); } return out; };
-  const fail = (text) => { done.errors.push(text); };
+  const fail = (code, name, text) => { done.errors.push(`${name}: ${text}`); done.problems.push({ code, name: String(name), text }); };
 
   for (const b of input.createBundle ?? []) {
-    if (!CATALOG_NAME.test(b?.name ?? "")) { fail(`${b?.name}: a Bundle name has lower-case letters, digits, "-" and "_".`); continue; }
-    if (header(b.name) >= 0) { fail(`${b.name}: this Bundle is there already.`); continue; }
+    if (!CATALOG_NAME.test(b?.name ?? "")) { fail("bad_bundle_name", b?.name, 'a Bundle name has lower-case letters, digits, "-" and "_".'); continue; }
+    if (header(b.name) >= 0) { fail("bundle_exists", b.name, "this Bundle is there already."); continue; }
     const description = String(b.description ?? "").replace(/[\r\n]+/g, " ").trim() || b.name;
     while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
     lines.push("", `  ${b.name}:`, `    description: ${JSON.stringify(description)}`, "    skills: []", "");
-    done.changed.push(`new Bundle ${b.name}`);
+    done.changed.push({ action: "create", bundle: b.name });
   }
   for (const a of input.assign ?? []) {
     const at = header(a?.bundle ?? "");
-    if (at < 0) { fail(`${a?.bundle}: no such Bundle.`); continue; }
-    if (!skills.has(a.skill)) { fail(`${a.skill}: the clone has no skill folder with this name.`); continue; }
+    if (at < 0) { fail("no_bundle", a?.bundle, "no such Bundle."); continue; }
+    if (!skills.has(a.skill)) { fail("no_skill", a.skill, "the clone has no skill folder with this name."); continue; }
     const [, end] = span(at);
     const list = items(at, end);
     if (list.some((x) => x.name === a.skill)) continue;
     const from = skillsLine(at, end);
-    if (from < 0) { fail(`${a.bundle}: no "skills:" line.`); continue; }
+    if (from < 0) { fail("no_skills_line", a.bundle, 'no "skills:" line.'); continue; }
     if (list.length) lines.splice(list[list.length - 1].i + 1, 0, `${list[0].indent}- ${a.skill}`);
     else { lines[from] = lines[from].replace(/skills:.*$/i, "skills:"); lines.splice(from + 1, 0, `${/^\s*/.exec(lines[from])[0]}  - ${a.skill}`); }
-    done.changed.push(`${a.skill} → ${a.bundle}`);
+    done.changed.push({ action: "assign", skill: a.skill, bundle: a.bundle });
   }
   const takeOut = (skill, bundle) => {
     const at = header(bundle);
@@ -673,22 +700,22 @@ function curate(input) {
     if (list.length === 1) { const from = skillsLine(at, end - 1); lines[from] = lines[from].replace(/skills:.*$/i, "skills: []"); }
     return true;
   };
-  for (const u of input.unassign ?? []) if (takeOut(u?.skill, u?.bundle)) done.changed.push(`${u.skill} out of ${u.bundle}`);
+  for (const u of input.unassign ?? []) if (takeOut(u?.skill, u?.bundle)) done.changed.push({ action: "unassign", skill: u.skill, bundle: u.bundle });
   for (const name of input.deleteBundle ?? []) {
-    if (name === "core") { fail("core: this Bundle is in every project and stays."); continue; }
+    if (name === "core") { fail("core_stays", "core", "this Bundle is in every project and stays."); continue; }
     const at = header(name);
-    if (at < 0) { fail(`${name}: no such Bundle.`); continue; }
+    if (at < 0) { fail("no_bundle", name, "no such Bundle."); continue; }
     const [, end] = span(at);
     lines.splice(at, end - at);
     while (at > 0 && at < lines.length && !lines[at - 1].trim() && !lines[at].trim()) lines.splice(at, 1);
-    done.changed.push(`Bundle ${name} removed`);
+    done.changed.push({ action: "delete_bundle", bundle: name });
   }
   for (const name of input.deleteSkill ?? []) {
     const folder = skills.get(name);
-    if (!SAFE_NAME.test(name ?? "") || !folder) { fail(`${name}: the clone has no skill folder with this name.`); continue; }
-    if (!lstat(folder)?.isDirectory() || lstat(folder).isSymbolicLink() || !real(folder)?.startsWith(real(clone) + sep)) { fail(`${name}: its folder is not a plain folder of the clone.`); continue; }
+    if (!SAFE_NAME.test(name ?? "") || !folder) { fail("no_skill", name, "the clone has no skill folder with this name."); continue; }
+    if (!lstat(folder)?.isDirectory() || lstat(folder).isSymbolicLink() || !real(folder)?.startsWith(real(clone) + sep)) { fail("not_plain_folder", name, "its folder is not a plain folder of the clone."); continue; }
     for (const [bundle] of parseCatalog(lines.join("\n")).bundles) takeOut(name, bundle);
-    try { fs.rmSync(folder, { recursive: true, force: true }); done.changed.push(`skill ${name} deleted`); } catch (e) { fail(`${name}: ${e.message ?? e}`); }
+    try { fs.rmSync(folder, { recursive: true, force: true }); done.changed.push({ action: "delete_skill", skill: name }); } catch (e) { fail("io", name, String(e.message ?? e)); }
   }
   const after = lines.join(nl);
   if (after !== before && !input.dryRun) fs.writeFileSync(path, after);

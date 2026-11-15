@@ -43,7 +43,7 @@ ok(d.orphans.join() === "d,e" && d.skills.find((s) => s.name === "a").bundles.jo
 
 d = run({ op: "curate", clone, assign: [{ skill: "d", bundle: "core" }, { skill: "d", bundle: "web" }, { skill: "a", bundle: "core" }] });
 let b = bundles();
-ok(b.core.join() === "a,b,d" && b.web.join() === "c,d" && d.changed.length === 2 && !d.errors.length, "assign adds d to 2 Bundles; a skill that is there already is no change");
+ok(b.core.join() === "a,b,d" && b.web.join() === "c,d" && d.changed.length === 2 && d.changed[0].action === "assign" && d.changed[0].bundle === "core" && !d.errors.length, "assign adds d to 2 Bundles; a skill that is there already is no change");
 ok(yaml().startsWith("# The Catalog of the team.\n# Keep this header.\n") && yaml().includes("  # Web front ends.\n  web:") && yaml().includes("      - b   \n      - d\n"), "the comments and the other lines stay as they were");
 
 d = run({ op: "curate", clone, createBundle: [{ name: "data", description: "Data: SQL and reports." }], assign: [{ skill: "e", bundle: "data" }] });
@@ -58,6 +58,10 @@ ok(bundles().data.join() === "e" && !yaml().includes("skills: []"), "a skill goe
 d = run({ op: "curate", clone, assign: [{ skill: "zz", bundle: "core" }, { skill: "a", bundle: "nope" }], createBundle: [{ name: "Bad Name" }, { name: "web" }], deleteBundle: ["core"] });
 ok(d.errors.length === 5 && d.changed.length === 0 && bundles().core.join() === "a,b,d", "bad names, a missing skill, a missing Bundle and core: errors, no change");
 
+// A Bundle name is never a pattern: ".*" must not match core.
+d = run({ op: "curate", clone, deleteBundle: [".*"], unassign: [{ skill: "a", bundle: ".*" }], assign: [{ skill: "e", bundle: "c.re" }] });
+ok(d.changed.length === 0 && d.problems.map((p) => p.code).join() === "no_bundle,no_bundle" && bundles().core.join() === "a,b,d", "a pattern as a Bundle name changes nothing");
+ok(d.problems.every((p) => p.code && p.name && p.text), "each problem has a code, a name and a text");
 d = run({ op: "curate", clone, deleteBundle: ["web"] });
 b = bundles();
 ok(!("web" in b) && !yaml().includes("Web: front ends") && fs.existsSync(join(clone, "SKILLS/c/SKILL.md")) && "data" in b, "a deleted Bundle is gone; its skill folders stay");

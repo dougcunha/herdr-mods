@@ -142,6 +142,11 @@ ok(/Linked: a/.test(out), "the terminal run links a again");
 w(join(proj, "skills.yaml"), "bundles: [core]\nskills:\n  - c\nother: 1\n  - not-a-skill\n");
 r = run({ op: "read", project: proj, clone: clone2 });
 ok(r.manifest.bundles.join() === "core" && r.manifest.skills.join() === "c" && states(r).c === "missing" && !("not-a-skill" in states(r)), "skills: asks for a skill of the Catalog");
+// A list item without indent is valid YAML: it must not end the list.
+w(join(proj, "skills.yaml"), "bundles:\n- core\n- extra-b\nskills:\n- t\n");
+r = run({ op: "read", project: proj, clone: clone2 });
+ok(r.manifest.bundles.join() === "core,extra-b" && r.manifest.skills.join() === "t", "list items without indent are read");
+w(join(proj, "skills.yaml"), "bundles: [core]\nskills:\n  - c\n");
 // A link of an older version in .codex/skills is removed by the next change, with its line of the block.
 const ex = join(proj, ".git/info/exclude");
 fs.mkdirSync(join(proj, ".codex/skills"), { recursive: true });
