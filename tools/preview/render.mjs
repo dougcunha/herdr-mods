@@ -81,10 +81,18 @@ function render(app, exe) {
       `--screenshot=${out}`,
       pathToFileURL(page).href,
     ], { stdio: "pipe" });
+    // The browser can return before it writes the file (it hands the work to a process that
+    // runs already). Wait for a new file: an old preview.png must not count as the result.
+    const before = existsSync(out) ? readFileSync(out) : null;
+    for (let i = 0; i < 60 && (!existsSync(out) || (before && readFileSync(out).equals(before))); i++) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+    if (!existsSync(out) || (before && readFileSync(out).equals(before))) throw new Error(`${app}: the browser wrote no new preview.png`);
     const size = pngSize(out);
     console.log(`${app}: ${variant} -> preview.png ${size.w}x${size.h}`);
   } finally {
-    rmSync(work, { recursive: true, force: true });
+    // The browser can still hold its profile folder for a moment.
+    rmSync(work, { recursive: true, force: true, maxRetries: 20, retryDelay: 300 });
   }
 }
 
