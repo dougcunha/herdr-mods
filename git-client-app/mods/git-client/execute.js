@@ -2,10 +2,10 @@
 // against disposable repositories. exec has Herdr's (program, argv, options) shape.
 // io: { writePatch(text) → path, remove(path) }, for hunk patches in a local repository,
 // and appendLine(file, line), for the ignore files of a local repository.
-import { READ, commandsFor, gitError, ignoreLine, parentDirs } from "./git.js";
+import { READ, commandsFor, gitError, ignoreLine, ignoreChoices } from "./git.js";
 
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
-const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreDir", "untrack", "stageHunk", "unstageHunk", "discardHunk",
+const STAGING = new Set(["stage", "unstage", "discard", "ignore", "untrack", "stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove"]);
@@ -14,11 +14,11 @@ const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discard
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
   if (HUNK[action.type]) return applyPatch(action.patch, HUNK[action.type], ctx, exec, io);
-  if (action.type === "ignore") return addIgnore(action, ctx, exec, io);
-  if (action.type === "ignoreDir") {
-    // Only a folder of the file: the value of the dialog never names an other path.
-    if (!parentDirs(action.path).includes(values.dir)) return { ok: false, message: "Invalid folder" };
-    return addIgnore({ path: values.dir, where: values.local ? "exclude" : "gitignore", dir: true }, ctx, exec, io);
+  if (action.type === "ignore") {
+    // Only a line that the dialog offers for this file: a value never names an other path.
+    const pick = typeof action.path === "string" && action.path ? ignoreChoices(action.path).find((c) => c.value === values.what) : null;
+    if (!pick) return { ok: false, message: "Invalid choice" };
+    return addIgnore(pick.line, values.local ? "exclude" : "gitignore", ctx, exec, io);
   }
   if (action.type === "untrack" && !["gitignore", "exclude"].includes(values.where)) return { ok: false, message: "Invalid ignore file" };
   const commands = commandsFor(action, values, ctx);
@@ -52,7 +52,7 @@ export async function executeAction(action, values, ctx, exec, io = null) {
     if (result.code !== 0) return { ok: false, message: gitError(result) };
   }
   if (action.type === "untrack") {
-    const added = await addIgnore({ path: action.path, where: values.where }, ctx, exec, io);
+    const added = await addIgnore(ignoreLine(action.path), values.where, ctx, exec, io);
     if (!added.ok) return { ok: false, message: `Git stopped tracking ${action.path}, but the ignore file did not change.\n${added.message}` };
   }
   return { ok: true };
@@ -76,17 +76,15 @@ async function applyPatch(patch, flags, ctx, exec, io) {
   return { ok: true };
 }
 
-// Adds a line for one file (or one folder, with `dir`) to the .gitignore at the top of the work tree, or to the exclude file
+// Adds a line to the .gitignore at the top of the work tree, or to the exclude file
 // of the repository (its own for a worktree: git says where). A line that is already there stays once.
-async function addIgnore(action, ctx, exec, io) {
-  if (typeof action.path !== "string" || !action.path) return { ok: false, message: "Invalid path" };
+async function addIgnore(line, where, ctx, exec, io) {
   let file = `${ctx.root}/.gitignore`;
-  if (action.where === "exclude") {
+  if (where === "exclude") {
     const r = await exec("git", [...READ, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"], { cwd: ctx.root, on: ctx.on });
     if (r.code !== 0 || !r.stdout.trim()) return { ok: false, message: gitError(r) || "Cannot find the exclude file" };
     file = r.stdout.trim();
   }
-  const line = ignoreLine(action.path, Boolean(action.dir));
   if (ctx.on) {
     // Makes the folder, ends an unfinished last line, and adds the line when it is not there.
     const script = 'mkdir -p "$(dirname "$1")" && touch "$1" && { grep -qxF -- "$2" "$1" || { [ -s "$1" ] && [ -n "$(tail -c1 "$1")" ] && echo >> "$1"; printf "%s\\n" "$2" >> "$1"; }; }';

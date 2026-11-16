@@ -109,35 +109,41 @@ assert.equal(opNow(), null);
 assert.equal(git(repo, ["rev-list", "--parents", "-n1", "HEAD"]).stdout.trim().split(" ").length, 3, "a merge commit, no editor");
 assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operation/);
 
-// ---- ignore and exclude an untracked file (here, and through `sh -c` as on another machine)
+// ---- ignore an untracked file: the file itself, here and through `sh -c` as on another machine
 {
   assert.equal(G.ignoreLine("a b/x*[1].txt "), "/a b/x\\*\\[1].txt\\ ");
   const untracked = () => status(repo).filter((f) => f.untracked).map((f) => f.path);
-  const item = (path, where) => G.menuFor({ kind: "file", side: "unstaged", file: { path, untracked: true } }, ctx()).flat().find((i) => i.action?.where === where);
+  const types = (file) => G.menuFor({ kind: "file", side: "unstaged", file }, ctx()).flat().map((i) => i.action?.type);
+  assert.equal(types({ path: "skip.log", untracked: true }).filter((t) => t === "ignore").length, 1, "one menu item: the dialog asks the rest");
+  assert.equal(types({ path: "a.txt", untracked: false }).includes("ignore"), false);
+  const ignore = (path, what, local, c = ctx()) => run({ type: "ignore", path }, { what, local }, c);
   writeFileSync(join(repo, "skip.log"), "x\n"); writeFileSync(join(repo, "local.tmp"), "x\n"); writeFileSync(join(repo, "far.tmp"), "x\n");
   writeFileSync(join(repo, ".gitignore"), "node_modules");
-  await run(item("skip.log", "gitignore").action);
-  await run(item("skip.log", "gitignore").action);
+  assert.deepEqual(G.initialValues({ type: "ignore", path: "skip.log" }, ctx()), { what: "file", local: false });
+  await ignore("skip.log", "file", false);
+  await ignore("skip.log", "file", false);
   assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "node_modules\n/skip.log\n", "ends the last line, adds once");
-  await run(item("local.tmp", "exclude").action);
+  await ignore("local.tmp", "file", true);
   assert.match(readFileSync(join(repo, ".git/info/exclude"), "utf8"), /\n\/local\.tmp\n$/);
-  await run({ type: "ignore", path: "far.tmp", where: "exclude" }, {}, { ...ctx(), on: "remote" });
-  await run({ type: "ignore", path: "far.tmp", where: "exclude" }, {}, { ...ctx(), on: "remote" });
+  await ignore("far.tmp", "file", true, { ...ctx(), on: "remote" });
+  await ignore("far.tmp", "file", true, { ...ctx(), on: "remote" });
   assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/\/far\.tmp/g).length, 1);
   assert.deepEqual(untracked(), [".gitignore"]);
-  assert.equal(G.menuFor({ kind: "file", side: "unstaged", file: { path: "a.txt", untracked: false } }, ctx()).flat().some((i) => i.action?.type === "ignore"), false);
+  for (const what of [undefined, "dir:src", "ext"]) assert.equal((await executeAction({ type: "ignore", path: "Makefile" }, { what, local: false }, ctx(), exec, io)).ok, false, "only a choice of the dialog");
   unlinkSync(join(repo, ".gitignore"));
 }
 
-// ---- ignore a folder, and stop tracking a file (here, and through `sh -c` as on another machine)
+// ---- ignore a folder or an extension, and stop tracking a file
 {
   const { mkdirSync } = await import("node:fs");
   assert.deepEqual(G.parentDirs("a/b/c.txt"), ["a", "a/b"]);
   assert.deepEqual(G.parentDirs("c.txt"), []);
   assert.equal(G.ignoreLine("out [1]/sub dir", true), "/out \\[1]/sub dir/");
+  assert.deepEqual(G.ignoreChoices("a/b/c.min.js").map((c) => [c.value, c.label, c.line]),
+    [["file", "c.min.js", "/a/b/c.min.js"], ["ext", "*.js", "*.js"], ["dir:a/b", "a/b/", "/a/b/"], ["dir:a", "a/", "/a/"]]);
+  assert.deepEqual(G.ignoreChoices(".env").map((c) => c.value), ["file"], "a dot file has no extension, a file at the top has no folder");
+  assert.deepEqual(G.ignoreChoices("x/Makefile").map((c) => c.value), ["file", "dir:x"]);
   const menu = (file, side = "unstaged") => G.menuFor({ kind: "file", side, file }, ctx()).flat().map((i) => i.action?.type);
-  assert.ok(menu({ path: "out/x.o", untracked: true }).includes("ignoreDir"));
-  assert.ok(!menu({ path: "x.o", untracked: true }).includes("ignoreDir"), "a file at the top has no folder");
   assert.ok(menu({ path: "a.txt", untracked: false, status: "M" }).includes("untrack"));
   assert.ok(!menu({ path: "a.txt", untracked: false, status: "D" }).includes("untrack"), "a deleted file is not on disk");
   assert.ok(!menu({ path: "a.txt", untracked: false, status: "U" }, "conflict").includes("untrack"));
@@ -145,20 +151,25 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
 
   unlinkSync(join(repo, "skip.log")); // of the block above: its .gitignore is gone
   for (const d of ["out [1]/sub dir", "out [1]/other", "keep"]) mkdirSync(join(repo, d), { recursive: true });
-  for (const f of ["out [1]/sub dir/a.o", "out [1]/sub dir/b.o", "out [1]/other/c.o", "keep/d.o"]) writeFileSync(join(repo, f), "x\n");
+  for (const f of ["out [1]/sub dir/a.o", "out [1]/sub dir/b.o", "out [1]/other/c.o", "keep/d.o", "keep/e.bak", "f.bak"]) writeFileSync(join(repo, f), "x\n");
   const untracked = () => status(repo).filter((f) => f.untracked).map((f) => f.path).sort();
-  const dirAction = { type: "ignoreDir", path: "out [1]/sub dir/a.o" };
-  assert.deepEqual(G.initialValues(dirAction, ctx()), { dir: "out [1]/sub dir", local: false }, "the folder of the file first");
-  assert.equal((await executeAction(dirAction, { dir: "keep", local: false }, ctx(), exec, io)).ok, false, "only a folder of the file");
-  await run(dirAction, { dir: "out [1]/sub dir", local: true });
-  await run(dirAction, { dir: "out [1]/sub dir", local: true }, { ...ctx(), on: "remote" });
+  const action = { type: "ignore", path: "out [1]/sub dir/a.o" };
+  assert.deepEqual(G.dialogFor(action, ctx()).choice.options.map((o) => o.value), ["file", "ext", "dir:out [1]/sub dir", "dir:out [1]"]);
+  assert.equal((await executeAction(action, { what: "dir:keep", local: false }, ctx(), exec, io)).ok, false, "only a folder of the file");
+  await run(action, { what: "dir:out [1]/sub dir", local: true });
+  await run(action, { what: "dir:out [1]/sub dir", local: true }, { ...ctx(), on: "remote" });
   assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/^\/out \\\[1\]\/sub dir\/$/gm).length, 1, "once");
-  assert.deepEqual(untracked(), ["keep/d.o", "out [1]/other/c.o"], "the other folders stay");
-  await run(dirAction, { dir: "out [1]", local: false });
+  assert.deepEqual(untracked(), ["f.bak", "keep/d.o", "keep/e.bak", "out [1]/other/c.o"], "the other folders stay");
+  await run(action, { what: "dir:out [1]", local: false });
   assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "/out \\[1]/\n");
-  assert.deepEqual(untracked(), [".gitignore", "keep/d.o"]);
-  assert.equal(G.doneText(dirAction, { dir: "out [1]", local: false }), "Added out [1]/ to .gitignore");
-  unlinkSync(join(repo, ".gitignore")); rmSync(join(repo, "out [1]"), { recursive: true }); rmSync(join(repo, "keep"), { recursive: true });
+  assert.deepEqual(untracked(), [".gitignore", "f.bak", "keep/d.o", "keep/e.bak"]);
+  assert.equal(G.doneText(action, { what: "dir:out [1]", local: false }), "Added /out \\[1]/ to .gitignore");
+  // An extension: in every folder.
+  await run({ type: "ignore", path: "keep/e.bak" }, { what: "ext", local: false });
+  assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "/out \\[1]/\n*.bak\n");
+  assert.deepEqual(untracked(), [".gitignore", "keep/d.o"], "f.bak at the top too");
+  assert.equal(G.doneText({ type: "ignore", path: "keep/e.bak" }, { what: "ext", local: true }), "Added *.bak to .git/info/exclude");
+  unlinkSync(join(repo, ".gitignore")); unlinkSync(join(repo, "f.bak")); rmSync(join(repo, "out [1]"), { recursive: true }); rmSync(join(repo, "keep"), { recursive: true });
 
   // Stop tracking: out of the index, still on disk, a line in the ignore file.
   const xy = (path) => { const f = status(repo).find((s) => s.path === path); return f ? `${f.x}${f.y}` : null; };
