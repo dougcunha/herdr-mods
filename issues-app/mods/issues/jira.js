@@ -81,12 +81,14 @@ export async function metaFields(site) {
   return { sprint: sprint?.id ?? null, points };
 }
 // The sprint of a Sprint value (a list of sprints; an old site sends strings "…[name=X,state=ACTIVE,…]"):
-// the active one, else the next one, else the last. { name, state: "active" | "future" | "closed" }.
+// the active one, else the next one, else the last.
+// { name, state: "active" | "future" | "closed", id, board, start } (id, board and start: null when Jira sends none).
 export function sprintOf(v) {
   const list = (Array.isArray(v) ? v : v ? [v] : []).map((s) => {
-    if (s && typeof s === "object") return { name: String(s.name ?? ""), state: String(s.state ?? "").toLowerCase() };
-    const m = /name=([^,\]]*)/.exec(String(s)), st = /state=([^,\]]*)/.exec(String(s));
-    return m ? { name: m[1], state: (st?.[1] ?? "").toLowerCase() } : null;
+    if (s && typeof s === "object") return { name: String(s.name ?? ""), state: String(s.state ?? "").toLowerCase(), id: s.id ?? null, board: s.boardId ?? null, start: s.startDate ?? null };
+    const part = (name) => { const x = new RegExp(`${name}=([^,\\]]*)`).exec(String(s))?.[1]; return x && x !== "<null>" ? x : null; };
+    const name = part("name");
+    return name ? { name, state: (part("state") ?? "").toLowerCase(), id: Number(part("id")) || null, board: Number(part("rapidViewId")) || null, start: part("startDate") } : null;
   }).filter((s) => s?.name);
   return list.find((s) => s.state === "active") ?? list.find((s) => s.state === "future") ?? list.at(-1) ?? null;
 }
@@ -199,10 +201,12 @@ export async function moveIssue(site, key, id) {
 
 // Only what the list shows: raw issues (links with their whole target issues) make
 // every render slow enough for the app to interrupt it.
-function slim(i, site) {
+function slim(i, site, sprintField) {
   const f = i.fields;
   return {
     key: i.key, site,
+    // For the Sprint and Next sprint chips. Null: no sprint, or a site without a Sprint field.
+    sprint: sprintField ? sprintOf(f[sprintField]) : null,
     // For the filters: Assigned to me and Created by me.
     assignees: f.assignee ? [f.assignee.accountId] : [], author: f.reporter?.accountId ?? null,
     blocked: (f.issuelinks ?? []).some((l) => l.type?.inward === "is blocked by" && l.inwardIssue
@@ -218,14 +222,26 @@ function slim(i, site) {
   };
 }
 
+// The JQL of the Sprint and Next sprint chips. It takes the place of a project filter that names
+// a sprint ("sprint in openSprints()" finds nothing between 2 sprints); an other filter stays.
+const SPRINT_JQL = { current: "sprint in openSprints()", next: "sprint in futureSprints()" };
+const narrowed = (p, sprint) => {
+  const own = SPRINT_JQL[sprint];
+  if (!own) return p.filter ? ` AND (${p.filter})` : "";
+  return `${p.filter && !/\bsprint\b/i.test(p.filter) ? ` AND (${p.filter})` : ""} AND ${own}`;
+};
+
 // Open issues of one linked project, at most CAP: newest first, or in backlog order (Rank).
-export async function search(p, order) {
-  const jql = `project = "${p.key}" AND statusCategory != Done${p.filter ? ` AND (${p.filter})` : ""} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
+// `sprint` ("current" | "next", optional): only the issues of the open sprints or of the future sprints.
+export async function search(p, order, sprint = null) {
+  // The list must load on a site without a Sprint field too.
+  const sprintField = (await metaFields(p.site).catch(() => null))?.sprint ?? null;
+  const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
   const issues = [];
   let nextPageToken;
   do {
-    const page = await call(p.site, "/rest/api/3/search/jql", { jql, fields: FIELDS, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
-    issues.push(...(page.issues ?? []).map((i) => slim(i, p.site)));
+    const page = await call(p.site, "/rest/api/3/search/jql", { jql, fields: sprintField ? [...FIELDS, sprintField] : FIELDS, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
+    issues.push(...(page.issues ?? []).map((i) => slim(i, p.site, sprintField)));
     nextPageToken = page.isLast ? null : page.nextPageToken;
   } while (nextPageToken && issues.length < CAP);
   return { issues: issues.slice(0, CAP), capped: Boolean(nextPageToken) };

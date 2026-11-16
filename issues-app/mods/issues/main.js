@@ -23,7 +23,7 @@ import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
-import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, loadPeople, tint } from "./links.js";
+import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -136,6 +136,19 @@ async function projects(c) {
   return gh ? { from: "repo", projects: [gh] } : { from: null, projects: [] };
 }
 
+// The next sprint of each board: of the future sprints of the issues, the one that starts first
+// (a sprint without a start date: the lowest id, the order in which Jira made them). A Set of sprint ids.
+function nextSprints(issues) {
+  const first = new Map();
+  const rank = (s) => [s.start ? Date.parse(s.start) || Infinity : Infinity, Number(s.id) || Infinity];
+  for (const { sprint: s } of issues) {
+    if (s?.state !== "future") continue;
+    const best = first.get(s.board), a = rank(s), b = best && rank(best);
+    if (!best || a[0] < b[0] || (a[0] === b[0] && a[1] < b[1])) first.set(s.board, s);
+  }
+  return new Set([...first.values()].map((s) => s.id ?? s.name));
+}
+
 export default class SpaceIssues extends View {
   init(_props, cx) {
     migrateSettings("issues");
@@ -150,7 +163,7 @@ export default class SpaceIssues extends View {
     // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
-    this.query = ""; this.filter = null; this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
+    this.query = ""; this.filter = null; this.sprint = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
     this.width = lastWidth(); this.cache = null; this.signIn = null; this.version = 0; this.gen = 0;
     this.data = new Map(); this.hay = new Map(); this.saved = null; this.versions = 0; this.kept = new Map();
     // The highlight shows only while the keys move it: a clicked row isn't left marked.
@@ -214,6 +227,8 @@ export default class SpaceIssues extends View {
     else if (this.open) return; // the rest act on the list, which a page covers
     else if (name === "down") this.move(1, cx);
     else if (name === "up") this.move(-1, cx);
+    // The sprint chips (Jira only), for a key or `herdr-app do issues.sprint`.
+    else if (name === "sprint" || name === "next-sprint") { if (this.projects.some((p) => !isGithub(p))) this.pickSprint(name === "sprint" ? "current" : "next", cx); }
     else if (name === "open") this.enter(cx);
     else if (name === "browser") { const i = this.issues.find((x) => x.key === this.cursor); if (i) openUrl(browse(i)); }
     else if (name === "link") openLinkDialog("issues");
@@ -258,6 +273,8 @@ export default class SpaceIssues extends View {
     if (!space) { this.loading = false; cx.notify(); return; }
     this.loading = true; cx.notify();
     const current = () => gen === this.gen;
+    // The Sprint and Next sprint chips load a list of their own (jira.js search).
+    const sprint = this.sprint;
     cx.spawn(async (cx) => {
       try {
         const c = await context(space);
@@ -273,13 +290,14 @@ export default class SpaceIssues extends View {
             return github.search(p, where(c.repo, p));
           }
           this.me[p.site] ??= (await myself(p.site)).accountId;
-          return search(p, order());
+          return search(p, order(), sprint);
         }));
         if (!current()) return;
         this.capped = results.some((r) => r.capped); this.error = null; this.signIn = null;
         // Stored when the list or where it comes from changed.
         const meta = JSON.stringify({ repo: this.repo, projects: this.projects, from: this.from, capped: this.capped });
-        if (this.setIssues(results.flatMap((r) => r.issues)) || meta !== this.meta) {
+        // The list of a sprint chip is not stored: the stored list is the one without a chip.
+        if ((this.setIssues(results.flatMap((r) => r.issues)) || meta !== this.meta) && !sprint) {
           this.meta = meta;
           remember(`${space.id}:${order()}`, { repo: this.repo, issues: this.issues, projects: this.projects, from: this.from, capped: this.capped });
         }
@@ -317,7 +335,12 @@ export default class SpaceIssues extends View {
 
   // The filters, like GitHub's: Assigned to me, Created by me, Mentioned (Watching on
   // Jira) and Recent activity (updated in the last 7 days). None picked: every issue.
+  // A sprint chip narrows first, and a filter narrows what is left.
   keep(i) {
+    // Jira only: a GitHub list shows no chip to turn off.
+    const sprint = isGithub(i) ? null : this.sprint;
+    if (sprint === "current" && i.sprint?.state !== "active") return false;
+    if (sprint === "next" && !(i.sprint?.state === "future" && this.nextSprints.has(i.sprint.id ?? i.sprint.name))) return false;
     const me = this.me[i.site];
     if (this.filter === "assigned") return (i.assignees ?? [i.fields.assignee?.accountId]).includes(me);
     if (this.filter === "created") return i.author != null && i.author === me;
@@ -337,7 +360,16 @@ export default class SpaceIssues extends View {
     this.saved = saved; this.issues = issues; this.version = ++this.versions;
     this.data = new Map(issues.map((i) => [i.key, rowData(i)]));
     this.hay = new Map(issues.map((i) => [i.key, haystack(i)]));
+    this.nextSprints = nextSprints(issues);
     return true;
+  }
+
+  // A click on a sprint chip: on, or off when it is on. The list loads again with or without the sprint query.
+  pickSprint(id, cx) {
+    this.sprint = this.sprint === id ? null : id;
+    // No chip: the stored list shows at once, the fresh one loads behind it.
+    if (!this.sprint) this.restore(this.space());
+    this.refresh(cx);
   }
 
   // An issue's page takes the list's place; the list keeps its search and highlight.
@@ -454,7 +486,7 @@ export default class SpaceIssues extends View {
   // issues, with their row data), at most SHOWN issues; `total` is how many match.
   items() {
     const here = this.branchKey();
-    const k = `${this.version}|${this.query}|${this.filter}|${this.mentionsVersion}|${here}`;
+    const k = `${this.version}|${this.query}|${this.filter}|${this.sprint}|${this.mentionsVersion}|${here}`;
     if (this.cache?.k !== k) {
       const ws = words(this.query);
       const groups = rows(this.issues, (i) => matches(this.hay.get(i.key), ws) && this.keep(i), order());
@@ -1009,7 +1041,7 @@ export default class SpaceIssues extends View {
     const { items, total, keyW } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36 };
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const unlinked = !this.loading && !this.error && !this.projects.length;
-    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open issues.");
+    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
     const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
@@ -1041,10 +1073,14 @@ export default class SpaceIssues extends View {
             .child(toggle("token-page", "API tokens ↗", false, () => openUrl(TOKEN_PAGE)))
             .child(toggle("sign-in-help", "Link space", false, () => openLinkDialog("issues")))))));
     const watching = this.projects.length > 0 && this.projects.every((p) => !isGithub(p));
-    const filters = h_flex().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", watching ? "Watching" : "Mentioned"], ["recent", "Recent"]], this.filter, (id, cx) => {
+    // A wrapped row: the sprint chips go under the filters in a narrow panel. GitHub has no sprints.
+    const filters = h_flex().w_full().flex_wrap().gap(6).items_center().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", watching ? "Watching" : "Mentioned"], ["recent", "Recent"]], this.filter, (id, cx) => {
       this.filter = id;
       if (this.filter === "mentioned" && !this.mentions && !this.mentionsLoading) this.loadMentions(cx);
-    }, t));
+    }, t))
+      .when(watching, (e) => e
+        .child(chip(t, "sprint-current", "Sprint", this.sprint === "current", (cx) => this.pickSprint("current", cx)))
+        .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx))));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
     const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close" });
