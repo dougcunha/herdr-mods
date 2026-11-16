@@ -151,19 +151,63 @@ export class AgentDialog extends View {
     const kept = cachedAgents(p.on ?? null);
     if (kept) this.useAgents(kept.list, cx);
     else this.refreshAgents(cx);
+    // The repository: the shown space's, or one the person picks (issues only: see repoSection).
+    this.repoDir = null; this.defaultMain = null; this.pickingRepo = false; this.loadingRepo = false; this.repoError = "";
+    this.repoFilter = InputState.new({ placeholder: "Filter the repositories" });
+    this.repoFilter.on("change", (_e, cx) => cx.notify());
+    this.loadRepo(cx);
+  }
+
+  // Reads the repository of the dialog (the chosen folder, else the space's) and what hangs on it:
+  // its prompts, the branch it is on and the home folder. A newer call wins over an older one.
+  loadRepo(cx) {
+    const p = props() ?? {}, on = p.on ?? null, folder = this.repoDir ?? p.repo;
+    const n = this.repoSeq = (this.repoSeq ?? 0) + 1;
+    this.loadingRepo = true; this.repoError = "";
+    this.main = null; this.base = ""; this.repoTemplates = {}; this.branchState = null; this.branchSeq = (this.branchSeq ?? 0) + 1;
+    cx.notify();
     cx.spawn(async (cx) => {
+      let main = null, templates = {}, base = "", home = "", error = "";
       try {
-        this.main = await mainCheckout(p.repo, p.on ?? null);
-        if (this.main) {
-          this.repoTemplates = await repoPrompts(this.main, p.on ?? null);
-          if (!this.edited) this.fillPrompt();
-          this.base = (await git(this.main, ["rev-parse", "--abbrev-ref", "HEAD"], p.on ?? null)).out;
-          this.home = (await homeOf(p.on ?? null)) ?? "";
-        }
-      } catch (e) { this.error ||= `Cannot read the repository: ${e?.message ?? e}`; }
+        main = await mainCheckout(folder, on);
+        if (main) {
+          templates = await repoPrompts(main, on);
+          base = (await git(main, ["rev-parse", "--abbrev-ref", "HEAD"], on)).out;
+          home = (await homeOf(on)) ?? "";
+        } else if (this.repoDir) error = `Not a git repository: ${folder}`;
+      } catch (e) { error = `Cannot read the repository: ${e?.message ?? e}`; }
+      if (n !== this.repoSeq) return;
+      this.main = main; this.repoTemplates = templates; this.base = base; this.repoError = error;
+      if (home) this.home = home;
+      if (!this.repoDir && main) this.defaultMain = main;
+      this.loadingRepo = false;
+      if (!this.edited) this.fillPrompt();
       this.checkBranch(cx);
       cx.notify();
     });
+  }
+
+  // The repositories the person can pick: the ones of the repo-launcher on this machine (its scan is
+  // kept in shared state), the space's own first, then favorites, recent ones and the rest by name.
+  repoChoices() {
+    const on = props()?.on ?? null;
+    const key = (x) => String(x ?? "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const st = shared("repo-launcher.settings") ?? {};
+    const fav = new Set((st.favorites ?? []).map(key)), recent = st.recent ?? {};
+    const all = (shared("repo-launcher.cache")?.repos ?? []).filter((r) => (r.machine ?? null) === on && r.path);
+    const mine = this.defaultMain ? [{ path: this.defaultMain, name: this.defaultMain.split("/").pop(), space: true }] : [];
+    const seen = new Set(mine.map((r) => key(r.path)));
+    const rest = all.filter((r) => !seen.has(key(r.path)))
+      .sort((a, b) => Number(fav.has(key(b.path))) - Number(fav.has(key(a.path))) || (recent[key(b.path)] ?? 0) - (recent[key(a.path)] ?? 0) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const words = this.repoFilter.value().toLowerCase().split(/\s+/).filter(Boolean);
+    const out = [...mine, ...rest].filter((r) => words.every((w) => `${r.name} ${r.path}`.toLowerCase().includes(w)));
+    return { list: out, scanned: all.length, key };
+  }
+
+  chooseRepo(path, cx) {
+    this.pickingRepo = false;
+    this.repoDir = path && path !== this.defaultMain ? path : null;
+    this.loadRepo(cx);
   }
 
   // Esc, Cancel and Start close it here; the list gets the keyboard back. Not a Herdr hook (a child
@@ -327,7 +371,7 @@ export class AgentDialog extends View {
       return;
     }
     if (!branch) throw new Error("Type a branch name.");
-    const main = this.main ?? await mainCheckout(p.repo, on);
+    const main = this.main ?? await mainCheckout(this.repoDir ?? p.repo, on);
     if (!main) throw new Error("Not a git repository.");
     // PowerMods Core makes the worktree in the central folder, copies the files, runs the setup in a
     // "setup" tab of the new space, and then starts the agent (see powermods-core-app).
@@ -341,6 +385,37 @@ export class AgentDialog extends View {
     notify(r.setup === "running"
       ? { title: `Setting up ${branch}`, body: `${tab ?? branch}${copied} · ${this.agent.name} starts after the setup`, level: "info", timeout: 5000 }
       : { title: `Started ${this.agent.name}`, body: `${tab ?? branch}${copied}`, level: "success", timeout: 4000 });
+  }
+
+  // Repository of a new worktree: the shown space's by default, or any repository of the repo-launcher.
+  repoSection(t, ui) {
+    const chosen = Boolean(this.repoDir), name = this.main ? this.main.split("/").pop() : (this.repoDir ?? props()?.repo ?? "").split(/[\\/]/).pop();
+    const head = h_flex().gap(8).items_center().min_w(0).text_size(fs.meta)
+      .child(div().flex_none().font_semibold().child(this.loadingRepo ? `${name}…` : name || "(none)"))
+      .child(div().flex_none().px(6).py(1).rounded(4).text_size(fs.tiny).bg(chosen ? t.accent + "20" : t.raised).text_color(chosen ? t.accent : t.muted)
+        .child(chosen ? "chosen" : "this space"))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(this.main ? `${this.main} · on ${this.base || "HEAD"}` : ""))
+      .when(chosen, (e) => e.child(ui.button("repo-reset", "Use this space's", "link", true, (cx) => this.chooseRepo(null, cx))))
+      .child(ui.button("repo-change", this.pickingRepo ? "Close" : "Change…", "link", true, (cx) => {
+        this.pickingRepo = !this.pickingRepo;
+        if (this.pickingRepo) { this.repoFilter.set_value(""); this.repoFilter.focus(); }
+        cx.notify();
+      }));
+    let box = v_flex().gap(4).child(ui.label("Repository")).child(head);
+    if (this.repoError) box = box.child(div().text_size(fs.meta).text_color(t.ansi1).child(this.repoError));
+    if (!this.pickingRepo) return box;
+    const { list, scanned, key } = this.repoChoices(), shown = list.slice(0, 50), now = this.main ? key(this.main) : null;
+    const row = (r, i) => h_flex().id(`repo-${i}`).h(30).flex_none().gap(8).items_center().px(8).rounded(4).min_w(0).text_size(fs.meta)
+      .cursor_pointer().hover((s) => s.bg(t.hover)).when(i === 0, (e) => e.bg(t.hover))
+      .on_click((_e, cx) => this.chooseRepo(r.path, cx))
+      .child(div().flex_none().font_semibold().child(r.name))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(r.path))
+      .when(r.space, (e) => e.child(div().flex_none().text_size(fs.tiny).text_color(t.muted).child("this space")))
+      .when(!r.space && key(r.path) === now, (e) => e.child(div().flex_none().text_size(fs.tiny).text_color(t.accent).child("current")));
+    box = box.child(div().px(8).py(4).rounded(6).border_1().border_color(t.accent).text_size(fs.meta).child(Input.new(this.repoFilter)));
+    if (!shown.length) return box.child(ui.hint(scanned ? "No repository matches." : "The repo-launcher has no repositories yet: add a root folder there, then they show here."));
+    box = box.child(v_flex().id("repo-list").h(Math.min(shown.length, 7) * 30 + 2).rounded(6).border_1().border_color(t.border).overflow_y_scrollbar().children(shown.map(row)));
+    return box.child(ui.hint(`${list.length > shown.length ? `${shown.length} of ${list.length}: type to narrow. ` : ""}Enter picks the first one.`));
   }
 
   render(cx) {
@@ -363,12 +438,16 @@ export class AgentDialog extends View {
         .child(v_flex().child(div().text_size(fs.meta).child(a.name))
           .child(div().text_size(fs.tiny).text_color(t.dim).child(!ok ? "not installed" : a.name === lastAgent() ? "last used" : "installed")));
     };
+    // An issue can start in any repository (a new worktree); a pull request belongs to its own.
+    const pickable = this.kind === "issue" && this.target === "worktree";
     const preview = this.prompt.value().split("\n").slice(0, 5).join("\n");
     const path = this.main ? maybeWorktrees()?.preview({ repo: this.main, branch: branch || "…" }) ?? "(PowerMods Core is not running)" : "";
     return v_flex().id("dispatch").size_full().text_size(fs.body).text_color(t.foreground).bg(t.background).track_focus(this.handle)
       .on_key_down((e, cx) => {
-        if (e.key === "escape") { this.close(); cx.stop_propagation(); }
+        // Esc closes the repository list first, then the dialog.
+        if (e.key === "escape") { if (this.pickingRepo) { this.pickingRepo = false; cx.notify(); } else this.close(); cx.stop_propagation(); }
         if (e.key === "enter" && (e.modifiers?.platform || e.modifiers?.control)) { this.start(cx); cx.stop_propagation(); }
+        else if (e.key === "enter" && this.pickingRepo) { const first = this.repoChoices().list[0]; if (first) this.chooseRepo(first.path, cx); cx.stop_propagation(); }
       })
       .child(ui.header(this.mode === "review" || this.mode === "stack-review" ? "Review with agent" : "Start agent", h_flex().gap(6).items_center().min_w(0).text_size(fs.meta)
         .when(Boolean(p.icon), (e) => e.child(icon(p.icon, kindColor(p.icon, t), 14)))
@@ -414,10 +493,11 @@ export class AgentDialog extends View {
           .child(ui.hint(this.target === "worktree"
             ? "A new branch in a new git worktree of the repository below, in a new space."
             : "A new tab in an open space, in the folder of its focused pane, on the branch it has now. Nothing is created in git."))
-          .when(Boolean(this.main), (e) => e.child(h_flex().gap(6).items_center().min_w(0).text_size(fs.meta)
+          .when(Boolean(this.main) && !pickable, (e) => e.child(h_flex().gap(6).items_center().min_w(0).text_size(fs.meta)
             .child(div().flex_none().text_color(t.muted).child("Repository"))
             .child(div().flex_none().font_semibold().child(this.main.split("/").pop()))
             .child(div().min_w(0).truncate().text_color(t.dim).child(`${this.main} · on ${this.base || "HEAD"}`)))))
+        .when(pickable, (e) => e.child(this.repoSection(t, ui)))
         .when(this.target === "space", (e) => {
           const list = this.openSpaces(), chosen = this.chosenSpace();
           return e.child(v_flex().gap(4).child(ui.label("Space"))
@@ -461,7 +541,7 @@ export class AgentDialog extends View {
       .child(ui.footer([
         div().flex_1().child(ui.hint("Esc cancels")),
         ui.button("cancel", "Cancel", null, true, () => this.close()),
-        ui.button("start", this.busy ? "Starting…" : verb, "primary", !this.busy && Boolean(this.agent)
+        ui.button("start", this.busy ? "Starting…" : verb, "primary", !this.busy && Boolean(this.agent) && !(this.target === "worktree" && this.loadingRepo)
           && (this.target === "space" ? Boolean(this.chosenSpace()) : this.branchState !== "invalid" && this.branchState !== "busy"), (cx) => this.start(cx)),
       ]));
   }
