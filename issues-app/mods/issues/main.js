@@ -1,6 +1,7 @@
 // The shown space's issues, from Jira Cloud or GitHub, grouped by priority or in backlog order
 // (the `order` setting, chosen with the cog in its header), with a page per issue and "Start agent".
 // Read only, with two exceptions on a Jira page: Comment adds a comment, and the Move menu moves the issue (a Jira transition).
+// The Attachments tab of a Jira page saves the files of the issue into `.jira/<KEY>/` of the shown space (attachments.js).
 // The source: the space's link (Link space; `issues: "github"` picks GitHub, else its Jira
 // project), else `.herdr/jira.toml` in its repository, else a Jira guess (the key in the
 // branch name or recent commits, on a site another space links to), else the space's
@@ -21,6 +22,7 @@ import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
+import { saveAttachments, fileNames, isArchive, sizeText, shownPath } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
 import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
@@ -230,6 +232,8 @@ export default class SpaceIssues extends View {
     // The sprint chips (Jira only), for a key or `herdr-app do issues.sprint`.
     else if (name === "sprint" || name === "next-sprint") { if (this.projects.some((p) => !isGithub(p))) this.pickSprint(name === "sprint" ? "current" : "next", cx); }
     else if (name === "open") this.enter(cx);
+    // Saves every attachment of the highlighted issue (Jira), for a key or `herdr-app do issues.download`.
+    else if (name === "download") this.downloadCursor(cx);
     else if (name === "browser") { const i = this.issues.find((x) => x.key === this.cursor); if (i) openUrl(browse(i)); }
     else if (name === "link") openLinkDialog("issues");
     else if (name === "close" && props()?.overlay) closeOverlay(props().overlay);
@@ -681,7 +685,8 @@ export default class SpaceIssues extends View {
     // The extra fields of the setting: a long text (Refinement) gets a tab, a short value a row of Details.
     const extras = (p?.extra ?? []).filter((x) => x.md);
     const long = extras.filter((x) => x.text.length > 80 || x.text.includes("\n")), brief = extras.filter((x) => !long.includes(x));
-    const tabList = [["desc", "Description"], ...long.map((x) => [`x-${x.ph}`, x.name]), ["activity", "Activity", p ? p.md.count : null]];
+    const files = !gh && p?.attachments?.length ? p.attachments : [];
+    const tabList = [["desc", "Description"], ...long.map((x) => [`x-${x.ph}`, x.name]), ...(files.length ? [["files", "Attachments", files.length]] : []), ["activity", "Activity", p ? p.md.count : null]];
     // The picked tab stays while the issues change; an issue without it shows its description.
     const tab = tabList.some(([id]) => id === this.pageTab) ? this.pageTab : "desc";
     const pickTab = (id, cx) => { this.pageTab = id; this.typing = false; cx.notify(this.pageView); };
@@ -776,6 +781,7 @@ export default class SpaceIssues extends View {
           // Jira only: a new comment, posted as the signed-in account.
           ...(!gh ? [this.composer(t, i)] : []),
         ]
+        : tab === "files" ? [this.attachments(t, i, files)]
         : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => k.panel(`panel-${i.key}-${x.ph}`, md(`extra-${i.key}-${x.ph}`, x.md)))
         : [k.panel(`panel-${i.key}-desc`, md(`desc-${i.key}`, p.md.description || "_No description._"))],
       side,
@@ -811,6 +817,8 @@ export default class SpaceIssues extends View {
   makeCommentBox() {
     this.commentBox = TextareaState.new({ placeholder: "Add a comment…", value: "", rows: 4 });
     this.commenting = false; this.commentError = ""; this.typing = false;
+    // The downloads of the Attachments tab: Map("<KEY>:<id>" -> { state, note }), the folder of each issue, one batch at a time.
+    this.dl = new Map(); this.dlDirs = new Map(); this.dlBusy = false;
     // While the box has the keyboard, the page's keys (O, C, ↑ ↓) leave the keys to it.
     this.commentBox.on("focus", () => { this.typing = true; });
     this.commentBox.on("blur", () => { this.typing = false; });
@@ -929,6 +937,75 @@ export default class SpaceIssues extends View {
           .child(this.commentError || "Posted to Jira as you. Type @ to mention a person. A blank line starts a new paragraph."))
         .child(button(t, "comment-send", this.commenting ? "Posting…" : this.reply ? "Reply" : "Comment", send, { kind: "primary", disabled: this.commenting })));
   }
+  // The space whose folder gets the files: the shown one (a page dialog closes on a space switch).
+  fileSpace() { return this.only ? activeSpace() : this.space(); }
+  // Saves `list` (attachments of `i`, a part of `all`) into `.jira/<KEY>/` of the space; `extract` also extracts the archives.
+  download(i, list, all, extract, cx) {
+    if (this.dlBusy || !list.length) return;
+    const names = fileNames(all), space = this.fileSpace();
+    this.dlBusy = true;
+    for (const a of list) this.dl.set(`${i.key}:${a.id}`, { state: "waiting", note: "" });
+    cx.notify(this.pageView);
+    cx.spawn(async (cx) => {
+      try {
+        const r = await saveAttachments({ site: i.site, key: i.key, space, extract, items: list.map((a) => ({ id: a.id, file: names.get(a.id) })),
+          step: (id, state, note = "") => { this.dl.set(`${i.key}:${id}`, { state, note }); cx.notify(this.pageView); } });
+        this.dlDirs.set(i.key, r.dir);
+        const n = list.length - r.failed;
+        notify(r.failed
+          ? { title: `${r.failed} of ${list.length} ${list.length === 1 ? "file" : "files"} of ${i.key} failed`, body: shownPath(r.dir), level: "error" }
+          : { title: `${n} ${n === 1 ? "file" : "files"} of ${i.key} saved`, body: shownPath(r.dir), level: "success", timeout: 4000 });
+      } catch (e) {
+        for (const a of list) this.dl.delete(`${i.key}:${a.id}`);
+        notify({ title: `The files of ${i.key} were not saved`, body: String(e?.message ?? e).slice(0, 300), level: "error" });
+      }
+      this.dlBusy = false; cx.notify(this.pageView);
+    });
+  }
+  // The `download` command: every attachment of the open or the highlighted issue (its page is fetched first when needed).
+  downloadCursor(cx) {
+    const i = this.open ?? this.issues.find((x) => x.key === this.cursor);
+    if (!i || isGithub(i)) return;
+    cx.spawn(async (cx) => {
+      try {
+        const page = this.pages.get(pageKey(i)) ?? await this.fetchPage(i);
+        if (!page.attachments?.length) { notify({ title: `${i.key} has no attachments`, timeout: 2500 }); return; }
+        this.download(i, page.attachments, page.attachments, false, cx);
+      } catch (e) { notify({ title: `${i.key} did not load`, body: String(e?.message ?? e).slice(0, 300), level: "error" }); }
+    });
+  }
+  // The Attachments tab: each file with Download (an archive: Extract too), and Download all on top.
+  attachments(t, i, list) {
+    const space = this.fileSpace(), remote = Boolean(space?.machine);
+    const off = this.dlBusy || remote || !space;
+    const why = remote ? "Not available for a space on another machine" : "";
+    const archives = list.some((a) => isArchive(a.name));
+    const total = list.reduce((n, a) => n + a.size, 0), dir = this.dlDirs.get(i.key);
+    const act = (id, label, items, extract, tooltip) => button(t, id, label, (cx) => this.download(i, items, list, extract, cx), { small: true, disabled: off, tooltip: why || tooltip });
+    const row = (a, n) => {
+      const d = this.dl.get(`${i.key}:${a.id}`), busy = d?.state === "loading" || d?.state === "waiting";
+      return h_flex().id(`file-${i.key}-${a.id}`).gap(8).items_center().min_w(0).px(12).py(7).when(n > 0, (e) => e.border_t_1().border_color(t.border))
+        .child(v_flex().flex_1().min_w(0).gap(2)
+          .child(div().truncate().child(a.name))
+          .child(div().truncate().text_size(fs.tiny).text_color(t.dim).child([sizeText(a.size), a.who, a.at && `${ago(a.at)} ago`].filter(Boolean).join(" · ")))
+          .when(d?.state === "failed", (e) => e.child(div().text_size(fs.tiny).text_color(t.ansi1).child(d.note || "The download failed."))))
+        .when(busy, (e) => e.child(h_flex().flex_none().gap(5).items_center().text_size(fs.tiny).text_color(t.accent)
+          .when(d.state === "loading", (x) => x.child(svg(SPINNER).size(12).flex_none().text_color(t.accent).spin(900))).child(d.state === "loading" ? "Downloading…" : "Waiting")))
+        .when(d?.state === "done", (e) => e.child(h_flex().flex_none().gap(4).items_center().text_size(fs.tiny).text_color(t.ansi2).child(icon("check", t.ansi2, 12)).child(d.note || "Saved")))
+        .when(!busy, (e) => e
+          .when(isArchive(a.name), (x) => x.child(act(`file-extract-${a.id}`, "Extract", [a], true, "Download this archive and extract it into a folder with its name")))
+          .child(act(`file-get-${a.id}`, "Download", [a], false, "")));
+    };
+    return v_flex().id(`files-${i.key}`).gap(8).w_full().min_w(0)
+      .child(h_flex().gap(6).items_center().flex_wrap()
+        .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.muted).child(`${list.length} ${list.length === 1 ? "file" : "files"} · ${sizeText(total)}`))
+        .when(archives, (e) => e.child(act("files-all-extract", "Download all and extract", list, true, "Download every file and extract each archive into a folder with its name")))
+        .child(act("files-all", "Download all", list, false, "")))
+      .child(v_flex().w_full().min_w(0).rounded(10).border_1().border_color(t.border).text_size(fs.meta).children(list.map(row)))
+      .child(div().text_size(fs.tiny).text_color(t.dim).child(remote ? "Downloads work only for a space on this computer."
+        : dir ? `Saved in ${shownPath(dir)}` : `The files go to .jira/${i.key}/ in the folder of the shown space.`));
+  }
+
   // Assign to me (Jira): the signed-in account becomes the assignee; every copy reloads the issue.
   assignMe(i, cx) {
     if (this.assigning) return;

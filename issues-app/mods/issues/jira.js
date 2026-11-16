@@ -97,7 +97,7 @@ export function sprintOf(v) {
 // `extra`: ids of more fields to read (custom fields for the prompts and the page); they come back in page.fields.
 export async function issue(site, key, extra = []) {
   const ids = [...new Set(extra)].filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
-  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks,fixVersions,versions,components,duedate,resolution${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
+  const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks,fixVersions,versions,components,duedate,resolution,attachment${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
   // The people that the page shows, with their pictures (links.js loadPeople).
   const people = new Map();
   const seen = (u) => { if (u?.displayName && !people.has(u.displayName)) people.set(u.displayName, { name: u.displayName, id: u.accountId ?? "", url: u.avatarUrls?.["48x48"] ?? "" }); };
@@ -119,7 +119,10 @@ export async function issue(site, key, extra = []) {
     const other = l.outwardIssue ?? l.inwardIssue, label = l.outwardIssue ? l.type?.outward : l.type?.inward;
     return other ? { label: label ?? "relates to", key: other.key, summary: other.fields?.summary ?? "", done: other.fields?.status?.statusCategory?.key === "done" } : null;
   }).filter(Boolean);
-  delete page.changelog; delete page.fields.subtasks; delete page.fields.issuelinks;
+  // The files of the issue (attachments.js downloads them): only what the page shows.
+  page.attachments = (page.fields.attachment ?? []).filter((a) => /^\d+$/.test(String(a?.id ?? "")))
+    .map((a) => ({ id: String(a.id), name: String(a.filename ?? ""), size: Number(a.size) || 0, who: a.author?.displayName ?? "", at: a.created ?? null }));
+  delete page.changelog; delete page.fields.subtasks; delete page.fields.issuelinks; delete page.fields.attachment;
   return page;
 }
 
