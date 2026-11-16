@@ -4,15 +4,19 @@
 // Herdr's fetch reads text only, so curl downloads the files. The sign-in never goes on a command
 // line: curl reads it from a file in a private folder (`-K`), and that file is deleted after each download.
 // curl sends the sign-in only to the Jira site, not to a host that Jira redirects to.
-// An archive (.zip, .tar, .tar.gz, .tgz, .tar.bz2, .tar.xz) can be extracted into a folder with its name.
+// An archive (.zip, .tar, .tar.gz, .tgz, .tar.bz2, .tar.xz; .7z and .rar on Windows and macOS) can be extracted
+// into a folder with its name.
 
 import { exec, appHome, writeTextFile, panes } from "herdr";
 import { credentials, trustedSite, platform } from "./jira-client.js";
 
 const KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
 const ARCHIVE = /\.(zip|tar|tgz|tbz2?|txz|tar\.(gz|bz2|xz))$/i;
+// bsdtar (the tar of Windows and macOS) reads these too; the GNU tar of Linux does not.
+const BSD_ONLY = /\.(7z|rar)$/i;
+const ending = (name) => (platform() !== "linux" && BSD_ONLY.test(name) ? BSD_ONLY : ARCHIVE);
 const LONG = 600000; // exec's longest timeout: 10 minutes for one file
-export const isArchive = (name) => ARCHIVE.test(name ?? "");
+export const isArchive = (name) => ending(name ?? "").test(name ?? "");
 
 // A size for people: 812 B, 14 KB, 2.3 MB.
 export function sizeText(n) {
@@ -32,7 +36,7 @@ function safeName(name) {
   if (n.length > 150) n = `${n.slice(0, 110)}${n.slice(-40)}`;
   return n || "attachment";
 }
-const stem = (file) => file.replace(ARCHIVE, "") || file;
+const stem = (file) => file.replace(ending(file), "") || file;
 
 // The file name on disk of each attachment: Map(id → name). Jira permits 2 files with the same
 // name: the later ones get their id before the extension, so no file replaces an other one.
@@ -41,7 +45,7 @@ export function fileNames(list) {
   for (const a of list ?? []) {
     let n = safeName(a.name);
     if (used.has(n.toLowerCase())) {
-      const dot = n.search(ARCHIVE) >= 0 ? n.search(ARCHIVE) : n.lastIndexOf(".");
+      const dot = n.search(ending(n)) >= 0 ? n.search(ending(n)) : n.lastIndexOf(".");
       n = dot > 0 ? `${n.slice(0, dot)} (${a.id})${n.slice(dot)}` : `${n} (${a.id})`;
     }
     used.add(n.toLowerCase());
@@ -56,10 +60,12 @@ const ps = (script) => exec("powershell", ["-NoProfile", "-NonInteractive", "-Co
 const windows = () => platform() === "windows";
 const said = (r) => String(r?.stderr || r?.stdout || "").trim().slice(0, 300);
 
+// `privately`: the folder of the sign-in files, for this user only. A sign-in file that an earlier
+// download left behind (Herdr stopped, or curl ran too long) is deleted here.
 async function makeDir(dir, privately = false) {
   const r = await (windows()
-    ? ps(`[void][System.IO.Directory]::CreateDirectory(${psQuote(dir)})`)
-    : exec("sh", ["-c", privately ? 'mkdir -p "$1" && chmod 700 "$1"' : 'mkdir -p "$1"', "sh", dir])).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+    ? ps(`[void][System.IO.Directory]::CreateDirectory(${psQuote(dir)})${privately ? `; Get-ChildItem -LiteralPath ${psQuote(dir)} -Filter 'c-*' | Remove-Item -Force` : ""}`)
+    : exec("sh", ["-c", privately ? 'mkdir -p "$1" && chmod 700 "$1" && rm -f "$1"/c-*' : 'mkdir -p "$1"', "sh", dir])).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
   if (r.code !== 0) throw new Error(`Can't make the folder ${dir}. ${said(r)}`);
 }
 const removeFile = (file) => (windows() ? ps(`Remove-Item -LiteralPath ${psQuote(file)} -Force -ErrorAction SilentlyContinue`) : exec("rm", ["-f", file])).catch(() => null);
@@ -81,12 +87,10 @@ export async function targetFolder(space, key) {
 // The folder as the system writes it.
 export const shownPath = (dir) => (windows() ? dir.replace(/\//g, "\\") : dir);
 
-// A curl config file with the sign-in, in a folder that only this user opens. The caller deletes it.
-async function authFile(c) {
+// A curl config file with the sign-in, in `dir` (a folder that only this user opens). The caller deletes it.
+async function authFile(c, dir) {
   const user = `${c.email}:${c.token}`;
   if (/[\r\n]/.test(user) || c.email.includes(":")) throw new Error("The Jira sign-in has characters that curl can't read.");
-  const dir = `${appHome()}/data/issues-app/private`;
-  await makeDir(dir, true);
   const file = `${dir}/c-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   await writeTextFile(file, `user = "${user.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"\n`, null);
   return file;
@@ -114,6 +118,8 @@ export async function saveAttachments({ site, key, space, items, extract = false
   if (!c) throw new Error(`No Jira sign-in for ${site}.`);
   const dir = await targetFolder(space, key);
   await makeDir(dir);
+  const secrets = `${appHome()}/data/issues-app/private`;
+  await makeDir(secrets, true);
   let failed = 0;
   for (const a of items) {
     if (!/^\d+$/.test(a.id)) continue;
@@ -121,7 +127,7 @@ export async function saveAttachments({ site, key, space, items, extract = false
     let cfg = null;
     try {
       const dest = `${dir}/${a.file}`;
-      cfg = await authFile(c);
+      cfg = await authFile(c, secrets);
       // -q: no .curlrc. The URL is built here, never taken from Jira's answer.
       const r = await exec("curl", ["-q", "-K", cfg, "--fail", "--silent", "--show-error", "--location", "--proto", "=https", "--proto-redir", "=https",
         "-o", dest, `https://${site}/rest/api/3/attachment/content/${a.id}`], { timeout: LONG });

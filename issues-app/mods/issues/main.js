@@ -226,14 +226,14 @@ export default class SpaceIssues extends View {
   command(name, cx) {
     if (name === "refresh") this.refresh(cx);
     else if (name === "back") this.back(cx);
+    // Saves every attachment of the open or the highlighted issue (Jira), for a key or `herdr-app do issues.download`.
+    else if (name === "download") this.downloadCursor(cx);
     else if (this.open) return; // the rest act on the list, which a page covers
     else if (name === "down") this.move(1, cx);
     else if (name === "up") this.move(-1, cx);
     // The sprint chips (Jira only), for a key or `herdr-app do issues.sprint`.
     else if (name === "sprint" || name === "next-sprint") { if (this.projects.some((p) => !isGithub(p))) this.pickSprint(name === "sprint" ? "current" : "next", cx); }
     else if (name === "open") this.enter(cx);
-    // Saves every attachment of the highlighted issue (Jira), for a key or `herdr-app do issues.download`.
-    else if (name === "download") this.downloadCursor(cx);
     else if (name === "browser") { const i = this.issues.find((x) => x.key === this.cursor); if (i) openUrl(browse(i)); }
     else if (name === "link") openLinkDialog("issues");
     else if (name === "close" && props()?.overlay) closeOverlay(props().overlay);
