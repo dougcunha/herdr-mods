@@ -311,7 +311,11 @@ export function menuFor(target, ctx) {
         target.side === "unstaged" && item(f.untracked ? "Delete file…" : "Discard changes…", "trash", { type: "discard", paths: f.untracked ? [] : paths, untracked: f.untracked ? paths : [] })),
       // As lazygit: an untracked file goes into the shared .gitignore or the local exclude file.
       section(f.untracked && item("Add to .gitignore", "eye-off", { type: "ignore", path: f.path, where: "gitignore" }),
-        f.untracked && item("Add to .git/info/exclude", "eye-off", { type: "ignore", path: f.path, where: "exclude" })),
+        f.untracked && item("Add to .git/info/exclude", "eye-off", { type: "ignore", path: f.path, where: "exclude" }),
+        // Status lists files, not folders: the folders of the file are the choices of the dialog.
+        f.untracked && f.path.includes("/") && item("Ignore a folder…", "eye-off", { type: "ignoreDir", path: f.path }),
+        // A file that git tracks and that is on disk: out of the index, then into an ignore file.
+        !f.untracked && target.side !== "conflict" && f.status !== "D" && item("Stop tracking…", "eye-off", { type: "untrack", path: f.path })),
       // A file with commits: not untracked, not only added to the index.
       section(!f.untracked && f.x !== "A" && item("File history", "history", { type: "fileView", path: f.path, mode: "history" }),
         !f.untracked && f.x !== "A" && f.status !== "D" && item("Blame", "commit", { type: "fileView", path: f.path, mode: "blame" })),
@@ -434,10 +438,17 @@ const remoteChoice = (ctx) => ({ id: "remote", label: "Remote", value: ctx.remot
   options: ctx.remotes.map((r) => ({ value: r, label: r })) });
 const mergeNote = (a) => (a.merge ? " It's a merge commit: its changes against its first parent are used." : "");
 
-/** The line of an ignore file that matches only `path` (from the top of the work tree). */
-export function ignoreLine(path) {
-  return `/${String(path).replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ")}`;
+/** The line of an ignore file that matches only `path` (from the top of the work tree). `dir`: a folder and all in it. */
+export function ignoreLine(path, dir = false) {
+  return `/${String(path).replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ")}${dir ? "/" : ""}`;
 }
+
+/** The folders that hold `path`, from the top of the work tree down: "a/b/c.txt" gives ["a", "a/b"]. */
+export function parentDirs(path) {
+  const parts = String(path).split("/").slice(0, -1);
+  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+}
+const ignoreFile = (where) => (where === "exclude" ? ".git/info/exclude" : ".gitignore");
 
 // The dialog an action asks first, or null when it runs at once.
 const many = (paths) => (paths.length === 1 ? paths[0] : `${paths.length} files`);
@@ -450,6 +461,16 @@ export function dialogFor(action, ctx) {
         detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}.` : ""}${a.untracked?.length ? ` Delete ${a.untracked.length === 1 ? "the untracked file" : `${a.untracked.length} untracked files`} ${a.untracked.length === 1 ? a.untracked[0] : ""}.` : ""} This cannot be undone.`.trim(),
         confirm: all.length === 1 && a.untracked?.length ? "Delete" : "Discard", danger: true };
     }
+    case "ignoreDir": {
+      const dirs = parentDirs(a.path);
+      return { title: "Ignore a folder", detail: "Git stops showing the untracked files of the folder. Files that Git tracks stay tracked.",
+        choice: { id: "dir", label: "Folder", value: dirs[dirs.length - 1], options: dirs.map((d) => ({ value: d, label: `${d}/` })) },
+        checks: [{ id: "local", label: "Only on this machine (.git/info/exclude)", value: false }], confirm: "Ignore" };
+    }
+    case "untrack": return { title: "Stop tracking", detail: `Remove ${a.path} from Git and keep the file on disk. The removal is staged: the next commit deletes the file from the repository.`,
+      choice: { id: "where", label: "Ignore file", value: "gitignore", options: [
+        { value: "gitignore", label: ".gitignore", detail: "Shared: you commit it" },
+        { value: "exclude", label: ".git/info/exclude", detail: "Only on this machine" }] }, confirm: "Stop tracking" };
     case "newBranch": return { title: "Create branch", detail: `From ${a.what ?? a.base}.`,
       inputs: [{ id: "name", label: "Branch name", value: "" }], checks: [{ id: "checkout", label: "Check out the new branch", value: true }], confirm: "Create" };
     case "newTag": return { title: "Add tag", detail: `At ${a.what ?? a.base}.`,
@@ -623,6 +644,9 @@ export function commandsFor(a, v = {}, ctx = {}) {
     // Without a HEAD there is nothing to restore from: take the files out of the index.
     case "unstage": return chunks(files(a.paths), a.unborn ? ["rm", "--cached", "-q"] : ["restore", "--staged"]);
     case "discard": return [...chunks(files(a.paths), ["restore", "--worktree"]), ...chunks(files(a.untracked), ["clean", "-f", "-q"])];
+    // Out of the index only: the file stays on disk. The line of the ignore file comes after (execute.js).
+    // -f: without it git refuses a file whose staged content differs from HEAD and from the file on disk.
+    case "untrack": return chunks(files([a.path]), ["rm", "--cached", "-f", "-q"]);
     // "--" ends the arguments: a branch deleted since the graph was drawn fails
     // instead of naming a path to restore from the index.
     case "checkout": return [["checkout", a.name, "--"]];
@@ -700,7 +724,9 @@ export function doneText(a, v = {}) {
     case "stage": return a.paths.length === 1 ? `Staged ${a.paths[0]}` : `Staged ${a.paths.length} files`;
     case "unstage": return a.paths.length === 1 ? `Unstaged ${a.paths[0]}` : `Unstaged ${a.paths.length} files`;
     case "discard": return "Discarded the changes";
-    case "ignore": return `Added ${a.path} to ${a.where === "exclude" ? ".git/info/exclude" : ".gitignore"}`;
+    case "ignore": return `Added ${a.path} to ${ignoreFile(a.where)}`;
+    case "ignoreDir": return `Added ${v.dir}/ to ${ignoreFile(v.local ? "exclude" : "gitignore")}`;
+    case "untrack": return `Stopped tracking ${a.path}`;
     case "stageHunk": return "Staged the hunk";
     case "unstageHunk": return "Unstaged the hunk";
     case "discardHunk": return "Discarded the hunk";

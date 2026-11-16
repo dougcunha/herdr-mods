@@ -77,7 +77,7 @@ export class Dialog {
           .on_click((_e, cx) => { this.values[s.choice.id] = o.value; this.error = null; cx.notify(); })
           .child(div().size(14).flex_none().rounded(7).border_1().border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.input).flex().items_center().justify_center()
             .when(on, (e) => e.child(div().size(6).rounded(3).bg(o.danger ? t.ansi1 : t.accent))))
-          .child(div().font_medium().child(o.label))
+          .child(div().min_w(0).truncate().font_medium().child(o.label))
           .when(Boolean(o.detail), (e) => e.child(div().text_size(11.5).text_color(o.danger ? t.ansi1 : t.dim).child(o.detail)));
       })))
       .children((s.checks ?? []).map((c) => {

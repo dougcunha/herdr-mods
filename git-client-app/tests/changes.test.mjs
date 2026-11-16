@@ -129,6 +129,65 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
   unlinkSync(join(repo, ".gitignore"));
 }
 
+// ---- ignore a folder, and stop tracking a file (here, and through `sh -c` as on another machine)
+{
+  const { mkdirSync } = await import("node:fs");
+  assert.deepEqual(G.parentDirs("a/b/c.txt"), ["a", "a/b"]);
+  assert.deepEqual(G.parentDirs("c.txt"), []);
+  assert.equal(G.ignoreLine("out [1]/sub dir", true), "/out \\[1]/sub dir/");
+  const menu = (file, side = "unstaged") => G.menuFor({ kind: "file", side, file }, ctx()).flat().map((i) => i.action?.type);
+  assert.ok(menu({ path: "out/x.o", untracked: true }).includes("ignoreDir"));
+  assert.ok(!menu({ path: "x.o", untracked: true }).includes("ignoreDir"), "a file at the top has no folder");
+  assert.ok(menu({ path: "a.txt", untracked: false, status: "M" }).includes("untrack"));
+  assert.ok(!menu({ path: "a.txt", untracked: false, status: "D" }).includes("untrack"), "a deleted file is not on disk");
+  assert.ok(!menu({ path: "a.txt", untracked: false, status: "U" }, "conflict").includes("untrack"));
+  assert.ok(!menu({ path: "new.txt", untracked: true }).includes("untrack"));
+
+  unlinkSync(join(repo, "skip.log")); // of the block above: its .gitignore is gone
+  for (const d of ["out [1]/sub dir", "out [1]/other", "keep"]) mkdirSync(join(repo, d), { recursive: true });
+  for (const f of ["out [1]/sub dir/a.o", "out [1]/sub dir/b.o", "out [1]/other/c.o", "keep/d.o"]) writeFileSync(join(repo, f), "x\n");
+  const untracked = () => status(repo).filter((f) => f.untracked).map((f) => f.path).sort();
+  const dirAction = { type: "ignoreDir", path: "out [1]/sub dir/a.o" };
+  assert.deepEqual(G.initialValues(dirAction, ctx()), { dir: "out [1]/sub dir", local: false }, "the folder of the file first");
+  assert.equal((await executeAction(dirAction, { dir: "keep", local: false }, ctx(), exec, io)).ok, false, "only a folder of the file");
+  await run(dirAction, { dir: "out [1]/sub dir", local: true });
+  await run(dirAction, { dir: "out [1]/sub dir", local: true }, { ...ctx(), on: "remote" });
+  assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/^\/out \\\[1\]\/sub dir\/$/gm).length, 1, "once");
+  assert.deepEqual(untracked(), ["keep/d.o", "out [1]/other/c.o"], "the other folders stay");
+  await run(dirAction, { dir: "out [1]", local: false });
+  assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "/out \\[1]/\n");
+  assert.deepEqual(untracked(), [".gitignore", "keep/d.o"]);
+  assert.equal(G.doneText(dirAction, { dir: "out [1]", local: false }), "Added out [1]/ to .gitignore");
+  unlinkSync(join(repo, ".gitignore")); rmSync(join(repo, "out [1]"), { recursive: true }); rmSync(join(repo, "keep"), { recursive: true });
+
+  // Stop tracking: out of the index, still on disk, a line in the ignore file.
+  const xy = (path) => { const f = status(repo).find((s) => s.path === path); return f ? `${f.x}${f.y}` : null; };
+  for (const [name, where, on] of [["t1.cfg", "gitignore", null], ["t2.cfg", "exclude", "remote"]]) {
+    writeFileSync(join(repo, name), "v1\n"); sh(repo, "add", name); sh(repo, "commit", "-qm", `add ${name}`);
+    writeFileSync(join(repo, name), "v2\n"); // changed and not staged: the usual case
+    const action = { type: "untrack", path: name };
+    assert.equal((await executeAction(action, { where: "elsewhere" }, { ...ctx(), on }, exec, io)).ok, false);
+    assert.equal(xy(name), " M", "a wrong value changes nothing");
+    await run(action, { where }, { ...ctx(), on });
+    assert.equal(readFileSync(join(repo, name), "utf8"), "v2\n", "the file stays on disk");
+    assert.equal(xy(name), "D ", "a staged removal, and not listed as untracked");
+    assert.equal(git(repo, ["ls-files", "--", name]).stdout, "");
+    assert.match(readFileSync(join(repo, where === "exclude" ? ".git/info/exclude" : ".gitignore"), "utf8"), new RegExp(`^/${name.replace(".", "\\.")}$`, "m"));
+  }
+  // Staged content that differs from HEAD and from the file (MM, AM).
+  writeFileSync(join(repo, "t3.cfg"), "v1\n"); sh(repo, "add", "t3.cfg"); sh(repo, "commit", "-qm", "add t3");
+  writeFileSync(join(repo, "t3.cfg"), "v2\n"); sh(repo, "add", "t3.cfg"); writeFileSync(join(repo, "t3.cfg"), "v3\n");
+  writeFileSync(join(repo, "t4.cfg"), "v1\n"); sh(repo, "add", "t4.cfg"); writeFileSync(join(repo, "t4.cfg"), "v2\n");
+  assert.deepEqual([xy("t3.cfg"), xy("t4.cfg")], ["MM", "AM"]);
+  for (const name of ["t3.cfg", "t4.cfg"]) {
+    await run({ type: "untrack", path: name }, { where: "gitignore" });
+    assert.equal(readFileSync(join(repo, name), "utf8"), name === "t3.cfg" ? "v3\n" : "v2\n", "the file on disk does not change");
+    assert.equal(git(repo, ["ls-files", "--", name]).stdout, "");
+  }
+  assert.equal(xy("t3.cfg"), "D "); assert.equal(xy("t4.cfg"), null, "a file that was only added: ignored now");
+  sh(repo, "reset", "-q", "--hard"); sh(repo, "clean", "-fdxq");
+}
+
 // ---- the AI prompt
 {
   const p = G.messagePrompt({ diff: "+x", stat: " a | 1 +", subjects: ["feat(a): one"], format: "repo", instructions: "Write in English." });
