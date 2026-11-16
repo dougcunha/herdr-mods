@@ -441,13 +441,15 @@ export function ignoreLine(path, dir = false) {
 }
 const ignoreEscape = (text) => String(text).replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ");
 
-/** What the Ignore dialog offers for an untracked file: the file, its extension (in every folder), and each of its
+/** What the Ignore dialog offers for an untracked file: the file, its extension (in its folder, in every folder), and each of its
  * folders from the nearest up. Each is { value, label, detail, line }: `line` goes into the ignore file. */
 export function ignoreChoices(path) {
-  const name = String(path).split("/").pop(), dot = name.lastIndexOf("."), ext = dot > 0 ? name.slice(dot + 1) : "";
+  const parts = String(path).split("/"), name = parts.pop(), dir = parts.join("/"), dot = name.lastIndexOf("."), ext = dot > 0 ? name.slice(dot + 1) : "";
   return [
     { value: "file", label: name, detail: "Only this file", line: ignoreLine(path) },
-    ...(ext ? [{ value: "ext", label: `*.${ext}`, detail: "Every file with this extension", line: `*.${ignoreEscape(ext)}` }] : []),
+    // With a leading "/" the pattern matches in that folder only, not in the folders under it.
+    ...(ext ? [{ value: "extdir", label: `${dir ? `${dir}/` : "/"}*.${ext}`, detail: "This extension, in this folder only", line: `${dir ? ignoreLine(dir) : ""}/*.${ignoreEscape(ext)}` },
+      { value: "ext", label: `*.${ext}`, detail: "This extension, in every folder", line: `*.${ignoreEscape(ext)}` }] : []),
     ...parentDirs(path).reverse().map((d) => ({ value: `dir:${d}`, label: `${d}/`, detail: "The folder and all in it", line: ignoreLine(d, true) })),
   ];
 }

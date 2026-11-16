@@ -140,8 +140,9 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
   assert.deepEqual(G.parentDirs("c.txt"), []);
   assert.equal(G.ignoreLine("out [1]/sub dir", true), "/out \\[1]/sub dir/");
   assert.deepEqual(G.ignoreChoices("a/b/c.min.js").map((c) => [c.value, c.label, c.line]),
-    [["file", "c.min.js", "/a/b/c.min.js"], ["ext", "*.js", "*.js"], ["dir:a/b", "a/b/", "/a/b/"], ["dir:a", "a/", "/a/"]]);
+    [["file", "c.min.js", "/a/b/c.min.js"], ["extdir", "a/b/*.js", "/a/b/*.js"], ["ext", "*.js", "*.js"], ["dir:a/b", "a/b/", "/a/b/"], ["dir:a", "a/", "/a/"]]);
   assert.deepEqual(G.ignoreChoices(".env").map((c) => c.value), ["file"], "a dot file has no extension, a file at the top has no folder");
+  assert.deepEqual(G.ignoreChoices("x [1].log").map((c) => [c.value, c.label, c.line]).slice(1), [["extdir", "/*.log", "/*.log"], ["ext", "*.log", "*.log"]], "at the top: the top folder only");
   assert.deepEqual(G.ignoreChoices("x/Makefile").map((c) => c.value), ["file", "dir:x"]);
   const menu = (file, side = "unstaged") => G.menuFor({ kind: "file", side, file }, ctx()).flat().map((i) => i.action?.type);
   assert.ok(menu({ path: "a.txt", untracked: false, status: "M" }).includes("untrack"));
@@ -150,24 +151,30 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
   assert.ok(!menu({ path: "new.txt", untracked: true }).includes("untrack"));
 
   unlinkSync(join(repo, "skip.log")); // of the block above: its .gitignore is gone
-  for (const d of ["out [1]/sub dir", "out [1]/other", "keep"]) mkdirSync(join(repo, d), { recursive: true });
-  for (const f of ["out [1]/sub dir/a.o", "out [1]/sub dir/b.o", "out [1]/other/c.o", "keep/d.o", "keep/e.bak", "f.bak"]) writeFileSync(join(repo, f), "x\n");
+  for (const d of ["out [1]/sub dir", "out [1]/other", "keep/deep"]) mkdirSync(join(repo, d), { recursive: true });
+  for (const f of ["out [1]/sub dir/a.o", "out [1]/sub dir/b.o", "out [1]/other/c.o", "keep/d.o", "keep/e.bak", "keep/h.bak", "keep/deep/g.bak", "f.bak"]) writeFileSync(join(repo, f), "x\n");
   const untracked = () => status(repo).filter((f) => f.untracked).map((f) => f.path).sort();
   const action = { type: "ignore", path: "out [1]/sub dir/a.o" };
-  assert.deepEqual(G.dialogFor(action, ctx()).choice.options.map((o) => o.value), ["file", "ext", "dir:out [1]/sub dir", "dir:out [1]"]);
+  assert.deepEqual(G.dialogFor(action, ctx()).choice.options.map((o) => o.value), ["file", "extdir", "ext", "dir:out [1]/sub dir", "dir:out [1]"]);
   assert.equal((await executeAction(action, { what: "dir:keep", local: false }, ctx(), exec, io)).ok, false, "only a folder of the file");
   await run(action, { what: "dir:out [1]/sub dir", local: true });
   await run(action, { what: "dir:out [1]/sub dir", local: true }, { ...ctx(), on: "remote" });
   assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/^\/out \\\[1\]\/sub dir\/$/gm).length, 1, "once");
-  assert.deepEqual(untracked(), ["f.bak", "keep/d.o", "keep/e.bak", "out [1]/other/c.o"], "the other folders stay");
+  assert.deepEqual(untracked(), ["f.bak", "keep/d.o", "keep/deep/g.bak", "keep/e.bak", "keep/h.bak", "out [1]/other/c.o"], "the other folders stay");
   await run(action, { what: "dir:out [1]", local: false });
   assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "/out \\[1]/\n");
-  assert.deepEqual(untracked(), [".gitignore", "f.bak", "keep/d.o", "keep/e.bak"]);
+  assert.deepEqual(untracked(), [".gitignore", "f.bak", "keep/d.o", "keep/deep/g.bak", "keep/e.bak", "keep/h.bak"]);
+  // An extension in the folder of the file: not at the top, not in a folder under it.
+  await run({ type: "ignore", path: "keep/e.bak" }, { what: "extdir", local: true });
+  await run({ type: "ignore", path: "keep/e.bak" }, { what: "extdir", local: true }, { ...ctx(), on: "remote" });
+  assert.equal(readFileSync(join(repo, ".git/info/exclude"), "utf8").match(/^.keep.[*][.]bak$/gm).length, 1, "once");
+  assert.deepEqual(untracked(), [".gitignore", "f.bak", "keep/d.o", "keep/deep/g.bak"]);
+  assert.equal(G.doneText({ type: "ignore", path: "keep/e.bak" }, { what: "extdir", local: true }), "Added /keep/*.bak to .git/info/exclude");
   assert.equal(G.doneText(action, { what: "dir:out [1]", local: false }), "Added /out \\[1]/ to .gitignore");
   // An extension: in every folder.
   await run({ type: "ignore", path: "keep/e.bak" }, { what: "ext", local: false });
   assert.equal(readFileSync(join(repo, ".gitignore"), "utf8"), "/out \\[1]/\n*.bak\n");
-  assert.deepEqual(untracked(), [".gitignore", "keep/d.o"], "f.bak at the top too");
+  assert.deepEqual(untracked(), [".gitignore", "keep/d.o"], "at the top and in every folder");
   assert.equal(G.doneText({ type: "ignore", path: "keep/e.bak" }, { what: "ext", local: true }), "Added *.bak to .git/info/exclude");
   unlinkSync(join(repo, ".gitignore")); unlinkSync(join(repo, "f.bak")); rmSync(join(repo, "out [1]"), { recursive: true }); rmSync(join(repo, "keep"), { recursive: true });
 
