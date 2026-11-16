@@ -125,5 +125,5 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,
   clone `main` and `tabs` again.
-- Built and tested on Windows with Herdr 0.1.11. Herdr 0.1.12 did not change the `main` layout or the `tabs` mod, and the dock loads there without errors. Untested: macOS, Linux, remote machines.
+- Built and tested on Windows with Herdr 0.1.11. Herdr 0.1.12 did not change the `main` layout or the `tabs` mod, and the dock loads there without errors. From Herdr 0.1.15, the tab bar scrolls to the active tab and the Files panel lists folders as Herdr's own `tabs` and `files` mods do (OneDrive folders on Windows); used with Herdr 0.1.15 on Windows. Untested: macOS, Linux, remote machines.
 - `RECIPE.md` has the full brief to build it from scratch.
