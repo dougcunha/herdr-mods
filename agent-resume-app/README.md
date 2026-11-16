@@ -140,6 +140,8 @@ Then replace the `status` block of the layout with a row:
     { "id": "status", "type": "block", "content": { "mod": "workspace-status" } } ] }
 ```
 
+The `status` block has no `size` here: it stretches and fills the width that the other blocks leave. Do not copy the `"size": { "px": 28 }` of the old `status` block into the row (in a row, `px` is a width, and 28 px makes the bar end early).
+
 The indicator is at the left of the status bar. On a wide monitor, the right
 end is far from the eye.
 
