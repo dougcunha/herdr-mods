@@ -1,5 +1,5 @@
 import { View, div, svg, image } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
+import { h_flex, v_flex, ScrollHandle } from "gpui-base";
 import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
 import * as fs from "fs/promises";
 
@@ -188,6 +188,32 @@ function find(node, id) {
   return null;
 }
 
+// Same as Herdr's tabs mod (0.1.16): drops a status glyph, keeps a leading bracket or quote.
+const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "").replace(/^\[ [!.] \] /, "").trim();
+
+// The name of a tab, as in Herdr's tabs mod (0.1.16): a tab that Herdr named (unnamed, or after
+// its program) follows the live title of its agent session; a name that the person gave stays.
+function tabLabel(tab, lead) {
+  const prog = lead?.program?.name;
+  const base = tab.named ? tab.name : prog ?? "Terminal";
+  if (!lead?.program?.agent) return base;
+  const live = clean(lead.title);
+  // clean() would strip a path's leading ~ or /: test the title with only its status glyph gone.
+  const path = /^[~/]|^[A-Za-z]:\\/.test((lead.title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
+  const telling = live && live !== lead.terminal && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== lead.program.key;
+  return (tab.name === prog || !tab.named) && telling ? live : base;
+}
+
+// A value of localStorage as JSON, or `fallback` when it is missing or damaged (a damaged value
+// must not make the bar disappear).
+function stored(key, fallback, ok) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) ?? "null");
+    return value !== null && ok(value) ? value : fallback;
+  } catch { return fallback; }
+}
+const isMap = v => typeof v === "object" && !Array.isArray(v);
+
 // The node that has the node `id` as a direct child, or null.
 function parentOf(node, id) {
   for (const child of node?.children ?? []) {
@@ -252,11 +278,13 @@ export default class Tabs extends View {
     }
     this.barW = undefined; // the width of the bar, from on_size_change
     this.pressed = null;
-    this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    this.panels = stored("panels", {}, isMap);
     this.entries = [];
-    this.injected = new Set(JSON.parse(localStorage.getItem("injected") ?? "[]"));
+    this.injected = new Set(stored("injected", [], Array.isArray));
     // The blocks that this bar hid or swapped for an off mod: { "<layout>|<block id>": "<mod>" }.
-    this.kitOff = JSON.parse(localStorage.getItem("kitOff") ?? "{}");
+    this.kitOff = stored("kitOff", {}, isMap);
+    this.scroll = ScrollHandle.new(); // the row of tab pills: it scrolls to the active tab
+    this.swipe = { acc: 0, steps: 0, at: 0, last: 0 }; // the wheel gesture (see wheel())
     this.version = 0;
     this.lastTry = null;
     this.groups = new Map(); // group id -> its entries, from the last render: the menu of a group button lists them
@@ -713,6 +741,28 @@ export default class Tabs extends View {
     return true;
   }
 
+  // As in Herdr's tabs mod (0.1.16): one tab per wheel notch. A touchpad or smooth-scrolling
+  // mouse sends many small events per gesture: a short swipe or one smoothed notch (about
+  // 25 px) switches one tab, a longer swipe keeps going a tab per 60 px, at most one every
+  // 100 ms so each shows.
+  wheel(e) {
+    if (e.delta_lines) {
+      if (e.delta_lines.y) run(e.delta_lines.y > 0 ? "tab.prev" : "tab.next");
+      return;
+    }
+    const s = this.swipe, now = Date.now();
+    // Phases often arrive only as moves (a macOS touchpad included): a pause or a turn starts a new gesture.
+    if (e.touch_phase === "started" || now - s.at > 250 || e.delta.y * s.acc < 0) Object.assign(s, { acc: 0, steps: 0 });
+    s.at = now;
+    s.acc += e.delta.y;
+    const need = s.steps ? 60 : 20;
+    if (Math.abs(s.acc) < need || now - s.last < 100) return;
+    s.acc -= Math.sign(s.acc) * need;
+    s.steps++;
+    s.last = now;
+    run(e.delta.y > 0 ? "tab.prev" : "tab.next");
+  }
+
   // The side panel is remembered per space: switching shows that space's choice
   // (closed if it never had one), and opening or closing it records it.
   syncPanel(space, panel, body, enabled) {
@@ -750,13 +800,25 @@ export default class Tabs extends View {
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
+    const active = shown.findIndex(tab => tab.active);
+    // The machine chip is the first child of the row when the space is on another machine.
+    const activeItem = active < 0 ? -1 : active + (space?.machine ? 1 : 0);
+    const selected = shown[active]?.id;
+    if (selected !== this.selected || activeItem !== this.selectedIndex) {
+      this.selected = selected;
+      this.selectedIndex = activeItem;
+      if (activeItem >= 0) this.scroll.scroll_to_item(activeItem);
+    }
     const stop = (_e, cx) => cx.stop_propagation();
     const button = (id, label, action) => div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", stop).on_click(action).child(label);
     const item = (c, i) => {
-      const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
-      const name = /^tb\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name;
+      const lead = panes().find(p => p.tab === c.id && p.program?.agent) ?? panes().find(p => p.tab === c.id);
+      const program = lead?.program;
+      const name = tabLabel(c, lead);
       return h_flex().id(`tab-${c.id}`).h(29).px(10).gap(7).rounded(7).items_center().flex_none().text_size(12.8)
+        // A rename or status dot on this or an earlier tab can push the active one out.
+        .when(i <= active, el => el.on_size_change((_size, cx) => { this.scroll.scroll_to_item(activeItem); cx.notify(); }))
         .border(1).border_color(c.active ? t.border : t.chrome).bg(c.active ? t.raised : t.chrome).text_color(c.active ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover))
         .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); })
@@ -880,8 +942,9 @@ export default class Tabs extends View {
         if (width !== this.barW) { this.barW = width; cx.notify(); }
       })
       .on_mouse_up("left", () => { this.pressed = null; })
-      .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
-      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar()
+      .on_scroll_wheel(e => this.wheel(e))
+      .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().track_scroll(this.scroll)
+        .on_size_change((_size, cx) => { if (activeItem >= 0) { this.scroll.scroll_to_item(activeItem); cx.notify(); } })
         // A space on another machine: its tabs and panes run there. The same chip as in the Kanban bar.
         .when(Boolean(space?.machine), el => el.child(machineChip(t, space.machine)))
         .children(shown.map(item)))

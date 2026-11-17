@@ -160,8 +160,8 @@ layout. Then add one entry to `~/.config/herdr-app/dock/panels.json`:
 The button shows in the tab bar within seconds, and it opens CI Dash as a side
 panel next to Files and Changes. `Ctrl+Shift+L` switches layouts.
 
-The `main-dock` layout is a copy of a Herdr 0.1.11 and 0.1.12 file (the two are the same). It does not receive
-later Herdr updates. The [`dock-app` README](dock-app/README.md) explains the
+The `main-dock` layout is a copy of Herdr's `main` layout, checked against Herdr 0.1.16 (the layout is the same
+from 0.1.11 to 0.1.16). It does not receive later Herdr updates by itself. The [`dock-app` README](dock-app/README.md) explains the
 limits.
 
 ## Topics

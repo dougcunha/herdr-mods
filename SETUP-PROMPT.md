@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 101 -->
+<!-- herdr-mods-setup-version: 102 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -52,7 +52,7 @@ You will install, or update, my Herdr app mods. The Herdr app is already install
 
 1. Check that these programs exist: `git`, `gh` (the GitHub CLI) and `node`.
 2. Run `gh auth status`. If I am not logged in, ask me to run `! gh auth login`. Do not continue with the CI mod without it.
-3. Run `herdr-app status` and note the Herdr version. If it is newer than 0.1.12, tell me. The `main-dock` layout is a copy of version 0.1.12 and can be out of date.
+3. Run `herdr-app status` and note the Herdr version. If it is newer than 0.1.16, tell me. The `main-dock` layout and its tab bar are checked against version 0.1.16 and can be out of date.
 4. Make a FULL clone (not `--depth 1`, you need the history) of `https://github.com/dougcunha/herdr-mods` into a temporary folder OUTSIDE `~/.config/herdr-app`. Note the commit you got (`git rev-parse HEAD`).
 5. Read `~/.config/herdr-app/data/herdr-mods-setup.json`. It is the record that the last run of this prompt left: `{ "repo", "commit", "version", "date", "items": { "<name>": "<source folder in the repo>" } }`. If it exists, show me what is new: `git log --oneline <recorded commit>..HEAD`, grouped by app folder. If it does not exist, I may still have run the prompt before: you will find the baseline by comparing files.
 6. Choose the optional items with me (next section).

@@ -24,9 +24,9 @@ To add a button later, for example the [CI Dash](../ci-dash-app) mod:
 
 | Part | What it is |
 | ---- | ---------- |
-| `layouts/main-dock.json` | Herdr's `main` layout (the same in 0.1.11 and 0.1.12) with the tab bar `tabs-dock`. Side panel: Files and Changes (the [Git](../git-client-app) mod: changes, hunks, commit and the commit graph). |
+| `layouts/main-dock.json` | Herdr's `main` layout (the same from 0.1.11 to 0.1.16) with the tab bar `tabs-dock`. Side panel: Files and Changes (the [Git](../git-client-app) mod: changes, hunks, commit and the commit graph). |
 | `mods/tabs-dock/` | Herdr's tab bar plus the dock: it reads `dock/panels.json`, draws the buttons and adds the panels to the layout. |
-| `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12) with a right-click menu, rendered Markdown and syntax highlighting. See [The Files panel](#the-files-panel). |
+| `mods/files-md/` | Herdr's Files panel (a copy of 0.1.12, with the folder listing of 0.1.16) with a right-click menu, rendered Markdown and syntax highlighting. See [The Files panel](#the-files-panel). |
 | `mods/files-md-menu/` | The popup of that right-click menu. `files-md` needs it. |
 
 Switch to the layout with `ctrl-shift-l`. Your own layout stays as it was.
@@ -125,5 +125,5 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 - It works only on a personal layout, so it comes with its own copy of `main`.
   That copy does not follow Herdr updates. When Herdr changes the tab bar,
   clone `main` and `tabs` again.
-- Built and tested on Windows with Herdr 0.1.11. Herdr 0.1.12 did not change the `main` layout or the `tabs` mod, and the dock loads there without errors. Untested: macOS, Linux, remote machines.
+- Built and tested on Windows with Herdr 0.1.11. Herdr 0.1.12 to 0.1.16 did not change the `main` layout. The tab bar has the changes of Herdr's `tabs` mod up to 0.1.16: tab names that follow the agent session, one tab per wheel notch, and a scroll to the active tab. Untested: macOS, Linux, remote machines.
 - `RECIPE.md` has the full brief to build it from scratch.
