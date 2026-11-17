@@ -234,6 +234,65 @@ const narrowed = (p, sprint) => {
   return `${p.filter && !/\bsprint\b/i.test(p.filter) ? ` AND (${p.filter})` : ""} AND ${own}`;
 };
 
+function slimParent(p, site) {
+  const f = p?.fields;
+  if (!p?.key || !f?.summary) return null;
+  return {
+    key: p.key, site, sprint: null, assignees: [], author: null, blocked: false,
+    fields: {
+      summary: f.summary, updated: "", labels: [],
+      status: f.status && { name: f.status.name, statusCategory: { key: f.status.statusCategory?.key } },
+      priority: f.priority && { name: f.priority.name },
+      issuetype: f.issuetype && { name: f.issuetype.name },
+      assignee: null, parent: null,
+    },
+  };
+}
+
+async function fetchParents(site, keys, sprintField) {
+  const fields = sprintField ? [...FIELDS, sprintField] : FIELDS;
+  const out = [];
+  for (let n = 0; n < keys.length; n += 50) {
+    const chunk = keys.slice(n, n + 50);
+    const jql = `key in (${chunk.map((k) => `"${k}"`).join(",")})`;
+    const page = await call(site, "/rest/api/3/search/jql", { jql, fields, maxResults: 50 }).catch(() => null);
+    if (page?.issues) out.push(...page.issues.map((i) => slim(i, site, sprintField)));
+  }
+  return out;
+}
+
+// When a JQL filter (such as `sprint in openSprints()`) excludes epics or parent issues,
+// fetch those missing parents so the tree stays intact.
+async function withParents(site, issues, sprintField, fallbacks) {
+  const byKey = new Map(issues.map((i) => [i.key, i]));
+  const extra = new Map();
+  let frontier = issues;
+  for (let depth = 0; depth < 2; depth++) {
+    const missing = [...new Set(frontier.map((i) => i.fields.parent?.key)
+      .filter((k) => k && /^[A-Z][A-Z0-9_]+-\d+$/.test(k) && !byKey.has(k)))];
+    if (!missing.length) break;
+    const fetched = await fetchParents(site, missing, sprintField);
+    const got = new Map(fetched.map((i) => [i.key, i]));
+    for (const k of missing) {
+      const item = got.get(k) ?? fallbacks.get(k);
+      if (item && !byKey.has(k)) { byKey.set(k, item); extra.set(k, item); }
+    }
+    frontier = [...got.values()];
+    if (!frontier.length) break;
+  }
+  if (!extra.size) return issues;
+  const placed = new Set(), out = [];
+  const push = (i, seen = new Set()) => {
+    if (placed.has(i.key) || seen.has(i.key)) return;
+    seen.add(i.key);
+    const p = i.fields.parent?.key;
+    if (p && extra.has(p) && !placed.has(p)) push(extra.get(p), seen);
+    if (!placed.has(i.key)) { placed.add(i.key); out.push(i); }
+  };
+  for (const i of issues) push(i);
+  return out;
+}
+
 // Open issues of one linked project, at most CAP: newest first, or in backlog order (Rank).
 // `sprint` ("current" | "next", optional): only the issues of the open sprints or of the future sprints.
 export async function search(p, order, sprint = null) {
@@ -241,13 +300,20 @@ export async function search(p, order, sprint = null) {
   const sprintField = (await metaFields(p.site).catch(() => null))?.sprint ?? null;
   const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
   const issues = [];
+  const fallbacks = new Map();
   let nextPageToken;
   do {
     const page = await call(p.site, "/rest/api/3/search/jql", { jql, fields: sprintField ? [...FIELDS, sprintField] : FIELDS, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
-    issues.push(...(page.issues ?? []).map((i) => slim(i, p.site, sprintField)));
+    for (const raw of page.issues ?? []) {
+      issues.push(slim(raw, p.site, sprintField));
+      const fb = slimParent(raw.fields?.parent, p.site);
+      if (fb && !fallbacks.has(fb.key)) fallbacks.set(fb.key, fb);
+    }
     nextPageToken = page.isLast ? null : page.nextPageToken;
   } while (nextPageToken && issues.length < CAP);
-  return { issues: issues.slice(0, CAP), capped: Boolean(nextPageToken) };
+  const capped = Boolean(nextPageToken);
+  const full = await withParents(p.site, issues.slice(0, CAP), sprintField, fallbacks);
+  return { issues: full, capped };
 }
 
 // The keys of the open issues the signed-in account watches. Jira can't search for

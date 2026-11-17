@@ -24,12 +24,15 @@ export const matches = (hay, ws) => ws.every((w) => (/[A-Z]/.test(w) ? hay.raw :
 // Groups by priority, or one "Backlog" group in the given order (`order` "backlog"); a child
 // sits under its parent when the parent is listed in the same group.
 // A match's parent stays in view so the child keeps its place.
-export function rows(issues, keep, order) {
+// `isCollapsed(issue)` (optional): when true for a parent, its descendants are omitted
+// and the parent row reports `hidden` (the number of hidden descendants).
+export function rows(issues, keep, order, isCollapsed = () => false) {
   const byKey = new Map(issues.map((i) => [i.key, i]));
   const shown = new Set(issues.filter(keep).map((i) => i.key));
-  for (const key of [...shown]) {
-    const parent = byKey.get(key)?.fields.parent?.key;
-    if (parent && byKey.has(parent)) shown.add(parent);
+  const queue = [...shown];
+  while (queue.length) {
+    const parent = byKey.get(queue.pop())?.fields.parent?.key;
+    if (parent && byKey.has(parent) && !shown.has(parent)) { shown.add(parent); queue.push(parent); }
   }
   return (order === "backlog" ? [["backlog", "Backlog"]] : GROUPS).map(([id, label]) => {
     const list = issues.filter((i) => shown.has(i.key) && (id === "backlog" || priority(i) === id));
@@ -39,15 +42,34 @@ export function rows(issues, keep, order) {
       const parent = i.fields.parent?.key;
       if (parent && inGroup.has(parent)) children.set(parent, [...(children.get(parent) ?? []), i]);
     }
+    const countKids = (key, seen = new Set()) => {
+      if (seen.has(key)) return 0;
+      seen.add(key);
+      let n = 0;
+      for (const c of children.get(key) ?? []) n += 1 + countKids(c.key, seen);
+      return n;
+    };
     const out = [];
-    const walk = (i, depth) => { out.push({ issue: i, depth }); for (const c of children.get(i.key) ?? []) walk(c, depth + 1); };
-    for (const i of list) if (!(i.fields.parent?.key && inGroup.has(i.fields.parent.key))) walk(i, 0);
-    return { id, label, rows: out };
+    const walked = new Set();
+    const walk = (i, depth, parent) => {
+      if (walked.has(i.key)) return;
+      walked.add(i.key);
+      const kids = children.get(i.key) ?? [];
+      const hasKids = kids.length > 0;
+      const collapsed = hasKids && Boolean(isCollapsed(i));
+      const hidden = collapsed ? countKids(i.key) : 0;
+      out.push({ issue: i, depth, hasKids, collapsed, hidden, parent });
+      if (!collapsed) for (const c of kids) walk(c, depth + 1, i.key);
+    };
+    for (const i of list) if (!(i.fields.parent?.key && inGroup.has(i.fields.parent.key))) walk(i, 0, null);
+    return { id, label, total: list.length, rows: out };
   }).filter((g) => g.rows.length);
 }
 
 export function ago(iso) {
-  const d = (Date.now() - Date.parse(iso)) / 1000;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const d = (Date.now() - t) / 1000;
   return d < 3600 ? `${Math.max(1, Math.round(d / 60))}m` : d < 86400 ? `${Math.round(d / 3600)}h` : d < 86400 * 60 ? `${Math.round(d / 86400)}d` : `${Math.round(d / 86400 / 30)}mo`;
 }
 

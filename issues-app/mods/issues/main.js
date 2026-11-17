@@ -66,6 +66,11 @@ const keyText = (i) => (isGithub(i) ? `${i.repo}${i.key}` : i.key);
 // (the list, the page dialog), so shared (UI state, not a setting of the hub).
 const detailsOpen = () => shared("issues.detailsOpen") !== false;
 const keepDetails = (open) => setShared("issues.detailsOpen", open);
+// Collapsed parent issues in the tree (keyed by site|repo|key): shared across copies and persisted.
+const COLLAPSED = "issues.collapsed";
+const foldKey = (i) => `${i.site}|${i.repo ?? ""}|${i.key}`;
+const collapsedSet = () => { const v = shared(COLLAPSED); return new Set(Array.isArray(v) ? v : []); };
+const saveCollapsed = (set) => { const list = [...set].slice(-200); setShared(COLLAPSED, list.length ? list : null); };
 // Story points without a long tail (2.5, not 2.5000001).
 const points = (n) => String(Math.round(n * 10) / 10);
 // A Jira due date ("2026-11-20") with how far it is: { text, late, soon (2 days or less) }.
@@ -165,7 +170,7 @@ export default class SpaceIssues extends View {
     // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
-    this.query = ""; this.filter = null; this.sprint = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
+    this.query = ""; this.searching = false; this.searchCollapsed = new Set(); this.filter = null; this.sprint = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
     this.width = lastWidth(); this.cache = null; this.signIn = null; this.version = 0; this.gen = 0;
     this.data = new Map(); this.hay = new Map(); this.saved = null; this.versions = 0; this.kept = new Map();
     // The highlight shows only while the keys move it: a clicked row isn't left marked.
@@ -181,7 +186,14 @@ export default class SpaceIssues extends View {
     // while that space isn't shown; the side panel's list follows the shown space.
     this.home = props()?.space ?? null;
     this.search = InputState.new({ placeholder: "Search issues" });
-    this.search.on("change", (_e, cx) => { this.query = this.search.value(); cx.notify(); });
+    this.search.on("focus", () => { this.searching = true; });
+    this.search.on("blur", () => { this.searching = false; });
+    this.search.on("change", (_e, cx) => {
+      const next = this.search.value();
+      if (!this.query.trim() && next.trim()) this.searchCollapsed.clear();
+      this.query = next;
+      cx.notify();
+    });
     this.refresh(cx);
     cx.spawn(async (cx) => { await writeIcons(); cx.notify(); });
     cx.timer.every(120000, (cx) => { if (!kitOff() && this.visible()) this.refresh(cx); });
@@ -256,6 +268,7 @@ export default class SpaceIssues extends View {
     this.context = key; this.spaceId = space?.id ?? null; this.stale = true;
     this.mentions = null; this.mentionsLoading = false; this.mentionsSeq = (this.mentionsSeq ?? 0) + 1;
     this.error = null; this.signIn = null; this.keys = false; this.open = null; this.shown = null; this.page = null; this.pageError = null;
+    this.searchCollapsed.clear();
     const kept = this.kept.get(key);
     if (kept) { Object.assign(this, kept); return; }
     this.restore(space);
@@ -485,32 +498,114 @@ export default class SpaceIssues extends View {
     });
   }
 
+  // Which parents are collapsed right now: during a text search, a temporary set starts empty so
+  // every match shows (still allowing clicks inside search results); otherwise the shared set.
+  activeCollapsed() {
+    const searching = Boolean(this.query.trim());
+    const set = searching ? this.searchCollapsed : collapsedSet();
+    return { has: (i) => set.has(foldKey(i)), sig: `${searching ? "s:" : ""}${[...set].join(",")}` };
+  }
+
+  isDescendant(items, ancestorKey, key) {
+    const parentOf = new Map();
+    for (const it of items) if (it.key.startsWith("issue-") && it.data) parentOf.set(it.data.key, it.parent);
+    let cur = key;
+    for (let n = 0; n < 50 && cur; n++) {
+      const p = parentOf.get(cur);
+      if (p === ancestorKey) return true;
+      cur = p;
+    }
+    return false;
+  }
+
+  toggle(i, cx) {
+    if (!i) return;
+    const fk = foldKey(i), searching = Boolean(this.query.trim());
+    const set = searching ? this.searchCollapsed : collapsedSet();
+    const collapsing = !set.has(fk);
+    if (collapsing) set.add(fk); else set.delete(fk);
+    if (!searching) saveCollapsed(set);
+    if (collapsing && this.cursor && this.cursor !== i.key && this.isDescendant(this.items().items, i.key, this.cursor)) {
+      this.cursor = i.key;
+    }
+    cx.notify();
+  }
+
+  foldAll(collapse, cx) {
+    const searching = Boolean(this.query.trim());
+    const set = searching ? this.searchCollapsed : collapsedSet();
+    if (collapse) {
+      const byKey = new Map(this.issues.map((x) => [x.key, x]));
+      for (const x of this.issues) {
+        const p = x.fields.parent?.key;
+        if (p && byKey.has(p)) set.add(foldKey(byKey.get(p)));
+      }
+      if (this.cursor) {
+        const parentOf = new Map();
+        for (const it of this.items().items) if (it.key.startsWith("issue-") && it.data) parentOf.set(it.data.key, it.parent);
+        let cur = this.cursor;
+        for (let n = 0; n < 50 && parentOf.get(cur); n++) cur = parentOf.get(cur);
+        this.cursor = cur;
+      }
+    } else {
+      for (const x of this.issues) set.delete(foldKey(x));
+    }
+    if (!searching) saveCollapsed(set);
+    cx.notify();
+  }
+
+  treeKey(dir, cx) {
+    if (!this.cursor) return false;
+    const cur = this.items().items.find((it) => it.key === `issue-${this.cursor}`);
+    if (!cur) return false;
+    if (dir === "left") {
+      if (cur.hasKids && !cur.collapsed) { this.keys = true; this.toggle(cur.issue, cx); return true; }
+      if (cur.parent) {
+        this.cursor = cur.parent; this.keys = true;
+        const p = this.issues.find((x) => x.key === cur.parent);
+        if (p) this.prefetch(p, cx);
+        cx.notify();
+        return true;
+      }
+      return false;
+    }
+    if (dir === "right") {
+      if (cur.hasKids && cur.collapsed) { this.keys = true; this.toggle(cur.issue, cx); return true; }
+      if (cur.hasKids && !cur.collapsed) { this.move(1, cx); return true; }
+      return false;
+    }
+    return false;
+  }
+
   // Grouping hundreds of issues on every render costs too much script time: kept until
   // the issues, the search or the filter change. `items` are the list's rows (headings and
   // issues, with their row data), at most SHOWN issues; `total` is how many match.
   items() {
     const here = this.branchKey();
-    const k = `${this.version}|${this.query}|${this.filter}|${this.sprint}|${this.mentionsVersion}|${here}`;
+    const collapsed = this.activeCollapsed();
+    const k = `${this.version}|${this.query}|${this.filter}|${this.sprint}|${this.mentionsVersion}|${here}|${collapsed.sig}`;
     if (this.cache?.k !== k) {
       const ws = words(this.query);
-      const groups = rows(this.issues, (i) => matches(this.hay.get(i.key), ws) && this.keep(i), order());
+      const groups = rows(this.issues, (i) => matches(this.hay.get(i.key), ws) && this.keep(i), order(), (i) => collapsed.has(i));
       const items = [];
       // The issue the shown branch names, pinned on top (it stays in its own group too).
       // Only when it passes the search and the filter too.
       const hereIssue = here && this.issues.find((x) => x.key === here);
       const mine = hereIssue && matches(this.hay.get(here), ws) && this.keep(hereIssue) ? this.data.get(here) : null;
-      if (mine) items.push({ key: "group-here", group: { label: "This branch", count: "1" } }, { key: `here-${here}`, data: mine, depth: 0 });
+      if (mine) items.push({ key: "group-here", group: { label: "This branch", count: "1" } }, { key: `here-${here}`, data: mine, issue: hereIssue, depth: 0, hasKids: false, collapsed: false, hidden: 0, parent: null });
       let left = SHOWN;
       for (const g of groups) {
         if (left <= 0) break;
         const shown = g.rows.slice(0, left); left -= shown.length;
-        items.push({ key: `group-${g.id}`, group: { label: g.label, count: String(g.rows.length) } },
-          ...shown.map((r) => ({ key: `issue-${r.issue.key}`, data: this.data.get(r.issue.key), depth: r.depth })));
+        items.push({ key: `group-${g.id}`, group: { label: g.label, count: String(g.total) } },
+          ...shown.map((r) => ({ key: `issue-${r.issue.key}`, data: this.data.get(r.issue.key), issue: r.issue, depth: r.depth, hasKids: r.hasKids, collapsed: r.collapsed, hidden: r.hidden, parent: r.parent })));
       }
       const flat = groups.flatMap((g) => g.rows.map((r) => r.issue));
+      const tree = groups.some((g) => g.rows.some((r) => r.hasKids));
+      const allCollapsed = tree && groups.every((g) => g.rows.every((r) => !r.hasKids || r.collapsed));
       // The key column fits the longest key shown: "#172" needs far less than "ACME0010-1156".
       const longest = items.reduce((n, i) => Math.max(n, i.data?.key.length ?? 0), 0);
-      this.cache = { k, items, flat: flat.slice(0, SHOWN), total: flat.length, keyW: Math.min(110, Math.max(36, Math.ceil(longest * 6.6) + 8)) };
+      this.cache = { k, items, flat: flat.slice(0, SHOWN), total: flat.length, tree, allCollapsed, keyW: Math.min(110, Math.max(36, Math.ceil(longest * 6.6) + 8)) };
     }
     return this.cache;
   }
@@ -562,15 +657,30 @@ export default class SpaceIssues extends View {
     });
   }
 
-  // One row from its row data and the styles `render` picked once (`s`). Built once per
+  // One row from its item and the styles `render` picked once (`s`). Built once per
   // render: hover is a style (no script runs on it), and only entering a row calls back,
   // to fetch its page ahead.
-  row(d, depth, s) {
+  row(item, s) {
+    const { data: d, depth, hasKids, collapsed, hidden, issue } = item;
     const t = s.t;
     const status = div().flex_none().max_w(110).truncate().px(6).py(1).rounded(4).text_size(fs.tiny)
       .bg(d.active ? s.activeBg : t.raised).text_color(d.active ? t.accent : t.muted).child(d.status);
     const blocked = (e) => (d.blocked ? e.child(div().flex_none().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(fs.tiny).text_color(t.ansi1).child("blocked")) : e);
-    const kind = icon(d.kind, kindColor(d.kind, t));
+    const count = (e) => (collapsed && hidden > 0
+      ? e.child(div().flex_none().px(5).py(1).rounded(4).bg(t.raised).text_size(fs.tiny).text_color(t.dim)
+          .tooltip(`${hidden} hidden ${hidden === 1 ? "issue" : "issues"}`).child(String(hidden)))
+      : e);
+    const chev = !s.tree ? null : hasKids
+      ? div().id(`${item.key}-toggle`).w(16).h(20).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
+          .hover((x) => x.bg(tint(t.foreground, "16")))
+          .tooltip(collapsed ? `Expand (${hidden})` : "Collapse")
+          .on_mouse_down("left", (_e, cx) => { try { this.handle.focus(); } catch { /* best effort */ } cx.stop_propagation(); })
+          .on_click((_e, cx) => { cx.stop_propagation(); this.toggle(issue, cx); })
+          .child(icon(collapsed ? "chevron-right" : "chevron-down", t.dim, 12))
+      : div().w(16).flex_none();
+    const kind = chev
+      ? h_flex().flex_none().gap(4).items_center().child(chev).child(icon(d.kind, kindColor(d.kind, t)))
+      : icon(d.kind, kindColor(d.kind, t));
     const key = div().w(s.keyW).flex_none().truncate().text_size(fs.meta).text_color(t.dim).child(d.key);
     const title = div().flex_1().min_w(0).truncate().child(d.title);
     const age = div().w(30).flex_none().text_right().text_size(fs.meta).text_color(t.dim).child(d.age);
@@ -580,9 +690,9 @@ export default class SpaceIssues extends View {
     // Narrow (the side panel): two lines, so the summary keeps the whole width.
     if (s.two) return base(v_flex()).h(fs.row2).justify_center().gap(3)
       .child(h_flex().gap(8).items_center().child(kind).child(key).child(title).child(age))
-      .child(agent(blocked(h_flex().pl(s.keyW + 30).gap(6).items_center().child(avatar(d.assignee, t, 16))
-        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned")))).child(status));
-    return agent(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title))).child(status)
+      .child(count(agent(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
+        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned"))))).child(status));
+    return count(agent(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title)))).child(status)
       .child(avatar(d.assignee, t))
       .child(age);
   }
@@ -1115,7 +1225,7 @@ export default class SpaceIssues extends View {
     }
     // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
     const t = theme(), overlay = props()?.overlay, dock = inDockDialog(), wide = this.width >= WIDE;
-    const { items, total, keyW } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36 };
+    const { items, total, keyW, tree, allCollapsed } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36, tree: false, allCollapsed: false };
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const unlinked = !this.loading && !this.error && !this.projects.length;
     const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
@@ -1123,7 +1233,7 @@ export default class SpaceIssues extends View {
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
-    const s = { t, keyW, activeBg: t.accent + "30", two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, agents: agentSpaces(this.repo?.main).issues };
+    const s = { t, keyW, activeBg: t.accent + "30", two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, tree, agents: agentSpaces(this.repo?.main).issues };
     const issue = (key) => this.issues.find((x) => x.key === key);
     // A plain list, built once per render. A virtual list calls its row builder for every
     // frame drawn (hovering included), which made hovering lag; this one runs no script
@@ -1131,7 +1241,7 @@ export default class SpaceIssues extends View {
     const [shownItems, windowed] = this.keyWindow(items, (i) => i.data?.key === this.cursor, s.two ? fs.row2 : fs.row);
     const list = v_flex().flex_1().min_w(0).min_h(0)
       .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "issue-list-keys" : "issue-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar()
-        .children(shownItems.map((i) => (i.group ? heading(i.group) : this.row(i.data, i.depth, s).id(i.key)
+        .children(shownItems.map((i) => (i.group ? heading(i.group) : this.row(i, s).id(i.key)
           .on_click((_e, cx) => { const x = issue(i.data.key); if (x) { this.handle.focus(); this.pick(x, cx); } })
           // Right-click: Move, Open, Start agent, Copy key (row-menu.js).
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rowMenu(i.data.key); })
@@ -1157,7 +1267,9 @@ export default class SpaceIssues extends View {
     }, t))
       .when(watching, (e) => e
         .child(chip(t, "sprint-current", "Sprint", this.sprint === "current", (cx) => this.pickSprint("current", cx)))
-        .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx))));
+        .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx))))
+      .when(tree, (e) => e.child(iconButton(t, "tree-fold", allCollapsed ? "chevrons-up-down" : "chevrons-down-up",
+        (cx) => this.foldAll(!allCollapsed, cx), { tooltip: allCollapsed ? "Expand all" : "Collapse all" })));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
     const search = div().min_w(0).px(8).py(3).rounded(6).border_1().border_color(t.input).text_size(fs.meta).child(Input.new(this.search));
     const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close" });
@@ -1173,6 +1285,7 @@ export default class SpaceIssues extends View {
         else if (this.open) { if (e.key === "escape") this.back(cx); else if (!this.pageKey(e, cx)) return; }
         else if (e.key === "down") this.move(1, cx);
         else if (e.key === "up") this.move(-1, cx);
+        else if (!this.searching && (e.key === "left" || e.key === "right")) { if (!this.treeKey(e.key, cx)) return; }
         else if (e.key === "enter") this.enter(cx);
         else if (e.key === "escape" && overlay) closeOverlay(overlay);
         else return;
@@ -1196,7 +1309,7 @@ export default class SpaceIssues extends View {
         .child(filters))
       .when(Boolean(this.error && this.issues.length), (e) => e.child(div().px(14).py(4).text_size(fs.meta).text_color(t.ansi1).child(this.error)))
       .child(v_flex().flex_1().min_h(0).child(list))
-      .child(kit(t).footer([[["↑", "↓"], "move"], [["↵"], "open"], ...(overlay ? [[["Esc"], "close"]] : [])])))));
+      .child(kit(t).footer([[["↑", "↓"], "move"], ...(tree ? [[["←", "→"], "fold"]] : []), [["↵"], "open"], ...(overlay ? [[["Esc"], "close"]] : [])])))));
   }
 
   // A new width counts once it has held for 200 ms: a panel that opens or a divider that
