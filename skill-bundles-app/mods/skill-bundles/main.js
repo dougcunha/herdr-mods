@@ -27,6 +27,7 @@ import { formatManifest, sameRepo, withSource, withSkills, withoutSource, orderB
 import { groupRows, countRows, pending, toLink, toRemove } from "./status.js";
 import { STR, fill } from "./text.js";
 import { panelView, statusView } from "./view.js";
+import { agentStart } from "./core.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -552,7 +553,7 @@ export default class SkillBundles extends View {
   agentFix(agent) {
     const folder = this.on ? this.cat.dir : C.native(this.cat.dir);
     const task = "This folder is a Git clone of a skill Catalog. Commit the changes that are not committed, with a clear message. Then bring in the new commits of the remote with git pull --rebase, and push. Ask me before you discard a change.";
-    run("space.new", { name: "Catalog clone", folder, machine: this.on ?? "", ...(agent ? { argv: agent.run, task } : {}) });
+    run("space.new", { name: "Catalog clone", folder, machine: this.on ?? "", ...(agent ? agentStart(agent.run, task) : {}) });
   }
 
   // ---- actions ----------------------------------------------------------------------------

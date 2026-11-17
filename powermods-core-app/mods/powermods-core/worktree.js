@@ -9,6 +9,7 @@
 import { run, spaces, panes, notify, hc, openOverlay, shared, setShared, home, exec } from "herdr";
 import { KEY, norm, samePath, inside, slug, repoName, rootSetting, rootFor, homeOf, windowsOn, git, mainCheckout, parseWorktrees } from "./paths.js";
 import { repoConfig, trusted, trustValue, copyFilesFolder, copyIgnored, commandsOf, writeRunner, readStatus, removeRunner } from "./setup.js";
+import { agentStart } from "./core.js";
 
 export const STATE = (globalThis.__powermodsCore ??= { queue: [], jobs: new Map(), beat: 0, seq: 0 });
 
@@ -238,7 +239,7 @@ async function runCreate(cx, j, copy) {
   const notes = [cfg.error, useRepo || !cfg.run.length ? null : "The commands of .herdr/worktree.json were skipped."].filter(Boolean);
 
   if (!commands.length) {
-    run("space.new", { name, folder: path, machine: on ?? "", ...(agent?.argv ? { tab: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+    run("space.new", { name, folder: path, machine: on ?? "", ...(agent?.argv ? { tab: agent.tab, ...agentStart(agent.argv, agent.task) } : {}) });
     const sp = await newSpace(cx, j, before, path);
     if (r.select === false && shown) run("space.select", { id: shown });
     record(j, { state: "done", copied, log: notes.join("\n") || "No setup commands.", spaceId: sp?.id ?? null, ended: Date.now() });
@@ -290,12 +291,12 @@ async function waitSetup(cx, j, copy) {
     if (gone) {
       // The setup tab ended and closed the space with it: the agent starts in a new space in the worktree.
       const before = new Set(spaces().map((s) => s.id));
-      run("space.new", { name: String(agent?.tab ?? branch).slice(0, 40), folder: path, machine: on ?? "", ...(agent?.argv ? { tab: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+      run("space.new", { name: String(agent?.tab ?? branch).slice(0, 40), folder: path, machine: on ?? "", ...(agent?.argv ? { tab: agent.tab, ...agentStart(agent.argv, agent.task) } : {}) });
       const made = await newSpace(cx, j, before, path);
       opened = Boolean(made);
       if (made) record(j, { spaceId: made.id });
     } else {
-      run("tab.new", { space: sp.id, folder: path, ...(agent?.argv ? { name: agent.tab, argv: agent.argv, task: agent.task } : {}) });
+      run("tab.new", { space: sp.id, folder: path, ...(agent?.argv ? { name: agent.tab, ...agentStart(agent.argv, agent.task) } : {}) });
       for (let i = 0; i < 80 && !opened; i++) {
         await cx.sleep(250);
         j.beat = Date.now();

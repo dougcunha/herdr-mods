@@ -25,6 +25,7 @@ import {
 import { scanMods, checkChanges, checkThird, thirdStatus, compareUrl, installedThird } from "./mods.js";
 import { canTurnOff, isOn, setOn } from "./onoff.js";
 import { renderWorktrees, coreLoaded } from "./worktrees.js";
+import { agentStart } from "./core.js";
 
 /** Opens a web page in the browser of this computer. */
 function openUrl(url) {
@@ -257,7 +258,7 @@ export default class ModsUpdate extends View {
       const before = new Set(panes().map((p) => p.terminal).filter(Boolean));
       try {
         // It starts in ~/.config/herdr-app: the AGENTS.md of the Herdr app is there.
-        run("space.new", { name: third ? `Update ${third}` : "Mods update", folder: appHome(), machine: "", argv: agent.run, task });
+        run("space.new", { name: third ? `Update ${third}` : "Mods update", folder: appHome(), machine: "", ...agentStart(agent.run, task) });
       } catch (e) {
         this.busy = null;
         this.launchError = errorText(e);

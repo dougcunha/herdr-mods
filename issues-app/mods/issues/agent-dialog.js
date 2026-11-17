@@ -17,7 +17,7 @@ import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, rea
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
 import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented, iconButton, programTile } from "./links.js";
 import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
-import { worktrees, maybeWorktrees } from "./core.js";
+import { worktrees, maybeWorktrees, agentStart } from "./core.js";
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -364,7 +364,7 @@ export class AgentDialog extends View {
       if (!s) throw new Error("Pick an open space.");
       const before = spaces().find((x) => x.active)?.id;
       keepAgent(this.agent.name);
-      run("tab.new", { space: s.id, name: p.tabs?.[this.mode] ?? p.title, argv: [...this.agent.run, ...extra], task: prompt });
+      run("tab.new", { space: s.id, name: p.tabs?.[this.mode] ?? p.title, ...agentStart([...this.agent.run, ...extra], prompt) });
       if (!this.stay) run("space.select", { id: s.id });
       else if (before && before !== s.id) run("space.select", { id: before });
       notify({ title: `Started ${this.agent.name}`, body: `${p.tabs?.[this.mode] ?? p.title ?? ""} · ${s.name}`, level: "success", timeout: 4000 });

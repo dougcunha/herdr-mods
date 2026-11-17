@@ -6,6 +6,7 @@ import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { props, closeOverlay, theme, knownAgents, run, notify, spaces, shared, setShared } from "herdr";
 import { icon } from "./menu.js";
 import { conflictPrompt } from "./git.js";
+import { agentStart } from "./core.js";
 
 // The known agents per machine, kept in shared("git-client.agents"): knownAgents() starts a shell, so the
 // dialog asks only when no list is kept (first open) or on ↻. The lists of issues and repo-launcher fill an
@@ -54,7 +55,7 @@ export class AgentDialog {
     if (!this.agent || !prompt) return;
     const space = spaces().find((s) => s.active);
     setShared(LAST, this.agent.name);
-    run("tab.new", { ...(space ? { space: space.id } : {}), folder: p.ctx.root, name: `Resolve ${p.op}`, argv: this.agent.run, task: prompt });
+    run("tab.new", { ...(space ? { space: space.id } : {}), folder: p.ctx.root, name: `Resolve ${p.op}`, ...agentStart(this.agent.run, prompt) });
     notify({ title: `Started ${this.agent.name}`, body: `Resolve the ${p.op} conflicts`, level: "success", timeout: 4000 });
     closeOverlay(p.overlay);
   }

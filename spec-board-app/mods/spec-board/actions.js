@@ -3,6 +3,7 @@
 
 import { spaces, panes, agents, run, shared, knownAgents, hc } from "herdr";
 import { git, powershell, psQuote, native, join, norm, inside, isWin, homeDir, machine, readText, run as runOn } from "./data.js";
+import { agentStart } from "./core.js";
 
 // The preferences (mods-hub Settings tab, kit.json). Read on every use.
 export const KEY = {
@@ -90,10 +91,10 @@ export async function launch(folder, prompt, name) {
   const space = spaceFor(folder);
   if (space) {
     run("space.select", { id: space.id });
-    run("tab.new", { space: space.id, folder: native(folder), argv, task: prompt, ...(name ? { name } : {}) });
+    run("tab.new", { space: space.id, folder: native(folder), ...agentStart(argv, prompt), ...(name ? { name } : {}) });
     return "tab";
   }
-  run("space.new", { folder: native(folder), argv, task: prompt, machine: machine() ?? "", ...(name ? { tab: name } : {}) });
+  run("space.new", { folder: native(folder), ...agentStart(argv, prompt), machine: machine() ?? "", ...(name ? { tab: name } : {}) });
   return "space";
 }
 

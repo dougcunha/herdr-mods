@@ -9,6 +9,7 @@ import { shared, setShared, agents, terminals, panes, spaces, run, hc, notify, k
 import * as S from "./store.js";
 import * as Sh from "./shell.js";
 import { nextDue } from "./schedule.js";
+import { agentStart } from "./core.js";
 
 const { KEY } = S;
 const SEC = 1000;
@@ -343,8 +344,8 @@ export class Engine {
       const argv = [...agent.run, ...Sh.splitArgs(a.args)];
       const before = new Set(terminals().map((t) => t.address));
       const space = this.spaceFor(a);
-      if (space) run("tab.new", { space, folder: a.folder, argv, task: prompt, name: a.name || undefined });
-      else run("space.new", { folder: a.folder, machine: "", argv, task: prompt });
+      if (space) run("tab.new", { space, folder: a.folder, ...agentStart(argv, prompt), name: a.name || undefined });
+      else run("space.new", { folder: a.folder, machine: "", ...agentStart(argv, prompt) });
       let address = null;
       for (let i = 0; i < 40 && !address; i++) {
         await cx.sleep(250);

@@ -15,6 +15,10 @@ const TARGETS = [
   "spec-board-app/mods/spec-board/core.js",
   "git-client-app/mods/git-client/core.js",
   "git-dash-app/mods/git-dash/core.js",
+  "powermods-core-app/mods/powermods-core/core.js",
+  "mods-hub-app/mods/mods-hub/core.js",
+  "automations-app/mods/automations/core.js",
+  "skill-bundles-app/mods/skill-bundles/core.js",
 ];
 
 const check = process.argv.includes("--check");
