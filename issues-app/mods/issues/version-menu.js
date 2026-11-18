@@ -6,7 +6,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { props, closeOverlay, theme, notify, setShared } from "herdr";
-import { projectVersions, issueFixVersions, setFixVersions } from "./jira.js";
+import { projectVersions, issueFixVersions, setFixVersions, byName } from "./jira.js";
 import { fs, openUrl, button } from "./links.js";
 import { chooseList, scrolled } from "./choose.js";
 import { CHANGED } from "./transition.js";
@@ -18,13 +18,13 @@ export class VersionMenu extends View {
     this.search = InputState.new({ placeholder: "Filter the versions" });
     this.search.on("change", (_e, cx) => { this.top = 0; cx.notify(); });
     cx.timer.after(60, () => { try { this.search.focus(); } catch { /* the click still works */ } });
-    this.versions = null; this.chosen = new Set(); this.start = ""; this.top = 0; this.error = ""; this.saving = false;
+    this.versions = null; this.chosen = new Set(); this.start = ""; this.top = 0; this.scope = "unreleased"; this.error = ""; this.saving = false;
     cx.spawn(async (cx) => {
       try {
         const [all, now] = await Promise.all([projectVersions(this.site, this.key), issueFixVersions(this.site, this.key)]);
         // A version of the issue that the project list lacks (an archived one) stays in the list, so Save keeps it.
         const have = new Set(all.map((v) => v.id));
-        this.versions = [...all, ...now.filter((v) => !have.has(v.id))];
+        this.versions = [...all, ...now.filter((v) => !have.has(v.id))].sort(byName);
         this.chosen = new Set(now.map((v) => v.id));
         this.start = [...this.chosen].sort().join(",");
       } catch (e) { this.error = String(e?.message ?? e); }
@@ -69,7 +69,7 @@ export class VersionMenu extends View {
       .when(ready && !this.versions.length, (e) => e.child(div().px(4).py(6).text_size(fs.meta).text_color(t.dim).child("This project has no versions. Make one in Jira (Releases).")))
       .when(ready && this.versions.length > 0, (e) => e.child(chooseList(t, {
         id: "version-list", items: this.versions.map((v) => ({ id: v.id, name: v.name, note: v.released ? "released" : "" })),
-        chosen: this.chosen, multi: true, top: this.top, search: this.search, toggle: (id, cx) => this.toggle(id, cx),
+        chosen: this.chosen, multi: true, top: this.top, search: this.search, scope: { value: this.scope, pick: (v) => { this.scope = v; this.top = 0; } }, toggle: (id, cx) => this.toggle(id, cx),
         wheel: (d, shown, cx) => { this.top = scrolled(this.top, d, shown); cx.notify(); } })))
       .when(Boolean(this.error), (e) => e.child(div().text_size(fs.tiny).text_color(t.ansi1).child(this.error)))
       .child(h_flex().gap(8).items_center()

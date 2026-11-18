@@ -46,7 +46,7 @@ export class TransitionMenu extends View {
           s.on("change", (_e, cx) => { this.form?.tops.set(f.id, 0); cx.notify(); });
           searches.set(f.id, s);
         }
-        this.form = { tr, fields, picked, searches, tops: new Map() };
+        this.form = { tr, fields, picked, searches, tops: new Map(), scopes: new Map() };
         this.busy = null; cx.notify();
         return;
       }
@@ -105,6 +105,7 @@ export class TransitionMenu extends View {
         .child(x.kind === "choice"
           ? chooseList(t, { id: `form-${x.id}`, items: x.allowed, chosen: f.picked.get(x.id), multi: x.multi, top: f.tops.get(x.id) ?? 0,
             search: f.searches.get(x.id), toggle: (id, cx) => this.toggle(x, id, cx),
+            scope: x.allowed.some((v) => v.note === "released") ? { value: f.scopes.get(x.id) ?? "unreleased", pick: (v) => { f.scopes.set(x.id, v); f.tops.set(x.id, 0); } } : undefined,
             wheel: (d, shown, cx) => { f.tops.set(x.id, scrolled(f.tops.get(x.id) ?? 0, d, shown)); cx.notify(); } })
           : x.kind === "other" ? div().text_size(fs.tiny).text_color(t.ansi3).child("This field can't be filled here: make the move in Jira.")
           : div().px(8).py(5).rounded(6).border_1().border_color(t.input).bg(t.background).child(Input.new(f.picked.get(x.id))))))

@@ -5,7 +5,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
-import { fs, icon } from "./links.js";
+import { fs, icon, segmented } from "./links.js";
 
 export const ROW = 26, SHOWN = 7;
 
@@ -15,9 +15,13 @@ export const scrolled = (top, delta, count) => Math.max(0, Math.min(top - Math.s
 // items: [{ id, name, note? }]. multi: a check box (many) or a dot (one). toggle(id, cx), wheel(delta, shown, cx).
 // search (optional, an InputState): a text box over the list; the rows are the items whose name has that
 // text. The owner sets top to 0 when the text changes (see filterBox). A pick stays when its row is hidden.
-export function chooseList(t, { id, items: all, chosen, multi, top, toggle, wheel, search }) {
+// scope (optional, { value: "unreleased" | "released" | "all", pick(value, cx) }): the three-way switch
+// over the list for versions (a row with note "released" is a released version). It hides rows like the
+// text box does: a pick stays.
+export function chooseList(t, { id, items: all, chosen, multi, top, toggle, wheel, search, scope }) {
   const q = (search?.value() ?? "").trim().toLowerCase();
-  const items = q ? all.filter((x) => x.name.toLowerCase().includes(q)) : all;
+  const kept = scope && scope.value !== "all" ? all.filter((x) => (x.note === "released") === (scope.value === "released")) : all;
+  const items = q ? kept.filter((x) => x.name.toLowerCase().includes(q)) : kept;
   const first = Math.max(0, Math.min(top ?? 0, Math.max(0, items.length - SHOWN)));
   const mark = (on) => (multi
     ? div().size(14).flex_none().rounded(4).border_1().border_color(on ? t.accent : t.border).bg(on ? t.accent + "33" : t.background)
@@ -34,6 +38,7 @@ export function chooseList(t, { id, items: all, chosen, multi, top, toggle, whee
       .when(Boolean(x.note), (e) => e.child(div().flex_none().text_size(fs.tiny).text_color(t.dim).child(x.note)))))
     .when(items.length === 0, (e) => e.child(div().px(6).py(4).text_size(fs.meta).text_color(t.dim).child("Nothing matches.")));
   return v_flex().w_full().gap(5)
+    .when(Boolean(scope), (e) => e.child(segmented(`${id}-scope`, [["unreleased", "Unreleased"], ["released", "Released"], ["all", "All"]], scope.value, scope.pick, t, false)))
     .when(Boolean(search), (e) => e.child(filterBox(t, search)))
     .child(list)
     .when(items.length > SHOWN, (e) => e.child(div().px(4).text_size(fs.tiny).text_color(t.dim).child(`${first + 1}–${Math.min(items.length, first + SHOWN)} of ${items.length} · scroll`)));

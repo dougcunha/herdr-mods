@@ -214,8 +214,7 @@ export async function transitionFields(site, key, id) {
       .map((v) => ({ id: String(v.id), name: String(v.name ?? v.value ?? v.id), note: v.released === true ? "released" : "" }));
     const rich = ["description", "environment", "comment"].includes(s.system) || /textarea|richtext/i.test(s.custom ?? "");
     const kind = allowed.length ? "choice" : s.type === "string" && !rich ? "text" : s.type === "number" ? "number" : "other";
-    // An unreleased version first, as the Fix version menu orders them.
-    if (kind === "choice") allowed.sort((a, b) => Number(a.note === "released") - Number(b.note === "released"));
+    if (kind === "choice") allowed.sort(byName);
     return { id: fid, name: f.name ?? fid, kind, multi, allowed };
   });
 }
@@ -233,14 +232,17 @@ export function fieldValue(f, picked) {
   return String(picked).trim();
 }
 
+// Alphabetical order, case does not matter (for the lists of versions and other choices).
+export const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+
 // The versions of the project of an issue (its key before the dash): [{ id, name, released }], the
-// unreleased first. Archived versions are left out.
+// in alphabetical order (case does not matter). Archived versions are left out.
 export async function projectVersions(site, key) {
   const project = String(key).replace(/-\d+$/, "");
   const list = await call(site, `/rest/api/3/project/${encodeURIComponent(project)}/versions`);
   const all = (Array.isArray(list) ? list : []).filter((v) => v && v.id != null && !v.archived)
     .map((v) => ({ id: String(v.id), name: String(v.name ?? v.id), released: Boolean(v.released) }));
-  return [...all.filter((v) => !v.released), ...all.filter((v) => v.released)];
+  return all.sort(byName);
 }
 // The Fix versions of an issue now: [{ id, name, released }].
 export async function issueFixVersions(site, key) {
