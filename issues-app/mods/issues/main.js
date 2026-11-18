@@ -26,6 +26,7 @@ import { projects, isGithub } from "./sources.js";
 import { fileComponents, wantedFor, resolveComponents } from "./components.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
+import { VersionMenu } from "./version-menu.js";
 import { saveAttachments, fileNames, isArchive, sizeText, shownPath } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
@@ -129,6 +130,27 @@ const short = (text) => {
   const cut = t.lastIndexOf("\n", MAX);
   return `${t.slice(0, cut > MAX / 2 ? cut : MAX)}\n\n_… the rest is online._`;
 };
+// The text of a description or of a long extra field (Refinement): { head (the start, as in short()),
+// parts (the whole text in pieces, null when it fits in MAX), size }. The page shows the head and a
+// Show full text button; a click draws the pieces, each one as its own Markdown view, so that no
+// single view is larger than MAX. A piece ends at a blank line outside a code fence.
+const PIECE = MAX;
+function longText(text) {
+  const t = imagesAsLinks(text?.trim() ?? "");
+  if (t.length <= MAX) return { head: t, parts: null, size: t.length };
+  const cut = t.lastIndexOf("\n", MAX);
+  const head = t.slice(0, cut > MAX / 2 ? cut : MAX).trimEnd();
+  const parts = [];
+  let part = "", fence = false;
+  for (const line of t.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    // Close the piece at a blank line when it is big enough; a fence or a single huge line stays whole.
+    if (!fence && line.trim() === "" && part.length >= PIECE / 2) { parts.push(part.trim()); part = ""; continue; }
+    part += `${line}\n`;
+  }
+  if (part.trim()) parts.push(part.trim());
+  return { head, parts, size: t.length };
+}
 
 // The next sprint of each board: of the future sprints of the issues, the one that starts first
 // (a sprint without a start date: the lowest id, the order in which Jira made them). A Set of sprint ids.
@@ -150,7 +172,7 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "version" ? VersionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
     // This copy's id: Start agent of a row's menu (row-menu.js) comes back only to the list that opened it.
     this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.seenAction = shared(ROW_ACTION)?.at ?? 0;
@@ -478,12 +500,12 @@ export default class SpaceIssues extends View {
     page.extra = defs.map((d) => {
       const value = fieldText(page.fields[d.id]);
       delete page.fields[d.id];
-      return { name: d.name, ph: placeholderOf(d.wanted), text: value, md: value ? short(value) : "" };
+      return { name: d.name, ph: placeholderOf(d.wanted), text: value, md: value ? short(value) : "", long: value ? longText(value) : null };
     });
     // Converted once here, not on every render (Herdr renders on any live change): the
     // description, then comments and events in time order.
     const comments = page.fields.comment?.comments ?? [];
-    page.md = { description: short(text(page.fields.description)), count: comments.length };
+    page.md = { description: short(text(page.fields.description)), descLong: longText(text(page.fields.description)), count: comments.length };
     // A reply (Jira's parentId) goes under the first comment of its thread, in time order.
     // A reply whose thread starts before the shown comments stands alone.
     const shown = comments.slice(-COMMENTS).map((c) => {
@@ -796,6 +818,22 @@ export default class SpaceIssues extends View {
       : full ? k.button("issue-back", "← Back", () => run("issues.back")) : null;
     const m = p?.meta ?? {};
     const md = (id, body) => TextView.markdown(id, body).selectable(true).on_link_click((url) => openUrl(url));
+    // A text block (the description, a refinement): the start, then Show full text for a long one. The
+    // choice is kept for each issue and field while the page stays open (the same in the list, the dialog).
+    const fullPanel = (id, lt, fallback) => {
+      if (!lt?.parts) return k.panel(`panel-${id}`, md(id, fallback));
+      const open = this.fullText?.has(id);
+      const toggle = (cx) => { (this.fullText ??= new Set())[open ? "delete" : "add"](id); cx.notify(this.pageView); };
+      const size = `${lt.size.toLocaleString("en-US")} characters`;
+      return v_flex().gap(8)
+        .child(k.panel(`panel-${id}`, open
+          ? v_flex().gap(10).children(lt.parts.map((x, n) => md(`${id}-${n}`, x)))
+          : md(id, lt.head)))
+        .child(h_flex().gap(8).items_center()
+          .child(button(t, `full-${id}`, open ? "Show less" : "Show full text", (cx) => toggle(cx), { kind: "plain", small: true, tooltip: open ? "Show only the start of this text" : `Show all of this text (${size})` })
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation()))
+          .child(div().text_size(fs.tiny).text_color(t.dim).child(open ? size : `Showing the start · ${size}`)));
+    };
     // A comment card; Jira comments get Reply, and the replies of a thread sit under its first comment.
     const comment = (x, id) => k.card(`c-${i.key}-${id}`, x.who, x.parent ? "replied" : "commented", `${ago(x.at)} ago`, md(`comment-${i.key}-${id}`, x.md),
       !gh && x.id && button(t, `reply-${i.key}-${id}`, "Reply", (cx) => this.replyTo(x, cx), { kind: "link", small: true, tooltip: "Reply in the thread of this comment" }));
@@ -837,7 +875,10 @@ export default class SpaceIssues extends View {
             : div().text_color(t.dim).child(!p ? "…" : p.pointsField ? "Not estimated · click to set" : "Not estimated")), "points"],
       m.sprint && ["Sprint", h_flex().gap(6).items_center().min_w(0).child(div().size(7).flex_none().rounded_full().bg(sprintColor(m.sprint)))
         .child(div().min_w(0).truncate().child(m.sprint.name)), "sprint"],
-      m.versions?.length && ["Fix versions", h_flex().flex_wrap().gap(4).children(m.versions.map((v) => k.tag(v.name, v.released ? t.ansi2 : t.accent))), "version"],
+      // Jira: a click opens the Fix version menu (version-menu.js); GitHub has no versions.
+      !gh && ["Fix versions", h_flex().id("fix-versions").flex_wrap().gap(4).items_center().cursor_pointer().tooltip("Click to set the Fix versions")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(() => this.openVersions(i))
+        .children(m.versions?.length ? m.versions.map((v) => k.tag(v.name, v.released ? t.ansi2 : t.accent)) : [div().text_color(t.dim).child(!p ? "…" : "None · click to set")]), "version"],
       m.affects?.length && ["Affects", tags(m.affects, t.muted), "version"],
       m.components?.length && ["Components", tags(m.components, t.ansi5), "component"],
       f.labels?.length && ["Labels", h_flex().flex_wrap().gap(4).children(f.labels.map((l) => k.label(l))), "tag"],
@@ -908,8 +949,8 @@ export default class SpaceIssues extends View {
           ...(!gh ? [this.composer(t, i)] : []),
         ]
         : tab === "files" ? [this.attachments(t, i, files)]
-        : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => k.panel(`panel-${i.key}-${x.ph}`, md(`extra-${i.key}-${x.ph}`, x.md)))
-        : [k.panel(`panel-${i.key}-desc`, md(`desc-${i.key}`, p.md.description || "_No description._"))],
+        : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => fullPanel(`extra-${i.key}-${x.ph}`, x.long, x.md))
+        : [fullPanel(`desc-${i.key}`, p.md.descLong, p.md.description || "_No description._")],
       side,
       footer: k.footer(keys),
     });
@@ -1207,6 +1248,11 @@ export default class SpaceIssues extends View {
   // The Move menu of a Jira issue: a popup of this mod (transition.js) under the pointer.
   openMove(i, status) {
     openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "transition", site: i.site, key: i.key, status } });
+  }
+
+  // The Fix version menu of a Jira issue: a popup of this mod (version-menu.js).
+  openVersions(i) {
+    openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "version", site: i.site, key: i.key } });
   }
 
   render(cx) {

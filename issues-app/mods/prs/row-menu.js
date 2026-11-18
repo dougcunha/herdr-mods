@@ -34,6 +34,10 @@ export class RowMenu extends View {
         close();
         openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "transition", site: p.site, key: p.key, status: p.status } });
       } },
+      p.jira && { id: "version", label: "Fix version…", icon: "version", run: () => {
+        close();
+        openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "version", site: p.site, key: p.key } });
+      } },
       { id: "open", label: p.open ?? "Open", icon: "external", run: () => { close(); openUrl(p.url); } },
       p.agent && { id: "agent", label: p.agent, icon: "bot", run: () => { close(); setShared(rowAction(p.mod), { to: p.to, key: p.key, at: Date.now() }); } },
       { id: "copy", label: p.copyLabel ?? "Copy key", icon: "copy", run: copy(p.copy) },

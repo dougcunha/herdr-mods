@@ -1,6 +1,6 @@
 // Jira Cloud: projects named in a repository, the sign-in, and the REST calls.
-// Read only, with four exceptions that the person makes on an issue page: a comment, a move (transition),
-// Assign to me and a new story points value.
+// Read only, with five exceptions that the person makes on an issue page: a comment, a move (transition),
+// Assign to me, a new story points value and the Fix versions.
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
@@ -197,10 +197,60 @@ export async function transitions(site, key) {
   return (r?.transitions ?? []).filter((x) => x.isAvailable !== false)
     .map((x) => ({ id: String(x.id), name: x.name, to: x.to?.name ?? x.name, category: x.to?.statusCategory?.key ?? "", screen: Boolean(x.hasScreen) }));
 }
-// Makes one move. A move whose screen asks for required fields is refused by Jira (400): do it in Jira.
-export async function moveIssue(site, key, id) {
+// The fields that a move's screen requires and the person must fill: [{ id, name, kind, multi, allowed }].
+// kind: "choice" (a list to pick from, such as Fix versions or Resolution), "text" (a short text),
+// "number", or "other" (rich text, a user picker…: the person makes that move in Jira).
+export async function transitionFields(site, key, id) {
   if (!/^\d+$/.test(String(id))) throw new Error("That isn't a transition.");
-  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: String(id) } });
+  const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/transitions?expand=transitions.fields&transitionId=${id}`);
+  const fields = (r?.transitions ?? []).find((x) => String(x.id) === String(id))?.fields ?? {};
+  const need = Object.entries(fields).filter(([, f]) => f?.required);
+  // A version field without its list: the versions of the project.
+  const versions = need.some(([, f]) => f.schema?.items === "version" && !(f.allowedValues ?? []).length) ? await projectVersions(site, key).catch(() => []) : [];
+  return need.map(([fid, f]) => {
+    const s = f.schema ?? {}, multi = s.type === "array";
+    const given = (f.allowedValues ?? []).length ? f.allowedValues : s.items === "version" ? versions.map((v) => ({ ...v, released: v.released })) : [];
+    const allowed = given.filter((v) => v && v.id != null && v.archived !== true)
+      .map((v) => ({ id: String(v.id), name: String(v.name ?? v.value ?? v.id), note: v.released === true ? "released" : "" }));
+    const rich = ["description", "environment", "comment"].includes(s.system) || /textarea|richtext/i.test(s.custom ?? "");
+    const kind = allowed.length ? "choice" : s.type === "string" && !rich ? "text" : s.type === "number" ? "number" : "other";
+    // An unreleased version first, as the Fix version menu orders them.
+    if (kind === "choice") allowed.sort((a, b) => Number(a.note === "released") - Number(b.note === "released"));
+    return { id: fid, name: f.name ?? fid, kind, multi, allowed };
+  });
+}
+// Makes one move. `fields`: { fieldId: value } for the fields that the move's screen requires, already
+// in the shape Jira wants (see fieldValue). Without them, a move with required fields is refused (400).
+export async function moveIssue(site, key, id, fields) {
+  if (!/^\d+$/.test(String(id))) throw new Error("That isn't a transition.");
+  const has = fields && Object.keys(fields).length;
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: String(id) }, ...(has ? { fields } : {}) });
+}
+// The value Jira wants for a field picked in the Move form: ids of a list, a text, a number.
+export function fieldValue(f, picked) {
+  if (f.kind === "choice") { const ids = [...picked]; return f.multi ? ids.map((id) => ({ id })) : { id: ids[0] }; }
+  if (f.kind === "number") return Number(picked);
+  return String(picked).trim();
+}
+
+// The versions of the project of an issue (its key before the dash): [{ id, name, released }], the
+// unreleased first. Archived versions are left out.
+export async function projectVersions(site, key) {
+  const project = String(key).replace(/-\d+$/, "");
+  const list = await call(site, `/rest/api/3/project/${encodeURIComponent(project)}/versions`);
+  const all = (Array.isArray(list) ? list : []).filter((v) => v && v.id != null && !v.archived)
+    .map((v) => ({ id: String(v.id), name: String(v.name ?? v.id), released: Boolean(v.released) }));
+  return [...all.filter((v) => !v.released), ...all.filter((v) => v.released)];
+}
+// The Fix versions of an issue now: [{ id, name, released }].
+export async function issueFixVersions(site, key) {
+  const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=fixVersions`);
+  return (r?.fields?.fixVersions ?? []).map((v) => ({ id: String(v.id), name: String(v.name ?? v.id), released: Boolean(v.released) }));
+}
+// Sets the Fix versions of an issue to exactly these ids (an empty list clears them).
+export async function setFixVersions(site, key, ids) {
+  if (!ids.every((id) => /^\d+$/.test(String(id)))) throw new Error("That isn't a version.");
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { fixVersions: ids.map((id) => ({ id: String(id) })) } }, undefined, "PUT");
 }
 
 // Only what the list shows: raw issues (links with their whole target issues) make
