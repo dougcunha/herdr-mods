@@ -49,7 +49,7 @@ herdr-app do tab.new --name Pending --mod git-dash --props '{"root":"D:/Projetos
 | Control | What it does |
 | ------- | ------------ |
 | Folder button | Shows the list of base folders: 1 row per folder, with its repository count (or `not found`) and a trash button, then **Add folder…**. A second click goes back to the list of repositories. The list is saved and every Git Dash panel uses it. |
-| Refresh button | Reads all repositories again. It spins while it works. The panel also refreshes by itself every 5 minutes while it shows. A hidden panel refreshes when it shows again. |
+| Refresh button | Reads all repositories again. It spins while it works. Both tabs show a Refresh button in the middle before their first load. Turn on **Automatic refresh** in PowerMods to load and refresh the visible tab automatically when its data is 5 minutes old. |
 | Download button | Fetch on refresh. When it is on, `git fetch --all --prune` runs in each repository, so the *behind* count is current. It is off by default. |
 | Chips | **Pending**, **Clean**, **Errors** and **All**. |
 | Filter box | Filters by repository path or branch. |
@@ -129,7 +129,7 @@ The **Repositories** and **Worktrees** tabs show under the header. **Worktrees**
 - The repositories of the folders of Git Dash.
 - The repositories of the folders of [Repo Launcher](../repo-launcher-app/README.md), on this computer. Repo Launcher keeps this list: scan its folders again in Repo Launcher to find a new repository.
 
-The worktree folder can be anywhere, for example `~/.herdr/worktrees`. The panel opens on the last tab that you used. Each tab reads its data only when it shows: the Worktrees tab looks for the repositories in the folders, but does not analyze them as the Repositories tab does. It reads again every 5 minutes while it shows. The last list of worktrees is kept, so the tab shows it at once when the panel opens, and reads again in the background. **Refresh** reads them again.
+The worktree folder can be anywhere, for example `~/.herdr/worktrees`. The panel opens on the last tab that you used. The Worktrees tab looks for repositories in the folders and reads their worktrees. It shows its last saved list when it opens. Use **Refresh** to load a current list.
 
 The rows are grouped by repository: the name, the branch of the main checkout and its folder. Each row shows the branch (or `detached`), the folder and these pills:
 
@@ -180,14 +180,14 @@ Bind a key, or run `herdr-app do git-dash.<command>`:
 | `fetch` | `true` starts with fetch on. A click on the Download button (or the mods-hub setting) wins over it. |
 | `lang` | `"en"` (default) or `"pt"`. With the `mods-hub` mod, its **Language** setting (`shared("herdr-mods.lang")`) wins over the prop. |
 
-With the `mods-hub` mod, its **Settings** tab shows the folders and Fetch on refresh of Git Dash too.
+With the `mods-hub` mod, its **Settings** tab shows the repository folders, **Automatic refresh** and **Fetch on refresh** for Git Dash. Both switches are off by default.
 
 ## What it runs, and its limits
 
 - It runs `git` in each repository, and `pwsh` (Windows) or `sh` and `find` (other systems) to find the repositories. A mod may read files only inside the Herdr home, so the search is a program. It uses no network, except `git fetch` when you turn fetch on.
 - Git reads with `--no-optional-locks`: it does not write to the index. Git 2.35 or newer is needed (`status --show-stash`).
 - A fix runs `git` with no input and a 30 second limit. A push that needs a password, or a slow commit hook, fails. Use **Run in terminal** then.
-- After **Terminal** or **New space**, the card reads the repository again after 20 seconds, 90 seconds and 5 minutes.
+- With **Automatic refresh** on, after **Terminal** or **New space**, the card reads the repository again after 20 seconds, 90 seconds and 5 minutes.
 - The search skips `node_modules`, `.venv`, `venv`, `__pycache__`, `bin`, `obj`, `dist`, `build`, `target`, `packages`, `.idea`, `.vs`, `.vscode`, `.gradle`, `.next` and `.cache`. It stops at 400 repositories in each base folder.
 - A fetch that needs a password fails after 30 seconds, because the app gives a program no input.
 - The panel checks at most 20 merged branches per repository.

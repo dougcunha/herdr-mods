@@ -33,6 +33,7 @@ const KEY_ROOTS = "git-dash.roots";
 const KEY_ROOT = "git-dash.root";
 const oldRootKey = (p) => (typeof p.root === "string" && p.root ? `${KEY_ROOT}:${p.root}` : KEY_ROOT);
 const KEY_FETCH = "git-dash.fetch";
+const KEY_AUTO_REFRESH = "git-dash.autoRefresh";
 const KEY_TAB = "git-dash.tab"; // the last tab (UI state, not a setting of the mods-hub)
 const KEY_LANG = "herdr-mods.lang"; // the language of the whole kit, set in the mods-hub; absent: the `lang` prop
 // Keeps the slash of a drive root ("D:/") and of "/".
@@ -71,6 +72,7 @@ const STR = {
     alreadyThere: "This folder is in the list already.",
     pending: "Pending", clean: "Clean", errors: "Errors", all: "All",
     repos: "{n} repositories", withPending: "{n} with pending",
+    notLoaded: "No data loaded",
     scanning: "Scanning folders…", analyzing: "Analyzing {done}/{total}", updated: "Updated {t}",
     allClean: "All repositories are clean.", none: "No Git repository found.", noMatch: "No repository matches the filter.",
     noneHint: "Look in {root}, up to {depth} levels deep.", filterPh: "Filter repositories…",
@@ -121,6 +123,7 @@ const STR = {
     alreadyThere: "Esta pasta já está na lista.",
     pending: "Pendentes", clean: "Limpos", errors: "Erros", all: "Todos",
     repos: "{n} repositórios", withPending: "{n} com pendência",
+    notLoaded: "No data loaded",
     scanning: "Procurando pastas…", analyzing: "Analisando {done}/{total}", updated: "Atualizado {t}",
     allClean: "Todos os repositórios estão limpos.", none: "Nenhum repositório Git encontrado.", noMatch: "Nenhum repositório combina com o filtro.",
     noneHint: "Busca em {root}, até {depth} níveis.", filterPh: "Filtrar repositórios…",
@@ -211,9 +214,6 @@ export default class GitDash extends View {
     this.msg.on("change", (_e, cx) => cx.notify());
     this.msg.on("submit", (_e, cx) => this.commit(cx));
 
-    cx.timer.every(30000, (cx) => kitOff() || (this.wt.tick(), this.tick(cx)));
-    // Another copy of the panel (or the mods-hub) can change the list: follow it.
-    cx.timer.every(1000, (cx) => kitOff() || this.followRoots(cx));
     // Commands: `git-dash.folders` shows the folders view, `git-dash.list` the list, `git-dash.worktrees` the
     // Worktrees tab, `git-dash.refresh` reads again (the shown tab).
     cx.spawn(async (cx) => {
@@ -221,7 +221,7 @@ export default class GitDash extends View {
         const c = await nextCommand();
         if (c === "list" || c === "worktrees") this.setTab(c);
         else if (c === "folders") this.view = c;
-        else if (c === "refresh") this.view === "worktrees" ? this.wt.refresh(cx) : this.refresh(cx);
+        else if (c === "refresh") { this.refreshActive(cx); continue; }
         cx.notify();
       }
     });
@@ -252,11 +252,12 @@ export default class GitDash extends View {
 
   // ---- data --------------------------------------------------------------
 
-  tick(cx) {
-    // Only ask for the silent run: render() starts it. Herdr does not draw a hidden copy (the
-    // other child of a stack, a hidden column), so a hidden panel runs no git until it shows.
-    if (this.roots.length && !this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.due = true;
-    cx.notify(); // keeps "Updated 3m ago" fresh
+  get autoRefresh() { return shared(KEY_AUTO_REFRESH) === true; }
+
+  refreshActive(cx) {
+    if (this.view === "worktrees") this.wt.refresh(cx);
+    else this.refresh(cx);
+    cx.notify();
   }
 
   refresh(cx) {
@@ -321,13 +322,15 @@ export default class GitDash extends View {
     this.repos.clear(); this.open.clear(); this.ask = null; this.running.clear(); this.result.clear();
     this.rootErrors = {}; this.updated = 0; this.scanError = null; this.capped = false;
     this.wt.due = true; // the shown tab reads again in render()
-    cx.notify();
+    cx?.notify();
   }
 
   /** Follows a list that another copy of the panel (or the mods-hub) saved. */
-  followRoots(cx) {
-    const now = cleanRoots(shared(KEY_ROOTS));
-    if (Array.isArray(shared(KEY_ROOTS)) && rootsSig(now) !== this.sig) this.setRoots(now, cx, false);
+  followRoots() {
+    const saved = shared(KEY_ROOTS);
+    if (!Array.isArray(saved)) return;
+    const now = cleanRoots(saved);
+    if (rootsSig(now) !== this.sig) this.setRoots(now, null, false);
   }
 
   addFolder(cx) {
@@ -452,7 +455,11 @@ export default class GitDash extends View {
     if (where === "space") run("space.new", { name, folder: r.path, machine: "", argv });
     else run("tab.new", { name, folder: r.path, argv });
     // The person works in the terminal. Read the repository again later.
-    for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
+    if (this.autoRefresh) {
+      for (const ms of [20000, 90000, 300000]) {
+        cx.timer.after(ms, (cx) => { if (!kitOff() && this.autoRefresh) this.refreshOne(r.path, cx); });
+      }
+    }
   }
 
   /** Opens the repository in the Git panel (the git-client mod). The panel follows the focused terminal, so a
@@ -490,7 +497,11 @@ export default class GitDash extends View {
       if (++tries < 20) cx.timer.after(100, focusNew); else showPanel();
     };
     cx.timer.after(50, focusNew);
-    for (const ms of [20000, 90000, 300000]) cx.timer.after(ms, (cx) => this.refreshOne(r.path, cx));
+    if (this.autoRefresh) {
+      for (const ms of [20000, 90000, 300000]) {
+        cx.timer.after(ms, (cx) => { if (!kitOff() && this.autoRefresh) this.refreshOne(r.path, cx); });
+      }
+    }
   }
 
   /** Shows the Changes panel (git-client) of the bar of the shown layout. A layout with no such panel gets a dialog. */
@@ -500,6 +511,7 @@ export default class GitDash extends View {
     const changes = (body?.node.children ?? []).find((c) => c.id === "changes" && !c.hidden);
     const bar = hasMod(root, "kanban") ? "kanban.panel-changes" : hasMod(root, "tabs-dock") ? "tabs-dock.changes" : null;
     if (changes && bar) {
+      if (changes.type === "stack") return run(bar.replace(/changes$/, "git-changes"));
       // The Changes panel shows in the side panel now: leave it (the bar command closes a panel that shows).
       const panel = findNode(root, "panel")?.node ?? body.node; // the same rule as the bars
       const dialog = shared("kanban.panelDialog");
@@ -552,10 +564,11 @@ export default class GitDash extends View {
         { active: this.fetch, tooltip: this.s(this.fetch ? "fetchTipOn" : "fetchTipOff") }))
       .child(iconButton(t, "gd-folder", "folder", (cx) => { this.view = this.view === "folders" ? this.tab : "folders"; cx.notify(); },
         { active: this.view === "folders", tooltip: this.s(this.view === "folders" ? "back" : "folders") }))
-      .child(this.view === "worktrees"
-        ? iconButton(t, "gd-refresh", "refresh", (cx) => { this.wt.refresh(cx); cx.notify(); }, { spin: this.wt.loading, tooltip: this.s("refresh") })
-        : iconButton(t, "gd-refresh", "refresh", (cx) => { this.refresh(cx); cx.notify(); },
-          { disabled: !this.roots.length, spin: this.loading, tooltip: this.s("refresh") }))
+      .child(iconButton(t, "gd-refresh", "refresh", (cx) => this.refreshActive(cx), {
+        disabled: this.view !== "worktrees" && !this.roots.length,
+        spin: this.view === "worktrees" ? this.wt.loading : this.loading,
+        tooltip: this.s("refresh"),
+      }))
       .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "gd-close", "close", () => closeOverlay(ownDialog()), { tooltip: "Close" })));
   }
 
@@ -756,12 +769,18 @@ export default class GitDash extends View {
       .when(open && expandable, (e) => e.child(this.actions(r, fx, t)));
   }
 
-  emptyState(t, title, detail, withButton = false) {
+  refreshState(t, title = this.s("notLoaded"), detail = null) {
+    return this.emptyState(t, title, detail, false,
+      button(t, "gd-load", this.s("refresh"), (cx) => this.refreshActive(cx), { primary: true }));
+  }
+
+  emptyState(t, title, detail, withButton = false, action = null) {
     return v_flex().flex_1().min_h(0).items_center().justify_center().gap(10).p(24)
       .child(div().size(44).rounded(12).flex().items_center().justify_center().bg(t.raised)
         .child(svg(icon("repos")).size(22).text_color(t.accent)))
       .child(div().text_size(14).font_semibold().text_color(t.foreground).child(title))
       .when(Boolean(detail), (e) => e.child(div().max_w(300).text_size(12).text_color(t.dim).text_center().child(detail)))
+      .when(Boolean(action), (e) => e.child(action))
       .when(withButton, (e) => e.child(h_flex().gap(8)
         .child(button(t, "gd-pick", this.s(this.roots.length ? "addFolder" : "choose"), (cx) => this.addFolder(cx), { primary: true }))
         .when(this.roots.length > 0, (x) => x.child(button(t, "gd-folders", this.s("folders"), (cx) => { this.view = "folders"; cx.notify(); })))));
@@ -789,6 +808,7 @@ export default class GitDash extends View {
     if (!this.roots.length) return this.emptyState(t, this.s("pickTitle"), this.s("pickHint", { depth: this.depth }), true);
     const where = this.roots.map(nativePath).join(", ");
     if (this.scanError && !this.repos.size) return this.emptyState(t, this.scanError, where, true);
+    if (!this.updated && !this.loading) return this.refreshState(t);
     if (this.scanning && !this.repos.size) return busy(t, this.s("scanning"), where);
     if (!this.repos.size && !this.loading) {
       return this.emptyState(t, this.s("none"), this.s("noneHint", { root: where, depth: this.depth }), true);
@@ -835,12 +855,23 @@ export default class GitDash extends View {
   }
 
   render(cx) {
-    if (kitOff()) return offView();
-    if (this.due) { this.due = false; this.refresh(cx); }
-    // The Repositories tab analyzes the repositories the first time it shows (and after a change of the folders).
-    if (this.view === "list" && this.roots.length && !this.updated && !this.loading && !this.scanError) this.refresh(cx);
-    // The Worktrees tab reads its data the first time it shows, then when it is old (only while it shows).
-    if (this.view === "worktrees" && !this.wt.loading && (this.wt.due || !this.wt.fresh)) { this.wt.due = false; this.wt.refresh(cx); }
+    const off = kitOff();
+    const auto = !off && this.autoRefresh;
+    if (auto && !this.refreshTimer) {
+      // Refresh starts in render, so a hidden panel does not start a scan.
+      this.refreshTimer = cx.timer.every(30000, (cx) => {
+        if (!kitOff() && this.autoRefresh) cx.notify();
+      });
+    } else if (!auto && this.refreshTimer) {
+      this.refreshTimer.cancel();
+      this.refreshTimer = null;
+    }
+    if (off) return offView();
+    this.followRoots();
+    if (auto && this.view === "list" && this.roots.length && !this.loading &&
+        !this.scanError && (!this.updated || Date.now() - this.updated >= AUTO_MS)) this.refresh(cx);
+    if (auto && this.view === "worktrees" && !this.wt.loading &&
+        (this.wt.due || !this.wt.fresh || (this.wt.updated && Date.now() - this.wt.updated >= AUTO_MS))) this.wt.refresh(cx);
     const t = theme();
     return dialogKeys(v_flex().id("git-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background)
       .border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)

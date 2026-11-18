@@ -97,4 +97,4 @@ The `agents` block of the sidebar shows the `agent-cards` mod ([`agent-cards-app
 - An entry with `"opens": "tab"` focuses its tab on the second click, and does not make a second tab.
 - Open CI in space A and close the panel in space B: switching between the spaces restores each choice.
 - `herdr-app do tabs-dock.agent-cards` changes the `agents` block of `layouts/main-dock.json` to `"mod": "agents"`, and the next run changes it back to `"mod": "agent-cards"`. The block's size stays.
-- With `"group": "git"` on Pending and PRs, the bar shows one **Git** button in the place of Changes, and no Changes, Pending or PRs buttons. `herdr-app do tabs-dock.group-git` opens its menu with the rows Changes, Pending, PRs. After `herdr-app do tabs-dock.repos`, the Git button is lit and the menu shows a tick on Pending.
+- With `"group": "git"` on Dashboard and Pull requests in `dock/panels.json`, `herdr-app do tabs-dock.group-git` toggles a single Git panel. Verify all three tabs in the side panel and its dialog.

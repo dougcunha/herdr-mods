@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 104 -->
+<!-- herdr-mods-setup-version: 105 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -203,7 +203,7 @@ Create the `dock` folder if it does not exist. The base folder of my repositorie
 }
 ```
 
-Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the entries that are there, with 3 exceptions: if the `repos` entry has no `group`, add `"group": "git"` to it, so that the Dock and Kanban bars show it in the Git menu with Changes. Remove the `graph` entry (item 5: the Git panel has the graph now). If the `repos` entry has `"label": "Repos"` or `"label": "Pending"`, change the label to `"Dashboard"`. If the `prs` entry has `"label": "PRs"`, change the label to `"Pull requests"`. Keep any other label. Entries of mods that are new in this repository (item 21) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
+Match the entries by `id`. Before you add one, check that its `icon` file exists. If a third-party mod is missing (for example `insights`), leave out only its entry. On an update, add an entry only if its mod was installed in this run, so you do not bring back an entry that I removed on purpose. Never change or reorder the existing entries except as described here. The Dock and Kanban bars use `"group": "git"` on the `repos` and `prs` panel entries to show them as the Dashboard and Pull requests tabs of the Git panel. Keep their existing props. Set this group on those entries if it is absent. Remove the `graph` entry (item 5: the Git panel has the graph now). If the `repos` entry has `"label": "Repos"` or `"label": "Pending"`, change the label to `"Dashboard"`. If the `prs` entry has `"label": "PRs"`, change the label to `"Pull requests"`. Keep any other label. Entries of mods that are new in this repository (item 21) go in only if I chose to install the mod. The `quota` entry goes in only when the `tokenhound` mod is installed, the `specs` entry only when the `spec-board` mod is installed, and the `skills` entry only when the `skill-bundles` mod is installed, and the `automations` entry only when the `automations` mod is installed. The `issues` and `prs` entries go in only when the `issues-app` mods are installed.
 
 ### The places of `tokenhound`
 

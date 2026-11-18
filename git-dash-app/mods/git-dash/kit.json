@@ -11,6 +11,14 @@
       "hint": "Git Dash looks for Git repositories in each folder. Every Git Dash panel uses this list."
     },
     {
+      "id": "autoRefresh",
+      "type": "bool",
+      "key": "git-dash.autoRefresh",
+      "default": false,
+      "label": "Automatic refresh",
+      "hint": "Load the visible tab automatically and refresh it when its data is 5 minutes old. When off, use the Refresh button."
+    },
+    {
       "id": "fetch",
       "type": "bool",
       "key": "git-dash.fetch",

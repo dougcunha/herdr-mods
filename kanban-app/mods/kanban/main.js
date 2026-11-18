@@ -86,12 +86,15 @@ const SHELL_ID = "shell";
 // The side panel of the layout (node "panel", stack "panel-body"): Herdr's own Files and Changes mods.
 const PANELS = [
   { id: "files", label: "Files", icon: icon("files") },
-  { id: "changes", label: "Changes", icon: icon("changes"), group: "git" },
+  { id: "changes", label: "Git", icon: icon("git") },
 ];
 // The groups of panel buttons: the panels with the same `group` share one button, and a click on it opens a menu
 // with the full name of each panel. A group that is not here uses its id as its name and the icon of its first panel.
 // The same as GROUPS in mods/tabs-dock.
 const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") } };
+const GIT_TABS = { changes: "git-changes", repos: "git-dashboard", prs: "git-pull-requests" };
+const isGitEntry = (e) => e.opens === "panel" && e.group === "git" && (e.id === "repos" || e.id === "prs");
+const isGitStack = (node) => node?.type === "stack" && node.children?.some((child) => child.id === GIT_TABS.changes);
 const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
 const CLONE_W = 270; // px: the menu of the duplicate button of a card
 const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
@@ -101,7 +104,7 @@ const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its wi
 // an entry, or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json)
 // come after the others, in the order of the file. Absent: the order of the file, no button hidden.
 const KEY_BUTTONS = "kanban.barButtons";
-const buttonId = (it) => (it.members ? `group-${it.group}` : it.id);
+const buttonId = (it) => (it.members ? `group-${it.group}` : it.id === "changes" ? "group-git" : it.id);
 function barButtons() {
   const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
   return { order: list(v?.order), hidden: list(v?.hidden) };
@@ -256,7 +259,7 @@ const STR = {
 //   "panel" (default): a block of the side panel, added to this layout by this bar.
 //   "tab": a tab per space with `mod` as its only pane.
 //   "command": runs a Herdr command (`run`, `args`).
-//   group: the entries with the same group share one button (see PANEL_GROUPS). "git" puts it with Changes.
+//   group: the entries with the same group share one button (see PANEL_GROUPS). "git" places repos and prs in the Git panel.
 const ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ids = (node, out = new Set()) => {
   if (node?.id) out.add(node.id);
@@ -319,7 +322,7 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "panel-head", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
+    this.part = ["bar", "panel-title", "git-tabs", "panel-head", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
     if (this.part === "panel-head") {
       // The names and the icons of the panels, from dock/panels.json. A save of the file shows at once.
       this.info = new Map(PANELS.map((p) => [p.id, p]));
@@ -335,7 +338,7 @@ export default class Kanban extends View {
       });
       return;
     }
-    if (["panel-title", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.part)) {
+    if (["panel-title", "git-tabs", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
       if (this.part === "panel-title") this.takeKeys(cx);
       return;
@@ -639,6 +642,37 @@ export default class Kanban extends View {
 
   /** Adds the blocks the file asks for to the side panel stack, and takes away the ones this bar
    *  added before that the file no longer lists. One attempt per file version and layout. */
+  syncGit(root, body, live) {
+    const current = body?.children.find((node) => node.id === "changes");
+    if (!current || (!isGitStack(current) && current.type !== "block")) return false;
+    const source = isGitStack(current) ? current.children[0].content : current.content;
+    if (!source?.mod) return false;
+    const entries = ["repos", "prs"].map((id) => live.find((e) => e.id === id && isGitEntry(e))).filter(Boolean);
+    const children = [
+      { id: GIT_TABS.changes, type: "block", title: "Repository", content: source },
+      ...entries.map((e) => ({
+        id: GIT_TABS[e.id], type: "block", title: e.label,
+        content: { mod: e.mod, ...(e.props ? { props: e.props } : {}) },
+      })),
+    ];
+    const active = children.some((child) => child.id === current.active) ? current.active : GIT_TABS.changes;
+    if (isGitStack(current) && current.active === active && current.children.length === children.length &&
+        children.every((child, i) => {
+          const old = current.children[i];
+          return old.id === child.id && old.title === child.title && old.content?.mod === child.content.mod &&
+            JSON.stringify(old.content?.props) === JSON.stringify(child.content.props);
+        })) return false;
+    const attempt = JSON.stringify([shared("layout"), current, children, active]);
+    if (attempt === this.gitAttempt) return false;
+    this.gitAttempt = attempt;
+    const tree = JSON.parse(JSON.stringify(root)), target = find(tree, "panel-body");
+    const { content, ...outer } = current;
+    target.children = target.children.map((node) => node.id === current.id
+      ? { ...outer, type: "stack", header: { content: "tabs", height: 32 }, children, active } : node);
+    run("layout.set", { layout: tree });
+    return true;
+  }
+
   inject(root, body, wanted) {
     const keep = new Set(wanted.map((e) => e.id));
     const missing = wanted.filter((e) => !body.children.some((c) => c.id === e.id));
@@ -720,6 +754,9 @@ export default class Kanban extends View {
     const live = this.liveEntries();
     // A key of a panel whose mod is off does nothing.
     if (live.length < this.entries.length && this.entries.some((e) => e.id === id) && !live.some((e) => e.id === id)) return;
+    const gitTab = id === "git-changes" ? GIT_TABS.changes
+      : live.some((e) => e.id === id && isGitEntry(e)) ? GIT_TABS[id] : null;
+    if (gitTab) id = "changes";
     const command = live.find((e) => e.id === id && e.opens === "command");
     if (command) return this.runEntry(command); // a command of a group menu
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
@@ -730,14 +767,15 @@ export default class Kanban extends View {
     if (open?.id) {
       closeOverlay(open.id);
       setShared(KEY_PANEL_DIALOG, null);
-      if (open.panel === id && liveDialogs().has(open.id)) return;
+      if (!gitTab && open.panel === id && liveDialogs().has(open.id)) return;
     }
     // A panel that shows in the side panel now (also one moved there from a dialog) closes, in every mode.
-    if (node && panel && !panel.hidden && body.active === id) return run("layout.hide", { id: panel.id });
-    if (this.dialogNow()) return this.openDialog(id, tab ? { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } : node.content, tab);
+    if (!gitTab && node && panel && !panel.hidden && body.active === id) return run("layout.hide", { id: panel.id });
+    if (this.dialogNow()) return this.openDialog(id, tab ? { type: "block", content: { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } } : node, tab, gitTab);
+    if (gitTab && isGitStack(node)) run("layout.select", { stack: "changes", child: gitTab });
     if (tab) return this.runEntry(tab);
-    if (!panel.hidden && body.active === id) run("layout.hide", { id: panel.id });
-    else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: panel.id }); }
+    run("layout.select", { stack: "panel-body", child: id });
+    run("layout.show", { id: panel.id });
   }
 
   panelOpen() {
@@ -759,20 +797,28 @@ export default class Kanban extends View {
   /** Opens the panel `id` in a dialog: a title row (this mod, part "panel-title") over `content`, the same mod
    *  and props as in the side panel (or in the tab, for a `tab` entry). The dialog holds a layout, so the panel
    *  gets a real block, as in the side panel. Its own copy starts fresh. */
-  openDialog(id, content, tab = null) {
-    if (!content?.mod) return;
-    const entry = [...PANELS, ...this.entries].find((e) => e.id === id);
+  openDialog(id, node, tab = null, gitTab = null) {
+    if (!node) return;
+    // The native stack header sends layout.select to the main layout. Compose the
+    // dialog with its own tab bar and mount only the selected mod.
+    const git = isGitStack(node) ? { ...node, active: gitTab ?? node.active } : null;
+    const content = git ? (git.children.find((child) => child.id === git.active) ?? git.children[0]).content : node.content;
+    const entry = [...PANELS, ...(this.entries ?? [])].find((e) => e.id === id);
     const title = { part: "panel-title", panel: id, label: entry?.label ?? id, icon: entry?.icon ?? "", lang: this.lang,
-      ...(tab ? { tab: { mod: tab.mod, name: tab.name } } : {}) };
+      ...(tab ? { tab: { mod: tab.mod, name: tab.name } } : {}), ...(git ? { git } : {}) };
     const overlay = openOverlay({
       kind: "dialog", width: 0.82, height: 0.85,
       layout: { type: "column", children: [
         { id: "panel-dialog-title", type: "block", size: { px: DIALOG_TITLE }, content: { mod: "kanban", props: title } },
+        ...(git ? [{
+          id: "panel-dialog-tabs", type: "block", size: { px: 32 },
+          content: { mod: "kanban", props: { ...title, part: "git-tabs" } },
+        }] : []),
         { id: `panel-dialog-${id}`, type: "block", content },
       ] },
     });
     liveDialogs().add(overlay);
-    setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id });
+    setShared(KEY_PANEL_DIALOG, { id: overlay, panel: id, ...(git ? { mods: git.children.map((child) => child.content.mod) } : {}) });
   }
 
   /** Moves the panel `id` from the side panel to a dialog: hides the side panel and opens the dialog. */
@@ -783,7 +829,7 @@ export default class Kanban extends View {
     const open = shared(KEY_PANEL_DIALOG);
     if (open?.id) { closeOverlay(open.id); setShared(KEY_PANEL_DIALOG, null); }
     if (panel && !panel.hidden) run("layout.hide", { id: panel.id });
-    this.openDialog(id, node.content);
+    this.openDialog(id, node);
   }
 
   /** The title row of the side panel: the icon and the name of the shown panel, and a button that opens it in
@@ -847,6 +893,20 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-dlg-close", "close", () => this.closeDialog(), { tooltip: this.s("closeDialog"), size: 26, glyph: 13 }));
   }
 
+  gitTabs(t) {
+    const { git, panel } = this.props;
+    return h_flex().size_full().items_center().gap(2).px(6).bg(t.chrome).border_b(1).border_color(t.border)
+      .children(git.children.map((tab) => div().id(tab.id).h_full().px(10).flex().items_center().text_size(12)
+        .bg(tab.id === git.active ? t.selected : t.chrome)
+        .text_color(tab.id === git.active ? t.foreground : t.muted)
+        .cursor_pointer().hover((s) => s.bg(t.hover))
+        .on_click(() => {
+          if (tab.id === git.active) return;
+          this.closeDialog();
+          this.openDialog(panel, git, null, tab.id);
+        }).child(tab.title)));
+  }
+
   closeDialog() {
     const id = this.overlay ?? shared(KEY_PANEL_DIALOG)?.id;
     if (id) closeOverlay(id);
@@ -870,6 +930,7 @@ export default class Kanban extends View {
   /** Opens the menu of a group button at the pointer: one row per panel of the group, with its full name. The rows
    *  come from the last render (lit = open now). A popup is as tall as its content, so the height is set here. */
   openGroup(group) {
+    if (group === "git" && !this.groups?.has(group)) return this.togglePanel("changes");
     const members = this.groups?.get(group);
     if (!members?.length) return;
     const info = this.groupInfo(group);
@@ -1034,6 +1095,7 @@ export default class Kanban extends View {
       return;
     }
     const panel = sidePanel(layout());
+    if (this.props.git) run("layout.select", { stack: "changes", child: this.props.git.active });
     run("layout.select", { stack: "panel-body", child: this.props.panel });
     if (panel) run("layout.show", { id: panel.id });
   }
@@ -1431,16 +1493,20 @@ export default class Kanban extends View {
     const taken = ids(root);
     for (const c of body.children ?? []) taken.delete(c.id);
     const live = this.liveEntries();
-    const usable = live.filter((e) => e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
+    const usable = live.filter((e) => !isGitEntry(e) && e.opens !== "command" && !taken.has(e.id) && !PANELS.some((p) => p.id === e.id));
     // One layout edit for each render: the title row of the side panel and the off mods wait for the panel edit.
-    const injecting = this.loaded ? this.inject(root, body, usable.filter((e) => e.opens === "panel")) : false;
+    const injecting = this.loaded ? this.syncGit(root, body, live) || this.inject(root, body, usable.filter((e) => e.opens === "panel")) : false;
     const heading = !injecting && this.loaded ? this.ensureHead(root) : false;
     if (!injecting && !heading) this.reconcile(root);
     // A panel dialog that shows a mod that is now off closes.
     const openDialog = shared(KEY_PANEL_DIALOG);
     if (openDialog?.id && liveDialogs().has(openDialog.id)) {
       const entry = this.entries.find((e) => e.id === openDialog.panel);
-      if (entry && offMods().has(entryMod(entry))) { closeOverlay(openDialog.id); setShared(KEY_PANEL_DIALOG, null); }
+      const off = offMods();
+      if ((entry && off.has(entryMod(entry))) || openDialog.mods?.some((mod) => off.has(mod))) {
+        closeOverlay(openDialog.id);
+        setShared(KEY_PANEL_DIALOG, null);
+      }
     }
     const present = new Set((body.children ?? []).map((c) => c.id));
     const inDialog = this.dialogPanel();
@@ -1635,6 +1701,7 @@ export default class Kanban extends View {
   render(cx) {
     const t = theme();
     if (this.part === "panel-title") return this.panelTitle(t);
+    if (this.part === "git-tabs") return this.gitTabs(t);
     if (this.part === "panel-head") return this.panelHead(t);
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "clone-menu") return this.cloneMenu(t);

@@ -83,4 +83,4 @@ Left to right, top to bottom (zoom 1):
 - Clicking a column chip hides and shows that column, and the choice stays after a restart.
 - Clicking a card shows its terminal in the right panel.
 - The Board / Terminals switch changes the view and the tab pills work.
-- With `"group": "git"` on Pending and PRs in `dock/panels.json`, the Panels group shows one **Git** button in the place of Changes. `herdr-app do kanban.group-git` opens its menu with the rows Changes, Pending, PRs. A click on the Pending row closes the menu and opens Pending; then the Git button is lit and the menu shows a tick on Pending.
+- With `"group": "git"` on Dashboard and Pull requests in `dock/panels.json`, `herdr-app do kanban.group-git` toggles a single Git panel. Verify all three tabs in the side panel and its dialog.

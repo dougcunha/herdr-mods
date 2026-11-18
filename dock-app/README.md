@@ -87,9 +87,9 @@ The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod 
 | `opens` | `"panel"` (default): a block in the side panel. `"tab"`: a tab per space with the mod as its only pane. `"command"`: a button that runs a Herdr command (no `mod`). |
 | `name` | For `"tab"`: the tab name. |
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
-| `group` | Optional. The entries with the same group share one button. `"git"` puts the entry under the **Git** button, with Changes. |
+| `group` | Optional. The entries with the same group share one button. `"git"` places the `repos` and `prs` panel entries in the **Git** panel. |
 
-**Group buttons.** The panels of a group share one button with a small arrow. Changes is in the `git` group, so with `"group": "git"` on Pending and PRs the bar shows one **Git** button. Click it to open a menu with the full name of each panel (Changes, Pending, PRs) and a tick on the open one. Click a row to open or close that panel. The Git button is lit while one of its panels is open. The [Kanban](../kanban-app) bar reads the same field and draws the same button.
+**Git.** The Git button opens a panel with **Repository**, **Dashboard**, and **Pull requests** in the dock or in a dialog. Dashboard and Pull requests use the `repos` and `prs` entries with `"group": "git"`. Dashboard loads when you select it. Other groups still use a menu.
 
 The bar has its own icons for the panels, from [Lucide](https://lucide.dev) (ISC license): `mods/tabs-dock/files.svg`, `changes.svg`, `git.svg`, `graph.svg`, `repos.svg` and `ci.svg`. Use them in `panels.json` for a set of icons that match.
 
@@ -107,7 +107,7 @@ The **panel-open** button (a window with a box in it, the first button of the pa
 
 - A save of the file shows in the bar at once. Remove an entry and its button and panel go.
 - A broken file keeps the last good list and shows an error toast. A bad entry is skipped.
-- Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`. `tabs-dock.group-git` opens the menu of the Git button.
+- Bind a key to a panel in `keys.json`: `"layout:main-dock": { "ctrl-alt-shift-g": "tabs-dock.graph" }`. `tabs-dock.group-git` toggles the Git panel. `tabs-dock.repos` and `tabs-dock.prs` open it on the corresponding tab.
 
 ## What it does on your machine
 

@@ -6,7 +6,6 @@ import { candidates, findMains, readGroup, rereadGroup, rowActions, runActionSte
 import { samePath, findRepos } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, smallButton, tint } from "./ui.js";
 
-const AUTO_MS = 5 * 60 * 1000;
 // The last result, for every copy: a dialog of the Dock is a new copy each time, and shows it at once.
 const KEY_CACHE = "git-dash.worktrees";
 
@@ -118,14 +117,10 @@ export class WtTab {
     return candidates([...this.paths(), ...found.flat().map((e) => e.path)]);
   }
 
-  /** Called by the timer of the host: ask for a silent run when the data is old (render() starts it). */
-  tick() {
-    if (!this.loading && this.updated && Date.now() - this.updated >= AUTO_MS) this.due = true;
-  }
-
   refresh(cx) {
     if (this.loading) return;
     const gen = ++this.gen;
+    this.due = false;
     this.fresh = true;
     this.loading = true;
     this.progress = { done: 0, total: 0 };
@@ -315,7 +310,8 @@ export class WtTab {
     if (!rows.length) {
       if (this.loading) return busy(t, this.progress.total ? this.s("wtScanning", this.progress) : this.s("wtReading"));
       if (!this.paths().length && !this.host.roots.length) return emptyState(this.s("wtNoFolders"), this.s("wtNoFoldersHint"));
-      return emptyState(this.s("wtNone"), this.s("wtNoneHint"));
+      if (!this.updated && !this.fresh) return this.host.refreshState(t);
+      return this.host.refreshState(t, this.s("wtNone"), this.s("wtNoneHint"));
     }
     const tests = {
       all: () => true,
