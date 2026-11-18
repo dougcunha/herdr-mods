@@ -45,7 +45,9 @@ The stashes, newest first, with their branch and age. **New stash…** stashes t
 
 ### Submodules
 
-Each submodule with its folder, its commit, its description and branch, the number of changed files, and its state: `ok`, `modified`, `out of sync` (another commit than the recorded one), `uninitialized` or `conflict`. **Update all** initializes and updates every submodule (`--recursive`), **Sync** copies the URLs of `.gitmodules`, **Add…** clones a repository into a folder (the name of the repository unless you type one, and a branch if you want). A click (or a right-click) on a submodule opens its menu: **Open in the client** (the panel shows the submodule; **Back** in the branch bar goes to the repository that holds it), **Open in a space**, **Update to the recorded commit**, **Update from the remote branch**, **Sync the URL**, **Remove submodule…** (asks; commit the change after), Copy path, Copy URL.
+Each submodule with its folder, its commit, its description and branch, the number of changed files, and its state: `ok`, `modified`, `out of sync` (another commit than the recorded one), `uninitialized` or `conflict`. **Update all** initializes and updates every submodule (`--recursive`), **Sync** copies the URLs of `.gitmodules`, **Add…** clones a repository into a folder (the name of the repository unless you type one, and a branch if you want). A click (or a right-click) on a submodule opens its menu: **Open in the client** (the panel shows the submodule; **Back** in the branch bar goes to the repository that holds it), **Open in a space**, **Update to the recorded commit**, **Update from the configured branch**, **Sync the URL**, **Remove submodule…** (asks; commit the change after), Copy path, Copy URL.
+
+**Update to a remote branch…** lists the branches of an initialized submodule's remote (`origin` when present). Choose a branch and click **Fetch and update**. The new submodule pointer appears in **Changes**, where you can stage and commit it when ready.
 
 ## Settings
 

@@ -3,14 +3,16 @@
 // confirm dialogs. Git's error stays in the dialog so the person can fix it.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { props, closeOverlay, theme } from "herdr";
+import { props, closeOverlay, exec, theme } from "herdr";
 import { dialogFor, initialValues, validate } from "./git.js";
 import { perform } from "./act.js";
+import { listSubmoduleBranches } from "./execute.js";
 import { icon } from "./menu.js";
 
 export class Dialog {
   init(cx) {
     const { action, ctx } = props();
+    this.action = action;
     this.spec = dialogFor(action, ctx);
     this.values = initialValues(action, ctx);
     this.focusedInput = 0;
@@ -28,12 +30,31 @@ export class Dialog {
       if (this.inputs[0].field.value) first.set_selected_range({ start: 0, end: this.inputs[0].field.value.length });
       first.focus();
       cx.timer.after(600, () => first.focus());
-    } else this.handle.focus();
+    } else {
+      this.focusedInput = -1;
+      this.handle.focus();
+    }
+    if (action.type === "submoduleChooseBranch") {
+      this.loading = true;
+      cx.spawn(async (cx) => {
+        try {
+          const remoteBranches = await listSubmoduleBranches(action.path, ctx, exec);
+          this.action = { ...action, ...remoteBranches };
+          this.spec = dialogFor(this.action, ctx);
+        } catch (e) {
+          this.error = String(e?.message ?? e);
+        } finally {
+          this.loading = false;
+          cx.notify();
+        }
+      });
+    }
   }
 
   confirm(cx) {
-    if (this.busy) return;
-    const { action, ctx, overlay } = props();
+    if (this.busy || this.loading || this.spec.choice?.options.length === 0) return;
+    const { ctx, overlay } = props();
+    const action = this.action;
     const problem = validate(action, this.values, ctx);
     if (problem) { this.error = problem; cx.notify(); return; }
     this.busy = true; this.error = null;
@@ -70,16 +91,26 @@ export class Dialog {
       .children(this.inputs.map(({ field, state }, i) => v_flex()
         .child(label(field.label))
         .child(Input.new(state).h(36).px(10).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))))
-      .when(Boolean(s.choice), (el) => el.child(label(s.choice.label)).children(s.choice.options.map((o) => {
-        const on = this.values[s.choice.id] === o.value;
-        return h_flex().id(`gd-choice-${o.value}`).h(38).mb(4).px(10).gap(10).items_center().rounded(8).border_1().cursor_pointer()
-          .border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.border).when(on, (e) => e.bg(t.selected)).hover((st) => st.bg(t.hover))
-          .on_click((_e, cx) => { this.values[s.choice.id] = o.value; this.error = null; cx.notify(); })
-          .child(div().size(14).flex_none().rounded(7).border_1().border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.input).flex().items_center().justify_center()
-            .when(on, (e) => e.child(div().size(6).rounded(3).bg(o.danger ? t.ansi1 : t.accent))))
-          .child(div().min_w(0).truncate().font_medium().child(o.label))
-          .when(Boolean(o.detail), (e) => e.child(div().text_size(11.5).text_color(o.danger ? t.ansi1 : t.dim).child(o.detail)));
-      })))
+      .when(Boolean(s.choice), (el) => {
+        const rows = s.choice.options.map((o) => {
+          const on = this.values[s.choice.id] === o.value;
+          return h_flex().id(`gd-choice-${o.value}`).h(38).flex_none().mb(4).px(10).gap(10).items_center().rounded(8).border_1().cursor_pointer()
+            .border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.border).when(on, (e) => e.bg(t.selected)).hover((st) => st.bg(t.hover))
+            .on_click((_e, cx) => {
+              if (this.busy) return;
+              this.values[s.choice.id] = o.value; this.error = null; cx.notify();
+            })
+            .child(div().size(14).flex_none().rounded(7).border_1().border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.input).flex().items_center().justify_center()
+              .when(on, (e) => e.child(div().size(6).rounded(3).bg(o.danger ? t.ansi1 : t.accent))))
+            .child(div().min_w(0).truncate().font_medium().child(o.label))
+            .when(Boolean(o.detail), (e) => e.child(div().text_size(11.5).text_color(o.danger ? t.ansi1 : t.dim).child(o.detail)));
+        });
+        el = el.child(label(s.choice.label));
+        if (!s.choice.scrollHeight) return el.children(rows);
+        return el.child(v_flex().id("gd-choice-list").h(s.choice.scrollHeight).w_full().flex_none().overflow_y_scrollbar()
+          .when(this.loading, (list) => list.child(div().p(10).text_color(t.dim).child("Loading remote branches…")))
+          .children(rows));
+      })
       .children((s.checks ?? []).map((c) => {
         const on = Boolean(this.values[c.id]);
         return h_flex().id(`gd-check-${c.id}`).pt(12).gap(9).items_center().cursor_pointer()
@@ -92,6 +123,6 @@ export class Dialog {
       .child(div().flex_1())
       .child(h_flex().pt(16).gap(8).justify_end()
         .child(button("gd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(button("gd-ok", this.busy ? "Working…" : s.confirm, true, (_e, cx) => this.confirm(cx))));
+        .when(s.choice?.options.length !== 0, (el) => el.child(button("gd-ok", this.busy ? "Working…" : s.confirm, true, (_e, cx) => this.confirm(cx)))));
   }
 }

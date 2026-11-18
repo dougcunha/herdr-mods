@@ -13,6 +13,7 @@ const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discard
 
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
+  if (action.type === "submoduleChooseBranch") return updateSubmoduleBranch(action, values.branch, ctx, exec);
   if (HUNK[action.type]) return applyPatch(action.patch, HUNK[action.type], ctx, exec, io);
   if (action.type === "ignore") {
     // Only a line that the dialog offers for this file: a value never names an other path.
@@ -56,6 +57,53 @@ export async function executeAction(action, values, ctx, exec, io = null) {
     if (!added.ok) return { ok: false, message: `Git stopped tracking ${action.path}, but the ignore file did not change.\n${added.message}` };
   }
   return { ok: true };
+}
+
+async function submoduleGit(ctx, path, exec) {
+  if (typeof path !== "string" || !path || /[\\\0]|^\/|(?:^|\/)\.\.?(?:\/|$)/.test(path)) {
+    throw new Error("Invalid submodule path.");
+  }
+  const git = (args) => exec("git", args, { cwd: `${ctx.root}/${path}`, on: ctx.on, timeout: 60000 });
+  // Git can otherwise fall back to the parent when the submodule is deinitialized.
+  const root = await git(["rev-parse", "--show-prefix", "--show-superproject-working-tree"]);
+  const [prefix, parent] = (root.stdout ?? "").split(/\r?\n/);
+  if (root.code !== 0 || prefix || !parent) throw new Error("Initialize the submodule before updating it.");
+  return git;
+}
+
+async function submoduleRemotes(git) {
+  const result = await git(["remote"]);
+  if (result.code !== 0) throw new Error(gitError(result));
+  return result.stdout.split(/\r?\n/).filter(Boolean);
+}
+
+export async function listSubmoduleBranches(path, ctx, exec) {
+  const git = await submoduleGit(ctx, path, exec);
+  const remotes = await submoduleRemotes(git);
+  const remote = remotes.includes("origin") ? "origin" : remotes[0];
+  if (!remote) throw new Error("The submodule has no remote.");
+  const result = await git(["ls-remote", "--heads", "--", remote]);
+  if (result.code !== 0) throw new Error(gitError(result));
+  const branches = result.stdout.split(/\r?\n/).flatMap((line) => {
+    const match = /^[0-9a-f]+\trefs\/heads\/(.+)$/.exec(line);
+    return match ? [match[1]] : [];
+  });
+  if (!branches.length) throw new Error(`No branches found on ${remote}.`);
+  return { remote, branches };
+}
+
+async function updateSubmoduleBranch(action, branch, ctx, exec) {
+  if (!branch || !action.branches?.includes(branch)) return { ok: false, message: "Pick a remote branch." };
+  const git = await submoduleGit(ctx, action.path, exec);
+  const remote = action.remote;
+  if (!(await submoduleRemotes(git)).includes(remote)) return { ok: false, message: "The submodule remote is no longer configured." };
+  const source = `refs/heads/${branch}`, target = `refs/remotes/${remote}/${branch}`;
+  const ref = await git(["check-ref-format", source]);
+  if (ref.code !== 0) return { ok: false, message: "Invalid remote branch." };
+  const fetched = await git(["fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", "--", remote, `+${source}:${target}`]);
+  if (fetched.code !== 0) return { ok: false, message: gitError(fetched) };
+  const switched = await git(["switch", "--detach", "--no-recurse-submodules", "--no-overwrite-ignore", target, "--"]);
+  return switched.code === 0 ? { ok: true } : { ok: false, message: gitError(switched) };
 }
 
 // One hunk with `git apply`. exec takes no input, so the patch goes through a file here, and

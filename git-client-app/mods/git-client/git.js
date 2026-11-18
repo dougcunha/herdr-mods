@@ -353,7 +353,8 @@ export function menuFor(target, ctx) {
       section(ready && item("Open in the client", "folder", { type: "openSubmodule", path: s.path }),
         ready && item("Open in a space", "folder", { type: "openWorktree", path: `${ctx.root}/${s.path}` })),
       section(item(ready ? "Update to the recorded commit" : "Initialize and update", "fetch", { type: "submoduleUpdate", ...one }),
-        item("Update from the remote branch", "cloud-down", { type: "submoduleUpdateRemote", ...one }),
+        item("Update from the configured branch", "cloud-down", { type: "submoduleUpdateRemote", ...one }),
+        ready && s.state !== "conflict" && item("Update to a remote branch…", "cloud-down", { type: "submoduleChooseBranch", ...one }),
         item("Sync the URL", "refresh", { type: "submoduleSync", ...one })),
       section(!s.nested && item("Remove submodule…", "trash", { type: "submoduleRemove", path: s.path })),
       section(item("Copy path", "copy", { type: "copy", text: s.path }),
@@ -500,6 +501,13 @@ export function dialogFor(action, ctx) {
       inputs: [{ id: "url", label: "URL", value: "" }, { id: "path", label: "Folder (optional: the name of the repository)", value: "", optional: true, text: true },
         { id: "branch", label: "Branch (optional)", value: "", optional: true }], confirm: "Add" };
     case "submoduleRemove": return { title: "Remove submodule", detail: `Remove ${a.path}: deinit it, delete its folder and its entry in .gitmodules. Commit the change after.`, confirm: "Remove", danger: true };
+    case "submoduleChooseBranch": return {
+      title: "Update submodule to a remote branch",
+      detail: `Fetch the selected branch and check out its latest commit in ${a.path}. Stage and commit the new pointer in its parent repository when ready.`,
+      choice: { id: "branch", label: a.remote ? `Branch on ${a.remote}` : "Remote branch", scrollHeight: 216,
+        options: (a.branches ?? []).map((branch) => ({ value: branch, label: branch })) },
+      confirm: "Fetch and update",
+    };
     case "stashDrop": return { title: "Drop stash", detail: `Delete ${a.ref}${a.message ? ` (${a.message})` : ""}? This cannot be undone.`, confirm: "Drop", danger: true };
     case "abortOp": return { title: `Abort the ${a.op}`, detail: `Stop the ${a.op} and go back to where the branch was before it. Conflict fixes made so far are lost.`, confirm: "Abort", danger: true };
     case "discardHunk": return { title: "Discard hunk", detail: `Discard this hunk of ${a.path} from the work tree. This cannot be undone.`, confirm: "Discard", danger: true };
@@ -546,7 +554,7 @@ export function dialogFor(action, ctx) {
 export function dialogHeight(spec) {
   const detail = spec.detail ? Math.ceil(spec.detail.length / 52) * 19 + 8 : 0;
   return Math.ceil(36 + 26 + detail + (spec.inputs ?? []).length * 66 + (spec.checks ?? []).length * 30
-    + (spec.choice ? 24 + spec.choice.options.length * 42 : 0) + 30 + 52);
+    + (spec.choice ? 24 + (spec.choice.scrollHeight ?? spec.choice.options.length * 42) : 0) + 30 + 52);
 }
 
 const values = (spec) => {
@@ -721,6 +729,7 @@ export function doneText(a, v = {}) {
     case "pruneWorktrees": return "Pruned the worktrees";
     case "submoduleUpdate": return a.path ? `Updated ${a.path}` : "Updated the submodules";
     case "submoduleUpdateRemote": return a.path ? `Updated ${a.path} from its remote branch` : "Updated the submodules from their remote branches";
+    case "submoduleChooseBranch": return `Updated ${a.path} to ${a.remote}/${v.branch}`;
     case "submoduleSync": return a.path ? `Synced the URL of ${a.path}` : "Synced the submodule URLs";
     case "submoduleAdd": return "Added the submodule";
     case "submoduleRemove": return `Removed ${a.path}`;

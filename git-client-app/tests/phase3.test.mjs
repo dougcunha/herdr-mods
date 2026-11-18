@@ -2,7 +2,7 @@
 // (status, add, update, sync, remove) and the prompt of "Resolve with agent". Run: node tests/phase3.test.mjs
 import * as G from "../mods/git-client/git.js";
 import * as R from "../mods/git-client/refs.js";
-import { executeAction } from "../mods/git-client/execute.js";
+import { executeAction, listSubmoduleBranches } from "../mods/git-client/execute.js";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync } from "node:fs";
@@ -65,18 +65,41 @@ assert.equal(readFileSync(join(repo, "lib", "lib.txt"), "utf8").trim(), "v2");
 assert.equal(status()[0].state, "out of sync");
 await run({ type: "submoduleUpdate", path: "lib" });
 assert.equal(status()[0].state, "ok", "back to the recorded commit");
+// The picker sees a new upstream branch before it exists locally and fetches its tip at confirmation.
+sh(lib, "switch", "-qc", "release/stable");
+const selection = await listSubmoduleBranches("lib", ctx(), exec);
+assert.deepEqual(selection, { remote: "origin", branches: ["main", "release/stable"] });
+const choose = { type: "submoduleChooseBranch", path: "lib", ...selection };
+writeFileSync(join(lib, "lib.txt"), "stable\n"); sh(lib, "commit", "-qam", "stable");
+const sub = join(repo, "lib");
+const parentHead = ctx().head;
+const recorded = sh(repo, "rev-parse", ":lib");
+const oldHead = sh(sub, "rev-parse", "HEAD");
+writeFileSync(join(sub, "lib.txt"), "local edit\n");
+const blocked = await executeAction(choose, { branch: "release/stable" }, ctx(), exec);
+assert.equal(blocked.ok, false);
+assert.equal(sh(sub, "rev-parse", "HEAD"), oldHead);
+assert.equal(readFileSync(join(sub, "lib.txt"), "utf8").trim(), "local edit");
+sh(sub, "restore", "lib.txt");
+await run(choose, { branch: "release/stable" });
+assert.equal(sh(sub, "rev-parse", "HEAD"), sh(lib, "rev-parse", "HEAD"));
+assert.equal(ctx().head, parentHead);
+assert.equal(sh(repo, "rev-parse", ":lib"), recorded);
+assert.equal(sh(repo, "status", "--porcelain", "--", "lib").trimEnd(), " M lib");
+await run({ type: "submoduleUpdate", path: "lib" });
 // A fresh clone: not initialized until Update.
 const clone = `${dir}/clone`;
 sh(dir, "clone", "-q", repo, clone);
 const cloneStatus = () => R.parseSubmodules(git(clone, R.submoduleStatusArgs()).stdout, git(clone, R.gitmodulesArgs()).stdout);
 assert.equal(cloneStatus()[0].state, "uninitialized");
 const cctx = { root: clone, on: null, current: "main", head: git(clone, ["rev-parse", "HEAD"]).stdout.trim(), branches: [], remotes: ["origin"] };
+await assert.rejects(listSubmoduleBranches("lib", cctx, exec), /Initialize the submodule/);
 assert.ok((await executeAction({ type: "submoduleUpdate" }, {}, cctx, exec)).ok);
 assert.equal(cloneStatus()[0].state, "ok");
 assert.ok((await executeAction({ type: "submoduleSync", path: "lib" }, {}, cctx, exec)).ok);
 // Menu and remove.
 const smMenu = G.menuFor({ kind: "submodule", submodule: status()[0] }, ctx()).filter((i) => !i.separator).map((i) => i.label);
-assert.deepEqual(smMenu, ["Open in the client", "Open in a space", "Update to the recorded commit", "Update from the remote branch", "Sync the URL", "Remove submodule…", "Copy path", "Copy URL"]);
+assert.deepEqual(smMenu, ["Open in the client", "Open in a space", "Update to the recorded commit", "Update from the configured branch", "Update to a remote branch…", "Sync the URL", "Remove submodule…", "Copy path", "Copy URL"]);
 await run({ type: "submoduleRemove", path: "lib" });
 assert.ok(!existsSync(join(repo, "lib", "lib.txt")), "the folder is gone");
 assert.equal(git(repo, ["config", "-f", ".gitmodules", "--get-regexp", "submodule"]).stdout, "", "and its .gitmodules entry");
