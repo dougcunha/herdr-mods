@@ -169,5 +169,23 @@ assert.throws(() => G.commandsFor({ type: "fetchBranch", name: "-x", remote: "or
   assert.ok(!r.ok || git(repo, ["rev-parse", "lag"]).stdout.trim() === theirs, "never a non-fast-forward update");
 }
 
+// ---- merged badge: a branch whose tip is in another branch (not in its own copy on the remote)
+{
+  const tip = (b) => git(repo, ["rev-parse", b]).stdout.trim();
+  const into = (b, upstream = null) => R.mergedInto(git(repo, R.containArgs(tip(b))).stdout, b, upstream);
+  sh(repo, "checkout", "-q", "main");
+  sh(repo, "branch", "isolated"); sh(repo, "checkout", "-q", "isolated");
+  writeFileSync(join(repo, "iso.txt"), "i\n"); sh(repo, "add", "-A"); sh(repo, "commit", "-qm", "isolated work");
+  sh(repo, "checkout", "-q", "main");
+  assert.ok(into("from-tag", "origin/main").includes("main"), "a branch at the tip of main is merged into main");
+  assert.deepEqual(into("isolated"), [], "own commit: no other branch holds it");
+  sh(repo, "push", "-q", "origin", "isolated");
+  assert.deepEqual(into("isolated", "origin/isolated"), [], "its own remote copy is not a merge");
+  assert.deepEqual(into("isolated"), [], "same name on the remote is not a merge either");
+  sh(repo, "merge", "-q", "--no-ff", "-m", "merge isolated", "isolated");
+  assert.ok(into("isolated").includes("main"), "after the merge, main holds it");
+  assert.ok(!into("isolated").some((n) => n.endsWith("/HEAD") || n === "isolated"));
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log("branches ok");

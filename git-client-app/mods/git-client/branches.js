@@ -4,7 +4,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, openOverlay } from "herdr";
 import { READ, menuFor, menuHeight } from "./git.js";
-import { refsArgs, parseRefs, parseRemotes, parseWorktrees, samePath, ago } from "./refs.js";
+import { refsArgs, containArgs, mergedInto, parseRefs, parseRemotes, parseWorktrees, samePath, ago } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 
@@ -48,6 +48,14 @@ export class Branches {
           const r = await git(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], w.path).catch(() => null);
           w.changes = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
         }));
+        // Which branches are merged into another one (the first 100 that are not checked out), 8 reads at a time.
+        const todo = data.local.filter((b) => !b.current).slice(0, 100);
+        for (let n = 0; n < todo.length; n += 8) {
+          await Promise.all(todo.slice(n, n + 8).map(async (b) => {
+            const r = await git(containArgs(b.hash)).catch(() => null);
+            if (r?.code === 0) b.mergedInto = mergedInto(r.stdout, b.name, b.upstream);
+          }));
+        }
         if (this.seq !== seq) return;
         this.data = data; this.error = null;
       } catch (e) { if (this.seq === seq) this.error = String(e?.message ?? e); }
@@ -105,6 +113,20 @@ export class Branches {
       .when(Boolean(right), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(right)));
   }
 
+  // The ahead/behind count and, for a branch that another branch already holds, a "merged" badge:
+  // its commits are not alone, so deleting it loses nothing.
+  badges(b, i, track, t) {
+    const into = b.mergedInto ?? [];
+    if (!track && !into.length) return null;
+    return h_flex().flex_none().gap(8).items_center()
+      .when(Boolean(track), (e) => e.child(div().flex_none().text_size(11).text_color(b.gone || b.behind ? t.ansi1 : t.ansi2).child(track)))
+      .when(into.length > 0, (e) => e.child(h_flex().id(`gb-merged-${i}`).flex_none().gap(3).items_center().px(4).rounded(4).text_size(10.5)
+        .bg(t.ansi2 + "26").text_color(t.ansi2)
+        .tooltip(`Merged into ${into.slice(0, 5).join(", ")}${into.length > 5 ? ` and ${into.length - 5} more` : ""}. Its commits are in another branch, so you can delete it without losing anything.`)
+        .child(svg(icon("check")).size(10).flex_none())
+        .child("merged")));
+  }
+
   more(n, t) { return n > SHOWN ? [div().h(ROW).flex_none().pl(24).flex().items_center().text_size(11).text_color(t.dim).child(`and ${n - SHOWN} more: filter to find them`)] : []; }
 
   render(t) {
@@ -129,7 +151,7 @@ export class Branches {
         .child(this.header(SECTIONS[0], local.length, t, [this.smallButton("gb-new-branch", "plus", "New branch from HEAD", () => this.dialog({ type: "newBranch", base: "HEAD", what: h.current ?? "HEAD" }), t)]))
         .when(open.local, (el) => el.children(local.slice(0, SHOWN).map((b, i) => this.row(`gb-l-${i}`, b.current ? "check" : "branch", b.current ? t.accent : t.muted,
           b.name, b.upstream ? `→ ${b.upstream}` : "", ago(b.time), { kind: "branch", name: b.name, upstream: b.upstream, gone: b.gone }, t,
-          track(b) ? div().flex_none().text_size(11).text_color(b.gone || b.behind ? t.ansi1 : t.ansi2).child(track(b)) : null)
+          this.badges(b, i, track(b), t))
           .when(b.current, (r) => r.font_semibold()))).children(this.more(local.length, t)))
         // Remote, grouped by remote
         .child(this.header(SECTIONS[1], remote.length, t))

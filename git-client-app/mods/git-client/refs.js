@@ -41,6 +41,27 @@ export function parseRefs(text) {
   return out;
 }
 
+// The branches that already hold a commit: `git for-each-ref --contains <hash>` over the local and the
+// remote branches. A branch whose tip is in another branch is merged there: deleting it loses no commit.
+export const containArgs = (hash) => ["for-each-ref", "--format=%(refname)", "--contains", hash, "refs/heads", "refs/remotes"];
+// The names in that answer that count as "another branch" for `branch`: not the branch itself, not its
+// upstream and not a remote branch with its name (those are copies of it, not a merge).
+export function mergedInto(text, branch, upstream = null) {
+  const out = [];
+  for (const line of String(text ?? "").split("\n")) {
+    const ref = line.trim();
+    if (ref.startsWith("refs/heads/")) {
+      const name = ref.slice(11);
+      if (name !== branch) out.push(name);
+    } else if (ref.startsWith("refs/remotes/")) {
+      const name = ref.slice(13), slash = name.indexOf("/");
+      if (slash < 0 || name.endsWith("/HEAD") || name === upstream || name.slice(slash + 1) === branch) continue;
+      out.push(name);
+    }
+  }
+  return out;
+}
+
 // `git remote -v`: "name\turl (fetch)" and "name\turl (push)".
 export function parseRemotes(text) {
   const map = new Map();
