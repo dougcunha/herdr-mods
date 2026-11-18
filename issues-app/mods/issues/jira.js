@@ -98,7 +98,12 @@ export function sprintOf(v) {
 // `extra`: ids of more fields to read (custom fields for the prompts and the page); they come back in page.fields.
 export async function issue(site, key, extra = []) {
   const ids = [...new Set(extra)].filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
+  // The `comment` field of the issue has no `parentId`: only the comment endpoint says which comment
+  // replies to which. Read the newest 100 there (oldest first); if that fails, keep the embedded list.
+  const threaded = call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/comment?orderBy=-created&maxResults=100`).then((r) => (Array.isArray(r?.comments) ? r.comments.reverse() : null), () => null);
   const page = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,priority,issuetype,assignee,reporter,labels,parent,comment,created,updated,subtasks,issuelinks,fixVersions,versions,components,duedate,resolution,attachment${ids.map((id) => `,${id}`).join("")}&expand=changelog`);
+  const comments = await threaded;
+  if (comments) page.fields.comment = { ...page.fields.comment, comments };
   // The people that the page shows, with their pictures (links.js loadPeople).
   const people = new Map();
   const seen = (u) => { if (u?.displayName && !people.has(u.displayName)) people.set(u.displayName, { name: u.displayName, id: u.accountId ?? "", url: u.avatarUrls?.["48x48"] ?? "" }); };

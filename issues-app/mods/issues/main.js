@@ -517,7 +517,9 @@ export default class SpaceIssues extends View {
     for (const c of shown) {
       let root = c;
       for (let n = 0; root.parent && byId.has(root.parent) && n < 50; n++) root = byId.get(root.parent);
-      c.root = root.id;
+      // Jira threads are one level deep: a reply goes to the top comment of the thread. When that
+      // comment is not in the shown list, use the parent id of the reply, never the id of a reply.
+      c.root = root.parent ?? root.id;
       if (root === c) top.push(c); else root.replies.push(c);
     }
     page.timeline = [...top, ...(page.events ?? [])].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
