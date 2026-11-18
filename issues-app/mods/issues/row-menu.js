@@ -36,7 +36,11 @@ export class RowMenu extends View {
       } },
       p.jira && { id: "version", label: "Fix version…", icon: "version", run: () => {
         close();
-        openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "version", site: p.site, key: p.key } });
+        openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "field", field: "fixVersions", site: p.site, key: p.key } });
+      } },
+      p.jira && { id: "components", label: "Components…", icon: "component", run: () => {
+        close();
+        openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "field", field: "components", site: p.site, key: p.key } });
       } },
       { id: "open", label: p.open ?? "Open", icon: "external", run: () => { close(); openUrl(p.url); } },
       p.agent && { id: "agent", label: p.agent, icon: "bot", run: () => { close(); setShared(rowAction(p.mod), { to: p.to, key: p.key, at: Date.now() }); } },

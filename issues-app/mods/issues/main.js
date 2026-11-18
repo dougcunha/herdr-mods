@@ -26,7 +26,7 @@ import { projects, isGithub } from "./sources.js";
 import { fileComponents, wantedFor, resolveComponents } from "./components.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
-import { VersionMenu } from "./version-menu.js";
+import { FieldMenu } from "./field-menu.js";
 import { saveAttachments, fileNames, isArchive, sizeText, shownPath } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
@@ -172,7 +172,7 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "version" ? VersionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "field" ? FieldMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
     // This copy's id: Start agent of a row's menu (row-menu.js) comes back only to the list that opened it.
     this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.seenAction = shared(ROW_ACTION)?.at ?? 0;
@@ -877,10 +877,13 @@ export default class SpaceIssues extends View {
         .child(div().min_w(0).truncate().child(m.sprint.name)), "sprint"],
       // Jira: a click opens the Fix version menu (version-menu.js); GitHub has no versions.
       !gh && ["Fix versions", h_flex().id("fix-versions").flex_wrap().gap(4).items_center().cursor_pointer().tooltip("Click to set the Fix versions")
-        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(() => this.openVersions(i))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(() => this.openField(i, "fixVersions"))
         .children(m.versions?.length ? m.versions.map((v) => k.tag(v.name, v.released ? t.ansi2 : t.accent)) : [div().text_color(t.dim).child(!p ? "…" : "None · click to set")]), "version"],
       m.affects?.length && ["Affects", tags(m.affects, t.muted), "version"],
-      m.components?.length && ["Components", tags(m.components, t.ansi5), "component"],
+      // Jira: a click opens the Components menu (field-menu.js).
+      !gh && ["Components", h_flex().id("issue-components").flex_wrap().gap(4).items_center().cursor_pointer().tooltip("Click to set the Components")
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(() => this.openField(i, "components"))
+        .children(m.components?.length ? m.components.map((c) => k.tag(c, t.ansi5)) : [div().text_color(t.dim).child(!p ? "…" : "None · click to set")]), "component"],
       f.labels?.length && ["Labels", h_flex().flex_wrap().gap(4).children(f.labels.map((l) => k.label(l))), "tag"],
       due && ["Due", div().text_color(due.late || due.soon ? dueColor : t.foreground).child(due.text), "calendar"],
       f.parent?.key && ["Parent", div().text_color(t.muted).child(f.parent.key), "epic"],
@@ -1250,9 +1253,9 @@ export default class SpaceIssues extends View {
     openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "transition", site: i.site, key: i.key, status } });
   }
 
-  // The Fix version menu of a Jira issue: a popup of this mod (version-menu.js).
-  openVersions(i) {
-    openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "version", site: i.site, key: i.key } });
+  // The Fix versions or Components menu of a Jira issue: a popup of this mod (field-menu.js).
+  openField(i, field) {
+    openOverlay({ mod: "issues", kind: "popup", width: 300, props: { dialog: "field", field, site: i.site, key: i.key } });
   }
 
   render(cx) {

@@ -1,6 +1,6 @@
 {
   "app": "issues-app",
-  "description": "The issues of the shown space from Jira Cloud or GitHub, with a Repo chip for the Jira issues of the shown repository (by Jira component), a page for each issue, comments, a Move menu for its Jira status (with a form for the fields that a move requires), a Fix version menu, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a button that starts an agent on it. Based on Herdr Ranch.",
+  "description": "The issues of the shown space from Jira Cloud or GitHub, with a Repo chip for the Jira issues of the shown repository (by Jira component), a page for each issue, comments, a Move menu for its Jira status (with a form for the fields that a move requires), a Fix version menu, a Components menu, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a button that starts an agent on it. Based on Herdr Ranch.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
   "credit": { "text": "Based on Herdr Ranch by Jelle Slowack (MIT license).", "url": "https://github.com/jslowack/herdr-ranch" },
   "settings": [

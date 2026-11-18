@@ -1,6 +1,6 @@
 // Jira Cloud: projects named in a repository, the sign-in, and the REST calls.
 // Read only, with five exceptions that the person makes on an issue page: a comment, a move (transition),
-// Assign to me, a new story points value and the Fix versions.
+// Assign to me, a new story points value, and the Fix versions and the components.
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
@@ -249,10 +249,23 @@ export async function issueFixVersions(site, key) {
   const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=fixVersions`);
   return (r?.fields?.fixVersions ?? []).map((v) => ({ id: String(v.id), name: String(v.name ?? v.id), released: Boolean(v.released) }));
 }
-// Sets the Fix versions of an issue to exactly these ids (an empty list clears them).
-export async function setFixVersions(site, key, ids) {
-  if (!ids.every((id) => /^\d+$/.test(String(id)))) throw new Error("That isn't a version.");
-  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { fixVersions: ids.map((id) => ({ id: String(id) })) } }, undefined, "PUT");
+// The components of the project of an issue: [{ id, name }], in alphabetical order.
+export async function projectComponentList(site, key) {
+  const project = String(key).replace(/-\d+$/, "");
+  const list = await call(site, `/rest/api/3/project/${encodeURIComponent(project)}/components`);
+  return (Array.isArray(list) ? list : []).filter((c) => c && c.id != null).map((c) => ({ id: String(c.id), name: String(c.name ?? c.id) })).sort(byName);
+}
+// The components of an issue now: [{ id, name }].
+export async function issueComponents(site, key) {
+  const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=components`);
+  return (r?.fields?.components ?? []).map((c) => ({ id: String(c.id), name: String(c.name ?? c.id) }));
+}
+// Sets a field that holds a list of versions or components (fixVersions, components) to exactly these ids
+// (an empty list clears it).
+export async function setIssueIds(site, key, field, ids) {
+  if (!["fixVersions", "components"].includes(field)) throw new Error("That field can't be set here.");
+  if (!ids.every((id) => /^\d+$/.test(String(id)))) throw new Error("That isn't a valid id.");
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { [field]: ids.map((id) => ({ id: String(id) })) } }, undefined, "PUT");
 }
 
 // Only what the list shows: raw issues (links with their whole target issues) make
