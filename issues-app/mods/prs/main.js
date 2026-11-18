@@ -15,7 +15,6 @@ import { kit, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { RowMenu, rowAction } from "./row-menu.js";
-import { chip } from "./links.js";
 import { context, activeSpace, openLinkDialog, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind as issueKindOf, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, loadAvatars, avatarPics, inDockDialog, iconButton, button } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -50,9 +49,6 @@ const keepWidth = (w) => { try { localStorage.setItem(`width:${place()}`, String
 const contextKey = (space) => `${space?.id}|${JSON.stringify(shared("space-links") ?? {})}`;
 // What a space's list keeps in memory (the last SPACES spaces), so switching back shows it at once.
 const SPACES = 20;
-// Hide merged (a chip next to the filters, and a setting of PowerMods): merged pull requests leave the list.
-const HIDE_MERGED = "prs.hideMerged";
-const hideMerged = () => shared(HIDE_MERGED) === true;
 // The Details card of a page, collapsed or expanded: the same in every copy (UI state).
 const detailsOpen = () => shared("prs.detailsOpen") !== false;
 // Agent review from a row's menu (row-menu.js) comes back to the list that opened it.
@@ -88,7 +84,7 @@ export default class PullRequests extends View {
     this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.seenAction = shared(ROW_ACTION)?.at ?? 0;
     this.prs = []; this.login = null; this.error = null; this.loading = false;
-    this.query = ""; this.filter = null; this.mentions = null; this.mentionsVersion = 0; this.open = null; this.page = null; this.pageError = null; this.width = lastWidth(); this.version = 0;
+    this.query = ""; this.filter = "open"; this.mentions = null; this.mentionsVersion = 0; this.open = null; this.page = null; this.pageError = null; this.width = lastWidth(); this.version = 0;
     this.gen = 0; this.data = new Map(); this.hay = new Map(); this.stacks = []; this.inStack = new Map(); this.collapsed = new Set(); this.saved = null; this.versions = 0; this.kept = new Map();
     this.handle = cx.focus_handle();
     cx.spawn(async (cx) => { await writeIcons(); cx.notify(); });
@@ -252,7 +248,7 @@ export default class PullRequests extends View {
   // (asked of me directly) and Recent activity (updated in the last 7 days). None: all.
   keep(p) {
     const me = this.login;
-    if (p.state === "MERGED" && hideMerged()) return false;
+    if (this.filter === "open") return p.state === "OPEN";
     if (this.filter === "created") return p.author?.login === me;
     if (this.filter === "assigned") return (p.assignees ?? []).includes(me);
     if (this.filter === "mentioned") return Boolean(this.mentions?.has(p.number));
@@ -342,7 +338,7 @@ export default class PullRequests extends View {
   // change (agents, focus), so a render must stay cheap.
   items() {
     const branch = this.space()?.branch ?? "";
-    const k = `${this.version}|${this.query}|${this.filter}|${hideMerged()}|${this.mentionsVersion}|${branch}|${[...this.collapsed].join(",")}`;
+    const k = `${this.version}|${this.query}|${this.filter}|${this.mentionsVersion}|${branch}|${[...this.collapsed].join(",")}`;
     if (this.cache?.k !== k) {
       const ws = words(this.query);
       const shown = this.prs.filter((p) => matches(this.hay.get(p.number), ws) && this.keep(p));
@@ -632,12 +628,12 @@ export default class PullRequests extends View {
     const t = theme(), overlay = props()?.overlay, dock = inDockDialog();
     const { items } = this.items(), wide = this.width >= WIDE;
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
-    const empty = this.error || (this.loading ? "Loading pull requests…" : this.prs.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : "No open pull requests.");
-    const filters = h_flex().gap(8).items_center().flex_wrap().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", "Mentioned"], ["review", "Review requests"], ["recent", "Recent"]], this.filter, (id, cx) => {
+    const hasPRs = this.filter === "open" ? this.prs.some((pr) => pr.state === "OPEN") : this.prs.length > 0;
+    const empty = this.error || (this.loading ? "Loading pull requests…" : hasPRs ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.filter === "open" ? "No open pull requests." : "No pull requests.");
+    const filters = segmented("filter", [["open", "Open"], ["assigned", "Assigned"], ["created", "Created"], ["mentioned", "Mentioned"], ["review", "Review requests"], ["recent", "Recent"]], this.filter, (id, cx) => {
       this.filter = id;
       if (this.filter === "mentioned" && !this.mentions && !this.mentionsLoading) this.loadMentions(cx);
-    }, t))
-      .child(chip(t, "hide-merged", "Hide merged", hideMerged(), (cx) => { setShared(HIDE_MERGED, !hideMerged()); cx.notify(); }));
+    }, t);
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
     const s = { t, two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, agents: agentSpaces(this.where?.repo?.main).prs };

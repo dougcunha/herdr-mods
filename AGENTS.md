@@ -29,7 +29,7 @@ or a theme, increase `N` by 1 in the same commit. Keep the
 `<!-- prompt-start -->` and `<!-- prompt-end -->` markers around the prompt:
 the mod sends only the text between them to the agent.
 
-When the person asks to update the local version, edit
+After every mod change, update the installed version by editing
 `~/.config/herdr-app/data/herdr-mods-setup.json`: set `version` to the new `N`,
 `commit` to the pushed commit and `date` to now. Set `files.<mod>` of each
 changed mod to the output of `node tools/record-hashes.mjs`. Copy the changed
