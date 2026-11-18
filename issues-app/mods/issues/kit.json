@@ -1,6 +1,6 @@
 {
   "app": "issues-app",
-  "description": "The issues of the shown space from Jira Cloud or GitHub, with a page for each issue, comments, a Move menu for its Jira status, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a button that starts an agent on it. Based on Herdr Ranch.",
+  "description": "The issues of the shown space from Jira Cloud or GitHub, with a Repo chip for the Jira issues of the shown repository (by Jira component), a page for each issue, comments, a Move menu for its Jira status, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a button that starts an agent on it. Based on Herdr Ranch.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
   "credit": { "text": "Based on Herdr Ranch by Jelle Slowack (MIT license).", "url": "https://github.com/jslowack/herdr-ranch" },
   "settings": [
@@ -15,6 +15,14 @@
         { "value": "priority", "label": "By priority" },
         { "value": "backlog", "label": "Backlog order" }
       ]
+    },
+    {
+      "id": "repoOn",
+      "type": "bool",
+      "key": "issues.repoOn",
+      "default": false,
+      "label": "Repo filter on",
+      "hint": "The Repo chip of the Jira list: only the issues of the Jira components of the repository. The chip in the list changes this too, so the choice stays for every space and after a restart."
     },
     {
       "id": "page",
@@ -67,6 +75,14 @@
       "label": "Extra Jira fields",
       "placeholder": "Refinement, customfield_10545",
       "hint": "Jira fields for the Start agent prompts, by name or id, split by commas. Each one is a placeholder ({refinement}) and {fields} holds all of them. On the issue page a long field gets a tab, a short one a row of Details."
+    },
+    {
+      "id": "components",
+      "type": "action",
+      "command": "issues.components",
+      "label": "Repository components",
+      "button": "Edit…",
+      "hint": "The Jira components of the repository of the shown space. The Repo chip of the Jira list shows only the issues of these components. Saved in the components line of .herdr/jira.toml. Needs the Issues panel on screen."
     },
     {
       "id": "key",

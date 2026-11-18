@@ -177,6 +177,11 @@ export function openLinkDialog(mod, space = activeSpace()) {
   if (space) openOverlay({ mod, kind: "dialog", width: 560, height: 640, props: { dialog: "link", space: space.id, mod } });
 }
 
+// Cog → Repository components…: which Jira components are this repository's (components-dialog.js; issues only).
+export function openComponentsDialog(mod, space = activeSpace()) {
+  if (space) openOverlay({ mod, kind: "dialog", width: 560, height: 600, props: { dialog: "components", space: space.id, mod } });
+}
+
 // Start agent: `p` is { repo, on, branch, tab, title, prompt } (see agent-dialog.js).
 export function openAgentDialog(mod, p) {
   openOverlay({ mod, kind: "dialog", width: 660, height: 640, props: { dialog: "agent", mod, ...p } });
@@ -294,7 +299,9 @@ export function settingsMenu(mod, settings, space = true) {
     .child(icon(name, t.muted, 14))
     .child(div().flex_1().min_w(0).truncate().child(label));
   const sep = (id) => div().id(id).mx(7).my(4).h(1).bg(t.border);
-  const items = space ? [item("link-space", "link", "Link space…", () => openLinkDialog(mod)), item("prompts", "prompt", "Prompts…", () => openPromptsDialog(mod))] : [];
+  const items = space ? [item("link-space", "link", "Link space…", () => openLinkDialog(mod)),
+    ...(mod === "issues" ? [item("components", "component", "Repository components…", () => openComponentsDialog(mod))] : []),
+    item("prompts", "prompt", "Prompts…", () => openPromptsDialog(mod))] : [];
   // A divider only between two parts, never above the first one.
   const parts = [settings.map(row), items].filter((p) => p.length);
   // The kit updates these mods (mods-hub), so no Update button; the credit is in their Settings section (kit.json).

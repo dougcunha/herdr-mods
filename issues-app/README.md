@@ -7,7 +7,7 @@
 - **`issues`**: the issues of the space from Jira Cloud or GitHub. Each issue opens as a page. **Start agent** opens a coding agent on the issue in a new git worktree and space.
 - **`prs`**: the pull requests of the space, grouped by what each one waits for (review requested, yours to fix, ready to merge). Each pull request opens as a page with its checks, files and a merge box. **Agent review** checks it out, builds, tests and reports.
 
-Both mods only read, with four exceptions on a Jira issue page: **Comment** (and **Reply**) adds the comment that you type, **Move** moves the issue to the status that you pick (a Jira transition), **Assign to me** makes you the assignee, and a click on the story points sets a new value. They write nothing else to Jira and nothing to GitHub. **Download** in the **Attachments** tab of a Jira issue saves files into `.jira/<issue key>/` in the folder of the space. The page shows the last 10 comments; older ones are in Jira. **Start agent** makes a local worktree and branch, and pushes nothing.
+Both mods only read, with four exceptions on a Jira issue page: **Comment** (and **Reply**) adds the comment that you type, **Move** moves the issue to the status that you pick (a Jira transition), **Assign to me** makes you the assignee, and a click on the story points sets a new value. They write nothing else to Jira and nothing to GitHub. **Repository components…** writes one line in `.herdr/jira.toml` of the repository (no commit). **Download** in the **Attachments** tab of a Jira issue saves files into `.jira/<issue key>/` in the folder of the space. The page shows the last 10 comments; older ones are in Jira. **Start agent** makes a local worktree and branch, and pushes nothing.
 
 ## Credits
 
@@ -31,6 +31,7 @@ The changes of this kit:
 - **Mentions:** in the comment box, type `@` and the start of a name. A list shows the people who can see the issue or who can be assigned to it. Pick one with a click, or with ↑ ↓ and Enter or Tab. The comment mentions that person in Jira, and Jira tells them. The list opens only for an `@` at the end of the text, and it searches with the first word of the name.
 - **The list:** a right-click on an issue opens a menu with **Move** (Jira only), **Open in Jira** (or GitHub), **Start agent** (when the space has a git repository) and **Copy key**. When issues have a parent (such as an Epic or a parent story), Jira fetches missing parents even when a sprint or JQL filter excludes them; a chevron next to each parent collapses or expands its subtree and shows how many issues are hidden when collapsed (`←` / `→` fold or jump to the parent, the button next to the filters collapses or expands all parents, and search temporarily expands matches). In **By priority** order, children nest under a parent that shares the same priority group; in **Backlog order**, every parent and child share the list.
 - **Sprint chips** (Jira only): **Sprint** and **Next sprint**, next to the filters. **Sprint** shows only the issues of the open sprint. **Next sprint** shows only the issues of the future sprint that starts first, also when no sprint is open. A chip loads its own list, so it works when the filter of the link is `sprint in openSprints()`. A click on the chip that is on turns it off. A chip and a filter work together (**Next sprint** and **Assigned**). The commands `issues.sprint` and `issues.next-sprint` do the same from a key.
+- **Repo chip** (Jira only): next to the sprint chips, off by default. Its state is global: a click on the chip (or **Repo filter on** in **PowerMods** → **Settings** → **Issues**) keeps it on or off for every space and after a restart. It shows only the open issues of the linked project that have a Jira **component** of the repository of the shown space (OR when there are several). It works with the filters and with the sprint chips, and loads a list of its own. The command `issues.repo` does the same from a key. See [Repository components](#repository-components).
 
 - **Under the title:** chips for the status, the type, the priority, the story points, the sprint and the due date. A high priority, the active sprint and a due date that is near or past show in color.
 - **Tabs:** **Description**, a tab for each long extra field (for example **Refinement**, see below), **Attachments** (when the issue has files) and **Activity** (the comments, the changes of status, assignee and priority, and the comment box).
@@ -51,6 +52,28 @@ The mod finds the Sprint and the story points fields (`Story Points` or `Story p
 - **Tabs:** **Description**, **Conversation** (comments, reviews, events and the merge box), **Checks** and **Files**. Keys 1 to 4.
 - **Details:** the author, the reviewers with their verdict, the assignees, the labels, the branches (with a copy button), the changes, the commits and the dates. A click on **Details** collapses or expands it.
 - **The list:** a right-click on a pull request opens a menu with **Open on GitHub**, **Agent review** (an open pull request, when the space has a git repository), **Copy number** and **Copy branch**. **Open** is selected by default and includes drafts. Select **All** to also see recently closed and merged pull requests.
+
+## Repository components
+
+Jira has no field that links an issue to a repository, so the **Repo** chip uses the **Components** field. Which components belong to a repository:
+
+1. The `components` line in `.herdr/jira.toml` of the main checkout. Before the first `[[project]]` block it is for the whole repository (also when the project comes from **Link space** or the default project); inside a block it is for that project only and wins:
+
+   ```toml
+   components = "Billing API, Billing Worker"
+
+   [[project]]
+   site = "example.atlassian.net"
+   key = "PROJ"
+   ```
+
+2. Without that line: the folder name of the main checkout (`D:\MyProjects\herdr-mods` → `herdr-mods`). Case does not matter.
+
+You do not have to edit the file. **Repository components…** (cog of the Issues panel, or **PowerMods** → **Settings** → **Issues** → **Edit…**) lists the components of the Jira project, with search and check boxes, and saves the line. It changes only that line (or creates the file) and makes no commit: commit the file so that the whole team gets it. For a space on another machine the dialog writes with `sh` there; if that fails it shows the line to paste.
+
+- The component list of a project is kept until you press **Reload** in the dialog. A component that is new in Jira shows after **Reload**.
+- A name that the project does not have is ignored. When no name matches, the list says which names it looked for.
+- With several projects in `jira.toml`, the top line goes to all of them; the dialog shows the components of the first Jira project.
 
 ## Default Jira project
 

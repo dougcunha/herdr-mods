@@ -4,6 +4,7 @@
 
 import { exec, readTextFile } from "herdr";
 import { call, cleanSite, validSite } from "./jira-client.js";
+import { componentJql } from "./components.js";
 
 const CAP = 500;
 const FIELDS = ["summary", "status", "priority", "issuetype", "assignee", "reporter", "labels", "parent", "updated", "issuelinks"];
@@ -295,10 +296,11 @@ async function withParents(site, issues, sprintField, fallbacks) {
 
 // Open issues of one linked project, at most CAP: newest first, or in backlog order (Rank).
 // `sprint` ("current" | "next", optional): only the issues of the open sprints or of the future sprints.
-export async function search(p, order, sprint = null) {
+// `components` (optional): exact Jira component names (components.js resolveComponents); only the issues that have one of them.
+export async function search(p, order, sprint = null, components = null) {
   // The list must load on a site without a Sprint field too.
   const sprintField = (await metaFields(p.site).catch(() => null))?.sprint ?? null;
-  const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
+  const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)}${components?.length ? ` AND ${componentJql(components)}` : ""} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
   const issues = [];
   const fallbacks = new Map();
   let nextPageToken;

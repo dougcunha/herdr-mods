@@ -1,5 +1,6 @@
 // The shown space's issues, from Jira Cloud or GitHub, grouped by priority or in backlog order
 // (the `order` setting, chosen with the cog in its header), with a page per issue and "Start agent".
+// The Repo chip: the issues with a Jira component of the repository (components.js). Repository components… writes a line in .herdr/jira.toml.
 // Read only, with two exceptions on a Jira page: Comment adds a comment, and the Move menu moves the issue (a Jira transition).
 // The Attachments tab of a Jira page saves the files of the issue into `.jira/<KEY>/` of the shown space (attachments.js).
 // The source: the space's link (Link space; `issues: "github"` picks GitHub, else its Jira
@@ -12,7 +13,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
-import { fileLinks, suggestKey, search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
+import { search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
 import * as github from "./github.js";
@@ -20,12 +21,15 @@ import { rows, haystack, words, matches, ago, hash, slug } from "./rows.js";
 import { adfToMarkdown } from "./adf.js";
 import { kit, pageLayout, PAGE_WIDE } from "./page-kit.js";
 import { LinkDialog } from "./link-dialog.js";
+import { ComponentsDialog } from "./components-dialog.js";
+import { projects, isGithub } from "./sources.js";
+import { fileComponents, wantedFor, resolveComponents } from "./components.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
 import { saveAttachments, fileNames, isArchive, sizeText, shownPath } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
-import { context, activeSpace, knownSites, defaultJira, openLinkDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
+import { context, activeSpace, knownSites, defaultJira, openLinkDialog, openComponentsDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -47,7 +51,6 @@ const machineChip = (t, machine) => {
 const SPINNER = "mods/workspace-chrome/spinner.svg", COG = "mods/workspace-chrome/settings.svg";
 const WEEK = 7 * 24 * 3600 * 1000, WIDE = 720, ROOMY = 520, PAGES = 30, COMMENTS = 10, SHOWN = 300;
 const browse = (i) => i.url ?? `https://${i.site}/browse/${i.key}`;
-const isGithub = (x) => x?.provider === "github";
 const where = (repo, p) => ({ cwd: repo?.main, on: repo?.on, github: p.repo });
 // Jira descriptions and comments are ADF, GitHub's are Markdown already.
 const text = (body) => (typeof body === "string" ? body : adfToMarkdown(body));
@@ -84,7 +87,9 @@ function dueText(d) {
 const split = () => asSplit("issues");
 const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priority");
 // The list's space and every link: either changing means another project.
-const contextKey = (space) => `${space?.id}|${order()}|${JSON.stringify(shared("space-links") ?? {})}|${JSON.stringify(defaultJira())}`;
+const REPO_ON = "issues.repoOn";
+const repoFilter = () => shared(REPO_ON) === true;
+const contextKey = (space) => `${space?.id}|${order()}|${repoFilter()}|${JSON.stringify(shared("space-links") ?? {})}|${JSON.stringify(defaultJira())}`;
 // The last list per space and order, so a switch or a restart shows it at once while it refreshes.
 const remembered = (key) => { try { return JSON.parse(localStorage.getItem(`issues:${key}`) ?? "null"); } catch { return null; } };
 const remember = (key, v) => { try { localStorage.setItem(`issues:${key}`, JSON.stringify(v)); } catch { /* best effort */ } };
@@ -125,24 +130,6 @@ const short = (text) => {
   return `${t.slice(0, cut > MAX / 2 ? cut : MAX)}\n\n_… the rest is online._`;
 };
 
-// Where the space's projects come from, in order; `from` says which: the space's link (or its
-// repository's), the repository's .herdr/jira.toml, the default project (Link space or PowerMods),
-// a guess from the branch, the GitHub repository.
-async function projects(c) {
-  const gh = c.github && { provider: "github", repo: c.github, site: github.SITE, key: c.github, filter: c.link.issuesFilter };
-  if (c.link.issues === "github" && gh) return { from: "link", projects: [gh] };
-  if (c.link.jira) return { from: "link", projects: [c.link.jira] };
-  const fallback = defaultJira();
-  if (!c.repo) return fallback ? { from: "default", projects: [fallback] } : { from: gh ? "repo" : null, projects: gh ? [gh] : [] };
-  const file = await fileLinks(c.repo);
-  if (file.length) return { from: "file", projects: file };
-  if (fallback) return { from: "default", projects: [fallback] };
-  const key = /\b([A-Z][A-Z0-9]{1,9})-\d+\b/.exec(c.space.branch ?? "")?.[1] || await suggestKey(c.repo).catch(() => "");
-  const site = knownSites()[0];
-  if (key && site) return { from: "guess", projects: [{ site, key }] };
-  return gh ? { from: "repo", projects: [gh] } : { from: null, projects: [] };
-}
-
 // The next sprint of each board: of the future sprints of the issues, the one that starts first
 // (a sprint without a start date: the lowest id, the order in which Jira made them). A Set of sprint ids.
 function nextSprints(issues) {
@@ -163,14 +150,14 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
     // This copy's id: Start agent of a row's menu (row-menu.js) comes back only to the list that opened it.
     this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.seenAction = shared(ROW_ACTION)?.at ?? 0;
     // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
-    this.query = ""; this.searching = false; this.searchCollapsed = new Set(); this.filter = null; this.sprint = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
+    this.query = ""; this.searching = false; this.searchCollapsed = new Set(); this.filter = null; this.sprint = null; this.repoNames = []; this.repoMiss = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
     this.width = lastWidth(); this.cache = null; this.signIn = null; this.version = 0; this.gen = 0;
     this.data = new Map(); this.hay = new Map(); this.saved = null; this.versions = 0; this.kept = new Map();
     // The highlight shows only while the keys move it: a clicked row isn't left marked.
@@ -238,6 +225,8 @@ export default class SpaceIssues extends View {
   command(name, cx) {
     if (name === "refresh") this.refresh(cx);
     else if (name === "back") this.back(cx);
+    // The Repository components dialog (Settings tab of PowerMods → Issues, or the cog).
+    else if (name === "components") openComponentsDialog("issues");
     // Saves every attachment of the open or the highlighted issue (Jira), for a key or `herdr-app do issues.download`.
     else if (name === "download") this.downloadCursor(cx);
     else if (this.open) return; // the rest act on the list, which a page covers
@@ -245,6 +234,8 @@ export default class SpaceIssues extends View {
     else if (name === "up") this.move(-1, cx);
     // The sprint chips (Jira only), for a key or `herdr-app do issues.sprint`.
     else if (name === "sprint" || name === "next-sprint") { if (this.projects.some((p) => !isGithub(p))) this.pickSprint(name === "sprint" ? "current" : "next", cx); }
+    // The Repo chip (Jira only), for a key or `herdr-app do issues.repo`.
+    else if (name === "repo") { if (this.projects.length && this.projects.every((p) => !isGithub(p))) this.pickRepo(cx); }
     else if (name === "open") this.enter(cx);
     else if (name === "browser") { const i = this.issues.find((x) => x.key === this.cursor); if (i) openUrl(browse(i)); }
     else if (name === "link") openLinkDialog("issues");
@@ -279,7 +270,8 @@ export default class SpaceIssues extends View {
     const last = space && remembered(`${space.id}:${order()}`);
     this.repo = last?.repo ?? null; this.projects = last?.projects ?? []; this.from = last?.from ?? null;
     this.capped = last?.capped ?? false; this.saved = null; this.meta = null; this.cursor = null;
-    this.setIssues(last?.issues ?? []);
+    // The Repo filter is on: the stored list is the one without it, so it is not shown while the filtered list loads.
+    this.setIssues(repoFilter() ? [] : last?.issues ?? []);
   }
 
   refresh(cx) {
@@ -292,6 +284,8 @@ export default class SpaceIssues extends View {
     const current = () => gen === this.gen;
     // The Sprint and Next sprint chips load a list of their own (jira.js search).
     const sprint = this.sprint;
+    // The Repo chip loads a list of its own too: the issues of the Jira components of the repository.
+    const repoOn = repoFilter();
     cx.spawn(async (cx) => {
       try {
         const c = await context(space);
@@ -301,20 +295,33 @@ export default class SpaceIssues extends View {
         if (!current()) return;
         this.projects = linked.projects; this.from = linked.from;
         if (!linked.projects.length) { this.setIssues([]); this.error = null; return; }
+        const file = repoOn && !linked.projects.some(isGithub) ? await fileComponents(c.repo) : null;
+        const used = new Set(), missed = [];
         const results = await Promise.all(linked.projects.map(async (p) => {
           if (isGithub(p)) {
             this.me[p.site] ??= await github.me(where(c.repo, p));
             return github.search(p, where(c.repo, p));
           }
           this.me[p.site] ??= (await myself(p.site)).accountId;
-          return search(p, order(), sprint);
+          let components = null;
+          if (file) {
+            // Names of this repository that the project has; a project without any adds no issue.
+            const wanted = wantedFor(file, p, c.repo).names;
+            components = await resolveComponents(p, wanted);
+            if (!components.length) { missed.push(...wanted); return { issues: [], capped: false }; }
+            for (const n of components) used.add(n);
+          }
+          return search(p, order(), sprint, components);
         }));
         if (!current()) return;
+        // Every project missed: the list says which names it looked for.
+        this.repoNames = [...used];
+        this.repoMiss = file && !used.size ? [...new Set(missed)] : null;
         this.capped = results.some((r) => r.capped); this.error = null; this.signIn = null;
         // Stored when the list or where it comes from changed.
         const meta = JSON.stringify({ repo: this.repo, projects: this.projects, from: this.from, capped: this.capped });
-        // The list of a sprint chip is not stored: the stored list is the one without a chip.
-        if ((this.setIssues(results.flatMap((r) => r.issues)) || meta !== this.meta) && !sprint) {
+        // The list of a chip is not stored: the stored list is the one without a chip.
+        if ((this.setIssues(results.flatMap((r) => r.issues)) || meta !== this.meta) && !sprint && !repoOn) {
           this.meta = meta;
           remember(`${space.id}:${order()}`, { repo: this.repo, issues: this.issues, projects: this.projects, from: this.from, capped: this.capped });
         }
@@ -385,7 +392,16 @@ export default class SpaceIssues extends View {
   pickSprint(id, cx) {
     this.sprint = this.sprint === id ? null : id;
     // No chip: the stored list shows at once, the fresh one loads behind it.
-    if (!this.sprint) this.restore(this.space());
+    if (!this.sprint && !repoFilter()) this.restore(this.space());
+    this.refresh(cx);
+  }
+
+  // A click on the Repo chip: on, or off when it is on. The choice is global (shared "issues.repoOn", also a switch in
+  // the Settings tab): every list and every space follows it. The list loads again with or without the components.
+  pickRepo(cx) {
+    const on = !repoFilter();
+    setShared(REPO_ON, on ? true : null);
+    if (!on) { this.repoMiss = null; this.repoNames = []; }
     this.refresh(cx);
   }
 
@@ -1228,7 +1244,8 @@ export default class SpaceIssues extends View {
     const { items, total, keyW, tree, allCollapsed } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36, tree: false, allCollapsed: false };
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const unlinked = !this.loading && !this.error && !this.projects.length;
-    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
+    const repoUi = this.projects.length > 0 && this.projects.every((p) => !isGithub(p)) && repoFilter();
+    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : repoUi && this.repoMiss ? (this.repoMiss.length ? `No Jira component matches ${this.repoMiss.join(", ")}. Set the components of this repository (cog → Repository components…), or press Reload there if the component is new.` : "This space has no git repository, so there is no component to look for.") : repoUi && !this.issues.length && this.repoNames.length ? `No open issues for the Jira component ${this.repoNames.join(", ")}.` : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
     const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
@@ -1267,7 +1284,9 @@ export default class SpaceIssues extends View {
     }, t))
       .when(watching, (e) => e
         .child(chip(t, "sprint-current", "Sprint", this.sprint === "current", (cx) => this.pickSprint("current", cx)))
-        .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx))))
+        .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx)))
+        .child(chip(t, "repo", "Repo", repoFilter(), (cx) => this.pickRepo(cx))
+          .tooltip(repoFilter() && this.repoNames.length ? `Jira components: ${this.repoNames.join(", ")}` : "Only the issues of this repository: its Jira component (the folder name, or the components line of .herdr/jira.toml)")))
       .when(tree, (e) => e.child(iconButton(t, "tree-fold", allCollapsed ? "chevrons-up-down" : "chevrons-down-up",
         (cx) => this.foldAll(!allCollapsed, cx), { tooltip: allCollapsed ? "Expand all" : "Collapse all" })));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.
