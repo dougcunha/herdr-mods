@@ -469,7 +469,7 @@ export function dialogFor(action, ctx) {
     case "discard": {
       const all = [...(a.paths ?? []), ...(a.untracked ?? [])];
       return { title: a.untracked?.length && !a.paths?.length ? "Delete file" : "Discard changes",
-        detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}.` : ""}${a.untracked?.length ? ` Delete ${a.untracked.length === 1 ? "the untracked file" : `${a.untracked.length} untracked files`} ${a.untracked.length === 1 ? a.untracked[0] : ""}.` : ""} This cannot be undone.`.trim(),
+        detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}. Selected submodules return to the commit staged in this repository, overwriting local changes to tracked files inside them.` : ""}${a.untracked?.length ? ` Delete ${a.untracked.length === 1 ? "the untracked file" : `${a.untracked.length} untracked files`} ${a.untracked.length === 1 ? a.untracked[0] : ""}.` : ""} This cannot be undone.`.trim(),
         confirm: all.length === 1 && a.untracked?.length ? "Delete" : "Discard", danger: true };
     }
     case "ignore": return { title: "Ignore", detail: "Git stops showing what you pick. Files that Git tracks stay tracked.",
@@ -651,7 +651,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "stage": return chunks(files(a.paths), ["add"]);
     // Without a HEAD there is nothing to restore from: take the files out of the index.
     case "unstage": return chunks(files(a.paths), a.unborn ? ["rm", "--cached", "-q"] : ["restore", "--staged"]);
-    case "discard": return [...chunks(files(a.paths), ["restore", "--worktree"]), ...chunks(files(a.untracked), ["clean", "-f", "-q"])];
+    case "discard": return [...chunks(files(a.paths), ["restore", "--worktree", "--recurse-submodules"]), ...chunks(files(a.untracked), ["clean", "-f", "-q"])];
     // Out of the index only: the file stays on disk. The line of the ignore file comes after (execute.js).
     // -f: without it git refuses a file whose staged content differs from HEAD and from the file on disk.
     case "untrack": return chunks(files([a.path]), ["rm", "--cached", "-f", "-q"]);

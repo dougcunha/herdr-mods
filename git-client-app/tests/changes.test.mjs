@@ -215,5 +215,36 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
   assert.equal(G.cleanMessage('"fix: a"'), "fix: a");
 }
 
+// Discard a submodule to the parent's index, including tracked edits inside it.
+{
+  const source = join(dir, "source");
+  const path = "modules/my lib";
+  const checkout = join(repo, path);
+  sh(dir, "init", "-q", "-b", "main", source);
+  writeFileSync(join(source, "file.txt"), "first\n");
+  sh(source, "add", "file.txt");
+  sh(source, "commit", "-qm", "first");
+  sh(repo, "-c", "protocol.file.allow=always", "submodule", "add", "--", source, path);
+  sh(repo, "commit", "-qm", "add submodule");
+  writeFileSync(join(checkout, "file.txt"), "second\n");
+  sh(checkout, "commit", "-qam", "second");
+  const staged = sh(checkout, "rev-parse", "HEAD").trim();
+  sh(repo, "add", "--", path);
+  sh(checkout, "checkout", "-q", "HEAD^");
+  writeFileSync(join(checkout, "file.txt"), "dirty\n");
+  sh(checkout, "add", "file.txt");
+  writeFileSync(join(checkout, "local.txt"), "keep\n");
+
+  await run({ type: "discard", paths: [path] });
+  assert.equal(sh(checkout, "rev-parse", "HEAD").trim(), staged);
+  assert.equal(readFileSync(join(checkout, "file.txt"), "utf8").trim(), "second");
+  assert.equal(sh(checkout, "status", "--porcelain").trim(), "?? local.txt");
+  assert.equal(sh(repo, "rev-parse", `:${path}`).trim(), staged);
+
+  writeFileSync(join(checkout, "file.txt"), "dirty again\n");
+  await run({ type: "discard", paths: [path] });
+  assert.equal(sh(checkout, "status", "--porcelain").trim(), "?? local.txt");
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log("changes ok");
