@@ -298,12 +298,15 @@ export async function setIssueIds(site, key, field, ids) {
 
 // Only what the list shows: raw issues (links with their whole target issues) make
 // every render slow enough for the app to interrupt it.
-function slim(i, site, sprintField) {
+function slim(i, site, sprintField, pointsFields = []) {
   const f = i.fields;
+  const pts = pointsFields.map((id) => f[id]).find((v) => typeof v === "number") ?? null;
   return {
     key: i.key, site,
     // For the Sprint and Next sprint chips. Null: no sprint, or a site without a Sprint field.
     sprint: sprintField ? sprintOf(f[sprintField]) : null,
+    // Story points for the list row. Null: not estimated, or a site without a Story Points field.
+    points: pts,
     // For the filters: Assigned to me and Created by me.
     assignees: f.assignee ? [f.assignee.accountId] : [], author: f.reporter?.accountId ?? null,
     blocked: (f.issuelinks ?? []).some((l) => l.type?.inward === "is blocked by" && l.inwardIssue
@@ -332,7 +335,7 @@ function slimParent(p, site) {
   const f = p?.fields;
   if (!p?.key || !f?.summary) return null;
   return {
-    key: p.key, site, sprint: null, assignees: [], author: null, blocked: false,
+    key: p.key, site, sprint: null, points: null, assignees: [], author: null, blocked: false,
     fields: {
       summary: f.summary, updated: "", labels: [],
       status: f.status && { name: f.status.name, statusCategory: { key: f.status.statusCategory?.key } },
@@ -343,21 +346,21 @@ function slimParent(p, site) {
   };
 }
 
-async function fetchParents(site, keys, sprintField) {
-  const fields = sprintField ? [...FIELDS, sprintField] : FIELDS;
+async function fetchParents(site, keys, sprintField, pointsFields = []) {
+  const fields = [...new Set([...FIELDS, ...(sprintField ? [sprintField] : []), ...pointsFields])];
   const out = [];
   for (let n = 0; n < keys.length; n += 50) {
     const chunk = keys.slice(n, n + 50);
     const jql = `key in (${chunk.map((k) => `"${k}"`).join(",")})`;
     const page = await call(site, "/rest/api/3/search/jql", { jql, fields, maxResults: 50 }).catch(() => null);
-    if (page?.issues) out.push(...page.issues.map((i) => slim(i, site, sprintField)));
+    if (page?.issues) out.push(...page.issues.map((i) => slim(i, site, sprintField, pointsFields)));
   }
   return out;
 }
 
 // When a JQL filter (such as `sprint in openSprints()`) excludes epics or parent issues,
 // fetch those missing parents so the tree stays intact.
-async function withParents(site, issues, sprintField, fallbacks) {
+async function withParents(site, issues, sprintField, pointsFields, fallbacks) {
   const byKey = new Map(issues.map((i) => [i.key, i]));
   const extra = new Map();
   let frontier = issues;
@@ -365,7 +368,7 @@ async function withParents(site, issues, sprintField, fallbacks) {
     const missing = [...new Set(frontier.map((i) => i.fields.parent?.key)
       .filter((k) => k && /^[A-Z][A-Z0-9_]+-\d+$/.test(k) && !byKey.has(k)))];
     if (!missing.length) break;
-    const fetched = await fetchParents(site, missing, sprintField);
+    const fetched = await fetchParents(site, missing, sprintField, pointsFields);
     const got = new Map(fetched.map((i) => [i.key, i]));
     for (const k of missing) {
       const item = got.get(k) ?? fallbacks.get(k);
@@ -391,23 +394,26 @@ async function withParents(site, issues, sprintField, fallbacks) {
 // `sprint` ("current" | "next", optional): only the issues of the open sprints or of the future sprints.
 // `components` (optional): exact Jira component names (components.js resolveComponents); only the issues that have one of them.
 export async function search(p, order, sprint = null, components = null) {
-  // The list must load on a site without a Sprint field too.
-  const sprintField = (await metaFields(p.site).catch(() => null))?.sprint ?? null;
+  // The list must load on a site without a Sprint or Story Points field too.
+  const mf = await metaFields(p.site).catch(() => null);
+  const sprintField = mf?.sprint ?? null;
+  const pointsFields = mf?.points ?? [];
+  const fields = [...new Set([...FIELDS, ...(sprintField ? [sprintField] : []), ...pointsFields])];
   const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)}${components?.length ? ` AND ${componentJql(components)}` : ""} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
   const issues = [];
   const fallbacks = new Map();
   let nextPageToken;
   do {
-    const page = await call(p.site, "/rest/api/3/search/jql", { jql, fields: sprintField ? [...FIELDS, sprintField] : FIELDS, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
+    const page = await call(p.site, "/rest/api/3/search/jql", { jql, fields, maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
     for (const raw of page.issues ?? []) {
-      issues.push(slim(raw, p.site, sprintField));
+      issues.push(slim(raw, p.site, sprintField, pointsFields));
       const fb = slimParent(raw.fields?.parent, p.site);
       if (fb && !fallbacks.has(fb.key)) fallbacks.set(fb.key, fb);
     }
     nextPageToken = page.isLast ? null : page.nextPageToken;
   } while (nextPageToken && issues.length < CAP);
   const capped = Boolean(nextPageToken);
-  const full = await withParents(p.site, issues.slice(0, CAP), sprintField, fallbacks);
+  const full = await withParents(p.site, issues.slice(0, CAP), sprintField, pointsFields, fallbacks);
   return { issues: full, capped };
 }
 

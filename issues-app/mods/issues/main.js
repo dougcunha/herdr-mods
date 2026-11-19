@@ -112,6 +112,7 @@ const rowData = (i) => ({
   key: i.key, title: i.fields.summary, status: i.fields.status?.name ?? "", blocked: i.blocked,
   active: i.fields.status?.statusCategory?.key === "indeterminate", assignee: i.fields.assignee?.displayName ?? null,
   kind: issueKind(i.fields.issuetype?.name, i.fields.labels ?? []),
+  points: typeof i.points === "number" ? points(i.points) : null,
   updated: i.fields.updated, age: ago(i.fields.updated),
 });
 
@@ -723,6 +724,10 @@ export default class SpaceIssues extends View {
       ? e.child(div().flex_none().px(5).py(1).rounded(4).bg(t.raised).text_size(fs.tiny).text_color(t.dim)
           .tooltip(`${hidden} hidden ${hidden === 1 ? "issue" : "issues"}`).child(String(hidden)))
       : e);
+    const sp = (e) => (d.points != null
+      ? e.child(h_flex().flex_none().gap(3).items_center().px(5).py(1).rounded(4).bg(t.raised).text_size(fs.tiny).text_color(t.muted)
+          .tooltip(`Story points: ${d.points}`).child(icon("points", t.dim, 10)).child(d.points))
+      : e);
     const chev = !s.tree ? null : hasKids
       ? div().id(`${item.key}-toggle`).w(16).h(20).flex_none().flex().items_center().justify_center().rounded(4).cursor_pointer()
           .hover((x) => x.bg(tint(t.foreground, "16")))
@@ -743,9 +748,9 @@ export default class SpaceIssues extends View {
     // Narrow (the side panel): two lines, so the summary keeps the whole width.
     if (s.two) return base(v_flex()).h(fs.row2).justify_center().gap(3)
       .child(h_flex().gap(8).items_center().child(kind).child(key).child(title).child(age))
-      .child(count(agent(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
-        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned"))))).child(status));
-    return count(agent(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title)))).child(status)
+      .child(sp(count(agent(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
+        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned")))))).child(status));
+    return sp(count(agent(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title))))).child(status)
       .child(avatar(d.assignee, t))
       .child(age);
   }
