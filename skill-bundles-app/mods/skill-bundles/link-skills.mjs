@@ -42,6 +42,11 @@ const AGENT_DIRS = [".agents/skills", ".claude/skills", ".windsurf/skills"];
 // Folders that an older version of this script linked into. Its links there are removed on the next change.
 const RETIRED_DIRS = [".codex/skills"];
 const BACKUP_DIR = ".agents/skills-backup";
+// Antigravity skips directory junctions under .agents/skills and resolves only workspace-relative
+// paths in .agents/skills.json on Windows. Linking each target parent folder under .agents/skills-roots
+// exposes real skill folders to .agents/skills.json with include_only matching this project's links.
+const SKILLS_JSON = ".agents/skills.json";
+const ROOTS_DIR = ".agents/skills-roots";
 const BLOCK_START = "# >>> skill-bundles links (link-skills.mjs writes this block)";
 const BLOCK_END = "# <<< skill-bundles links";
 const WINDOWS = process.platform === "win32";
@@ -291,10 +296,10 @@ function excludePath(project) {
   return p ? (isAbsolute(p) ? p : resolve(project, p)) : null;
 }
 
-/** The exclude block: { path, text, links: Set<"/.agents/skills/x">, extra: Set<name>, backup }. */
+/** The exclude block: { path, text, links: Set<"/.agents/skills/x">, extra: Set<name>, backup, skillsIndex }. */
 function readBlock(project) {
   const path = excludePath(project);
-  const block = { path, text: "", links: new Set(), extra: new Set(), backup: false };
+  const block = { path, text: "", links: new Set(), extra: new Set(), backup: false, skillsIndex: false };
   if (!path) return block;
   try { block.text = fs.readFileSync(path, "utf8"); } catch {}
   let inside = false;
@@ -306,6 +311,7 @@ function readBlock(project) {
     const extra = /^#\s*extra\s+(\S+)$/.exec(line);
     if (extra) block.extra.add(extra[1]);
     else if (line === `/${BACKUP_DIR}/`) block.backup = true;
+    else if (line === `/${SKILLS_JSON}` || line === `/${ROOTS_DIR}/`) block.skillsIndex = true;
     else if (!line.startsWith("#")) block.links.add(line);
   }
   return block;
@@ -322,7 +328,12 @@ function writeBlock(block) {
     if (!inside) kept.push(raw);
   }
   while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
-  const lines = [...[...block.extra].sort().map((n) => `# extra ${n}`), ...[...block.links].sort(), ...(block.backup ? [`/${BACKUP_DIR}/`] : [])];
+  const lines = [
+    ...[...block.extra].sort().map((n) => `# extra ${n}`),
+    ...[...block.links].sort(),
+    ...(block.backup ? [`/${BACKUP_DIR}/`] : []),
+    ...(block.skillsIndex ? [`/${SKILLS_JSON}`, `/${ROOTS_DIR}/`] : []),
+  ];
   const out = lines.length ? [...kept, ...(kept.length ? [""] : []), BLOCK_START, ...lines, BLOCK_END] : kept;
   const text = out.join(nl) + (out.length ? nl : "");
   if (text === block.text) return;
@@ -354,7 +365,7 @@ const OLD_GITIGNORE_LINES = new Set([".agents/", ".claude/skills/", ".codex/skil
  *   state: "linked" | "missing" | "stale" | "copy" | "conflict" | "absent" | "unsupported" | "extra" | "local"
  */
 function read({ project, clone, catalogRepo = null, catalogAs = null, sourcesRoot = null, manifestText = undefined }) {
-  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, catalogProblem: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0 };
+  const result = { platform: process.platform, git: Boolean(excludePath(project)), manifest: null, catalog: null, catalogError: null, catalogProblem: null, unknown: [], rows: [], lockError: null, lockOther: 0, oldGitignore: false, retired: 0, skillsIndexStale: false };
   const clones = clonesOf({ clone, catalogRepo, catalogAs, sourcesRoot });
   const { error } = clones;
   result.catalog = clones.catalog;
@@ -386,6 +397,7 @@ function read({ project, clone, catalogRepo = null, catalogAs = null, sourcesRoo
   const cloneRoot = clone ? real(clone) : null;
   // The links of this tool in a folder that it no longer uses: the next change removes them.
   result.retired = [...block.links].filter((line) => RETIRED_DIRS.some((dir) => line.startsWith(`/${dir}/`)) && lstat(join(project, line))?.isSymbolicLink()).length;
+  result.skillsIndexStale = result.git && skillsIndexStale(project, block);
 
   // What the Manifest asks for: Map<skill, { repo, from }>.
   const required = new Map();
@@ -503,6 +515,106 @@ function backup(project, path, name) {
 }
 
 /**
+ * The desired .agents/skills-roots/ links and .agents/skills.json text for the currently managed
+ * links in .agents/skills, or null when Git tracks .agents/skills.json.
+ */
+function desiredSkillsIndex(project, block) {
+  if (tryGit(project, ["ls-files", "--", SKILLS_JSON])) return null;
+  const groups = new Map(); // canonical parent -> { dir, skills: Set<string> }
+  const prefix = "/.agents/skills/";
+  for (const line of block.links) {
+    if (!line.startsWith(prefix)) continue;
+    const name = line.slice(prefix.length);
+    const linkPath = join(project, ".agents/skills", name);
+    if (!lstat(linkPath)?.isSymbolicLink()) continue;
+    let target;
+    try { target = fs.realpathSync.native(linkPath); } catch { continue; }
+    if (!fs.existsSync(join(target, "SKILL.md"))) continue;
+    const parent = dirname(target);
+    const key = WINDOWS ? parent.toLowerCase() : parent;
+    if (!groups.has(key)) groups.set(key, { dir: parent, skills: new Set() });
+    groups.get(key).skills.add(basename(target));
+  }
+  const list = [...groups.entries()]
+    .sort((a, b) => slashed(a[1].dir).toLowerCase().localeCompare(slashed(b[1].dir).toLowerCase()))
+    .map(([key, { dir, skills }]) => {
+      const hash = createHash("sha256").update(key).digest("hex").slice(0, 8);
+      const label = basename(dir).replace(/[^\w.-]+/g, "_").replace(/^\.+/, "") || "root";
+      return { dir, slug: `${label}-${hash}`, skills: [...skills].sort() };
+    });
+  const text = list.length
+    ? JSON.stringify({ entries: list.map(({ slug, skills }) => ({ path: `${ROOTS_DIR}/${slug}`, include_only: skills })) }, null, 2) + "\n"
+    : null;
+  return { list, text };
+}
+
+/** True when .agents/skills.json or .agents/skills-roots/ needs to be created, updated or cleaned up. */
+function skillsIndexStale(project, block) {
+  const desired = desiredSkillsIndex(project, block);
+  if (!desired) return false;
+  const rootsAbs = join(project, ROOTS_DIR);
+  const indexAbs = join(project, SKILLS_JSON);
+  if (!desired.list.length) {
+    return block.skillsIndex && (fs.existsSync(indexAbs) || fs.existsSync(rootsAbs));
+  }
+  if (!block.skillsIndex) return true;
+  let current = null;
+  try { current = fs.readFileSync(indexAbs, "utf8"); } catch { return true; }
+  if (current !== desired.text) return true;
+  for (const { dir, slug } of desired.list) {
+    const e = entryAt(join(rootsAbs, slug));
+    if (!(e.kind === "link" && e.to === real(dir))) return true;
+  }
+  return false;
+}
+
+/**
+ * Keeps .agents/skills-roots/ and .agents/skills.json in sync with the managed links in .agents/skills.
+ * Never overwrites or deletes a .agents/skills.json that Git tracks.
+ */
+function syncSkillsIndex(project, block) {
+  const desired = desiredSkillsIndex(project, block);
+  if (!desired) return;
+  const rootsAbs = join(project, ROOTS_DIR);
+  const indexAbs = join(project, SKILLS_JSON);
+
+  if (!desired.list.length) {
+    let names = [];
+    try { names = fs.readdirSync(rootsAbs); } catch {}
+    for (const name of names) {
+      const p = join(rootsAbs, name);
+      if (lstat(p)?.isSymbolicLink()) unlink(p);
+    }
+    try { fs.rmdirSync(rootsAbs); } catch {}
+    if (block.skillsIndex && fs.existsSync(indexAbs)) fs.rmSync(indexAbs, { force: true });
+    if (!block.links.size) block.skillsIndex = false;
+    return;
+  }
+
+  fs.mkdirSync(rootsAbs, { recursive: true });
+  const wanted = new Set();
+  for (const { dir, slug } of desired.list) {
+    wanted.add(slug);
+    const linkPath = join(rootsAbs, slug);
+    const e = entryAt(linkPath);
+    const targetReal = real(dir);
+    if (!(e.kind === "link" && e.to === targetReal)) {
+      if (e.kind === "link") unlink(linkPath);
+      if (entryAt(linkPath).kind === "none") makeLink(dir, linkPath);
+    }
+  }
+  for (const name of fs.readdirSync(rootsAbs)) {
+    if (wanted.has(name)) continue;
+    const p = join(rootsAbs, name);
+    if (lstat(p)?.isSymbolicLink()) unlink(p);
+  }
+  let prev = null;
+  try { prev = fs.readFileSync(indexAbs, "utf8"); } catch {}
+  if (prev !== desired.text) fs.writeFileSync(indexAbs, desired.text);
+  block.skillsIndex = true;
+}
+
+/**
  * Changes a project. Each list has skill names; the script reads the state again and skips a
  * name whose state does not allow the change.
  *   link         Missing skills and Copies: make the links.
@@ -617,6 +729,7 @@ function apply(input) {
 
   // A name that the Manifest asks for is not Extra.
   for (const r of state.rows) if (r.from.length) block.extra.delete(r.name);
+  syncSkillsIndex(project, block);
   writeBlock(block);
 
   // The Lock keeps only the skills that are still copies. An empty Lock is deleted (not a tracked one).

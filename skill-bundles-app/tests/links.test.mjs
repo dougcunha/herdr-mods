@@ -78,12 +78,15 @@ ok(fs.existsSync(join(clone, "skills/a/SENTINEL.txt")) && fs.existsSync(join(clo
 ok(Object.keys(JSON.parse(fs.readFileSync(join(proj, "skills-lock.json"), "utf8")).skills).join() === "o", "the Lock keeps only the other repository");
 ok(s.t === "conflict" && fs.readFileSync(join(proj, ".claude/skills/t/SKILL.md"), "utf8") === "tracked copy\n", "the tracked folder did not change");
 ok(git(proj, "status", "--porcelain", "--", ".agents", ".claude", ".codex").trim() === "" || !/skills\/(a|b)\b/.test(git(proj, "status", "--porcelain", "-uall")), "Git does not see the links");
+const idx1 = JSON.parse(fs.readFileSync(join(proj, ".agents/skills.json"), "utf8"));
+ok(idx1.entries.length === 1 && idx1.entries[0].path.startsWith(".agents/skills-roots/") && idx1.entries[0].include_only.join() === "a,b", ".agents/skills.json lists the linked skills via a workspace-relative root");
+ok(isLink(join(proj, idx1.entries[0].path)) && fs.realpathSync.native(join(proj, idx1.entries[0].path)).toLowerCase() === fs.realpathSync.native(join(clone, "skills")).toLowerCase(), "the skills-roots link points to the clone skills parent folder");
 
 // Without the old .gitignore block, the exclude block alone must hide the links.
 d = run({ op: "apply", project: proj, clone, dropGitignore: true });
 const st = git(proj, "status", "--porcelain", "-uall");
 ok(!fs.readFileSync(join(proj, ".gitignore"), "utf8").includes(".agents/") && fs.readFileSync(join(proj, ".gitignore"), "utf8").includes("node_modules/"), "the old block is gone, the rest stays");
-ok(!/skills\/(a|b)\//.test(st) && !/skills-backup/.test(st), "the exclude block hides the links and the Backup");
+ok(!/skills\/(a|b)\//.test(st) && !/skills-backup/.test(st) && !/skills\.json/.test(st) && !/skills-roots/.test(st), "the exclude block hides the links, the Backup and the skills index");
 ok(/\.claude\/skills\/z\//.test(st), "a Local skill shows in Git");
 
 // Extra, stale, remove.
@@ -110,6 +113,8 @@ d = run({ op: "apply", project: proj, clone: clone2, link: ["a", "b"] });
 s = states(run({ op: "read", project: proj, clone: clone2 }));
 ok(s.a === "linked" && s.b === "linked" && d.errors.length === 0, "the links point to the new clone");
 ok(fs.existsSync(join(clone, "skills/a/SENTINEL.txt")), "the old clone is whole");
+const idx2 = JSON.parse(fs.readFileSync(join(proj, ".agents/skills.json"), "utf8"));
+ok(idx2.entries.length === 1 && fs.readdirSync(join(proj, ".agents/skills-roots")).length === 1 && fs.realpathSync.native(join(proj, idx2.entries[0].path)).toLowerCase() === fs.realpathSync.native(join(clone2, "skills")).toLowerCase(), "relinking to another clone updates skills-roots and removes the old root link");
 
 // Conflict → replace; Local → delete (a foreign junction must not delete its target).
 w(join(proj, "skills.yaml"), "bundles:\n  - core\n\nsources:\n  - repo: me/cat\n    skills:\n      - t\n      - d\n");
@@ -162,6 +167,31 @@ ok(d.retired.join() === ".codex/skills/a" && !fs.existsSync(join(proj, ".codex")
 
 git(proj, "worktree", "remove", "--force", wt);
 ok(fs.existsSync(join(clone2, "skills/a/SENTINEL.txt")), "removing the worktree keeps the clone");
+
+// Removing all links cleans up .agents/skills.json and .agents/skills-roots; a tracked .agents/skills.json is never overwritten.
+const cleanProj = join(base, "clean-proj");
+fs.mkdirSync(cleanProj, { recursive: true });
+git(cleanProj, "init", "-q");
+w(join(cleanProj, "skills.yaml"), "bundles:\n  - extra-b\n");
+run({ op: "apply", project: cleanProj, clone: clone2, link: ["c"] });
+ok(fs.existsSync(join(cleanProj, ".agents/skills.json")) && fs.existsSync(join(cleanProj, ".agents/skills-roots")), "skills index is created on link");
+ok(run({ op: "read", project: cleanProj, clone: clone2 }).skillsIndexStale === false, "skillsIndexStale is false when index matches");
+fs.rmSync(join(cleanProj, ".agents/skills.json"));
+ok(run({ op: "read", project: cleanProj, clone: clone2 }).skillsIndexStale === true, "skillsIndexStale is true when .agents/skills.json is missing");
+run({ op: "apply", project: cleanProj, clone: clone2 });
+ok(run({ op: "read", project: cleanProj, clone: clone2 }).skillsIndexStale === false && fs.existsSync(join(cleanProj, ".agents/skills.json")), "an empty apply recreates a missing .agents/skills.json");
+w(join(cleanProj, "skills.yaml"), "bundles: []\n");
+run({ op: "apply", project: cleanProj, clone: clone2, remove: ["c"] });
+ok(!fs.existsSync(join(cleanProj, ".agents/skills.json")) && !fs.existsSync(join(cleanProj, ".agents/skills-roots")), "skills index and roots folder are removed when no links remain");
+const trackedProj = join(base, "tracked-proj");
+fs.mkdirSync(trackedProj, { recursive: true });
+git(trackedProj, "init", "-q");
+w(join(trackedProj, ".agents/skills.json"), "{\"entries\":[{\"path\":\"custom\"}]}\n");
+git(trackedProj, "add", ".agents/skills.json");
+w(join(trackedProj, "skills.yaml"), "bundles:\n  - extra-b\n");
+run({ op: "apply", project: trackedProj, clone: clone2, link: ["c"] });
+ok(fs.readFileSync(join(trackedProj, ".agents/skills.json"), "utf8") === "{\"entries\":[{\"path\":\"custom\"}]}\n", "a Git-tracked .agents/skills.json is not overwritten");
+
 fs.rmSync(base, { recursive: true, force: true });
 console.log(fails ? `${fails} FAILED` : "ALL OK");
 process.exit(fails ? 1 : 0);

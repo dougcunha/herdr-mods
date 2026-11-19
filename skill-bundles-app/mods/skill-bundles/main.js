@@ -413,23 +413,24 @@ export default class SkillBundles extends View {
     const link = toLink(p.rows).sort();
     const remove = toRemove(p.rows).sort();
     const retired = p.info?.retired ?? 0; // links in a folder that the mod no longer uses (.codex/skills)
+    const indexStale = p.info?.skillsIndexStale ? 1 : 0; // .agents/skills.json needs creating or updating
     const offered = shared(KEY.offered) ?? {};
     const where = `${p.machine ?? ""}|${p.root}`;
-    if (!link.length && !remove.length && !retired) {
+    if (!link.length && !remove.length && !retired && !indexStale) {
       // Nothing to do: forget the old offer, so the same skills give a new offer later.
       if (offered[where]) { const { [where]: _gone, ...rest } = offered; setShared(KEY.offered, rest); }
       return;
     }
-    const signature = `${link.join(",")}|${remove.join(",")}|${retired}`;
+    const signature = `${link.join(",")}|${remove.join(",")}|${retired}|${indexStale}`;
     if (offered[where] === signature) return;
     setShared(KEY.offered, { ...offered, [where]: signature });
-    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, retired, clones: p.clones, at: Date.now() });
-    const names = [...link, ...remove, ...(retired ? [".codex/skills"] : [])];
+    setShared(KEY.offerNow, { root: p.root, machine: p.machine, name: p.name, link, remove, retired, indexStale, clones: p.clones, at: Date.now() });
+    const names = [...link, ...remove, ...(retired ? [".codex/skills"] : []), ...(indexStale ? [".agents/skills.json"] : [])];
     const list = names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ");
     notify({
       // `catalog:` is text that another person can write: the toast names a Catalog that is not the default one.
       title: fill(this.str.offerTitle, { project: p.catalogSlug && !sameSlug(p.catalogSlug, this.defaultSlug) ? `${p.name} · ${p.catalogSlug}` : p.name }),
-      body: fill(this.str.offerBody, { create: link.length, remove: remove.length + retired, list }),
+      body: fill(this.str.offerBody, { create: link.length + indexStale, remove: remove.length + retired, list }),
       level: "warning",
       timeout: 20000,
       action: { name: `${MOD}.update-offered` },
@@ -440,7 +441,7 @@ export default class SkillBundles extends View {
   applyOffered(cx) {
     const o = shared(KEY.offerNow);
     // The clones of this copy are the ones of this.on: an offer of another machine waits for a copy that shows it.
-    if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0) + (o.retired ?? 0))) return;
+    if (!o?.root || (o.machine ?? null) !== this.on || !((o.link?.length ?? 0) + (o.remove?.length ?? 0) + (o.retired ?? 0) + (o.indexStale ?? 0))) return;
     // The offer was read with the clones of its project: the focus can be on a project of another Catalog now.
     if (!o.clones?.clone && !o.clones?.sourcesRoot) return;
     const project = { state: "ready", root: o.root, machine: o.machine ?? null, name: o.name, clones: o.clones };
@@ -628,8 +629,8 @@ export default class SkillBundles extends View {
     const rows = this.proj.rows ?? [];
     const link = toLink(rows);
     const remove = toRemove(rows);
-    // Every apply also removes the links of the folders that the mod no longer uses.
-    if (!link.length && !remove.length && !this.proj.info?.retired) return;
+    // Every apply also removes retired links and updates .agents/skills.json.
+    if (!link.length && !remove.length && !this.proj.info?.retired && !this.proj.info?.skillsIndexStale) return;
     this.act(cx, this.str.busyLink, (p) => this.apply(p, { link, remove }));
   }
 
@@ -989,7 +990,7 @@ export default class SkillBundles extends View {
       filter: String(this.query?.value?.() ?? "").trim().toLowerCase(),
       plain: ready && !p.manifest, // no Manifest: the links of the project are Extra skills
       linkable: this.linkable(),
-      work: ready ? toLink(p.rows).length + toRemove(p.rows).length + (p.info?.retired ?? 0) : 0,
+      work: ready ? toLink(p.rows).length + toRemove(p.rows).length + (p.info?.retired ?? 0) + (p.info?.skillsIndexStale ? 1 : 0) : 0,
       pending: ready ? pending(p.counts) : 0,
       cloneNote: this.cloneNote(),
       fixes: this.cloneFixes(),
