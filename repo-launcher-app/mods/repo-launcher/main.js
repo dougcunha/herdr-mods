@@ -244,14 +244,14 @@ export default class RepoLauncher extends View {
     cx.notify();
   }
 
-  /** The choices of the quick filter: none when all repositories are on this computer. */
+  /** The choices of the quick filter, including machines with no repositories. */
   places() {
-    const names = [...new Set(cache().repos.map((r) => r.machine).filter(Boolean))].sort();
+    const names = remoteMachines().sort();
     if (!names.length) return [];
     return [{ value: "all", label: "All" }, { value: "local", label: "This computer" }, ...names.map((m) => ({ value: m, label: m }))];
   }
 
-  /** The quick filter now; "all" when its machine has no repositories any more. */
+  /** The quick filter now; "all" when its machine is no longer listed. */
   place() {
     return this.places().some((p) => p.value === memory.place) ? memory.place : "all";
   }
@@ -278,7 +278,7 @@ export default class RepoLauncher extends View {
       for (const r of items) rows.push({ kind: "repo", ...r });
     };
 
-    const free = this.freeRows(q);
+    const free = this.freeRows(q, place);
     const addFree = () => {
       if (!free.length) return;
       rows.push({ kind: "head", title: "No repository", count: free.length, symbol: "terminal" });
@@ -332,13 +332,16 @@ export default class RepoLauncher extends View {
    * Herdr's own New menu: in the shown space, or in a new space. Their
    * `repo` is a stand-in with `free: true` and no path.
    */
-  freeRows(q) {
+  freeRows(q, place) {
     const active = spaces().find((s) => s.active);
-    const machine = active?.machine ?? null;
+    const activeMachine = active?.machine ?? null;
+    const machine = place === "all" ? activeMachine : place === "local" ? null : place;
     const items = [
-      { key: "terminal", title: "Terminal", detail: active ? `A new tab in the space ${active.name}` : "A new tab in the shown space", pick: null },
       { key: "space", title: "New space", detail: machine ? `A new space on ${machine}` : "A new space with a shell", pick: "new" },
     ];
+    if (machine === activeMachine) {
+      items.unshift({ key: "terminal", title: "Terminal", detail: active ? `A new tab in the space ${active.name}` : "A new tab in the shown space", pick: null });
+    }
     const out = [];
     for (const it of items) {
       const match = q ? matchRepo(q, it.title, it.detail) : null;
@@ -766,7 +769,7 @@ export default class RepoLauncher extends View {
 
     const roots = allRoots();
     const subtitle = roots.length === 0
-      ? "Add a folder to start"
+      ? "Add a folder in Settings to find repositories"
       : `${c.repos.length} repositories in ${roots.length} folder${roots.length === 1 ? "" : "s"}`;
 
     const head = this.header(t, "Open a repository", subtitle, {
@@ -787,20 +790,20 @@ export default class RepoLauncher extends View {
       .child(svg(icon("search")).size(16).text_color(t.accent))
       .child(Input.new(this.query).flex_1().h_full().text_size(14).text_color(t.foreground))
       .when(Boolean(this.filter), (e) => e.child(div().text_size(11).text_color(t.dim).child(`${list.length} match${list.length === 1 ? "" : "es"}`)))
-      .when(this.places().length > 0, (e) => e.child(div().flex_none().tooltip(`Show the repositories of one machine (${prettyKeys("ctrl-m")})`)
+      .when(this.places().length > 0, (e) => e.child(div().flex_none().tooltip(`Choose a machine for repositories and new spaces (${prettyKeys("ctrl-m")})`)
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .child(segmented(t, "rl-place", this.places(), this.place(), (v, cx) => this.setPlace(v, cx)))));
 
     let content;
-    if (roots.length === 0) {
+    if (!list.length && roots.length === 0) {
       content = this.emptyState(t, "folder-plus", "Add the folders that hold your repositories",
         "The launcher reads them once and keeps the list. Refresh reads them again.",
         h_flex().gap(8)
           .child(button(t, "rl-add-first", "Add folder…", (cx) => this.addRoot(cx), { primary: true, symbol: "plus" }))
           .when(remoteMachines().length > 0, (e) => e.child(button(t, "rl-add-remote-first", "Folder on another machine…", (cx) => this.openSettings(cx), { symbol: "folder-plus" }))));
-    } else if (c.repos.length === 0 && scanning) {
+    } else if (!list.length && c.repos.length === 0 && scanning) {
       content = this.emptyState(t, null, "Looking for repositories…", roots.map((r) => placeLabel(r.id)).join("  ·  "));
-    } else if (c.repos.length === 0) {
+    } else if (!list.length && c.repos.length === 0) {
       content = this.emptyState(t, "repo", "No repositories found",
         `The search opens ${3} folder levels under each root folder.`,
         button(t, "rl-rescan", "Refresh", (cx) => { memory.scanningSince = 0; this.scan(cx, { quiet: false }); }, { symbol: "refresh" }));

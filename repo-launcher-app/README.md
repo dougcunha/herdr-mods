@@ -17,7 +17,7 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Cached agents.** The launcher keeps the list of installed agents in shared state, so the popup opens without starting a shell. After you install or remove an agent, click **Refresh agents** in the settings.
 - **Shortcut.** Change it in the settings: click **Change** and press the new keys. The launcher writes it to `keys.json`.
 - **Other machines.** Add a folder of a machine of `hc machine ls` in the settings: pick the machine and type the path (`~/code` or `C:\Projects`). Its repositories show in an **On <machine>** section, and a repository opens in a space on that machine, with the agents installed there. The machine can run Windows, macOS or Linux.
-- **Machine filter.** When some repositories are on other machines, a switch in the search bar shows all of them, only this computer, or only one machine (`Ctrl+M`).
+- **Machine picker.** Pick a machine in the search bar (or cycle with `Ctrl+M`), select **New space** under **No repository**, and press `Ctrl+Enter` to open a shell there. The picker includes machines with no repositories. **All** uses the current space's machine for new spaces.
 
 ![The choices of a repository: a terminal, and each agent with each of its accounts](preview-choices.png)
 
@@ -89,7 +89,7 @@ It needs the `repo-launcher` mod (it uses its icon and opens it).
 | List | `Ctrl+S` | Add or remove the favorite |
 | List | `Ctrl+E` | Turn "Reuse open space" on or off |
 | List | `Ctrl+R` | Read the root folders again |
-| List | `Ctrl+M` | Show all repositories, this computer only, or one machine only |
+| List | `Ctrl+M` | Cycle through machines for repositories and new spaces |
 | Choices | `1` to `9`, or `↑` `↓` and `Enter` | Open that choice |
 | Choices | `Tab`, `Shift+Tab` | Pick the space: a new space or an open space |
 | Choices | `Backspace` or `←` | Go back to the list |
