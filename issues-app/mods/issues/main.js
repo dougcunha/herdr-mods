@@ -27,7 +27,7 @@ import { fileComponents, wantedFor, resolveComponents } from "./components.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
 import { FieldMenu } from "./field-menu.js";
-import { saveAttachments, fileNames, isArchive, sizeText, shownPath } from "./attachments.js";
+import { saveAttachments, fileNames, isArchive, sizeText, shownPath, openFolder } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
 import { context, activeSpace, knownSites, defaultJira, openLinkDialog, openComponentsDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
@@ -1190,7 +1190,11 @@ export default class SpaceIssues extends View {
       .child(h_flex().gap(6).items_center().flex_wrap()
         .child(div().flex_1().min_w(0).text_size(fs.meta).text_color(t.muted).child(`${list.length} ${list.length === 1 ? "file" : "files"} · ${sizeText(total)}`))
         .when(archives, (e) => e.child(act("files-all-extract", "Download all and extract", list, true, "Download every file and extract each archive into a folder with its name")))
-        .child(act("files-all", "Download all", list, false, "")))
+        .child(act("files-all", "Download all", list, false, ""))
+        .child(button(t, "files-open", "Open folder", (cx) => cx.spawn(async () => {
+          try { await openFolder(space, i.key); }
+          catch (e) { notify({ title: `The folder of ${i.key} did not open`, body: String(e?.message ?? e).slice(0, 300), level: "error", timeout: 4000 }); }
+        }), { small: true, icon: "folder", disabled: remote || !space, tooltip: why || `Open .jira/${i.key}/ in the file manager` })))
       .child(v_flex().w_full().min_w(0).rounded(10).border_1().border_color(t.border).text_size(fs.meta).children(list.map(row)))
       .child(div().text_size(fs.tiny).text_color(t.dim).child(remote ? "Downloads work only for a space on this computer."
         : dir ? `Saved in ${shownPath(dir)}` : `The files go to .jira/${i.key}/ in the folder of the shown space.`));

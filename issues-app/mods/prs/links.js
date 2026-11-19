@@ -8,7 +8,7 @@
 // A space without its own link uses the link of another space on the same repository,
 // so worktree spaces follow the repository's space.
 
-import { exec, shared, setShared, spaces, openOverlay, closeOverlay, props, theme, appHome, readTextFile, writeTextFile, settings, window as appWindow, run, notify } from "herdr";
+import { exec, shared, setShared, spaces, panes, focused, openOverlay, closeOverlay, props, theme, appHome, readTextFile, writeTextFile, settings, window as appWindow, run, notify } from "herdr";
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, v_resizable, resizable_panel, Avatar, AvatarImage, AvatarFallback } from "gpui-base";
 import { maybeWorktrees } from "./core.js";
@@ -22,11 +22,26 @@ async function git(cwd, args, on) {
   return r.code === 0 ? r.stdout.trim() : null;
 }
 
-// The repository a space's folder is in: its main checkout (worktrees share it) and machine.
+// The folders where a space works now, best first. The same rule as the git mod: the focused
+// terminal's live folder for the shown space, then the live folders of its other terminals, then
+// the folder the space was made in (it does not change when the terminals go to another folder).
+function spaceFolders(space) {
+  const tabs = new Set((space.tabs ?? []).map((t) => t.id));
+  const own = panes().filter((p) => p.terminal && p.cwd && tabs.has(p.tab));
+  const f = space.active ? focused() : null;
+  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
+  const list = [pane?.cwd || f?.cwd, ...own.filter((p) => p.focused).map((p) => p.cwd), ...own.map((p) => p.cwd), space.folder];
+  return [...new Set(list.filter(Boolean))];
+}
+
+// The repository a space works in: its main checkout (worktrees share it) and machine.
 export async function spaceRepo(space) {
-  if (!space?.folder) return null;
-  const common = await git(space.folder, ["rev-parse", "--path-format=absolute", "--git-common-dir"], space.machine);
-  return common ? { main: common.replace(/\/\.git\/?$/, ""), on: space.machine ?? null } : null;
+  if (!space) return null;
+  for (const folder of spaceFolders(space)) {
+    const common = await git(folder, ["rev-parse", "--path-format=absolute", "--git-common-dir"], space.machine);
+    if (common) return { main: common.replace(/\/\.git\/?$/, ""), on: space.machine ?? null };
+  }
+  return null;
 }
 
 export function linkOf(space, repo) {
@@ -361,6 +376,7 @@ const LUCIDE = {
   prompt: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
   stack: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
 };
 const ICONS = "data/issues-app/icons";
 let iconsWritten = null;

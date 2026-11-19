@@ -87,6 +87,22 @@ export async function targetFolder(space, key) {
 // The folder as the system writes it.
 export const shownPath = (dir) => (windows() ? dir.replace(/\//g, "\\") : dir);
 
+// Opens the folder of the files of `key` (see targetFolder) in the file manager: Explorer, Finder or
+// the opener of Linux. Rejects when no file of the issue was saved there yet.
+export async function openFolder(space, key) {
+  const dir = shownPath(await targetFolder(space, key));
+  const there = windows()
+    ? (await ps(`if (Test-Path -LiteralPath ${psQuote(dir)} -PathType Container) { 'yes' }`).catch(() => null))?.stdout?.trim() === "yes"
+    : (await exec("test", ["-d", dir]).catch(() => null))?.code === 0;
+  if (!there) throw new Error(`No file of ${key} is saved yet. Download a file first.`);
+  // explorer.exe ends with code 1 also when it opens the folder: its code is not checked.
+  if (windows()) await exec("explorer.exe", [dir]).catch(() => null);
+  else {
+    const r = await exec(platform() === "linux" ? "xdg-open" : "open", [dir]).catch((e) => ({ code: 1, stderr: String(e?.message ?? e) }));
+    if (r.code !== 0) throw new Error(`Can't open ${dir}. ${said(r)}`);
+  }
+}
+
 // A curl config file with the sign-in, in `dir` (a folder that only this user opens). The caller deletes it.
 async function authFile(c, dir) {
   const user = `${c.email}:${c.token}`;
