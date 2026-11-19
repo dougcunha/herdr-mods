@@ -16,8 +16,9 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui
 import { run, props, closeOverlay, theme, exec, knownAgents, notify, spaces, readTextFile, shared, setShared, home as localHome, window as appWindow } from "herdr";
 const platform = () => { try { return appWindow().platform; } catch { return "macos"; } };
 import { fs, icon, kindColor, avatar, spaceRepo, button as kitButton, chip as kitChip, segmented, iconButton, programTile } from "./links.js";
-import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout } from "./prompts.js";
+import { MODES, ABOUT, PLACEHOLDERS, DEFAULTS, promptModes, placeholdersOf, fill, clean, repoPrompts, trustPrompts, userPrompts, saveUserPrompts, template, mainCheckout, placeholderOf } from "./prompts.js";
 import { worktrees, maybeWorktrees, agentStart } from "./core.js";
+import { JiraChecklist } from "./jira-checklist.js";
 
 const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
 const slug = (branch) => branch.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
@@ -155,6 +156,23 @@ export class AgentDialog extends View {
     this.repoDir = null; this.defaultMain = null; this.pickingRepo = false; this.loadingRepo = false; this.repoError = "";
     this.repoFilter = InputState.new({ placeholder: "Filter the repositories" });
     this.repoFilter.on("change", (_e, cx) => cx.notify());
+    this.varOverrides = {};
+    this.checklist = p.jira ? new JiraChecklist(p.jira, {
+      onUpdate: (patch, cx) => {
+        if (patch.status) this.varOverrides.status = patch.status;
+        if (patch.refinement) {
+          const ph = placeholderOf(patch.refinement.name);
+          this.varOverrides[ph] = patch.refinement.text;
+          const baseFields = String(props()?.vars?.fields ?? "").trim();
+          const heading = `## ${patch.refinement.name}`;
+          if (!baseFields) this.varOverrides.fields = `${heading}\n\n${patch.refinement.text}`;
+          else if (!baseFields.includes(heading)) this.varOverrides.fields = `${baseFields}\n\n${heading}\n\n${patch.refinement.text}`;
+        }
+        if (!this.edited) this.fillPrompt();
+        cx.notify();
+      },
+    }) : null;
+    if (this.checklist) this.checklist.load(cx);
     this.loadRepo(cx);
   }
 
@@ -299,7 +317,7 @@ export class AgentDialog extends View {
   fillPrompt() {
     const [tpl, from] = template(this.mode, this.repoTemplates, this.mine);
     this.source = from;
-    const text = fill(tpl, { ...(props()?.vars ?? {}), branch: this.branchNow() });
+    const text = fill(tpl, { ...(props()?.vars ?? {}), ...(this.varOverrides ?? {}), branch: this.branchNow() });
     this.quiet = text; this.prompt.set_value(text); this.edited = false;
     // A repository's prompt is shown whole, not folded, so nothing in it goes unseen.
     if (from === "repo") this.editing = true;
@@ -444,8 +462,13 @@ export class AgentDialog extends View {
     const path = this.main ? maybeWorktrees()?.preview({ repo: this.main, branch: branch || "…" }) ?? "(PowerMods Core is not running)" : "";
     return v_flex().id("dispatch").size_full().text_size(fs.body).text_color(t.foreground).bg(t.background).track_focus(this.handle)
       .on_key_down((e, cx) => {
-        // Esc closes the repository list first, then the dialog.
-        if (e.key === "escape") { if (this.pickingRepo) { this.pickingRepo = false; cx.notify(); } else this.close(); cx.stop_propagation(); }
+        // Esc closes an inline checklist editor or the repository list first, then the dialog.
+        if (e.key === "escape") {
+          if (this.checklist?.closeOpen(cx)) { cx.stop_propagation(); return; }
+          if (this.pickingRepo) { this.pickingRepo = false; cx.notify(); }
+          else this.close();
+          cx.stop_propagation();
+        }
         if (e.key === "enter" && (e.modifiers?.platform || e.modifiers?.control)) { this.start(cx); cx.stop_propagation(); }
         else if (e.key === "enter" && this.pickingRepo) { const first = this.repoChoices().list[0]; if (first) this.chooseRepo(first.path, cx); cx.stop_propagation(); }
       })
@@ -454,6 +477,7 @@ export class AgentDialog extends View {
         .when(Boolean(p.key), (e) => e.child(div().flex_none().text_color(t.dim).child(p.key)))
         .child(div().min_w(0).truncate().font_semibold().child(p.title ?? ""))))
       .child(v_flex().id("dispatch-body").flex_1().min_h(0).overflow_y_scrollbar().px(16).py(12).gap(12)
+        .when(Boolean(this.checklist), (e) => e.child(this.checklist.render(t)))
         .child(v_flex().gap(4)
           // ↻ asks Herdr for the installed agents again (the list is kept: see cachedAgents).
           .child(h_flex().gap(6).items_center().child(ui.label("Agent")).child(div().flex_1())

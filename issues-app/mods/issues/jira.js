@@ -174,11 +174,18 @@ export async function mentionable(site, key, query) {
   return [...seen.values()].slice(0, 8);
 }
 
-// The account id of the signed-in account, kept per site.
+// The signed-in account ({ accountId, displayName }), kept per site.
 const accounts = new Map();
-export function myAccountId(site) {
-  if (!accounts.has(site)) accounts.set(site, call(site, "/rest/api/3/myself").then((m) => m?.accountId ?? null).catch((e) => { accounts.delete(site); throw e; }));
+export function myAccount(site) {
+  if (!accounts.has(site)) {
+    accounts.set(site, call(site, "/rest/api/3/myself")
+      .then((m) => (m?.accountId ? { accountId: m.accountId, displayName: m.displayName ?? "" } : null))
+      .catch((e) => { accounts.delete(site); throw e; }));
+  }
   return accounts.get(site);
+}
+export function myAccountId(site) {
+  return myAccount(site).then((m) => m?.accountId ?? null);
 }
 // Makes the signed-in account the assignee of the issue.
 export async function assignToMe(site, key) {
@@ -186,14 +193,30 @@ export async function assignToMe(site, key) {
   if (!id) throw new Error("Jira did not give the id of your account.");
   await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, { accountId: id }, undefined, "PUT");
 }
-// The fields of the issue that the signed-in account can edit (its edit screen): a Set of field ids.
-export async function editable(site, key) {
+// The fields of the issue that the signed-in account can edit (its edit screen): { [id]: fieldMeta }.
+export async function editMeta(site, key) {
   const meta = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}/editmeta`);
-  return new Set(Object.keys(meta?.fields ?? {}));
+  return meta?.fields ?? {};
+}
+// A Set of editable field ids.
+export async function editable(site, key) {
+  return new Set(Object.keys(await editMeta(site, key)));
+}
+// Reads a specific set of fields of one issue.
+export async function issueFields(site, key, fields) {
+  const ids = [...new Set(fields)].filter((id) => /^[A-Za-z0-9_.-]+$/.test(id));
+  const r = await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${ids.join(",")}`);
+  return r?.fields ?? {};
 }
 // Sets a number field (the story points); null clears it.
 export async function setNumberField(site, key, id, value) {
   await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { [id]: value } }, undefined, "PUT");
+}
+// Sets a text or rich-text (ADF) field; empty clears it.
+export async function setTextField(site, key, id, text, rich = true) {
+  const value = String(text ?? "").trim();
+  const payload = !value ? null : rich ? textToAdf(value) : value;
+  await call(site, `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { [id]: payload } }, undefined, "PUT");
 }
 
 // The moves the signed-in account may make on an issue now (its workflow): [{ id, name, to, category }].

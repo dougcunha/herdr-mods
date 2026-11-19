@@ -684,6 +684,19 @@ export default class SpaceIssues extends View {
     const tab = `${i.key} ${title}`.slice(0, 60);
     openAgentDialog("issues", {
       kind: "issue", repo: this.repo.main, on: this.repo.on, key: i.key, title, icon: issueKind(f.issuetype?.name, f.labels ?? []),
+      jira: isGithub(i) ? null : {
+        site: i.site,
+        key: i.key,
+        url: browse(i),
+        me: page.me ?? null,
+        status: f.status?.name ?? "",
+        statusCategory: f.status?.statusCategory?.key ?? "",
+        assignee: f.assignee ? { accountId: f.assignee.accountId ?? "", name: f.assignee.displayName ?? "" } : null,
+        points: page.meta?.points ?? null,
+        pointsField: page.pointsField ?? null,
+        components: page.meta?.components ?? [],
+        versions: (page.meta?.versions ?? []).map((v) => v.name),
+      },
       vars: {
         key: isGithub(i) ? `${i.repo}${i.key}` : i.key, title, url: browse(i), type: f.issuetype?.name ?? "", status: f.status?.name ?? "",
         priority: f.priority?.name ?? "", labels: (f.labels ?? []).join(", "), description: text(f.description) || "(no description)", tracker: home(i),
