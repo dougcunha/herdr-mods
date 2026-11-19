@@ -785,14 +785,17 @@ export default class RepoLauncher extends View {
       ],
     });
 
+    const places = this.places();
     const search = h_flex().mx(16).mt(14).mb(8).h(42).flex_none().px(14).gap(10).items_center().rounded(11)
       .bg(t.background).border_1().border_color(tint(t.accent, "99"))
       .child(svg(icon("search")).size(16).text_color(t.accent))
       .child(Input.new(this.query).flex_1().h_full().text_size(14).text_color(t.foreground))
       .when(Boolean(this.filter), (e) => e.child(div().text_size(11).text_color(t.dim).child(`${list.length} match${list.length === 1 ? "" : "es"}`)))
-      .when(this.places().length > 0, (e) => e.child(div().flex_none().tooltip(`Choose a machine for repositories and new spaces (${prettyKeys("ctrl-m")})`)
+      .when(places.length > 0, (e) => e.child(h_flex().flex_none().items_center().gap(6)
+        .tooltip("Cycle through machine filters")
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-        .child(segmented(t, "rl-place", this.places(), this.place(), (v, cx) => this.setPlace(v, cx)))));
+        .child(kbd(t, prettyKeys("ctrl-m")))
+        .child(segmented(t, "rl-place", places, this.place(), (v, cx) => this.setPlace(v, cx)))));
 
     let content;
     if (!list.length && roots.length === 0) {
@@ -825,7 +828,6 @@ export default class RepoLauncher extends View {
       .child(hint(t, ["↵"], "choose"))
       .child(hint(t, [prettyKeys("ctrl-enter")], "terminal"))
       .child(hint(t, [prettyKeys("ctrl-s")], "favorite"))
-      .when(this.places().length > 0, (e) => e.child(hint(t, [prettyKeys("ctrl-m")], "machine")))
       .child(div().flex_1())
       .child(div().text_size(11).text_color(t.dim).child(scanning ? "Scanning…" : c.scannedAt ? `Scanned ${ago(c.scannedAt)}` : ""));
 
