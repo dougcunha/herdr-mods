@@ -12,7 +12,9 @@ export const icon = (name) => (name.includes("/") ? name : `mods/git-client/icon
 export class Menu {
   init(cx) {
     const { target, ctx } = props();
-    this.items = menuFor(target, ctx);
+    const disabled = shared("herdr-mods.disabled");
+    const vrEnabled = !(Array.isArray(disabled) && disabled.includes("visual-review"));
+    this.items = menuFor(target, { ...ctx, vrEnabled });
     this.at = -1;
     this.handle = cx.focus_handle();
     this.handle.focus();
@@ -47,6 +49,9 @@ export class Menu {
     } else if (a.type === "showChanges") {
       closeOverlay(overlay);
       showTab("changes");
+    } else if (a.type === "visualReview") {
+      closeOverlay(overlay);
+      run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: ctx.root, on: ctx.on ?? null, selection: a.selection } });
     } else if (a.type === "pull") {
       // The same pull as the Pull button of the bar: the Pull setting, no dialog.
       const mode = ["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config";

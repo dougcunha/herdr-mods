@@ -325,7 +325,8 @@ export function menuFor(target, ctx) {
       target.side === "unstaged" && a("discardHunk", "Discard hunk…", "trash"))];
   } else if (target.kind === "uncommitted") {
     sections = [
-      section(item("Show in Changes", "changes", { type: "showChanges" })),
+      section(item("Show in Changes", "changes", { type: "showChanges" }),
+        ctx.vrEnabled && item("Visual Review uncommitted", "graph", { type: "visualReview", selection: { mode: "uncommitted" } })),
       section(item("Stash uncommitted changes…", "stash", { type: "stash" })),
       section(item("Reset uncommitted changes…", "reset", { type: "resetUncommitted" })),
     ];
@@ -415,6 +416,8 @@ export function menuFor(target, ctx) {
       section(!here && item(`Merge into ${cur}…`, "merge", { type: "merge", ref: hash, what: `commit ${short}` }),
         !here && item(`Rebase ${cur} on this commit…`, "rebase", { type: "rebase", ref: hash, what: `commit ${short}` }),
         item(`Reset ${cur} to this commit…`, "reset", { type: "reset", hash, short })),
+      section(ctx.vrEnabled && item("Visual Review this commit", "graph", { type: "visualReview", selection: { mode: "single", head: hash, label: `${short} · ${(c.subject || "").slice(0, 28)}` } }),
+        ctx.vrEnabled && !here && ctx.head && item("Visual Review to HEAD", "graph", { type: "visualReview", selection: { mode: "range", from: hash, to: ctx.head, label: `${short}..HEAD` } })),
       section(item("Copy commit hash", "copy", { type: "copy", text: hash }),
         item("Copy commit subject", "copy", { type: "copy", text: c.subject })),
     ];

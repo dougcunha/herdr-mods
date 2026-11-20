@@ -70,6 +70,7 @@ function render(app, exe) {
     const page = join(work, "page.html");
     writeFileSync(page, html);
     const out = join(dir, "preview.png");
+    const before = existsSync(out) ? readFileSync(out) : null;
     execFileSync(exe, [
       "--headless=new",
       "--disable-gpu",
@@ -83,7 +84,6 @@ function render(app, exe) {
     ], { stdio: "pipe" });
     // The browser can return before it writes the file (it hands the work to a process that
     // runs already). Wait for a new file: an old preview.png must not count as the result.
-    const before = existsSync(out) ? readFileSync(out) : null;
     for (let i = 0; i < 60 && (!existsSync(out) || (before && readFileSync(out).equals(before))); i++) {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
     }

@@ -1,0 +1,9 @@
+{
+  "title": "Visual Review",
+  "place": "none",
+  "focusable": true,
+  "overlay": {
+    "width": 1240,
+    "height": 820
+  }
+}

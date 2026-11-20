@@ -6,7 +6,7 @@
 // Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
-import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates } from "herdr";
+import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
@@ -378,7 +378,9 @@ export class History {
     const target = commit.uncommitted ? { kind: "uncommitted", commit: brief(commit) }
       : hit && hit.part.kind !== "head" ? { kind: hit.part.kind, name: hit.part.name, commit: brief(commit) }
       : { kind: "commit", commit: brief(commit) };
-    const items = menuFor(target, this.ctx);
+    const vrDisabled = shared("herdr-mods.disabled");
+    const vrEnabled = !(Array.isArray(vrDisabled) && vrDisabled.includes("visual-review"));
+    const items = menuFor(target, { ...this.ctx, vrEnabled });
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
   }
 
@@ -517,7 +519,15 @@ export class History {
         .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.setRemotes(cx))
         .child(div().size(13).rounded(3).border_1().border_color(this.remotes ? t.accent : t.input).when(this.remotes, (e) => e.bg(t.accent)).flex().items_center().justify_center()
           .when(this.remotes, (e) => e.child(svg(icon("check")).size(10).text_color(t.accent_foreground))))
-        .child("Remotes"));
+        .child("Remotes"))
+      .child(div().flex_1())
+      .when(!(Array.isArray(shared("herdr-mods.disabled")) && shared("herdr-mods.disabled").includes("visual-review")), (e) =>
+        e.child(h_flex().id("gc-visual-review").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer()
+          .bg(t.background).border_1().border_color(t.border).text_size(11).text_color(t.muted)
+          .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+          .on_click(() => run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: this.root, on: this.on ?? null, selection: { mode: "branch-base" } } }))
+          .child(svg(icon("graph")).size(12).text_color(t.accent))
+          .child("Visual Review")));
   }
 
   searchBar(t) {

@@ -1,0 +1,65 @@
+{
+  "app": "visual-review-app",
+  "description": "Interactive change graph for Git commits inside Herdr: fast static analysis for C#/.NET, TypeScript/JavaScript and SQL/Prisma, optional AI semantic enrichment with disk cache, orthogonal ELK layout, semantic zoom, relationship filters and inline diffs.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/visual-review-app",
+  "settings": [
+    {
+      "id": "provider",
+      "type": "enum",
+      "key": "visual-review.ai",
+      "path": "provider",
+      "default": "auto",
+      "label": "AI program",
+      "hint": "The program used when you click Enrich with AI. Auto picks Claude Code if installed, else Codex. Runs read-only on the repository's machine.",
+      "options": [
+        { "value": "auto", "label": "Auto" },
+        { "value": "claude", "label": "Claude Code" },
+        { "value": "codex", "label": "Codex" }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "key": "visual-review.ai",
+      "path": "model",
+      "placeholder": "sonnet / o4-mini",
+      "label": "AI model",
+      "hint": "Empty: sonnet for Claude Code, default model for Codex."
+    },
+    {
+      "id": "largeDiffThreshold",
+      "type": "number",
+      "key": "visual-review.largeDiffThreshold",
+      "default": 40,
+      "min": 10,
+      "max": 300,
+      "step": 10,
+      "unit": "files",
+      "label": "Overview threshold",
+      "hint": "Selections with more changed files than this open in Overview mode automatically so large graphs stay readable."
+    },
+    {
+      "id": "dialogFullscreen",
+      "type": "bool",
+      "key": "visual-review.dialogFullscreen",
+      "default": false,
+      "label": "Fullscreen dialog",
+      "hint": "Open the modal dialog sized to the full Herdr window instead of a compact box."
+    },
+    {
+      "id": "clearCache",
+      "type": "action",
+      "command": "tab.new",
+      "args": {
+        "name": "Visual Review",
+        "mod": "visual-review",
+        "props": {
+          "clearCache": true
+        }
+      },
+      "button": "Clear cache",
+      "label": "AI analysis cache",
+      "hint": "Purge all cached AI design models stored on disk under ~/.config/herdr-app/data/visual-review/cache."
+    }
+  ]
+}
