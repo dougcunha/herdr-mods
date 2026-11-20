@@ -5,7 +5,7 @@
 //
 // Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
 import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
@@ -14,6 +14,11 @@ import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
+const DETAILS_DEFAULT = 320, DETAILS_MIN = 120, LIST_MIN = 80;
+const savedDetailsHeight = () => {
+  const h = Number(shared("git-client.detailsHeight"));
+  return Number.isFinite(h) && h >= DETAILS_MIN ? Math.round(h) : DETAILS_DEFAULT;
+};
 // a newer than b, for "x.y.z" versions.
 function newer(a, b) {
   const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
@@ -110,6 +115,8 @@ export class History {
     // A scrollbar finds its list by name: each copy (panel, pane) needs its own.
     this.listId = `gc-rows-${Math.random().toString(36).slice(2)}`;
     this.diffId = `${this.listId}-diff`;
+    this.splitId = `${this.listId}-split`;
+    this.splitGen = 0; this.detailsOpen = false; this.detailsHeight = savedDetailsHeight();
     this.all = true; this.remotes = true; this.wide = false; this.graphMax = 160; this.scale = null;
     this.filter = null; this.filterKey = "";
     this.watchToken = 0; this.seenChange = shared("git-client.changed");
@@ -559,7 +566,7 @@ export class History {
 
   list(t, mono) {
     const colors = laneColors(t), width = this.graphWidth(), count = this.commits.length + (this.hasMore ? 1 : 0);
-    return div().flex_1().min_h(0).relative()
+    return div().size_full().min_h(0).relative()
       .on_mouse_down("left", (e) => { this.press = { x: (e.local_position?.x ?? 0) / this.unit(), count: e.click_count }; })
       .child(v_virtual_list(this.listId, count, this.listRow(), (i) => this.commits[i]?.hash ?? "more",
         (range, cx) => {
@@ -588,7 +595,7 @@ export class History {
       .on_click((_e, cx) => { this.selected = null; this.details = null; this.diff = null; cx.notify(); }).child("×");
     if (this.diff) {
       const rows = this.diff.rows;
-      return v_flex().flex_none().h(320).border_t(1).border_color(t.border)
+      return v_flex().size_full().min_h(0).border_t(1).border_color(t.border)
         .child(top.child(div().id("gc-diff-back").px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
             .on_click((_e, cx) => { this.diff = null; cx.notify(); }).child("← Files"))
           .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(this.diff.path)).child(close))
@@ -601,7 +608,7 @@ export class History {
     }
     const title = `Commit ${commit.hash.slice(0, 8)}`;
     const body = v_flex().id("gc-details").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(10).gap(4);
-    const pane = (content) => v_flex().flex_none().h(320).border_t(1).border_color(t.border)
+    const pane = (content) => v_flex().size_full().min_h(0).border_t(1).border_color(t.border)
       .child(top.child(div().flex_1().text_color(t.muted).child(title)).child(close))
       .child(content);
     if (d?.error) return pane(body.child(div().text_color(t.ansi1).child(d.error)));
@@ -664,11 +671,20 @@ export class History {
     if (changed !== this.seenChange) { this.seenChange = changed; if (this.root) this.refresh(cx); }
     const savedCols = savedColumns(), seen = JSON.stringify(savedCols ?? null);
     if (!this.drag && seen !== this.seenCols) { this.seenCols = seen; this.cols = withDefaults(savedCols ?? undefined); }
+    const savedH = savedDetailsHeight();
+    if (savedH !== this.detailsHeight) this.detailsHeight = savedH;
   }
 
   render(cx) {
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
     const repo = ready || this.state === "empty";
+    const open = ready && Boolean(this.selected);
+    // Workaround: a resizable group whose panel was hidden reopens it shrunk, so each open gets a fresh group id.
+    if (open && !this.detailsOpen) {
+      this.splitGen++;
+      this.detailsHeight = savedDetailsHeight();
+    }
+    this.detailsOpen = open;
     return v_flex().id("gc-history").flex_1().min_h(0).w_full()
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
@@ -679,8 +695,18 @@ export class History {
         if (wide !== this.wide || graphMax !== this.graphMax) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
       })
       .when(repo || Boolean(this.filter), (e) => e.child(this.searchBar(t)).when(!this.filter, (el) => el.child(this.toolbar(t))))
-      .when(ready, (e) => e.child(this.columns(t, this.graphWidth())).child(this.list(t, mono))
-        .when(Boolean(this.selected), (el) => el.child(this.detailsPane(t, mono))))
+      .when(ready, (e) => e.child(this.columns(t, this.graphWidth()))
+        .child(div().flex_1().min_h(0).w_full().child(
+          v_resizable(`${this.splitId}-${this.splitGen}`).size_full()
+            .on_resize((sizes) => {
+              const h = Math.round(sizes[1] ?? 0);
+              if (!this.detailsOpen || h < DETAILS_MIN) return;
+              this.detailsHeight = h;
+              setShared("git-client.detailsHeight", h);
+            })
+            .child(resizable_panel().size_range(LIST_MIN).child(this.list(t, mono)))
+            .child(resizable_panel().visible(open).size(this.detailsHeight).size_range(DETAILS_MIN)
+              .child(open ? this.detailsPane(t, mono) : div())))))
       .when(!ready, (e) => e.child(this.empty(t)));
   }
 }
