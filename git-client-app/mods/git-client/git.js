@@ -824,3 +824,33 @@ export function conflictPrompt({ op, files, current, theirs, root }) {
     `Do not run git ${op} --continue, do not commit and do not push: I review the result and continue myself.`,
   ].join("\n");
 }
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i;
+export const isImagePath = (path) => IMAGE_EXT.test(String(path ?? ""));
+export const isSvgPath = (path) => /\.svg$/i.test(String(path ?? ""));
+
+// Which image version(s) to preview for a file selected in the Changes tab:
+// before (old/deleted/ours) and after (new/added/theirs), each either a git blob spec or a worktree file.
+export function imagePlan(file, side) {
+  if (!file || !isImagePath(file.path)) return null;
+  if (side === "conflict") {
+    return {
+      before: { kind: "git", spec: `:2:${file.path}`, label: "Ours", tone: "removed" },
+      after: { kind: "git", spec: `:3:${file.path}`, label: "Theirs", tone: "added" },
+    };
+  }
+  if (side === "staged") {
+    if (file.x === "A") return { before: null, after: { kind: "git", spec: `:${file.path}`, label: "Added", tone: "added" } };
+    if (file.x === "D") return { before: { kind: "git", spec: `HEAD:${file.path}`, label: "Deleted", tone: "removed" }, after: null };
+    return {
+      before: { kind: "git", spec: `HEAD:${file.path}`, label: "Before", tone: "removed" },
+      after: { kind: "git", spec: `:${file.path}`, label: "After", tone: "added" },
+    };
+  }
+  if (file.untracked) return { before: null, after: { kind: "file", path: file.path, label: "Untracked", tone: "added" } };
+  if (file.y === "D") return { before: { kind: "git", spec: `:${file.path}`, label: "Deleted", tone: "removed" }, after: null };
+  return {
+    before: { kind: "git", spec: `:${file.path}`, label: "Before", tone: "removed" },
+    after: { kind: "file", path: file.path, label: "After", tone: "added" },
+  };
+}

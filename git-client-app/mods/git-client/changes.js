@@ -3,10 +3,11 @@
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { exec, readTextFile, theme, notify, openOverlay, setShared } from "herdr";
-import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError } from "./git.js";
+import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError, isImagePath, isSvgPath } from "./git.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
+import { ImageDiffView, sweepStagedImages } from "./imageview.js";
 import { generateMessage } from "./ai.js";
 
 const ROW = 26, TITLE = 28;
@@ -33,6 +34,9 @@ export class Changes {
     this.staged = new Map(); this.unstaged = new Map(); this.op = null;
     this.sel = null; this.closed = false; this.patch = null; this.diffNote = null;
     this.diff = new DiffView(`gc-diff-${Math.random().toString(36).slice(2)}`);
+    this.image = new ImageDiffView(`gc-img-${Math.random().toString(36).slice(2)}`);
+    this.imageAsText = false;
+    cx.spawn(async () => { await sweepStagedImages(); });
     this.amend = false; this.all = false; this.push = false; this.hover = null;
     this.message = "";
     this.input = TextareaState.new({ placeholder: "Commit message", rows: 2 });
@@ -56,8 +60,14 @@ export class Changes {
   // A new folder: nothing of the old one stays.
   resetFolder() {
     this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.sel = null; this.closed = false;
-    this.patch = null; this.diff.setRows([]); this.diffNote = null; this.amend = false; this.all = false;
+    this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null; this.amend = false; this.all = false;
     this.message = ""; this.input.set_value("");
+  }
+
+  dispose() { return this.image?.dispose?.(); }
+
+  showingImage() {
+    return Boolean(this.sel && isImagePath(this.sel.path) && !(isSvgPath(this.sel.path) && this.imageAsText));
   }
 
   // After every read of the repository: the counts, the operation in progress and the shown diff.
@@ -86,14 +96,14 @@ export class Changes {
         if (stale()) return;
         this.op = opOf(found);
         const files = this.files();
-        if (this.sel && !files.some((f) => f.path === this.sel.path && this.sideOf(f, this.sel.side))) { this.sel = null; this.patch = null; this.diff.setRows([]); }
+        if (this.sel && !files.some((f) => f.path === this.sel.path && this.sideOf(f, this.sel.side))) { this.sel = null; this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; }
         // The first file shows until you pick another, as in Herdr's Changes panel.
         if (!this.sel && !this.closed) {
           const first = this.conflicts()[0] ? { f: this.conflicts()[0], side: "conflict" } : this.stagedFiles()[0] ? { f: this.stagedFiles()[0], side: "staged" }
             : this.unstagedFiles()[0] ? { f: this.unstagedFiles()[0], side: "unstaged" } : null;
           if (first) this.sel = { path: first.f.path, side: first.side };
         }
-        if (this.sel) await this.loadDiff(cx, seq);
+        if (this.sel) await this.loadDiff(cx, seq, true);
       } catch (e) { if (!stale()) this.diffNote = String(e?.message ?? e); }
       cx.notify();
     });
@@ -101,10 +111,16 @@ export class Changes {
 
   sideOf(f, side) { return side === "conflict" ? f.conflict : side === "staged" ? f.staged : f.unstaged; }
 
-  async loadDiff(cx, seq = this.seq) {
+  async loadDiff(cx, seq = this.seq, keepCurrent = false) {
     const h = this.host.history, root = h.root, on = h.on, sel = this.sel;
     const file = this.files().find((f) => f.path === sel?.path);
     if (!file || !root) return;
+    if (this.showingImage()) {
+      this.patch = null; this.diff.setRows([]); this.diffNote = null;
+      await this.image.load({ root, on, file, side: sel.side, keepCurrent });
+      return;
+    }
+    this.image.clear();
     const git = (args) => exec("git", [...READ, "--literal-pathspecs", ...args], { cwd: root, on });
     let rows, patch = null, note = null;
     try {
@@ -128,8 +144,18 @@ export class Changes {
   pick(f, side, cx) {
     const same = this.sel?.path === f.path && this.sel?.side === side;
     this.sel = same ? null : { path: f.path, side }; this.closed = same;
-    this.patch = null; this.diff.setRows([]); this.diffNote = null;
+    this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null;
     if (this.sel) { const seq = this.seq; cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); }); }
+    cx.notify();
+  }
+
+  setImageAsText(asText, cx) {
+    if (this.imageAsText === asText || !this.sel) return;
+    this.imageAsText = asText;
+    this.patch = null; this.diff.setRows([]); this.diffNote = null;
+    if (asText) this.image.clear();
+    const seq = this.seq;
+    cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); });
     cx.notify();
   }
 
@@ -182,7 +208,15 @@ export class Changes {
   }
 
   expand() {
-    if (!this.sel || !this.diff.rows.length) return;
+    if (!this.sel) return;
+    if (this.showingImage()) {
+      const h = this.host.history, file = this.files().find((f) => f.path === this.sel.path);
+      if (!h.root || !file) return;
+      openOverlay({ mod: "git-client", kind: "dialog", width: 1100, height: 720,
+        props: { role: "diff", title: this.sel.path, side: this.sel.side, image: { root: h.root, on: h.on, file, side: this.sel.side } } });
+      return;
+    }
+    if (!this.diff.rows.length) return;
     openOverlay({ mod: "git-client", kind: "dialog", width: 1100, height: 720,
       props: { role: "diff", title: this.sel.path, side: this.sel.side, rows: this.diff.rows } });
   }
@@ -346,17 +380,21 @@ export class Changes {
   }
 
   diffBar(t) {
-    const sel = this.sel, view = currentView();
+    const sel = this.sel, view = currentView(), showImg = this.showingImage(), isSvg = Boolean(sel && isSvgPath(sel.path));
     const seg = (v, label) => div().id(`gc-view-${v}`).h_full().px(7).flex().items_center().rounded(4).text_size(11)
       .text_color(view === v ? t.foreground : t.muted).when(view === v, (e) => e.bg(t.selected))
       .when(view !== v, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover))).on_click(() => setShared(VIEW_KEY, v)).child(label);
+    const modeSeg = (asText, label) => div().id(`gc-svg-${asText ? "diff" : "img"}`).h_full().px(7).flex().items_center().rounded(4).text_size(11)
+      .text_color(this.imageAsText === asText ? t.foreground : t.muted).when(this.imageAsText === asText, (e) => e.bg(t.selected))
+      .when(this.imageAsText !== asText, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover))).on_click((_e, cx) => this.setImageAsText(asText, cx)).child(label);
     const parts = sel ? sel.path.split("/") : [], name = parts.pop();
     return h_flex().h(32).flex_none().px(10).gap(8).items_center().border_t(1).border_b(1).border_color(t.border)
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(sel ? t.foreground : t.dim).child(sel ? name : "No file"))
       .when(Boolean(sel), (e) => e.child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted)
         .child(sel.side === "staged" ? "staged" : sel.side === "conflict" ? "conflict" : "unstaged")))
-      .child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split")))
-      .child(this.smallButton("gc-expand", "expand", "Open the diff in a wide dialog", () => this.expand(), t));
+      .when(isSvg, (e) => e.child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(modeSeg(false, "Image")).child(modeSeg(true, "Diff"))))
+      .when(!showImg || this.image.hasPair(), (e) => e.child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split"))))
+      .child(this.smallButton("gc-expand", "expand", showImg ? "Open the image in a wide dialog" : "Open the diff in a wide dialog", () => this.expand(), t));
   }
 
   render(t) {
@@ -381,7 +419,7 @@ export class Changes {
             unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
               this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : []))))
       .when(ready && this.files().length > 0, (e) => e.child(this.diffBar(t))
-        .child(this.diff.render({
+        .child(this.showingImage() ? this.image.render() : this.diff.render({
           empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
           hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
           onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },

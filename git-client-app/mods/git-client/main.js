@@ -5,17 +5,25 @@ import { Client } from "./client.js";
 import { Menu, icon } from "./menu.js";
 import { Dialog } from "./dialog.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
+import { ImageDiffView } from "./imageview.js";
 import { AgentDialog } from "./agent.js";
 
-// The wide diff of the Changes tab (its Expand button), opened with props { role: "diff", title, side, rows }.
+// The wide diff of the Changes tab (its Expand button), opened with props { role: "diff", title, side, rows | image }.
 class DiffDialog {
   init(cx) {
     const p = props();
-    this.view = new DiffView(`gc-wide-${Math.random().toString(36).slice(2)}`);
-    this.view.setRows(p.rows ?? []);
+    if (p.image) {
+      this.imageView = new ImageDiffView(`gc-wide-img-${Math.random().toString(36).slice(2)}`);
+      cx.spawn(async (cx) => { await this.imageView.load(p.image); cx.notify(); });
+    } else {
+      this.view = new DiffView(`gc-wide-${Math.random().toString(36).slice(2)}`);
+      this.view.setRows(p.rows ?? []);
+    }
     this.handle = cx.focus_handle();
     this.handle.focus();
   }
+
+  async close() { await this.imageView?.dispose?.(); }
 
   render() {
     const t = theme(), p = props(), view = currentView();
@@ -28,12 +36,12 @@ class DiffDialog {
         .child(svg(icon("changes")).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().font_semibold().child(p.title ?? "Diff"))
         .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10.5).text_color(t.muted).child(p.side ?? ""))
-        .child(h_flex().flex_none().h(26).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split")))
+        .when(!this.imageView || this.imageView.hasPair(), (e) => e.child(h_flex().flex_none().h(26).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split"))))
         .child(div().id("gcw-close").size(26).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
           .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click(() => closeOverlay(p.overlay)).child(svg(icon("x")).size(14))))
-      .child(this.view.render({ empty: "No changes" }));
+      .child(this.imageView ? this.imageView.render() : this.view.render({ empty: "No changes" }));
   }
 }
 
@@ -46,6 +54,8 @@ export default class GitClient extends View {
       : role === "agent" ? new AgentDialog() : new Client();
     this.part.init(cx);
   }
+
+  async close(cx) { await this.part?.close?.(cx); }
 
   render(cx) { return this.part.render(cx); }
 }

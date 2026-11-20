@@ -246,5 +246,29 @@ assert.throws(() => G.commandsFor({ type: "continueOp", op: "--exec" }), /operat
   assert.equal(sh(checkout, "status", "--porcelain").trim(), "?? local.txt");
 }
 
+// ---- image preview plan for the Changes tab
+{
+  assert.equal(G.isImagePath("a/b/logo.PNG"), true);
+  assert.equal(G.isImagePath("icon.svg"), true);
+  assert.equal(G.isImagePath("notes.md"), false);
+  assert.equal(G.isSvgPath("icon.SVG"), true);
+  assert.equal(G.isSvgPath("icon.png"), false);
+  assert.equal(G.imagePlan({ path: "notes.md", untracked: true }, "unstaged"), null);
+  assert.deepEqual(G.imagePlan({ path: "new.png", untracked: true, x: "?", y: "?" }, "unstaged"),
+    { before: null, after: { kind: "file", path: "new.png", label: "Untracked", tone: "added" } });
+  assert.deepEqual(G.imagePlan({ path: "edit.png", untracked: false, x: " ", y: "M" }, "unstaged"),
+    { before: { kind: "git", spec: ":edit.png", label: "Before", tone: "removed" }, after: { kind: "file", path: "edit.png", label: "After", tone: "added" } });
+  assert.deepEqual(G.imagePlan({ path: "gone.png", untracked: false, x: " ", y: "D" }, "unstaged"),
+    { before: { kind: "git", spec: ":gone.png", label: "Deleted", tone: "removed" }, after: null });
+  assert.deepEqual(G.imagePlan({ path: "add.webp", untracked: false, x: "A", y: " " }, "staged"),
+    { before: null, after: { kind: "git", spec: ":add.webp", label: "Added", tone: "added" } });
+  assert.deepEqual(G.imagePlan({ path: "mod.jpg", untracked: false, x: "M", y: " " }, "staged"),
+    { before: { kind: "git", spec: "HEAD:mod.jpg", label: "Before", tone: "removed" }, after: { kind: "git", spec: ":mod.jpg", label: "After", tone: "added" } });
+  assert.deepEqual(G.imagePlan({ path: "del.gif", untracked: false, x: "D", y: " " }, "staged"),
+    { before: { kind: "git", spec: "HEAD:del.gif", label: "Deleted", tone: "removed" }, after: null });
+  assert.deepEqual(G.imagePlan({ path: "both.png", conflict: true, x: "U", y: "U" }, "conflict"),
+    { before: { kind: "git", spec: ":2:both.png", label: "Ours", tone: "removed" }, after: { kind: "git", spec: ":3:both.png", label: "Theirs", tone: "added" } });
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log("changes ok");

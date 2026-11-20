@@ -68,6 +68,7 @@ export class Client {
   }
 
   off() { return kitOff(); }
+  async close() { await this.changes?.dispose?.(); }
 
   // The repository of the panel: props.folder (a pane), else the focused pane's folder and machine.
   location() {
