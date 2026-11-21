@@ -60,9 +60,20 @@ export class Dispatch {
 
         const found = probes.filter((p) => p.ok).map((p) => p.workflow).sort((a, b) => a.name.localeCompare(b.name));
         if (!found.length) {
-          const errors = probes.filter((p) => p.error);
-          if (errors.length === probes.length) throw errors[0].error;
-          throw new Error(`No active workflow declares workflow_dispatch on ${def || "the default branch"}. Add "on: workflow_dispatch" to a workflow file to run it here.`);
+          const active = probes.filter((p) => p.workflow.state === "active");
+          const errors = active.filter((p) => p.error);
+          const branch = def || "the default branch";
+          if (active.length && errors.length === active.length) {
+            if (errors.every((p) => p.error instanceof GhError && p.error.status === 404)) {
+              const err = new Error(`No workflow files were found on ${branch}.`);
+              err.hint = `GitHub only dispatches workflows that exist on the default branch (${branch}). If your workflows are only on another branch, merge them into ${branch} first.`;
+              throw err;
+            }
+            throw errors[0].error;
+          }
+          const err = new Error(`No active workflow declares workflow_dispatch on ${branch}.`);
+          err.hint = `Add "on: workflow_dispatch" to a workflow file on ${branch} to run it here.`;
+          throw err;
         }
         this.workflows = found; this.login = login; this.loaded = true;
         this.autoStart(cx);

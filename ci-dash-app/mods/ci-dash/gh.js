@@ -3,11 +3,12 @@
 import { exec } from "herdr";
 
 export class GhError extends Error {
-  constructor(message, { status = null, path = "" } = {}) {
+  constructor(message, { status = null, path = "", hint = "" } = {}) {
     super(message);
     this.name = "GhError";
     this.status = status;
     this.path = path;
+    this.hint = hint;
   }
 }
 
@@ -22,6 +23,7 @@ function cleanError(stderr, stdout) {
 }
 
 export function errorHint(error) {
+  if (error?.hint) return error.hint;
   if (!(error instanceof GhError)) return "";
   if (error.status === 401) return "Run gh auth login and try again.";
   if (error.status === 403) return "The token may need Actions permission, or the organization may require SSO authorization.";
@@ -94,7 +96,19 @@ export class Gh {
   async rawFile(path, ref) {
     const args = ["api", "--hostname", this.repo.host, "--header", "Accept: application/vnd.github.raw+json",
       this.rp(`/contents/${String(path).split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`)];
-    const text = await gh(args, { cwd: this.cwd, on: this.on });
+    let text;
+    try {
+      text = await gh(args, { cwd: this.cwd, on: this.on });
+    } catch (e) {
+      if (e instanceof GhError && e.status === 404) {
+        throw new GhError(`${path} was not found on ${ref || "the default branch"}.`, {
+          status: 404,
+          path: e.path,
+          hint: "The file may only exist on another branch, or the token may lack Contents read access.",
+        });
+      }
+      throw e;
+    }
     if (!text.trim()) throw new GhError(`${path} is empty on ${ref}`);
     return text;
   }
