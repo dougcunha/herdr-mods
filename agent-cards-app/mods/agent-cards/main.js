@@ -37,6 +37,38 @@ function find(node, id) {
 // The sidebar rail goes by its width, as in the shipped `agents` mod.
 const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
+// Collapse/expand of the sidebar panels (`spaces` and `agents`) in `main-dock`.
+const KEY_WEIGHTS = "sidebar.collapseWeights";
+const COLLAPSED_PX = 38;
+const isCollapsed = (id) => {
+  const px = find(layout(), id)?.size?.px;
+  return typeof px === "number" && px <= 48;
+};
+function toggleCollapse(selfId, otherId, collapsedPx) {
+  const tree = layout();
+  const self = find(tree, selfId);
+  if (!self) return;
+  const saved = { ...(shared(KEY_WEIGHTS) ?? {}) };
+  if (isCollapsed(selfId)) {
+    run("layout.resize", { id: selfId, weight: Number(saved[selfId]) > 0 ? Number(saved[selfId]) : 1 });
+    return;
+  }
+  if (typeof self.size?.weight === "number" && self.size.weight > 0) {
+    saved[selfId] = self.size.weight;
+    setShared(KEY_WEIGHTS, saved);
+  }
+  if (typeof self.min === "number" && self.min > collapsedPx) {
+    const clone = JSON.parse(JSON.stringify(tree));
+    const node = find(clone, selfId);
+    if (node) node.min = collapsedPx;
+    run("layout.set", { layout: clone });
+  }
+  if (otherId && isCollapsed(otherId)) {
+    run("layout.resize", { id: otherId, weight: Number(saved[otherId]) > 0 ? Number(saved[otherId]) : 1 });
+  }
+  run("layout.resize", { id: selfId, px: collapsedPx });
+}
+
 // An agent on another machine has the address "<machine>/<terminal>" (the demo gives `machine`).
 const machineOf = (a) => a.machine ?? (a.address.includes("/") ? a.address.split("/")[0] : null);
 // The color of the machine chip: one hue that no agent status uses.
@@ -107,8 +139,19 @@ function icon(p, size, color) {
   return p.tint ? svg(p.icon).size(size).flex_none().text_color(color) : image(p.icon).w(size).h(size).flex_none();
 }
 
+function shortFolder(cwd) {
+  if (!cwd) return "";
+  const h = home();
+  if (!h) return cwd;
+  if (cwd === h) return "~";
+  const sep = cwd.startsWith(h + "\\") ? "\\" : cwd.startsWith(h + "/") ? "/" : null;
+  return sep ? "~" + cwd.slice(h.length) : cwd;
+}
+
 export default class AgentCards extends View {
   init(_props, cx) {
+    // Active panel tab: "agents" or "terminals".
+    this.view = "agents";
     // When each agent last changed its status (ms). Done and idle count as one.
     this.changed = {};
     this.demo = false;
@@ -153,12 +196,17 @@ export default class AgentCards extends View {
     // `herdr-app do agent-cards.demo` shows one example card for each status.
     // `agent-cards.needs-you` turns "Needs you first" on or off.
     // `agent-cards.style` shows the next animation style.
+    // `agent-cards.tab` / `agent-cards.agents` / `agent-cards.terminals` switches the active tab.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "demo") this.demo = !this.demo;
         if (c === "needs-you") setShared(KEY_NEEDS_YOU, !needsYouFirst());
         if (c === "style") setShared(KEY_STYLE, STYLES[(STYLES.indexOf(animStyle()) + 1) % STYLES.length]);
+        if (c === "tab") this.view = this.view === "agents" ? "terminals" : "agents";
+        if (c === "agents") this.view = "agents";
+        if (c === "terminals") this.view = "terminals";
+        if (c === "collapse") toggleCollapse("agents", "spaces", COLLAPSED_PX);
         cx.notify();
       }
     });
@@ -383,7 +431,191 @@ export default class AgentCards extends View {
           props: { part: "clone-menu", title: pt ? `Duplicar ${name}` : `Duplicate ${name}`, address: a.address },
         });
       })
-      .child(svg("mods/kanban/copy.svg").size(13));
+      .child(svg("mods/agent-cards/copy.svg").size(13));
+  }
+
+  // Open non-agent terminal panes across all spaces, enriched with space/tab metadata.
+  openTerminals(agentList) {
+    const allSpaces = spaces();
+    const tabMeta = new Map();
+    allSpaces.forEach((space, spaceIndex) => {
+      space.tabs.forEach((tab, tabIndex) => {
+        tabMeta.set(tab.id, { space, tab, spaceIndex, tabIndex });
+      });
+    });
+    const agentByAddr = new Set(agentList.map((a) => a.address));
+    const items = [];
+    for (const p of panes()) {
+      if (!p.terminal) continue;
+      if (agentByAddr.has(p.terminal) || p.status || p.program?.agent) continue;
+      const meta = tabMeta.get(p.tab);
+      const space = meta?.space ?? null;
+      const tab = meta?.tab ?? null;
+      const machine = space?.machine ?? (p.terminal.includes("/") ? p.terminal.split("/")[0] : null);
+      const progName = p.program?.name || (p.program?.shell ? "Shell" : "Terminal");
+      const spaceName = space?.name || p.title || progName || p.terminal;
+      const tabLabel = tab?.named ? tab.name : (space && space.tabs.length > 1 ? `#${tab.index}` : null);
+      const liveTitle = clean(p.title);
+      const title = liveTitle && liveTitle !== progName && liveTitle !== spaceName && liveTitle !== p.cwd
+        && liveTitle.toLowerCase() !== p.program?.key ? liveTitle : null;
+      items.push({
+        pane: p.pane,
+        address: p.terminal,
+        spaceId: space?.id ?? null,
+        spaceName,
+        tabLabel,
+        tabId: p.tab,
+        cwd: p.cwd || space?.folder || null,
+        branch: p.branch || null,
+        program: p.program,
+        progName,
+        title,
+        focused: p.focused,
+        zoomed: p.zoomed,
+        machine,
+        demo: false,
+        spaceIndex: meta?.spaceIndex ?? 9999,
+        tabIndex: meta?.tabIndex ?? 9999,
+      });
+    }
+    items.sort((x, y) => x.spaceIndex - y.spaceIndex || x.tabIndex - y.tabIndex);
+    return items;
+  }
+
+  demoTerminals() {
+    return [
+      {
+        pane: "demo-t1", address: "t1", spaceId: "s1", spaceName: "herdr-mods", tabLabel: "Dev server",
+        cwd: "D:\\MyProjects\\herdr-mods", branch: "main", program: null, progName: "pwsh",
+        title: null, focused: true, zoomed: false, machine: null, demo: true,
+      },
+      {
+        pane: "demo-t2", address: "t2", spaceId: "s1", spaceName: "herdr-mods", tabLabel: "#2",
+        cwd: "D:\\MyProjects\\herdr-mods", branch: "feat/terminal-cards", program: null, progName: "node",
+        title: null, focused: false, zoomed: false, machine: null, demo: true,
+      },
+      {
+        pane: "demo-t3", address: "wsl/t3", spaceId: "s2", spaceName: "api-server", tabLabel: "#1",
+        cwd: "/home/user/api-server", branch: "fix/auth", program: null, progName: "bash",
+        title: null, focused: false, zoomed: false, machine: "wsl", demo: true,
+      },
+    ];
+  }
+
+  // Duplicates a terminal in a new tab of the same space and working directory.
+  duplicateTerminal(item) {
+    if (item.demo) return;
+    if (item.spaceId) {
+      run("tab.new", { space: item.spaceId, ...(item.cwd ? { folder: item.cwd } : {}) });
+    } else {
+      run("terminal.open", { ...(item.cwd ? { folder: item.cwd } : {}), place: "tab" });
+    }
+  }
+
+  terminalCard(t, item) {
+    const border = item.focused ? t.accent : item.machine ? remoteColor(t) + "88" : t.border;
+    const pic = icon(item.program, 14, t.foreground)
+      ?? svg("mods/workspace-chrome/terminal.svg").size(14).flex_none().text_color(t.muted);
+    return v_flex()
+      .id(`term-card-${item.pane}`)
+      .flex_none()
+      .p(8)
+      .gap(4)
+      .rounded(12)
+      .bg(item.focused ? t.selected : t.surface)
+      .border(1)
+      .border_color(border)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover))
+      .on_click(() => !item.demo && run("pane.focus", { pane: item.pane }))
+      .child(h_flex().gap(6).items_center()
+        .child(pic)
+        .child(h_flex().flex_1().min_w(0).gap(4).items_center()
+          .child(div().truncate().font_medium().text_color(t.foreground).child(item.spaceName))
+          .when(Boolean(item.tabLabel), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(`· ${item.tabLabel}`))))
+        .child(h_flex().flex_none().gap(2).items_center()
+          .child(div()
+            .id(`term-dup-${item.pane}`)
+            .flex_none()
+            .p(3)
+            .rounded(4)
+            .text_color(t.dim)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip("Duplicate terminal")
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              this.duplicateTerminal(item);
+            })
+            .child(svg("mods/agent-cards/copy.svg").size(13)))
+          .child(div()
+            .id(`term-close-${item.pane}`)
+            .flex_none()
+            .p(3)
+            .rounded(4)
+            .text_color(t.dim)
+            .cursor_pointer()
+            .hover((s) => s.bg(t.blocked + "26").text_color(t.blocked))
+            .tooltip("Close terminal")
+            .on_click((_e, cx) => {
+              cx.stop_propagation();
+              if (!item.demo) run("pane.close", { pane: item.pane });
+            })
+            .child(svg("mods/workspace-chrome/x.svg").size(13)))))
+      .when(Boolean(item.cwd), (el) => el.child(h_flex().gap(4).items_center().min_w(0).tooltip(item.cwd)
+        .child(svg("mods/workspace-chrome/folder.svg").size(11).flex_none().text_color(t.dim))
+        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(shortFolder(item.cwd)))))
+      .when(!item.cwd && Boolean(item.title), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(item.title)))
+      .child(h_flex().gap(6).items_center().mt(2)
+        .child(h_flex()
+          .flex_none()
+          .h(18)
+          .px(6)
+          .gap(4)
+          .rounded(9)
+          .items_center()
+          .bg(t.hover)
+          .child(div().text_size(10.5).font_medium().text_color(t.muted).child(item.progName)))
+        .when(Boolean(item.branch), (el) => el.child(h_flex().flex_1().min_w(0).gap(3).items_center().text_color(t.dim).tooltip(`Branch: ${item.branch}`)
+          .child(svg("mods/workspace-chrome/git-branch.svg").size(10.5).flex_none())
+          .child(div().truncate().text_size(10.5).child(item.branch))))
+        .when(!item.branch && Boolean(item.machine), (el) => el.child(div().flex_1()))
+        .when(Boolean(item.machine), (el) => el.child(this.machineChip(t, item.machine, `term-${item.pane}`))));
+  }
+
+  tabButton(t, id, label, count, collapsed) {
+    const active = this.view === id && !collapsed;
+    return h_flex()
+      .id(`ac-tab-${id}`)
+      .flex_none()
+      .h(24)
+      .px(7)
+      .gap(4)
+      .rounded(6)
+      .items_center()
+      .cursor_pointer()
+      .when(active, (el) => el.bg(t.surface).border(1).border_color(t.border))
+      .when(!active, (el) => el.hover((s) => s.bg(t.hover)))
+      .on_click((_e, cx) => {
+        if (collapsed) toggleCollapse("agents", "spaces", COLLAPSED_PX);
+        if (this.view !== id) { this.view = id; cx.notify(); }
+      })
+      .child(div().text_size(11.5).font_medium().text_color(active ? t.foreground : t.dim).child(label))
+      .when(count > 0, (el) => el.child(div().text_size(10.5).text_color(active ? t.muted : t.dim).child(String(count))));
+  }
+
+  collapseButton(t, collapsed) {
+    return div()
+      .id("ac-collapse")
+      .flex_none()
+      .p(3)
+      .rounded(5)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .tooltip(collapsed ? "Expand panel" : "Collapse panel")
+      .on_click(() => toggleCollapse("agents", "spaces", COLLAPSED_PX))
+      .child(svg(`mods/workspace-chrome/chevron-${collapsed ? "right" : "down"}.svg`).size(12));
   }
 
   // The sub-agents of a card: a header that folds them, then one row for each.
@@ -528,6 +760,8 @@ export default class AgentCards extends View {
     };
     const busy = list.filter((a) => a.status !== "idle").length;
     const cards = this.demo ? this.demoCards(now) : list.map((a) => ({ a, info: infoOf(a), subs: subsOf.get(a.address) }));
+    const terms = this.demo ? this.demoTerminals() : this.openTerminals(list);
+    const showTerms = this.view === "terminals";
     const draw = (c) => this.card(t, c.a, c.info, now, c.subs);
     // "Needs you first": the blocked cards at the top, a space that grows, a line,
     // and the other cards at the bottom of the panel.
@@ -545,6 +779,7 @@ export default class AgentCards extends View {
       ];
     })();
 
+    const collapsed = isCollapsed("agents");
     return v_flex()
       .size_full()
       .min_h(0)
@@ -552,15 +787,22 @@ export default class AgentCards extends View {
       .border_t(1)
       .border_color(t.border)
       .text_size(13)
-      .child(h_flex().px(16).h(41).pt(14).pb(5).flex_none().items_center().justify_between()
-        .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Agents"))
-        .child(h_flex().gap(6).items_center()
-          .child(div().text_size(11).text_color(this.demo ? t.accent : t.dim)
-            .child(this.demo ? "Demo" : list.length ? `${busy} active · ${list.length}` : ""))
-          .child(this.needsYouButton(t, first))))
-      .when(cards.length === 0, (el) => el.child(div().px(16).text_size(12).text_color(t.dim)
+      .child(h_flex().px(8).h(collapsed ? 37 : 41).pt(collapsed ? 0 : 10).pb(collapsed ? 0 : 5).flex_none().items_center().justify_between().gap(4)
+        .child(h_flex().gap(2).items_center()
+          .child(this.collapseButton(t, collapsed))
+          .child(this.tabButton(t, "agents", "Agents", cards.length, collapsed))
+          .child(this.tabButton(t, "terminals", "Terminals", terms.length, collapsed)))
+        .child(h_flex().gap(4).items_center()
+          .when(this.demo, (el) => el.child(div().text_size(11).text_color(t.accent).child("Demo")))
+          .when(!this.demo && !showTerms && busy > 0 && !collapsed, (el) => el.child(div().text_size(11).text_color(t.dim).child(`${busy} active`)))
+          .when(!showTerms && !collapsed, (el) => el.child(this.needsYouButton(t, first)))))
+      .when(!collapsed && !showTerms && cards.length === 0, (el) => el.child(div().px(16).text_size(12).text_color(t.dim)
         .child("No agents yet. Agents show up here when they report their status.")))
-      .child(v_flex().id("ac-list").flex_1().min_h(0).px(10).pb(10).gap(8).overflow_y_scrollbar()
-        .children(body));
+      .when(!collapsed && !showTerms, (el) => el.child(v_flex().id("ac-list").flex_1().min_h(0).px(10).pb(10).gap(8).overflow_y_scrollbar()
+        .children(body)))
+      .when(!collapsed && showTerms && terms.length === 0, (el) => el.child(div().px(16).text_size(12).text_color(t.dim)
+        .child("No open terminals.")))
+      .when(!collapsed && showTerms, (el) => el.child(v_flex().id("ac-term-list").flex_1().min_h(0).px(10).pb(10).gap(8).overflow_y_scrollbar()
+        .children(terms.map((item) => this.terminalCard(t, item)))));
   }
 }

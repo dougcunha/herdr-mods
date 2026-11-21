@@ -13,7 +13,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay } from "herdr";
+import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay, layout } from "herdr";
 import { Git } from "./git.js";
 import { rows, sections, recentRows, needsYou } from "./model.js";
 import { KEYS, item, pins, pinAt, unpin, view, cardField, gitEvery, needsYouFirst, recentCount, terminalsMode, touch, fillOf, PALETTE } from "./store.js";
@@ -27,6 +27,46 @@ const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); retu
 
 const MOD = "space-deck";
 const ICON = (name) => `mods/${MOD}/${name}.svg`;
+
+// Collapse/expand of the sidebar panels (`spaces` and `agents`) in `main-dock`.
+const KEY_WEIGHTS = "sidebar.collapseWeights";
+const COLLAPSED_PX = 32;
+function findNode(node, id) {
+  if (node?.id === id) return node;
+  for (const child of node?.children ?? []) {
+    const found = findNode(child, id);
+    if (found) return found;
+  }
+  return null;
+}
+const isCollapsed = (id) => {
+  const px = findNode(layout(), id)?.size?.px;
+  return typeof px === "number" && px <= 48;
+};
+function toggleCollapse(selfId, otherId, collapsedPx) {
+  const tree = layout();
+  const self = findNode(tree, selfId);
+  if (!self) return;
+  const saved = { ...(shared(KEY_WEIGHTS) ?? {}) };
+  if (isCollapsed(selfId)) {
+    run("layout.resize", { id: selfId, weight: Number(saved[selfId]) > 0 ? Number(saved[selfId]) : 1 });
+    return;
+  }
+  if (typeof self.size?.weight === "number" && self.size.weight > 0) {
+    saved[selfId] = self.size.weight;
+    setShared(KEY_WEIGHTS, saved);
+  }
+  if (typeof self.min === "number" && self.min > collapsedPx) {
+    const clone = JSON.parse(JSON.stringify(tree));
+    const node = findNode(clone, selfId);
+    if (node) node.min = collapsedPx;
+    run("layout.set", { layout: clone });
+  }
+  if (otherId && isCollapsed(otherId)) {
+    run("layout.resize", { id: otherId, weight: Number(saved[otherId]) > 0 ? Number(saved[otherId]) : 1 });
+  }
+  run("layout.resize", { id: selfId, px: collapsedPx });
+}
 
 /** "now", "5m", "3h", "2d". */
 function ago(ms) {
@@ -102,6 +142,7 @@ class Deck {
         if (c === "view") setShared(KEYS.view, view() === "card" ? "list" : "card");
         else if (c === "needs-you") setShared(KEYS.needsYouFirst, !needsYouFirst());
         else if (c === "demo") this.demo = !this.demo;
+        else if (c === "collapse") toggleCollapse("spaces", "agents", COLLAPSED_PX);
         else this.onShown(c);
         cx.notify();
       }
@@ -574,6 +615,8 @@ class Deck {
     }
     const narrow = this.width < 160;
     const cards = view() === "card";
+    const collapsed = !narrow && isCollapsed("spaces");
+    const count = model.pinned.length + model.groups.reduce((n, g) => n + g.rows.length, 0);
     return v_flex()
       .id("space-deck")
       .size_full()
@@ -583,13 +626,30 @@ class Deck {
       .on_size_change((size, cx) => {
         if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); }
       })
-      .child(h_flex().h(31).flex_none().pl(narrow ? 0 : 16).pr(narrow ? 0 : 8).gap(2).items_center()
+      .child(h_flex().h(31).flex_none().pl(narrow ? 0 : 8).pr(narrow ? 0 : 8).gap(2).items_center()
         .when(narrow, (el) => el.justify_center())
-        .when(!narrow, (el) => el.child(div().flex_1().text_size(11.5).text_color(t.dim).child(this.demo ? "Spaces · demo" : "Spaces"))
-          .child(this.headerButton("deck-view", cards ? "list" : "layout-grid", cards ? "Show as a list" : "Show as cards", t,
-            () => setShared(KEYS.view, cards ? "list" : "card"))))
+        .when(!narrow, (el) => el
+          .child(h_flex()
+            .id("deck-collapse")
+            .flex_1()
+            .min_w(0)
+            .h(24)
+            .px(4)
+            .gap(4)
+            .rounded(5)
+            .items_center()
+            .cursor_pointer()
+            .text_color(t.dim)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground))
+            .tooltip(collapsed ? "Expand Spaces" : "Collapse Spaces")
+            .on_click(() => toggleCollapse("spaces", "agents", COLLAPSED_PX))
+            .child(svg(ICON(collapsed ? "chevron-right" : "chevron-down")).size(12).flex_none())
+            .child(div().truncate().text_size(11.5).font_medium()
+              .child(this.demo ? "Spaces · demo" : collapsed && count > 0 ? `Spaces · ${count}` : "Spaces")))
+          .when(!collapsed, (el) => el.child(this.headerButton("deck-view", cards ? "list" : "layout-grid", cards ? "Show as a list" : "Show as cards", t,
+            () => setShared(KEYS.view, cards ? "list" : "card")))))
         .child(this.headerButton("deck-plus", "plus", this.launcherOn() ? "Open a repository (repo-launcher)" : "New space", t, () => this.plus())))
-      .child(v_flex()
+      .when(!collapsed, (el) => el.child(v_flex()
         .id("deck-body")
         .flex_1()
         .min_h(0)
@@ -598,6 +658,6 @@ class Deck {
         .gap(cards && !narrow ? 6 : 1)
         .overflow_y_scrollbar()
         .on_mouse_up("left", (_e, cx) => { this.pressed = null; this.over = null; cx.notify(); })
-        .children(this.body(model, t)));
+        .children(this.body(model, t))));
   }
 }

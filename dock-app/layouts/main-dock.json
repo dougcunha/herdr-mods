@@ -30,7 +30,7 @@
               "size": {
                 "weight": 1
               },
-              "min": 90
+              "min": 32
             },
             {
               "id": "agents",
@@ -41,7 +41,7 @@
               "size": {
                 "weight": 1
               },
-              "min": 90
+              "min": 38
             }
           ]
         },
