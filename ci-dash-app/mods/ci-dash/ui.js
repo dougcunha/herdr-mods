@@ -61,6 +61,14 @@ export function pill(t, { label, color, glyph, symbol, spin = false, code = fals
     .child(div().truncate().child(label));
 }
 
+/** A prominent tinted label for a workflow name on the first line of a run. */
+export function workflowBadge(t, label) {
+  return h_flex().h(22).px(8).flex_none().max_w(200).items_center().rounded(6)
+    .text_size(12).font_semibold()
+    .bg(tint(t.accent, "26")).border_1().border_color(tint(t.accent, "55")).text_color(t.accent)
+    .child(div().truncate().child(label));
+}
+
 /** `NEEDS ATTENTION  2  ─────────`. `meta` is a dim note that shrinks first. */
 export function section(t, label, count, color, meta = "") {
   return h_flex().flex_none().w_full().px(14).pt(14).pb(4).gap(8).items_center()

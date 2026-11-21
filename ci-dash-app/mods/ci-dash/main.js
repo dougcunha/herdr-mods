@@ -6,7 +6,7 @@ import { spaces, panes, focused, exec, home, theme, notify, props, shared, setSh
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
-import { icon, pill, section, searchBox, filterChip, busy, dialogKeys, segmented } from "./ui.js";
+import { icon, pill, workflowBadge, section, searchBox, filterChip, busy, dialogKeys, segmented } from "./ui.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -547,25 +547,27 @@ export default class CiDash extends View {
     return this.message(t, text, errorHint(error));
   }
 
-  /** Title and #number on top, then pills: branch, status, duration, trigger. */
+  /** Workflow label, title, #number and age on top, then pills: branch, status, duration, trigger, actor. */
   runRow(r, t) {
     const st = stateOf(r), now = Date.now();
     const dur = duration(r.run_started_at || r.created_at, st.done ? r.updated_at : now);
-    const by = [r.name, r.actor?.login].filter(Boolean).join(" · ");
+    const wf = r.name || "";
+    const title = r.display_title && r.display_title !== wf ? r.display_title : (!wf ? `Run ${r.id}` : "");
     return v_flex().id(`run-${r.id}`).w_full().flex_none().px(14).py(8).gap(6).cursor_pointer().hover((s) => s.bg(t.hover))
       .on_click((_e, cx) => this.openRun(r.id, cx))
-      .child(h_flex().gap(10).items_center()
+      .child(h_flex().gap(8).items_center()
         .child(this.icon(st, t))
-        .child(div().flex_1().min_w(0).truncate().text_size(14).child(r.display_title || r.name || `Run ${r.id}`))
+        .when(Boolean(wf), (e) => e.child(workflowBadge(t, wf)))
+        .child(div().flex_1().min_w(0).truncate().text_size(14).child(title))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(`#${r.run_number}`))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(relTime(r.created_at, now))))
-      .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
+      .child(h_flex().pl(22).flex_wrap().gap(6).items_center()
         .when(Boolean(r.head_branch), (e) => e.child(pill(t, { label: r.head_branch, symbol: "branch", code: true })))
         .child(this.statePill(st, t))
         .when(Boolean(dur), (e) => e.child(pill(t, { label: dur })))
         .when(Boolean(r.event) && r.event !== "push", (e) => e.child(pill(t, { label: r.event.replace(/_/g, " "), color: t.accent })))
         .when((r.run_attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${r.run_attempt}` })))
-        .when(Boolean(by), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(by))));
+        .when(Boolean(r.actor?.login), (e) => e.child(div().min_w(0).truncate().text_size(11).text_color(t.dim).child(r.actor.login))));
   }
 
   clearRunFilters(cx) { this.runFilter.set_value(""); this.runStatus = "all"; this.runWorkflow = "all"; cx.notify(); }
@@ -686,6 +688,8 @@ export default class CiDash extends View {
     if (!run) return d.error ? this.errorView(t, d.error) : busy(t, "Loading run…");
     const st = stateOf(run), now = Date.now();
     const dur = duration(run.run_started_at || run.created_at, st.done ? run.updated_at : now);
+    const wf = run.name || "";
+    const title = run.display_title && run.display_title !== wf ? run.display_title : (!wf ? `Run ${run.id}` : "");
     return v_flex().flex_1().min_h(0)
       .child(h_flex().flex_none().px(12).py(8).gap(8).items_center().border_b(1).border_color(t.border)
         .child(this.button("back", "‹ Runs", (cx) => { this.detail = null; cx.notify(); }, t))
@@ -696,16 +700,17 @@ export default class CiDash extends View {
         .when(st.done, (e) => e.child(this.button("rerun", "Rerun", (cx) => this.rerun(cx), t, { primary: true }))))
       .child(v_flex().id("detail-scroll").flex_1().min_h(0).overflow_y_scrollbar()
         .child(v_flex().flex_none().px(14).py(12).gap(8)
-          .child(h_flex().gap(10).items_center().child(this.icon(st, t))
-            .child(div().flex_1().min_w(0).truncate().text_size(15).font_semibold().child(run.display_title || run.name))
+          .child(h_flex().gap(8).items_center().child(this.icon(st, t))
+            .when(Boolean(wf), (e) => e.child(workflowBadge(t, wf)))
+            .child(div().flex_1().min_w(0).truncate().text_size(15).font_semibold().child(title))
             .child(div().flex_none().text_size(11).text_color(t.dim).child(`#${run.run_number}`)))
-          .child(h_flex().pl(24).flex_wrap().gap(6).items_center()
+          .child(h_flex().pl(22).flex_wrap().gap(6).items_center()
             .child(this.statePill(st, t))
             .when(Boolean(dur), (e) => e.child(pill(t, { label: dur })))
             .when(Boolean(run.head_branch), (e) => e.child(pill(t, { label: run.head_branch, symbol: "branch", code: true })))
             .when(Boolean(run.event), (e) => e.child(pill(t, { label: run.event.replace(/_/g, " "), color: t.accent })))
             .when((run.run_attempt ?? 1) > 1, (e) => e.child(pill(t, { label: `attempt ${run.run_attempt}` }))))
-          .child(div().pl(24).text_size(11).text_color(t.dim).child([run.name, run.actor?.login, relTime(run.created_at, now)].filter(Boolean).join(" · "))))
+          .child(div().pl(22).text_size(11).text_color(t.dim).child([run.actor?.login, relTime(run.created_at, now)].filter(Boolean).join(" · "))))
         .when(d.error, (e) => e.child(div().px(12).pb(6).text_size(11).text_color(t.ansi1).child(`Update failed: ${d.error.message || d.error}`)))
         .children(d.jobs.map((j) => this.jobBlock(j, t)))
         .when(!d.jobs.length && !d.error, (e) => e.child(div().px(12).py(6).text_size(12).text_color(t.dim).child("Waiting for jobs…")))
