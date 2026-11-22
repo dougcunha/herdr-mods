@@ -1,0 +1,36 @@
+{
+  "app": "github-clone-app",
+  "description": "Clone a GitHub repository from a dialog: the repositories of the gh account of each machine, with owner chips and a fuzzy search, cloned in a visible terminal into the folder that you set for each machine and owner. Needs gh.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/github-clone-app",
+  "settings": [
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:github-clone",
+      "label": "Shortcut",
+      "hint": "Opens the GitHub Clone dialog. Saved in keys.json."
+    },
+    {
+      "id": "order",
+      "type": "enum",
+      "key": "github-clone.order",
+      "default": "name",
+      "label": "List order",
+      "hint": "The order of the repositories when the search is empty. The selector in the dialog changes this too.",
+      "options": [
+        { "value": "name", "label": "Name" },
+        { "value": "pushed", "label": "Last push" },
+        { "value": "owner", "label": "Owner, then name" }
+      ]
+    },
+    {
+      "id": "folders",
+      "type": "action",
+      "command": "mod.open",
+      "args": { "name": "github-clone" },
+      "button": "Open GitHub Clone",
+      "label": "Clone folders",
+      "hint": "The clone folder of each machine and the owner rules are in the dialog: click the gear at the top right."
+    }
+  ]
+}

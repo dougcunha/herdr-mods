@@ -17,6 +17,7 @@ A Herdr app mod that opens a repository from the keyboard. Press `Ctrl+P`, type 
 - **Cached agents.** The launcher keeps the list of installed agents in shared state, so the popup opens without starting a shell. After you install or remove an agent, click **Refresh agents** in the settings.
 - **Shortcut.** Change it in the settings: click **Change** and press the new keys. The launcher writes it to `keys.json`.
 - **Other machines.** Add a folder of a machine of `hc machine ls` in the settings: pick the machine and type the path (`~/code` or `C:\Projects`). Its repositories show in an **On <machine>** section, and a repository opens in a space on that machine, with the agents installed there. The machine can run Windows, macOS or Linux.
+- **GitHub.** With the [GitHub Clone](../github-clone-app) mod installed (and on), a GitHub button in the header opens it, to clone a repository of your GitHub account.
 - **Machine picker.** Pick a machine in the search bar (or cycle with `Ctrl+M`), select **New space** under **No repository**, and press `Ctrl+Enter` to open a shell there. The picker includes machines with no repositories. **All** uses the current space's machine for new spaces.
 
 ![The choices of a repository: a terminal, and each agent with each of its accounts](preview-choices.png)
@@ -100,6 +101,7 @@ It needs the `repo-launcher` mod (it uses its icon and opens it).
 - **Programs.** To find the repositories, it runs PowerShell (`pwsh`, else `powershell`) on Windows and `sh` with `find` on macOS and Linux, through the app's `exec`. On another machine it runs the same programs there through herdr-core (`exec` with `on`), after `uname` or `$HOME` tells it the system. It uses no network of its own.
 - **Files that it reads.** The list of your home folder (to find the account folders), `.claude.json` of each Claude Code account and `auth.json` of each Codex account (only to show the e-mail). It reads no token for any other use.
 - **Status bar item.** `repo-launcher-status` only reads `keys()` and runs `mod.open`.
+- **GitHub button.** The launcher checks if `mods/github-clone/mod.json` exists, and the button runs `mod.open` for that mod.
 - **Files that it writes.** Its settings and the repository cache go in the shared state of the app (`shared.json`, keys `repo-launcher.settings` and `repo-launcher.cache`). **Change** in the shortcut settings rewrites the `global` section of `keys.json`.
 - **A second account.** Herdr has no field for environment variables when it starts a program. For an account that is not the default one, the launcher starts the agent through a wrapper: `env CLAUDE_CONFIG_DIR=<folder> claude …` on macOS and Linux, and `pwsh -NoProfile -Command "$env:CLAUDE_CONFIG_DIR='<folder>'; & 'claude' …"` on Windows. Codex uses `CODEX_HOME`. A shell function or an alias with the agent name does not run in this wrapper; the agent program does.
 - **Search depth.** 3 folder levels under each root folder. The search does not go into a repository that it found, or into `node_modules`, `bin`, `obj`, `dist`, `build`, `target`, `vendor` and similar folders. At most 2000 repositories per root folder.

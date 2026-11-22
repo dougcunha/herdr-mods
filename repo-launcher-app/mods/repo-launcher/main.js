@@ -11,7 +11,8 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, spaces, run, settings as appSettings, shared, machines } from "herdr";
+import { theme, props, closeOverlay, knownAgents, pickFolder, notify, panes, spaces, run, settings as appSettings, shared, machines, appHome } from "herdr";
+import * as fs from "fs/promises";
 import { matchRepo } from "./fuzzy.js";
 import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, machineInfo, placeId, ACCOUNT_AGENTS } from "./scan.js";
 import { agentArgv, open, openFree, spacesFor } from "./launch.js";
@@ -29,6 +30,8 @@ import {
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
 const kitOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("repo-launcher"); };
 const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); return div(); };
+// The GitHub button of the header opens the GitHub Clone mod, when it is installed and on.
+const githubOff = () => { const v = shared("herdr-mods.disabled"); return Array.isArray(v) && v.includes("github-clone"); };
 
 const RECENT_COUNT = 5;
 const ROW_H = 50;
@@ -48,7 +51,7 @@ const MODE_TEXT = { tab: "in a new tab", split: "in a split to the right", go: "
 
 // Kept between openings of the popup, so the next one draws at once.
 // `place`: the quick filter of the list: "all", "local" or a machine name.
-const memory = { accounts: null, scanningSince: 0, checkingAgents: false, checkingRemote: {}, place: "all" };
+const memory = { accounts: null, scanningSince: 0, checkingAgents: false, checkingRemote: {}, place: "all", githubClone: false };
 const isScanning = () => Date.now() - memory.scanningSince < 180000;
 
 // Other machines (`hc machine ls`), by name. Herdr leaves out temporary ones.
@@ -110,6 +113,11 @@ export default class RepoLauncher extends View {
     cx.spawn(async (cx) => {
       this.accounts = await detectAccounts();
       memory.accounts = this.accounts;
+      cx.notify();
+    });
+
+    cx.spawn(async (cx) => {
+      try { memory.githubClone = await fs.exists(`${appHome()}/mods/github-clone/mod.json`); } catch {}
       cx.notify();
     });
 
@@ -777,6 +785,10 @@ export default class RepoLauncher extends View {
       trailing: [
         this.reuseSwitch(t),
         div().w(1).h(20).bg(t.border).flex_none(),
+        ...(memory.githubClone && !githubOff() ? [iconButton(t, "rl-github", "github", () => {
+          this.close();
+          run("mod.open", { name: "github-clone" });
+        }, { tooltip: "Clone a repository from GitHub (GitHub Clone)" })] : []),
         iconButton(t, "rl-refresh", "refresh", (cx) => {
           memory.scanningSince = 0;
           this.scan(cx, { quiet: false });
