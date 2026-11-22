@@ -1,0 +1,23 @@
+{
+  "app": "quick-actions-app",
+  "description": "Named scripts that run in the terminal of the active space with 1 click or 1 key: sync the repository, install plugins, start a server. Variables such as {repo} and {branch} get their values from the terminal.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/quick-actions-app",
+  "settings": [
+    {
+      "id": "key",
+      "type": "key",
+      "action": "mod.open:quick-actions",
+      "label": "Shortcut",
+      "hint": "Opens the Quick Actions list. Saved in keys.json."
+    },
+    {
+      "id": "open",
+      "type": "action",
+      "command": "mod.open",
+      "args": { "name": "quick-actions" },
+      "button": "Open Quick Actions",
+      "label": "Actions",
+      "hint": "Make, change and delete the actions in the list."
+    }
+  ]
+}

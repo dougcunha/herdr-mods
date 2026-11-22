@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 128 -->
+<!-- herdr-mods-setup-version: 129 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`
@@ -74,6 +74,7 @@ The items marked **Required** in "The items" are always installed: do not ask ab
 - `skill-bundles-app`: Skill Bundles, the agent skills of a project as links to a clone of a skill Catalog (a repository with a `bundles.yaml`). Runs `git`, `gh` and `node`.
 - `tab-namer-app`: Tab Namer, F2 and a pencil on the agent cards rename the tab of an agent, with a button that asks a small AI model for a name (runs `claude` or `codex` once for each click, reads the session files of the agent; the AI button needs `agent-resume-app`). It takes the F2 key from Herdr's own tab rename.
 - `automations-app`: Automations, runs a coding agent with a prompt in a folder on a schedule, by hand, or when an agent, a file or a git branch changes, with check, pre and post scripts (runs `pwsh` or `sh`, `hc`, `git` and the agent that I choose for each automation).
+- `quick-actions-app`: Quick Actions, named scripts that run in the terminal of the shown space with 1 click or `Alt+Q`, with variables such as `{repo}` and `{branch}` (runs `hc`, `git`, and `pwsh` on Windows; runs only the scripts that I write, when I start them).
 - `issues-app`: Issues & PRs, the issues of a space from Jira Cloud or GitHub and its pull requests, in 2 Dock panels, with buttons that start an agent (runs `git`, `gh`, `curl` and PowerShell on Windows; uses the network of Jira and GitHub; stores the Jira token in the credential store of the system).
 - `visual-review-app`: Visual Review, interactive change graph for Git commits with instant static analysis (C#/.NET, TypeScript/JavaScript, SQL/Prisma), optional AI enrichment with disk cache, orthogonal ELK layout, semantic zoom, relationship filters and inline diffs (runs `git`, `node` for ELK layout, and `claude` or `codex` read-only only when you click Enrich with AI).
 - `light-themes-app`: 5 light themes.
@@ -119,7 +120,8 @@ For each item, read the `README.md` and the `RECIPE.md` of its folder before you
 20. `powermods-core-app`: the `powermods-core` mod, shared services for the other mods. It makes and removes the git worktrees of `issues`, `prs`, `spec-board`, `git-client` and `git-dash`: 1 worktree folder for all of them (`~/.herdr/worktrees/<repository>/<branch>` by default) and 1 setup for each new worktree (files to copy, then commands). The other mods call it through `globalThis.powermods`, so it must run in the shown layout: put its block in the status row (see "The status bar item of `powermods-core`" in "Configure"). It runs `git` (`worktree add | remove | prune | list`, `rev-parse`, `show-ref`, `ls-files`, `config core.longpaths` on Windows), PowerShell or `sh` to copy files and to run the setup script in a `setup` tab of the new space, and `hc read`. It runs the setup commands that I write in its dialog, and the commands of a repository's `.herdr/worktree.json` only after it shows them to me and I say yes. It writes its scripts under `data/powermods-core/` and deletes them. It opens spaces and tabs and closes only its own `setup` tab and the spaces of a worktree that I remove. No network. Its settings are in the **Settings** tab of PowerMods: do not set `powermods-core.*` keys yourself. Install it BEFORE the mods that use it.
 21. `visual-review-app`: the `visual-review` mod, an interactive change graph for Git commits inside Herdr. It runs read-only `git` commands in the repository of the space, `node` locally to compute orthogonal ELK layouts (`elk-runner.mjs`, with a pure-JS fallback), and `claude` or `codex` in read-only mode only when I click **Enrich with AI**. It caches AI models under `data/visual-review/cache/` (with a **Clear cache** button in Settings) and adds a **Visual Review** button and commit context menu actions in `git-client` when enabled. Its dock entry in `dock/panels.json` is `{ "id": "visual-review", "label": "Visual Review", "icon": "mods/visual-review/icons/graph.svg", "mod": "visual-review", "opens": "tab", "name": "Visual Review" }`.
 22. `github-clone-app`: the `github-clone` mod, a dialog that lists the GitHub repositories of the `gh` account of a machine (this computer or a machine of `hc machine ls`), with owner chips and a fuzzy search, and clones one. It runs `gh api` on the machine of the list (the account, its repositories, its organizations, the branches of 1 repository) and `gh search repos` for its **GitHub** tab (a search of all public repositories), PowerShell or `sh` (and `git config -f` on Linux and macOS) to list my clone folders and the `origin` URL of each Git folder, to check that a folder is free and to make the parent folder, and `hc read` and `hc send` to send the clone line (`gh repo clone … -- --recurse-submodules …`, which also clones the submodules) to the terminal of a new space that it opens on that machine (`space.new`). **Log in…** opens a space with `gh auth login`. **Open on GitHub** opens the page of the repository with the opener of the system (`rundll32`, `open` or `xdg-open`). The network goes only through `gh`. It writes the shared keys `github-clone.*`, adds each new clone to `shared("repo-launcher.cache")`, and adds a folder to the folders of `repo-launcher` only when I click **Add to Repo Launcher**. Do not set its shared keys: I set the clone folders in its dialog (the gear). Its places are the `github-clone` entry of `panels.json` and its key in "Configure". Tell me that it needs `gh` logged in on each machine that I use with it.
-23. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
+23. `quick-actions-app`: the `quick-actions` mod, named scripts that run in the terminal of the shown space with 1 click or 1 key. Its status bar item (a block of the same mod with `"part": "status"`) gets the keys of the actions (`quick-actions.run-<id>`) and remembers the last terminal that had the focus: the keys work only while the shown layout has it. It sends the scripts that I write with `hc keys` (Esc or Ctrl+U, to clear a draft at the prompt), `hc send` and `hc read`, opens a tab in the same space (`tab.new`) when the terminal runs a program, runs `git rev-parse` and `git branch --show-current` for the variables, and on Windows `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process` to see if the shell runs a command. It reads and writes `data/quick-actions.json` and writes run files to `data/quick-actions/runs/`. No network. Do not create actions for me. Its places are the status bar item and its key in "Configure".
+24. **Anything new.** List the folders ending in `-app` in the clone. If one is not in this list, it is new since this prompt was written: read its `README.md` and `RECIPE.md`, tell me what it is and what it runs, and add it to the question of "Choose the optional items". Do the same for a mod or a layout that is new inside one of the folders above.
 
 Third-party mods (optional). Read the recipe of each one that I chose and tell me what it runs before you copy it:
 
@@ -239,6 +241,14 @@ Do this only when the `automations` mod is installed, and AFTER "Activate the pa
 { "id": "automations-status", "type": "block", "content": { "mod": "automations", "props": { "part": "status" } }, "size": { "px": 120 } }
 ```
 
+### The status bar item of `quick-actions`
+
+Do this only when the `quick-actions` mod is installed, and AFTER "Activate the panels", for the same reason as `tokenhound`. In `layouts/main-dock.json` and `layouts/kanban.json`, add this block to the `children` of `status-row`, right before the `repo-launcher-status` block (else before the `mods-hub` block, else at the end), if no block with this id is there. Tell me that the keys of the actions work only while a layout with this block is shown.
+
+```json
+{ "id": "quick-actions-status", "type": "block", "content": { "mod": "quick-actions", "props": { "part": "status" } }, "size": { "px": 34 } }
+```
+
 ### The status bar item of `powermods-core`
 
 Do this AFTER "Activate the panels", for the same reason as `tokenhound`. In `layouts/main-dock.json` and `layouts/kanban.json`, add this block to the `children` of `status-row`, right before the `automations-status` block (else before `repo-launcher-status`, else before `mods-hub`, else at the end), if no block with this id is there. Tell me that the mods make worktrees only while a layout with this block is shown.
@@ -292,7 +302,8 @@ In the `global` section, add the keys that are missing:
 "cmd-shift-j": "mod.open:issues",
 "ctrl-shift-g": "mod.open:prs",
 "cmd-shift-g": "mod.open:prs",
-"alt-g": "mod.open:github-clone"
+"alt-g": "mod.open:github-clone",
+"alt-q": "mod.open:quick-actions"
 ```
 
 When the `issues-app` mods are installed, also add these sections, if they are missing:
@@ -302,7 +313,7 @@ When the `issues-app` mods are installed, also add these sections, if they are m
 "mod:prs": { "ctrl-r": "prs.refresh", "ctrl-o": "prs.browser" }
 ```
 
-If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Exception: `f2` runs `tab.rename` in Herdr's default keys; when the `tab-namer` mod is installed and `f2` is `tab.rename` (or missing), set it to `mod.open:tab-namer` and tell me that F2 now opens the Tab Namer dialog. When `f2` has another action of mine, leave it and ask me. Add `f2` only when `tab-namer` is installed, and the 4 `issues` and `prs` keys only when the `issues-app` mods are installed. Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, the two `mods-hub` keys only when `mods-hub` is installed, and `alt-g` only when `github-clone` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
+If a key is bound already, to this action or to another, leave it and tell me (ask me only for a key that would clash). Exception: `f2` runs `tab.rename` in Herdr's default keys; when the `tab-namer` mod is installed and `f2` is `tab.rename` (or missing), set it to `mod.open:tab-namer` and tell me that F2 now opens the Tab Namer dialog. When `f2` has another action of mine, leave it and ask me. Add `f2` only when `tab-namer` is installed, and the 4 `issues` and `prs` keys only when the `issues-app` mods are installed. Add the two `markdown-reader` keys only when that mod is installed, `ctrl-p` only when `repo-launcher` is installed, the two `mods-hub` keys only when `mods-hub` is installed, `alt-g` only when `github-clone` is installed, and `alt-q` only when `quick-actions` is installed. If a key runs `mod.open:mods-update`, change it to `mod.open:mods-hub`. Tell me that `ctrl-p` stops reaching the programs in my terminals (shells and Claude Code use it for the previous command), and that I can pick another key in the settings of the launcher. Also merge the `keys.json` of each third-party mod the same way.
 
 ### `~/.config/herdr-app/settings.json`
 
@@ -323,7 +334,7 @@ The `tabs-dock` mod and the `kanban` mod add the CI and Pending panels to their 
 1. Run `herdr-app do layout.switch --name main-dock`. Wait 5 seconds.
 2. Run `herdr-app do layout.switch --name kanban`. Wait 5 seconds.
 3. Open `layouts/main-dock.json` and `layouts/kanban.json`. Check that the `panel-body` of each one has the blocks of the panels that I have (`ci`, `repos`, `quota`, and `insights` if it is a panel).
-4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, the status bar item of `skill-bundles`, if that mod is installed, the status bar item of `automations`, if that mod is installed, and the status bar item of `powermods-core`.
+4. Now add the places of `tokenhound` (see "The places of `tokenhound`" in "Configure"), if that mod is installed, the status bar item of `skill-bundles`, if that mod is installed, the status bar item of `automations`, if that mod is installed, the status bar item of `quick-actions`, if that mod is installed, and the status bar item of `powermods-core`.
 5. On a new machine, leave the `main-dock` layout active at the end. On an update, go back to the layout that was shown when you started.
 
 ## Verify
@@ -344,7 +355,8 @@ The `tabs-dock` mod and the `kanban` mod add the CI and Pending panels to their 
 14. If `issues-app` is installed, the dock bar shows an **Issues** button and **PRs** in the Git menu, and `herdr-app do tabs-dock.issues` opens the Issues panel (run it again to close it).
 15. The status bar of `main-dock` and `kanban` shows `worktrees` (the `powermods-core` item), and `herdr-app do mod.open --name powermods-core` opens one dialog. Close it with `herdr-app do overlay.close`.
 16. If `github-clone` is installed, the dock bar shows a **Clone** button, and `herdr-app do mod.open --name github-clone` opens one dialog with `Clone a repository` in its header. Close it with `herdr-app do overlay.close`.
-17. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
+17. If `quick-actions` is installed, the status bar of `main-dock` and `kanban` shows the Quick Actions icon (a terminal in a square), within 10 s `~/.config/herdr-app/shared.json` has `"quick-actions.runner"` with a recent `at`, and `herdr-app do mod.open --name quick-actions` opens one dialog with `Quick Actions` in its header. Close it with `herdr-app do overlay.close`.
+18. The status bar of `main-dock` and `kanban` shows the `mods-hub` item at the right end, `mods/mods-update/` does not exist, and no layout names `mods-update`. Within 1 minute after you write the record (next section), it shows `mods v<version>`, not `Update mods`.
 
 ## Record the run
 
