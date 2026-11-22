@@ -29,13 +29,28 @@ export const KEY = {
 export const panelsPath = () => `${slash(appHome())}/dock/panels.json`;
 export const panelId = (a) => `qa-${a.id}`;
 
+// The pinned actions and the Actions entry (id "quick-actions") share 1 button of the bars: the group
+// "quick-actions". Its menu shows Actions (it opens the list), a line (the section "pinned"), then the actions.
+const GROUP = "quick-actions";
+const OPEN_ID = "quick-actions";
+
 /** The panels.json entry of a pinned action. */
-const panelEntry = (a) => ({ id: panelId(a), label: a.name || "Action", icon: `mods/quick-actions/${a.icon}.svg`, opens: "command", run: `quick-actions.run-${a.id}` });
+const panelEntry = (a) => ({
+  id: panelId(a), label: a.name || "Action", icon: `mods/quick-actions/${a.icon}.svg`, opens: "command", run: `quick-actions.run-${a.id}`,
+  group: GROUP, section: "pinned",
+});
+
+/** The Actions entry in the group while an action is pinned, else a plain button (it opens the list at once). */
+function openEntry(e, pinned) {
+  const { group, ...rest } = e;
+  return pinned ? { ...rest, group: GROUP } : group === GROUP ? rest : e;
+}
 
 /**
  * Makes the `qa-<id>` entries of dock/panels.json match the pinned actions: an entry keeps its place, a new one
- * goes at the end, the entry of an action that is not pinned goes away. Other entries do not change. No file (no
- * Dock layout): nothing. Returns true when it wrote the file.
+ * goes at the end, the entry of an action that is not pinned goes away. The Actions entry (id "quick-actions")
+ * joins their group while an action is pinned. Other entries do not change. No file (no Dock layout): nothing.
+ * Returns true when it wrote the file.
  */
 export async function syncPanels(list) {
   for (let i = 0; i < 3; i++) {
@@ -46,9 +61,11 @@ export async function syncPanels(list) {
     const panels = Array.isArray(json?.panels) ? json.panels : [];
     const want = new Map(list.filter((a) => a.pinned).map((a) => [panelId(a), panelEntry(a)]));
     const next = [];
+    const anyPinned = want.size > 0;
     for (const e of panels) {
       const own = typeof e?.id === "string" && e.id.startsWith("qa-");
-      if (!own) next.push(e);
+      if (e?.id === OPEN_ID) next.push(openEntry(e, anyPinned));
+      else if (!own) next.push(e);
       else if (want.has(e.id)) { next.push(want.get(e.id)); want.delete(e.id); }
     }
     next.push(...want.values());
@@ -99,7 +116,7 @@ export function blank() {
     where: "terminal", // "terminal" (the focused terminal; a new tab when it is busy) | "tab" (always a new tab) | "background" (no terminal on the screen)
     confirm: false, // ask before the run
     filter: "", // folders and repository names, separated by commas; empty: everywhere
-    pinned: false, // a button in the bar of the Dock and Kanban layouts
+    pinned: false, // an item of the Actions menu in the bar of the Dock and Kanban layouts
     shell: "auto", // see SHELLS
     updatedAt: Date.now(),
   };

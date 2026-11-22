@@ -87,7 +87,8 @@ The **Agents** list of the sidebar is the [Agent Cards](../agent-cards-app) mod 
 | `opens` | `"panel"` (default): a block in the side panel. `"tab"`: a tab per space with the mod as its only pane. `"command"`: a button that runs a Herdr command (no `mod`). |
 | `name` | For `"tab"`: the tab name. |
 | `run`, `args` | For `"command"`: the command and its arguments, for example `"run": "layout.switch", "args": { "name": "kanban" }`. |
-| `group` | Optional. The entries with the same group share one button. `"git"` places the `repos` and `prs` panel entries in the **Git** panel. |
+| `group` | Optional. The entries with the same group share one button. `"git"` places the `repos` and `prs` panel entries in the **Git** panel. A group of 1 command entry is a plain button. |
+| `section` | Optional. In the menu of a group, a line comes before the first entry of another section ([Quick Actions](../quick-actions-app) puts its pinned actions in the section `pinned`, after **Actions**). |
 
 **Git.** The Git button opens a panel with **Repository**, **Dashboard**, and **Pull requests** in the dock or in a dialog. Dashboard and Pull requests use the `repos` and `prs` entries with `"group": "git"`. Dashboard loads when you select it. Other groups still use a menu.
 

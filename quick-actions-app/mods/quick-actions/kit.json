@@ -1,6 +1,6 @@
 {
   "app": "quick-actions-app",
-  "description": "Named scripts that run in the terminal of the active space with 1 click, 1 key or a button in the bar: sync the repository, install plugins, start a server. Variables such as {repo} and {branch} get their values from the terminal.",
+  "description": "Named scripts that run in the terminal of the active space with 1 click, 1 key or the Actions menu of the bar: sync the repository, install plugins, start a server. Variables such as {repo} and {branch} get their values from the terminal.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/quick-actions-app",
   "settings": [
     {

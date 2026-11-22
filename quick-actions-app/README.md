@@ -16,7 +16,7 @@ A Herdr app mod that keeps named scripts and runs them in the terminal of the ac
 - **Ask before run.** An action can show its script with the values and wait for **Run** (or Enter).
 - **Questions.** `{ask:Label}` or `{ask:Label=default}` in a script asks for a value before the run: the question shows 1 field for each label, with the script and the values. The answer goes in quotes too.
 - **Only in.** An action can have a list of folders and repository names. It runs only there; elsewhere its row is gray.
-- **Bar buttons.** Pin an action (the pin of its row, or **Bar button** in the form) and the bar of the [Dock](../dock-app) and [Kanban](../kanban-app) layouts shows a button with its name and icon. A button with **Only in** shows only while the focused terminal is in one of its folders or repositories. **Bar buttons** in the gear menu of the bar moves and hides them, as the other buttons.
+- **The Actions menu.** Pin an action (the pin of its row, or **In the Actions menu** in the form) and the **Actions** button of the bar of the [Dock](../dock-app) and [Kanban](../kanban-app) layouts becomes a menu: **Actions** (it opens the list), a line, then the pinned actions with their names and icons. A click on an action runs it. An action with **Only in** shows only while the focused terminal is in one of its folders or repositories. With no pinned action, **Actions** opens the list at once. **Bar buttons** in the gear menu of the bar moves and hides the button, as the other buttons.
 - **Keys.** Each action has a command: `quick-actions.run-<id>`. The form shows it, ready for `keys.json`.
 
 [`RECIPE.md`](RECIPE.md) describes the mod in full.
@@ -40,7 +40,7 @@ Then add the status bar item to the `children` of the `status-row` block of your
 { "id": "quick-actions-status", "type": "block", "content": { "mod": "quick-actions", "props": { "part": "status" } }, "size": { "px": 34 } }
 ```
 
-**The keys and the bar buttons of the actions work only while the shown layout has this item.** A key or a button sends `quick-actions.run-<id>`, and only a copy of the mod on the screen gets it. The item also remembers the last terminal that had the focus. Without it, the list shows a warning, and its **Run** buttons still work.
+**The keys and the Actions menu items of the actions work only while the shown layout has this item.** A key or a menu item sends `quick-actions.run-<id>`, and only a copy of the mod on the screen gets it. The item also remembers the last terminal that had the focus. Without it, the list shows a warning, and its **Run** buttons still work.
 
 For an **Actions** button (it opens the list) in the Dock and Kanban bars, add this entry to `~/.config/herdr-app/dock/panels.json`:
 
@@ -130,7 +130,7 @@ Other agents have no background mode: use **In a tab**. The task goes in a file 
 - `~/.config/herdr-app/data/quick-actions/output/`: the output of the last background run of each action.
 - `shared("quick-actions.jobs")`: the state of the last background run of each action.
 - `~/.config/herdr-app/data/quick-actions/scripts/`: the script files that an agent writes (the default **Script folder**).
-- `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, at the end of the list. It changes no other entry.
+- `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, `"group": "quick-actions"` and `"section": "pinned"`, at the end of the list. While an action is pinned, it adds `"group": "quick-actions"` to the **Actions** entry (the id `quick-actions`), so both share 1 button. It changes no other entry.
 - `shared("dock.hiddenEntries")`: `{ "quick-actions": [ "qa-<id>" ] }`, the buttons that the bars leave out now.
 
 ## What it runs

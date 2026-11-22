@@ -343,3 +343,18 @@ Asked on 2026-11-22: run an action and the script agent with no terminal on the 
 - **Tested in the app (5b):** Claude Code in the background wrote a correct script in 20 s; the form
   showed the state row, then the script in the preview. An agent without a background mode gave the
   error in the panel and started nothing.
+
+### The Actions menu (as built, setup 141)
+
+Asked on 2026-11-22: the pinned actions as items of a menu of the **Actions** button (open the list, a
+line, then the actions), not as buttons of their own.
+
+- The bars already fold the entries of 1 `group` into 1 button with a menu. `syncPanels` puts the
+  pinned entries in the group `quick-actions` with `section: "pinned"`, and the Actions entry in the
+  same group while an action is pinned.
+- Both bars (`tabs-dock`, `kanban`): the entry field `section` (a line in the group menu before the
+  first row of another section), `GROUPS["quick-actions"]` (button "Actions", menu title "Quick
+  Actions", the Actions icon), and a group of 1 command entry is a plain button.
+- **Tested in the app:** the menu in `main-dock` and `kanban` (`tabs-dock.group-quick-actions`,
+  `kanban.group-quick-actions`): title, Actions, the line, the pinned action. Clicks not tested from
+  the shell.

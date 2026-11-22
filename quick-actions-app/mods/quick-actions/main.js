@@ -262,7 +262,7 @@ export default class QuickActions extends View {
     cx.notify();
   }
 
-  /** Pins an action to the bar of the Dock and Kanban layouts, or takes it away. */
+  /** Puts an action in the Actions menu of the bar of the Dock and Kanban layouts, or takes it away. */
   pin(cx, a) {
     spawn(cx, (cx) => this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x))));
   }

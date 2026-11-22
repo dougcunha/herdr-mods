@@ -76,7 +76,7 @@ function row(v, t, a, i, selected) {
     .child(bg ? "Output" : "Run");
   const actions = h_flex().gap(4).items_center().flex_none()
     .child(runButton)
-    .child(U.iconButton(t, `qa-pin-${i}`, "pin", a.pinned ? "In the bar: click to take it away" : "Pin to the bar of Dock and Kanban", (cx) => v.pin(cx, a), a.pinned ? t.accent : null))
+    .child(U.iconButton(t, `qa-pin-${i}`, "pin", a.pinned ? "In the Actions menu of the bar: click to take it away" : "Add to the Actions menu of the bar (Dock and Kanban)", (cx) => v.pin(cx, a), a.pinned ? t.accent : null))
     .child(U.iconButton(t, `qa-edit-${i}`, "pencil", "Edit", (cx) => v.edit(cx, a)))
     .child(U.iconButton(t, `qa-del-${i}`, "trash", confirm ? "Click again to delete" : "Delete", (cx) => {
       if (!confirm) { v.confirmDelete = a.id; cx.notify(); return; }

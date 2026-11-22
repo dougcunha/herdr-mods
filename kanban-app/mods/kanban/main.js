@@ -98,11 +98,11 @@ const PANELS = [
 // The groups of panel buttons: the panels with the same `group` share one button, and a click on it opens a menu
 // with the full name of each panel. A group that is not here uses its id as its name and the icon of its first panel.
 // The same as GROUPS in mods/tabs-dock.
-const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") } };
+const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") }, "quick-actions": { label: "Actions", title: "Quick Actions", icon: "mods/quick-actions/actions.svg" } };
 const GIT_TABS = { changes: "git-changes", repos: "git-dashboard", prs: "git-pull-requests" };
 const isGitEntry = (e) => e.opens === "panel" && e.group === "git" && (e.id === "repos" || e.id === "prs");
 const isGitStack = (node) => node?.type === "stack" && node.children?.some((child) => child.id === GIT_TABS.changes);
-const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32; // px: the menu of a group button
+const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32, MENU_SEP = 9; // px: the menu of a group button
 const CLONE_W = 270; // px: the menu of the duplicate button of a card
 const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
 
@@ -321,7 +321,8 @@ function foldGroups(items) {
     if (!g) { g = { group: it.group, members: [] }; seen.set(it.group, g); out.push(g); }
     g.members.push(it);
   }
-  return out;
+  // A group of 1 command (Quick Actions with no pinned action) is a plain button: no menu of 1 row.
+  return out.map((g) => (g.members?.length === 1 && g.members[0].opens === "command" ? g.members[0] : g));
 }
 const base = (p) =>String(p || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
 
@@ -632,6 +633,7 @@ export default class Kanban extends View {
           if (why) { problem = problem ?? why; continue; }
           seen.add(raw.id);
           entries.push({ id: raw.id, label: raw.label, icon: raw.icon, mod: raw.mod, props: raw.props, group: raw.group,
+            section: typeof raw.section === "string" ? raw.section : undefined,
             run: command ? raw.run : undefined, args: command && raw.args && typeof raw.args === "object" ? raw.args : {},
             opens: command ? "command" : raw.opens === "tab" ? "tab" : "panel", name: typeof raw.name === "string" ? raw.name : raw.label });
         }
@@ -931,7 +933,7 @@ export default class Kanban extends View {
   /** The name and the icon of a group button. */
   groupInfo(group) {
     const known = PANEL_GROUPS[group], first = this.groups.get(group)?.[0];
-    return { label: known?.label ?? layoutLabel(group), icon: known?.icon ?? first?.icon ?? "" };
+    return { label: known?.label ?? layoutLabel(group), title: known?.title, icon: known?.icon ?? first?.icon ?? "" };
   }
 
   /** Opens the menu of a group button at the pointer: one row per panel of the group, with its full name. The rows
@@ -942,8 +944,8 @@ export default class Kanban extends View {
     if (!members?.length) return;
     const info = this.groupInfo(group);
     openOverlay({
-      mod: "kanban", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + members.length * MENU_ROW,
-      props: { part: "group-menu", lang: this.lang, title: info.label, items: members.map((m) => ({ id: m.id, label: m.label, icon: m.icon, on: m.on })) },
+      mod: "kanban", kind: "popup", width: MENU_W, height: MENU_PAD * 2 + MENU_HEAD + members.length * MENU_ROW + members.filter((m, i) => i > 0 && (m.section ?? "") !== (members[i - 1].section ?? "")).length * MENU_SEP,
+      props: { part: "group-menu", lang: this.lang, title: info.title ?? info.label, items: members.map((m, i) => ({ id: m.id, label: m.label, icon: m.icon, on: m.on, sep: i > 0 && (m.section ?? "") !== (members[i - 1].section ?? "") })) },
     });
   }
 
@@ -959,9 +961,11 @@ export default class Kanban extends View {
       .child(panelGlyph(it.icon, 15, it.on ? t.accent : t.muted))
       .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
       .when(it.on, (e) => e.child(svg(icon("tick")).size(13).flex_none().text_color(t.accent)));
+    // A row of another section (an entry's "section" in panels.json) starts after a line.
+    const sepRow = () => div().w_full().h(MENU_SEP).px(6).flex_none().flex().items_center().child(div().w_full().h(1).bg(t.border));
     return v_flex().id("kb-gm-root").w_full().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(String(p.title ?? "")))
-      .children(items.map(row));
+      .children(items.flatMap((it) => (it.sep ? [sepRow(), row(it)] : [row(it)])));
   }
 
   pick(id) {
