@@ -58,7 +58,7 @@ function row(v, t, a, i, selected) {
     .child(U.iconButton(t, `qa-del-${i}`, "trash", confirm ? "Click again to delete" : "Delete", (cx) => {
       if (!confirm) { v.confirmDelete = a.id; cx.notify(); return; }
       v.confirmDelete = null;
-      v.change(cx, (l) => l.filter((x) => x.id !== a.id));
+      v.remove(cx, a);
     }, confirm ? t.blocked : null));
   return h_flex().id(`qa-row-${i}`).w_full().px(12).py(10).gap(12).items_center().rounded(10)
     .border_1().border_color(selected ? t.accent : t.border).bg(selected ? t.hover : t.surface)

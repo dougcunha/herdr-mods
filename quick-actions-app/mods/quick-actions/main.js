@@ -157,12 +157,17 @@ export default class QuickActions extends View {
     this.demoCtx = DEMO_CTX;
     this.loaded = false;
     this.agentList = []; // knownAgents(), for "with an agent" in the form
-    knownAgents().then((list) => { this.agentList = list ?? []; cx.notify(); }).catch(() => {});
+    // The cx of a callback (init, a click, a key, a timer) is not valid after an await: async work goes
+    // through cx.spawn, whose cx stays valid.
+    cx.spawn(async (cx) => { try { this.agentList = (await knownAgents()) ?? []; cx.notify(); } catch { /* no agents */ } });
     this.search = InputState.new({ placeholder: "Search the actions" });
     this.search.on("change", (_e, cx) => { this.selected = 0; cx.notify(); });
     this.view = this.props.confirm ? "confirm" : "list";
     this.refresh(cx);
-    if (this.target) context(this.target, new Set(["repo_name"])).then((c) => { this.ctx = c; cx.notify(); }).catch(() => {});
+    if (this.target) {
+      const target = this.target;
+      cx.spawn(async (cx) => { try { this.ctx = await context(target, new Set(["repo_name"])); cx.notify(); } catch { /* no context */ } });
+    }
     if (checking()) return;
     cx.timer.every(1000, (cx) => { if (!kitOff()) this.refresh(cx); });
     cx.timer.every(400, (cx) => { if (!kitOff()) this.updatePreview(cx); });
@@ -190,7 +195,8 @@ export default class QuickActions extends View {
     const rev = shared(KEY.rev) ?? null;
     if (rev === this.loadedRev) return;
     this.loadedRev = rev;
-    S.loadList().then((d) => {
+    cx.spawn(async (cx) => {
+      const d = await S.loadList();
       this.listError = d.list == null ? d.error : null;
       if (d.list) this.list = d.list;
       this.loaded = true;
@@ -199,6 +205,7 @@ export default class QuickActions extends View {
     });
   }
 
+  /** Saves a change of the list. Call it only with the cx of cx.spawn: it awaits. */
   async change(cx, fn) {
     if (this.demo) return;
     try {
@@ -220,7 +227,12 @@ export default class QuickActions extends View {
 
   /** Pins an action to the bar of the Dock and Kanban layouts, or takes it away. */
   pin(cx, a) {
-    this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x)));
+    cx.spawn((cx) => this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x))));
+  }
+
+  /** Deletes an action. */
+  remove(cx, a) {
+    cx.spawn((cx) => this.change(cx, (l) => l.filter((x) => x.id !== a.id)));
   }
 
   /** The preview of the form or of the question: prepare() again when the draft changes. */
@@ -231,8 +243,8 @@ export default class QuickActions extends View {
     if (a.source === "file" && Date.now() - (this.fileReadAt ?? 0) > 2000) {
       this.fileReadAt = Date.now();
       const path = a.file;
-      scriptText(a).then((s) => {
-        const text = s.text ?? null;
+      cx.spawn(async (cx) => {
+        const text = (await scriptText(a)).text ?? null;
         if (path === a.file && text !== this.fileText) { this.fileText = text; cx.notify(); }
       });
     }
@@ -240,12 +252,14 @@ export default class QuickActions extends View {
     const key = JSON.stringify([a.source, a.script, a.file, a.filter, a.where, answers, a.source === "file" ? this.fileText : null]);
     if (key === this.previewKey) return;
     this.previewKey = key;
-    prepare(a, this.target, answers).then((p) => {
+    cx.spawn(async (cx) => {
+      let p;
+      try { p = await prepare(a, this.target, answers); } catch { return; }
       if (this.previewKey !== key) return;
       this.preview = p;
       if (this.view === "confirm" && !this.askFields && p.asks) this.buildAsks(cx, p.asks);
       cx.notify();
-    }).catch(() => {});
+    });
   }
 
   close_() {
@@ -260,20 +274,22 @@ export default class QuickActions extends View {
     if (a) this.runNow(cx, a);
   }
 
-  async runNow(cx, a) {
+  runNow(cx, a) {
     if (this.running || this.demo || !allowed(this, a)) return;
-    const src = await scriptText(a);
-    if (a.confirm || (src.text && asksOf(src.text).length)) {
-      this.confirmAction = a;
-      this.askFields = null;
-      this.preview = null;
-      this.previewKey = null;
-      this.view = "confirm";
-      this.handle.focus();
-      cx.notify();
-      return;
-    }
-    this.exec(cx, a);
+    cx.spawn(async (cx) => {
+      const src = await scriptText(a);
+      if (a.confirm || (src.text && asksOf(src.text).length)) {
+        this.confirmAction = a;
+        this.askFields = null;
+        this.preview = null;
+        this.previewKey = null;
+        this.view = "confirm";
+        this.handle.focus();
+        cx.notify();
+        return;
+      }
+      await this.exec(cx, a);
+    });
   }
 
   /** The fields of the {ask:…} questions of the question view, with their defaults. */
@@ -299,9 +315,13 @@ export default class QuickActions extends View {
   }
 
   confirmRun(cx) {
-    if (this.confirmAction && this.preview && !this.preview.error) this.exec(cx, this.confirmAction, this.answers());
+    if (!this.confirmAction || !this.preview || this.preview.error || this.running) return;
+    const a = this.confirmAction;
+    const answers = this.answers();
+    cx.spawn((cx) => this.exec(cx, a, answers));
   }
 
+  /** Runs an action. Call it only with the cx of cx.spawn: it awaits. */
   async exec(cx, a, answers = null) {
     this.running = a.id;
     cx.notify();
@@ -340,7 +360,7 @@ export default class QuickActions extends View {
     }
   }
 
-  async addExamples(cx) {
+  addExamples(cx) {
     const sync = { ...S.blank(), name: "Sync the repository", icon: "refresh", script: "git pull --ff-only" };
     const update = {
       ...S.blank(),
@@ -350,7 +370,7 @@ export default class QuickActions extends View {
       confirm: true,
       script: isWin() ? "Set-Location {repo}\ngit pull --ff-only\nif ($?) { npm install }" : "cd {repo}\ngit pull --ff-only && npm install",
     };
-    await this.change(cx, (l) => [...l, sync, update]);
+    cx.spawn((cx) => this.change(cx, (l) => [...l, sync, update]));
   }
 
   // ---- the dialog: editing ----------------------------------------------------------------
@@ -407,13 +427,15 @@ export default class QuickActions extends View {
     if (e.key === "escape") { this.back(cx); cx.stop_propagation(); }
   }
 
-  async save(cx) {
+  save(cx) {
     if (this.demo) { this.back(cx); return; }
     const d = this.collect();
     if (Object.keys(errors(d)).length) { this.showErrors = true; cx.notify(); return; }
     d.updatedAt = Date.now();
-    await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
-    this.back(cx);
+    cx.spawn(async (cx) => {
+      await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
+      this.back(cx);
+    });
   }
 
   /** Opens the "with an agent" panel of the form. mode: "new" | "edit". */
@@ -432,7 +454,7 @@ export default class QuickActions extends View {
   }
 
   /** Saves the action with its script file, starts the agent that writes the file, and closes the dialog. */
-  async runWriter(cx) {
+  runWriter(cx) {
     const w = this.writer;
     if (!w || w.busy || this.demo) return;
     const d = this.collect();
@@ -446,6 +468,11 @@ export default class QuickActions extends View {
     d.updatedAt = Date.now();
     w.busy = true;
     cx.notify();
+    cx.spawn((cx) => this.writeWithAgent(cx, w, d, path, what, agent));
+  }
+
+  /** The work of Start (runWriter), with the cx of cx.spawn. */
+  async writeWithAgent(cx, w, d, path, what, agent) {
     try {
       await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
       // The form shows the saved file from now on (Save after a fault keeps it).
@@ -455,7 +482,7 @@ export default class QuickActions extends View {
     } catch (e) {
       w.busy = false;
       w.error = `The agent did not start: ${e?.message ?? e}`;
-      notify({ title: "Quick Actions", body: w.error, level: "error", timeout: 8000 });
+      notify({ title: "Quick Actions", body: "The agent did not start. The form shows why.", level: "error", timeout: 8000 });
       cx.notify();
       return;
     }

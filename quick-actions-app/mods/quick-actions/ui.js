@@ -99,8 +99,14 @@ export function formRow(t, label, hint, control, { error = null, last = false } 
       .when(Boolean(hint), (el) => el.child(div().text_size(11.2).text_color(t.dim).child(hint))))
     .child(v_flex().flex_1().min_w(0).gap(6).items_start()
       .child(control)
-      .when(Boolean(error), (el) => el.child(h_flex().gap(5).items_center().text_size(11.2).text_color(t.blocked)
-        .child(svg(icon("alert")).size(12).flex_none().text_color(t.blocked)).child(error))));
+      .when(Boolean(error), (el) => el.child(errorLine(t, error))));
+}
+
+/** An alert icon and a text that wraps (a long error is not cut). */
+export function errorLine(t, text, color = t.blocked) {
+  return h_flex().w_full().gap(5).items_start().text_size(11.2).text_color(color)
+    .child(svg(icon("alert")).size(12).flex_none().text_color(color))
+    .child(div().flex_1().min_w(0).whitespace_normal().child(String(text)));
 }
 
 /** A small token that can be clicked (the variables). */

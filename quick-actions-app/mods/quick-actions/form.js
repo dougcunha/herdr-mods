@@ -34,8 +34,7 @@ function preview(v, t) {
   const p = v.preview;
   let body;
   if (!p) body = div().text_size(11.5).text_color(t.dim).child("Reading the terminal…");
-  else if (p.error) body = h_flex().gap(6).items_center().text_size(11.5).text_color(p.filtered || p.info ? t.muted : t.blocked)
-    .child(svg(U.icon("alert")).size(12).flex_none().text_color(p.filtered || p.info ? t.muted : t.blocked)).child(p.error);
+  else if (p.error) body = U.errorLine(t, p.error, p.filtered || p.info ? t.muted : t.blocked);
   else body = v_flex().gap(6).w_full()
     .child(div().text_size(11.2).text_color(t.dim).child(howText(p)))
     .child(div().id("qa-preview").w_full().max_h(150).overflow_y_scrollbar().p(8).rounded(7).bg(t.background)
@@ -56,8 +55,7 @@ function writerPanel(v, t) {
       ? U.segmented(t, "qa-agent", installed.map((a) => ({ value: a.key, label: a.name })), w.agent, (val, cx) => { w.agent = val; cx.notify(); })
       : div().text_size(11.5).text_color(t.blocked).child("No agent is installed."))
     .child(div().text_size(11).text_color(t.dim).child(`Start saves the action with this script file. Then the agent writes ${path} in a new tab of this space (a new space on this computer when this space is on another machine). Run the action when it is done.`))
-    .when(Boolean(w.error), (e) => e.child(h_flex().gap(5).items_center().text_size(11.2).text_color(t.blocked)
-      .child(svg(U.icon("alert")).size(12).flex_none().text_color(t.blocked)).child(w.error)))
+    .when(Boolean(w.error), (e) => e.child(U.errorLine(t, w.error)))
     .child(h_flex().gap(8)
       .child(U.button(t, "qa-agent-go", w.busy ? "Starting…" : "Start", (cx) => v.runWriter(cx), { kind: "primary", iconName: "sparkles", disabled: !installed.length || Boolean(w.busy) }))
       .child(U.button(t, "qa-agent-cancel", "Cancel", (cx) => { v.writer = null; cx.notify(); })));
@@ -151,8 +149,7 @@ export function confirmView(v, t) {
           .child(div().text_size(11.5).font_medium().text_color(t.muted).child(f.label))
           .child(U.field(t, f.state, { onKey: (e, cx) => v.askKey(e, cx) }))))))
       .child(!p ? div().text_size(11.5).text_color(t.dim).child("Reading the terminal…")
-        : p.error ? h_flex().gap(6).items_center().text_size(12).text_color(t.blocked)
-          .child(svg(U.icon("alert")).size(13).flex_none().text_color(t.blocked)).child(p.error)
+        : p.error ? U.errorLine(t, p.error)
         : div().w_full().p(10).rounded(7).bg(t.background).border_1().border_color(t.border)
           .font_family(U.mono()).text_size(11.5).text_color(t.foreground).whitespace_normal().child(p.expanded)))
     .child(h_flex().w_full().px(16).py(12).gap(8).items_center().justify_end().flex_none().border_t(1).border_color(t.border).bg(t.surface)

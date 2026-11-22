@@ -235,7 +235,8 @@ active space with one click or one key. Examples: sync the repository
   the target space (setup 137: in a new space on this computer when the
   target space is on another machine, because the file is on this computer;
   before, `tab.new` there got a local folder and made no tab, with no
-  message), started with `agentStart()` of the PowerMods Core client
+  message; setup 138: the work of a click runs in `cx.spawn`, because the cx
+  of a click is not valid after an await), started with `agentStart()` of the PowerMods Core client
   (`core.js`, added to `tools/sync-core-client.mjs`). The task is in
   `writer.js`. The last agent is `shared("quick-actions.agent")`; the script
   folder is the setting `quick-actions.scriptDir`.
