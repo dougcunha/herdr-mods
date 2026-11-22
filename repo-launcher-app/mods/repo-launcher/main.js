@@ -16,7 +16,7 @@ import { matchRepo } from "./fuzzy.js";
 import { findRepos, detectAccounts, accountEmail, displayPath, normalize, pathKey, isWindows, powershell, machineInfo, placeId, ACCOUNT_AGENTS } from "./scan.js";
 import { agentArgv, open, openFree, spacesFor } from "./launch.js";
 import {
-  settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened, lastOpened,
+  settings, updateSettings, cache, setCache, isFavorite, toggleFavorite, markOpened,
   boundKeys, prettyKeys, chordOf, actionOf, bindShortcut, announceShortcut, agentCache, setAgentCache,
   remoteAgentCache, setRemoteAgentCache, allRoots,
 } from "./store.js";
@@ -54,9 +54,11 @@ const isScanning = () => Date.now() - memory.scanningSince < 180000;
 // Other machines (`hc machine ls`), by name. Herdr leaves out temporary ones.
 const remoteMachines = () => machines().map((m) => m.name).filter(Boolean);
 /** What the launcher knows of the system of a repository's machine (null: this computer). */
-const infoOf = (machine) => (machine ? cache().machines?.[machine] ?? { windows: false, home: "" } : null);
+// `known`: the machines of cache(), when the caller has read it already. Reading
+// cache() for each repository of another machine made the list too slow to render.
+const infoOf = (machine, known = undefined) => (machine ? (known ?? cache().machines)?.[machine] ?? { windows: false, home: "" } : null);
 const repoId = (repo) => placeId(repo.machine, repo.path);
-const parentOf = (repo) => displayPath(repo.path.slice(0, repo.path.length - repo.name.length), infoOf(repo.machine));
+const parentOfRepo = (repo, known = undefined) => displayPath(repo.path.slice(0, repo.path.length - repo.name.length), infoOf(repo.machine, known));
 /** A root or a missing root for people: "notebook: ~\src" for another machine. */
 function placeLabel(id) {
   const bar = id.indexOf("|");
@@ -267,7 +269,16 @@ export default class RepoLauncher extends View {
   /** The rows of the list view: section titles and repositories. */
   rows() {
     const place = this.place();
-    const repos = cache().repos
+    // Read the cache and the settings once, not once per repository: each shared()
+    // read costs 30-50 µs, and Herdr interrupts a render after about 80 ms.
+    const c = cache();
+    const known = c.machines ?? {};
+    const st = settings();
+    const favKeys = new Set(st.favorites.map((f) => pathKey(f)));
+    const isFavorite = (id) => favKeys.has(pathKey(id));
+    const lastOpened = (id) => st.recent[pathKey(id)] ?? 0;
+    const parentOf = (repo) => parentOfRepo(repo, known);
+    const repos = c.repos
       .filter((r) => place === "all" || (place === "local" ? !r.machine : r.machine === place))
       .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     const q = this.filter.trim();
@@ -890,8 +901,7 @@ export default class RepoLauncher extends View {
       .when(Boolean(action), (e) => e.child(div().mt(8).child(action)));
   }
 
-  spaceBadge(t, repo) {
-    const open = spacesFor(repo.path, repo.machine ?? null);
+  spaceBadge(t, repo, open = spacesFor(repo.path, repo.machine ?? null)) {
     if (!open.length) return null;
     const space = open[0];
     const color = spaceColor(t, space) ?? t.accent;
@@ -928,7 +938,7 @@ export default class RepoLauncher extends View {
     const { repo, parent, match, fav } = r;
     const open = spacesFor(repo.path, repo.machine ?? null);
     const color = open.length ? spaceColor(t, open[0]) : repoColor(repo.name);
-    const badge = this.spaceBadge(t, repo);
+    const badge = this.spaceBadge(t, repo, open);
     const branch = open[0]?.branch;
     return h_flex().id(`rl-row-${repoId(repo)}`).h(ROW_H).px(8).flex_none()
       .child(h_flex().size_full().px(10).gap(12).items_center().rounded(10).cursor_pointer()
