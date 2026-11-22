@@ -98,7 +98,7 @@ A background run is a terminal of herdr-core that is not on the screen (`hc run 
 
 | Language | Program |
 | --- | --- |
-| PowerShell | `pwsh -NoProfile -Command "& '<file>'; …"`: the exit code of the last program that failed (PowerShell itself ends with 0 after it), or 1 after an error |
+| PowerShell | `pwsh -NoProfile -Command "& '<file>'; exit $LASTEXITCODE"`: the exit code of the last program (PowerShell itself ends with 0 after a program that failed), or 1 when the script stops with an error (`throw`, or a cmdlet error with `$ErrorActionPreference = 'Stop'`). A cmdlet error that does not stop the script does not count. Check `$LASTEXITCODE` after each program |
 | bash, sh | `bash '<file>'` (Git Bash on Windows): the exit code of the script. Put `set -e` at the top to stop at the first error |
 | Python, Node.js | `python3`, `python` or `py -3`, and `node`: the exit code of the script |
 
@@ -106,17 +106,17 @@ The terminal gets the environment of herdr-core and no profile (`-NoProfile`): a
 
 ### The agent in the background
 
-A headless agent cannot ask for permission, so the mod gives it the permission to edit the files of the folder of the script (it works in that folder):
+A headless agent cannot ask for permission, so each command has a flag that lets it write the file. It works in the folder of the script:
 
-| Agent | Command |
-| --- | --- |
-| Claude Code | `claude -p <task> --permission-mode acceptEdits` |
-| Codex | `codex exec --skip-git-repo-check --sandbox workspace-write <task>` |
-| OpenCode | `opencode run --auto <task>` |
-| Antigravity | `agy -p <task> --mode accept-edits` |
-| oh-my-pi | `omp -p <task> --approval-mode write` |
+| Agent | Command | What it may do with no question |
+| --- | --- | --- |
+| Claude Code | `claude -p <task> --permission-mode acceptEdits` | Edit files |
+| Codex | `codex exec --skip-git-repo-check --sandbox workspace-write <task>` | Edit files and run commands in the sandbox of the folder |
+| OpenCode | `opencode run --auto <task>` | Everything that its settings do not deny |
+| Antigravity | `agy -p <task> --mode accept-edits` | Edit files |
+| oh-my-pi | `omp -p <task> --approval-mode write` | Its write tools |
 
-Other agents have no background mode: use **In a tab**. The task goes in a file (`data/quick-actions/writer/<id>/prompt.md`), and the output of the agent in `output.txt` there. The run is **failed** when the agent ends with an error, or when the script file did not change.
+Other agents have no background mode: use **In a tab**. The agent works in a work folder and writes the script there: on Windows `%TEMP%\herdr-quick-actions\<id>`, elsewhere `data/quick-actions/writer/<id>/work`. At the end, the mod copies the script to its place. (The sandbox of Codex on Windows cannot write in a folder under a folder with a dot, such as `~/.config`.) **Change with an agent…** copies the script to the work folder first. The task goes in a file (`data/quick-actions/writer/<id>/prompt.md`), and the output of the agent in `output.txt` there. The run is **failed** when the agent ends with an error, or when it did not write the script.
 
 ## Limits
 
@@ -130,7 +130,7 @@ Other agents have no background mode: use **In a tab**. The task goes in a file 
 - `~/.config/herdr-app/data/quick-actions/output/`: the output of the last background run of each action.
 - `shared("quick-actions.jobs")`: the state of the last background run of each action.
 - `~/.config/herdr-app/data/quick-actions/scripts/`: the script files that an agent writes (the default **Script folder**).
-- `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, `"group": "quick-actions"` and `"section": "pinned"`, at the end of the list. While an action is pinned, it adds `"group": "quick-actions"` to the **Actions** entry (the id `quick-actions`), so both share 1 button. It changes no other entry.
+- `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, `"group": "quick-actions"` and `"section": "pinned"`, at the end of the list. It adds `"group": "quick-actions"` to the **Actions** entry (the id `quick-actions`), so both share 1 button. It changes no other entry.
 - `shared("dock.hiddenEntries")`: `{ "quick-actions": [ "qa-<id>" ] }`, the buttons that the bars leave out now.
 
 ## What it runs

@@ -4,7 +4,7 @@
 // every copy shows it. The runner copy that holds the lease checks the running jobs every second: the end,
 // the exit code, the timeout. At the end it saves the output in data/quick-actions/output/ and shows a toast.
 
-import { hc, shared, setShared, notify, readTextFile } from "herdr";
+import { hc, shared, setShared, notify, readTextFile, writeTextFile } from "herdr";
 import * as fs from "fs/promises";
 import { KEY, dataDir, ensureDir } from "./store.js";
 
@@ -79,11 +79,18 @@ export async function stopJob(key) {
   await hc(["kill", j.address]).catch(() => null);
 }
 
-/** The state of a core terminal ({ state, exit_code, reason }), or null when it is gone. */
+/**
+ * The state of a core terminal ({ state, exit_code, reason }), { gone: true } when herdr-core does not know it
+ * (`not_found`), or null when the answer did not come (a slow machine): then the job waits for the next check.
+ */
 async function terminalInfo(address) {
   const r = await hc(["get", address, "--json"]).catch(() => null);
-  if (!r || r.code !== 0) return null;
-  try { const j = JSON.parse(r.stdout); return j?.terminal ?? j; } catch { return null; }
+  if (!r) return null;
+  let j = null;
+  try { j = JSON.parse(r.stdout || r.stderr || "null"); } catch { j = null; }
+  if (j?.error) return j.error.kind === "not_found" ? { gone: true } : null;
+  if (r.code !== 0 || !j) return null;
+  return j.terminal ?? j;
 }
 
 /** The text of the screen and history of a terminal. */
@@ -114,6 +121,12 @@ const seconds = (ms) => (ms < 60000 ? `${Math.max(1, Math.round(ms / 1000))} s` 
 
 /** Ends a job: saves its output, removes its terminal, writes its status and shows a toast. */
 async function finish(key, j, info) {
+  // Two copies (the runner and an open dialog) can see the end: the first one marks the job before its
+  // first await, so the other one skips it. The mods run in one JavaScript thread.
+  const cur = jobs()[key];
+  if (!isRunning(cur) || (cur.ending && Date.now() - cur.ending < 60000)) return;
+  putJob(key, { ending: Date.now() });
+  if (info?.gone) info = null;
   let text = j.outFile ? (await readTextFile(j.outFile).catch(() => null)) ?? "" : info ? await screenText(j.address) : "";
   text = text.replace(/\s+$/, "");
   const code = info?.exit_code ?? null;
@@ -128,6 +141,19 @@ async function finish(key, j, info) {
   if (status === "ok" && j.kind === "write" && j.file && (await fileSignature(j.file)) === (j.before ?? null)) {
     status = "failed";
     reason = `The agent ended, but ${j.fileShown ?? "the script file"} did not change.${lastLine(text) ? ` Its last line: ${lastLine(text)}` : ""}`;
+  }
+  // The agent wrote the script in its work folder: copy it to its place.
+  if (status === "ok" && j.kind === "write" && j.target && j.target !== j.file) {
+    try {
+      const script = await readTextFile(j.file);
+      if (script == null) throw new Error("the file of the agent is gone");
+      await fs.writeFile(j.target, script).catch(async () => {
+        await writeTextFile(j.target, script, await readTextFile(j.target).catch(() => null));
+      });
+    } catch (e) {
+      status = "failed";
+      reason = `Cannot save ${j.fileShown ?? j.target}: ${e?.message ?? e}`;
+    }
   }
   try {
     await ensureDir(outputDir());
@@ -164,9 +190,10 @@ export function holdLease(owner) {
 /** Checks the running jobs once: the end, the timeout. */
 export async function checkJobs() {
   for (const [key, j] of Object.entries(jobs())) {
-    if (!isRunning(j) || !j.address) continue;
+    if (!isRunning(j) || !j.address || (j.ending && Date.now() - j.ending < 60000)) continue;
     const info = await terminalInfo(j.address);
-    if (info && info.state !== "finished") {
+    if (!info) continue; // no answer now: the next check asks again
+    if (!info.gone && info.state !== "finished") {
       if (Date.now() > (j.deadline ?? Infinity) && !j.stopping) {
         putJob(key, { timedOut: true, stopping: true });
         await hc(["kill", j.address]).catch(() => null);

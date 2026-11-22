@@ -80,7 +80,8 @@ const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its wi
 // or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json) come after
 // the others, in the order of the file. Absent: the order of the file, no button hidden.
 const KEY_BUTTONS = "kanban.barButtons";
-const buttonId = (it) => (it.members ? `group-${it.group}` : it.id === "changes" ? "group-git" : it.id);
+// A group of 1 command is a plain button with the id of its group, so the saved order and eye follow it.
+const buttonId = (it) => (it.members || (it.group && it.opens === "command") ? `group-${it.group}` : it.id === "changes" ? "group-git" : it.id);
 function barButtons() {
   const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
   return { order: list(v?.order), hidden: list(v?.hidden) };

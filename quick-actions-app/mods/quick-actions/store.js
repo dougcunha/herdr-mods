@@ -40,16 +40,16 @@ const panelEntry = (a) => ({
   group: GROUP, section: "pinned",
 });
 
-/** The Actions entry in the group while an action is pinned, else a plain button (it opens the list at once). */
-function openEntry(e, pinned) {
-  const { group, ...rest } = e;
-  return pinned ? { ...rest, group: GROUP } : group === GROUP ? rest : e;
-}
+/**
+ * The Actions entry is always in the group: with no pinned action, the bars draw a group of 1 command as a plain
+ * button (it opens the list at once), with the same button id.
+ */
+const openEntry = (e) => (e.group === GROUP ? e : { ...e, group: GROUP });
 
 /**
  * Makes the `qa-<id>` entries of dock/panels.json match the pinned actions: an entry keeps its place, a new one
  * goes at the end, the entry of an action that is not pinned goes away. The Actions entry (id "quick-actions")
- * joins their group while an action is pinned. Other entries do not change. No file (no Dock layout): nothing.
+ * is always in their group. Other entries do not change. No file (no Dock layout): nothing.
  * Returns true when it wrote the file.
  */
 export async function syncPanels(list) {
@@ -61,10 +61,9 @@ export async function syncPanels(list) {
     const panels = Array.isArray(json?.panels) ? json.panels : [];
     const want = new Map(list.filter((a) => a.pinned).map((a) => [panelId(a), panelEntry(a)]));
     const next = [];
-    const anyPinned = want.size > 0;
     for (const e of panels) {
       const own = typeof e?.id === "string" && e.id.startsWith("qa-");
-      if (e?.id === OPEN_ID) next.push(openEntry(e, anyPinned));
+      if (e?.id === OPEN_ID) next.push(openEntry(e));
       else if (!own) next.push(e);
       else if (want.has(e.id)) { next.push(want.get(e.id)); want.delete(e.id); }
     }

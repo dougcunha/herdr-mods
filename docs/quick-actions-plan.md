@@ -358,3 +358,22 @@ line, then the actions), not as buttons of their own.
 - **Tested in the app:** the menu in `main-dock` and `kanban` (`tabs-dock.group-quick-actions`,
   `kanban.group-quick-actions`): title, Actions, the line, the pinned action. Clicks not tested from
   the shell.
+
+### Fixes after the review (setup 142)
+
+- `hc get` with no answer (a slow machine) skips the check; only `not_found` makes a job `lost`.
+- The runner and an open dialog can both see the end of a job: the first one marks it `ending` before
+  its first await, so there is 1 toast and 1 status (tested with the dialog open and a `notebook` run).
+- PowerShell: `& '<file>'; exit $LASTEXITCODE`. Tested: a failed `git` 128, `exit 3` 3, `throw` 1,
+  a cmdlet error that does not stop the script 0, a failed `git` and then `cmd /c exit 0` 0. The old
+  `if (-not $?) { exit 1 }` never fired.
+- **Codex in the background** with the real task: "Acesso negado". Its Windows sandbox cannot write in
+  a folder under `~/.config` (also with `-C` and `--add-dir`), but it can in `%TEMP%` and in a
+  folder without a dot. So every background agent writes in a work folder in `%TEMP%` and the mod
+  copies the file. The `fs` of a mod writes only under `~/.config/herdr-app`, so `pwsh` makes that
+  folder. Then Codex wrote the script in 21 s and Claude Code in 25 s.
+- The Actions entry is always in the group, and a group of 1 command gets the button id
+  `group-<group>`: the saved order and eye of **Bar buttons** follow it. Tested: with no pinned action,
+  the bar shows a plain **Actions** button.
+- The panel and the README say what each background mode may do (OpenCode `--auto`: everything that
+  its settings do not deny).

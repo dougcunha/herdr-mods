@@ -3,7 +3,7 @@
 // folder of the file, with the task below: in a new tab of the shown space, or in a new space on this
 // computer when the shown space is on another machine (the file is on this computer). See docs/quick-actions-plan.md.
 
-import { exec, run, notify, shared, setShared, home, window, spaces, terminals } from "herdr";
+import { exec, run, notify, shared, setShared, home, window, spaces, terminals, readTextFile } from "herdr";
 import { KEY, dataDir, ensureDir } from "./store.js";
 import { VARIABLES, psq, shq } from "./vars.js";
 import { jobKey, jobOf, isRunning, addJob, startTerminal, fileSignature } from "./jobs.js";
@@ -124,23 +124,61 @@ export function headlessOf(agent) {
 }
 
 /**
- * Starts the agent in the background: a terminal of herdr-core that is not on the screen, in the folder of
- * the file, on this computer. The task goes in prompt.md (never in a Windows argv), the output in
- * output.txt. jobs.js checks the end: the file must exist and change.
+ * The work folder of a background agent: it writes the script there, and jobs.js copies it to its place at the
+ * end. The sandbox of Codex on Windows cannot write in a folder under a dot folder (`~/.config`), also with
+ * --add-dir (tested 2026-11-22), so on Windows it is in the Temp folder of the person.
+ */
+function workDir(actionId) {
+  if (isWin()) return `${slash(home()).replace(/\/+$/, "")}/AppData/Local/Temp/herdr-quick-actions/${actionId}`;
+  return `${slash(dataDir())}/quick-actions/writer/${actionId}/work`;
+}
+
+/**
+ * Makes the work folder, removes an old work file, and copies the script there for a change (`from`). The `fs` of
+ * a mod writes only under ~/.config/herdr-app, so on Windows (the Temp folder) a PowerShell does it.
+ */
+async function prepareWork(work, workFile, from) {
+  if (!isWin()) {
+    await ensureDir(work);
+    const text = from ? await readTextFile(from).catch(() => null) : null;
+    if (text != null) await fs.writeFile(workFile, text);
+    else await fs.unlink(workFile).catch(() => null);
+    return;
+  }
+  // A failed step stops the command with exit 1 (a missing file is not a failure: Test-Path first).
+  const lines = [
+    "$ErrorActionPreference = 'Stop'",
+    `New-Item -ItemType Directory -Force -Path ${psq(work)} | Out-Null`,
+    `if (Test-Path -LiteralPath ${psq(workFile)}) { Remove-Item -LiteralPath ${psq(workFile)} -Force }`,
+    ...(from ? [`Copy-Item -LiteralPath ${psq(from)} -Destination ${psq(workFile)} -Force`] : []),
+  ];
+  const r = await exec("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", lines.join("; ")], { timeout: 20000 });
+  if (r.code !== 0) throw new Error(`Cannot make the work folder ${work}: ${(r.stderr || r.stdout || "").trim()}`);
+}
+
+/**
+ * Starts the agent in the background: a terminal of herdr-core that is not on the screen, on this computer. The
+ * agent works in a work folder and writes the script there (see workDir). The task goes in prompt.md (never in a
+ * Windows argv), the output in output.txt. jobs.js checks the end: the work file must change; then it copies
+ * the work file to the script file.
  */
 export async function startWriterBackground({ mode, path, what, agent, name, actionId }) {
   const words = headlessOf(agent);
   if (!words) throw new Error(`${agent.name} has no background mode. Choose In a tab.`);
   const key = jobKey("write", actionId);
   if (isRunning(jobOf("write", actionId))) throw new Error("An agent still writes this script in the background.");
-  const folder = dirOf(path);
-  await makeDir(folder);
+  await makeDir(dirOf(path));
   setShared(KEY.agent, agent.key);
   const dir = `${slash(dataDir())}/quick-actions/writer/${actionId}`;
   await ensureDir(dir);
+  const work = workDir(actionId);
+  const workFile = `${work}/${slash(path).split("/").pop()}`;
+  // Change with an agent: the agent starts from the script. New: no old file in the work folder.
+  const current = mode === "edit" ? await readTextFile(path).catch(() => null) : null;
+  await prepareWork(work, workFile, current != null ? path : null);
   const promptFile = `${dir}/prompt.md`;
   const outFile = `${dir}/output.txt`;
-  await fs.writeFile(promptFile, writerTask(mode, path, what));
+  await fs.writeFile(promptFile, writerTask(mode, workFile, what));
   let argv;
   if (isWin()) {
     const line = words.map((w) => (w === "{prompt}" ? "$prompt" : psq(w))).join(" ");
@@ -158,10 +196,10 @@ export async function startWriterBackground({ mode, path, what, agent, name, act
     await fs.writeFile(`${dir}/agent.sh`, `prompt=$(cat ${shq(promptFile)})\n${line} > ${shq(outFile)} 2>&1\n`);
     argv = ["sh", `${dir}/agent.sh`];
   }
-  const before = await fileSignature(path);
+  const before = await fileSignature(workFile);
   await fs.writeFile(outFile, "");
-  const address = await startTerminal({ argv, cwd: folder, labels: { "quick-actions-writer": actionId } });
-  addJob(key, { kind: "write", action: actionId, name, address, machine: null, outFile, file: path, fileShown: shortPath(path), before, agentName: agent.name });
+  const address = await startTerminal({ argv, cwd: work, labels: { "quick-actions-writer": actionId } });
+  addJob(key, { kind: "write", action: actionId, name, address, machine: null, outFile, file: workFile, target: path, fileShown: shortPath(path), before, agentName: agent.name });
   notify({ title: `Quick Actions: ${name}`, body: `${agent.name} writes ${shortPath(path)} in the background. A toast shows when it ends.`, level: "info", timeout: 5000 });
 }
 

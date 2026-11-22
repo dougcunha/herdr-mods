@@ -160,15 +160,17 @@ async function putFile(address, local) {
 }
 
 /**
- * The program and arguments of a background run of a script file. PowerShell ends with 0 after a
- * program that failed, so a short command gives the exit code of the last program (or 1 after an error).
+ * The program and arguments of a background run of a script file. `pwsh -File` ends with 0 after a program
+ * that failed, so a short command gives the exit code of the last program. A script that stops with an error
+ * (throw, or a cmdlet error with $ErrorActionPreference = 'Stop') ends with 1. A cmdlet error that does not
+ * stop the script does not count (tested 2026-11-22).
  */
 async function backgroundArgv(p, path) {
   const { ctx, shell } = p;
   const where = ctx.machine ?? "this computer";
   if (shell === "ps") {
     const file = ctx.windows ? path.replace(/\//g, "\\") : path;
-    const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & ${psq(file)}; if ($LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }`;
+    const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & ${psq(file)}; exit $LASTEXITCODE`;
     return ["pwsh", "-NoProfile", ...(ctx.windows ? ["-ExecutionPolicy", "Bypass"] : []), "-Command", cmd];
   }
   if (shell === "node") return ["node", path];

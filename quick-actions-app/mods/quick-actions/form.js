@@ -64,7 +64,7 @@ function writerPanel(v, t) {
     .child(div().text_size(11).text_color(t.dim).child(w.where === "background"
       ? (agent && !headlessOf(agent)
         ? `${agent.name} has no background mode. Choose In a tab, or another agent.`
-        : `Start saves the action with this script file. Then the agent writes ${path} in the background, with permission to edit the files of that folder. A toast shows when it ends, and the preview shows the script.`)
+        : `Start saves the action with this script file. Then the agent writes ${path} in the background. It cannot ask you anything, so it works with the permissions of its background mode (see the README: OpenCode gets all of them). A toast shows when it ends, and the preview shows the script.`)
       : `Start saves the action with this script file. Then the agent writes ${path} in a new tab of this space (a new space on this computer when this space is on another machine). Run the action when it is done.`))
     .when(Boolean(w.error), (e) => e.child(U.errorLine(t, w.error)))
     .child(h_flex().gap(8)
