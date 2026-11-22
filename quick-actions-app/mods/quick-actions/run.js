@@ -13,6 +13,7 @@
 import { hc, run, notify, terminals, readTextFile, home } from "herdr";
 import { context, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, asksOf, psq, shq, windowsTools } from "./vars.js";
 import { writeRunFile, SHELL_LABEL } from "./store.js";
+import { jobKey, jobOf, isRunning, addJob, startTerminal, timeoutMin } from "./jobs.js";
 
 const wait = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
 
@@ -100,17 +101,19 @@ export async function prepare(a, target, answers = null) {
   if (!String(src.text ?? "").trim()) return { error: "The script is empty.", info: true };
   const need = usedVars(src.text);
   if (filterNeedsRepo(a.filter)) need.add("repo_name");
-  const ctx = await context(target, need);
+  // A background run needs no free terminal: no check of the program in the terminal.
+  const background = a.where === "background";
+  const ctx = await context(target, need, { probe: !background });
   if (!filterMatches(a.filter, ctx)) return { ctx, error: `This action runs only in: ${filterParts(a.filter).join(", ")}.`, filtered: true };
-  const useTab = a.where === "tab" || ctx.busy;
-  // A new tab starts the default shell of the machine: PowerShell on Windows.
-  const term = useTab ? (ctx.windows ? "ps" : "sh") : ctx.shell;
+  const useTab = !background && (a.where === "tab" || ctx.busy);
+  // A new tab and a background run start the default shell of the machine: PowerShell on Windows.
+  const term = background || useTab ? (ctx.windows ? "ps" : "sh") : ctx.shell;
   // The shell of the action, else the extension of the file, else the shell of the terminal.
   const shell = (a.shell && a.shell !== "auto" ? a.shell : null) ?? (a.source === "file" ? fileShell(a.file) : null) ?? term;
   const expanded = expand(src.text, ctx.values, shell, answers).trim();
-  // Only a line in the language of the terminal can go as it is.
-  const oneLine = a.source !== "file" && shell === term && !/\r?\n/.test(expanded);
-  return { ctx, useTab, term, shell, expanded, oneLine, asks: asksOf(src.text) };
+  // Only a line in the language of the terminal can go as it is. A background run always uses a file.
+  const oneLine = !background && a.source !== "file" && shell === term && !/\r?\n/.test(expanded);
+  return { ctx, background, useTab, term, shell, expanded, oneLine, asks: asksOf(src.text) };
 }
 
 /** Opens a tab in the space of the context and returns the address of its terminal. */
@@ -156,11 +159,67 @@ async function putFile(address, local) {
   return String(path).replace(/\\/g, "/");
 }
 
-/** Runs an action for a target. Returns the address of the terminal that got the line, or null. */
+/**
+ * The program and arguments of a background run of a script file. PowerShell ends with 0 after a
+ * program that failed, so a short command gives the exit code of the last program (or 1 after an error).
+ */
+async function backgroundArgv(p, path) {
+  const { ctx, shell } = p;
+  const where = ctx.machine ?? "this computer";
+  if (shell === "ps") {
+    const file = ctx.windows ? path.replace(/\//g, "\\") : path;
+    const cmd = `[Console]::OutputEncoding = [Text.Encoding]::UTF8; & ${psq(file)}; if ($LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }`;
+    return ["pwsh", "-NoProfile", ...(ctx.windows ? ["-ExecutionPolicy", "Bypass"] : []), "-Command", cmd];
+  }
+  if (shell === "node") return ["node", path];
+  if (!ctx.windows) return [shell === "python" ? "python3" : shell, path];
+  const tools = await windowsTools(ctx.machine);
+  if (shell === "python") {
+    if (!tools.python) throw new Error(`Python was not found on ${where}.`);
+    return tools.python === "py" ? ["py", "-3", path] : [tools.python, path];
+  }
+  if (!tools.bash) throw new Error(`Git Bash was not found on ${where}. Install Git for Windows.`);
+  return [tools.bash, path];
+}
+
+/** Starts a background run: a terminal of herdr-core that is not on the screen, in the folder of the target. */
+async function startBackground(a, p) {
+  if (isRunning(jobOf("run", a.id))) throw new Error("It still runs in the background. Open Quick Actions to see it or stop it.");
+  const { ctx } = p;
+  let path = await writeRunFile(a.name, runExt(a, p.shell), `${p.expanded}\n`);
+  if (ctx.machine) {
+    // `hc put` needs a terminal on that machine.
+    if (!ctx.target.terminal) throw new Error(`A background run on ${ctx.machine} needs a terminal in the space.`);
+    path = await putFile(ctx.target.terminal, path);
+  }
+  const argv = await backgroundArgv(p, path);
+  const address = await startTerminal({
+    argv,
+    cwd: ctx.values.folder || ctx.values.home || undefined,
+    on: ctx.machine ?? undefined,
+    labels: { "quick-actions": a.id },
+  });
+  addJob(jobKey("run", a.id), { kind: "run", action: a.id, name: a.name, address, machine: ctx.machine ?? null });
+  notify({ title: `Quick action: ${a.name}`, body: `Runs in the background${ctx.machine ? ` on ${ctx.machine}` : ""}. A toast shows when it ends.`, level: "info", timeout: 4000 });
+  return address;
+}
+
+/**
+ * Runs an action for a target. Returns { address, background } (the terminal that got the line, or the
+ * background terminal), or null.
+ */
 export async function runAction(cx, a, target, answers = null) {
   const p = await prepare(a, target, answers);
   if (p.error) { fail(a.name, p.error); return null; }
   const { ctx } = p;
+  if (p.background) {
+    try {
+      return { address: await startBackground(a, p), background: true };
+    } catch (e) {
+      fail(a.name, String(e?.message ?? e));
+      return null;
+    }
+  }
   try {
     // The program of the run file first: no new tab when it is not there.
     const lineOf = p.oneLine ? null : await runnerFor(p);
@@ -182,7 +241,7 @@ export async function runAction(cx, a, target, answers = null) {
     const r = await hc(["send", address, line]);
     if (r.code !== 0) throw new Error((r.stderr || r.stdout || "").trim() || "hc send failed");
     run("pane.focus", { terminal: address });
-    return address;
+    return { address, background: false };
   } catch (e) {
     fail(a.name, String(e?.message ?? e));
     return null;
@@ -192,6 +251,10 @@ export async function runAction(cx, a, target, answers = null) {
 /** A short text that says where and how the action runs (the preview). */
 export function howText(p) {
   if (!p || p.error) return "";
+  if (p.background) {
+    const on = p.ctx.machine ? ` on ${p.ctx.machine}` : "";
+    return `In the background${on}, in ${p.ctx.folder || "~"}: a ${SHELL_LABEL[p.shell] ?? p.shell} script. It stops after ${timeoutMin()} min.`;
+  }
   const where = p.useTab
     ? (p.ctx.busy && p.ctx.target.terminal ? `A new tab (the terminal runs ${p.ctx.busyWith || "a program"})` : "A new tab")
     : `The terminal ${p.ctx.target.terminal}`;

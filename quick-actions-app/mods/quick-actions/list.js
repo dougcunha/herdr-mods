@@ -5,6 +5,8 @@ import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { filterMatches, filterParts, asksOf } from "./vars.js";
 import { SHELL_LABEL } from "./store.js";
+import { jobOf, isRunning } from "./jobs.js";
+import { jobState } from "./output.js";
 import * as U from "./ui.js";
 
 /** The actions that the search shows. */
@@ -32,6 +34,22 @@ function sourceText(a) {
   return (n === 1 ? "1 line" : `${n} lines`) + shell;
 }
 
+const WHERE = { terminal: ["terminal", "terminal"], tab: ["plus", "new tab"], background: ["server", "background"] };
+
+/** The state of the last background job of a kind ("run" or "write"): a click shows its output. */
+function jobChip(v, t, a, i, kind) {
+  const j = v.demo ? null : jobOf(kind, a.id);
+  if (!j) return null;
+  const st = jobState(t, j);
+  return h_flex().id(`qa-job-${kind}-${i}`).flex_none().gap(5).items_center().h(20).px(7).rounded(5).cursor_pointer()
+    .bg(U.tint(st.color, "14")).border_1().border_color(U.tint(st.color, "55"))
+    .hover((s) => s.bg(U.tint(st.color, "2a")))
+    .tooltip(j.reason ? `${j.reason} Click to see the output.` : "Click to see the output.")
+    .on_click((_e, cx) => { cx.stop_propagation(); v.openOutput(cx, kind, a); })
+    .child(st.spin ? svg(U.icon(st.icon)).size(11).flex_none().spin(900).text_color(st.color) : svg(U.icon(st.icon)).size(11).flex_none().text_color(st.color))
+    .child(div().text_size(11).text_color(st.color).child(kind === "write" ? `Script: ${st.text}` : st.text));
+}
+
 function row(v, t, a, i, selected) {
   const ok = allowed(v, a);
   const running = v.running === a.id;
@@ -41,16 +59,21 @@ function row(v, t, a, i, selected) {
     .child(svg(U.icon(a.icon)).size(17).text_color(color));
   const metas = h_flex().gap(6).flex_wrap()
     .child(meta(t, a.source === "file" ? "file" : "code", sourceText(a)))
-    .child(meta(t, a.where === "tab" ? "plus" : "terminal", a.where === "tab" ? "new tab" : "terminal"))
+    .child(meta(t, ...(WHERE[a.where] ?? WHERE.terminal)))
     .when(a.confirm || (a.source === "inline" && asksOf(a.script).length > 0), (el) => el.child(meta(t, "check", "asks first")))
-    .when(Boolean(a.filter.trim()), (el) => el.child(meta(t, "filter", filterParts(a.filter).join(", "), ok ? "Runs only here" : "Not for this terminal")));
+    .when(Boolean(a.filter.trim()), (el) => el.child(meta(t, "filter", filterParts(a.filter).join(", "), ok ? "Runs only here" : "Not for this terminal")))
+    .children([jobChip(v, t, a, i, "run"), jobChip(v, t, a, i, "write")].filter(Boolean));
+  // While the action runs in the background, the button shows its output (Stop is there).
+  const bg = !v.demo && isRunning(jobOf("run", a.id));
   const runButton = h_flex().id(`qa-run-${i}`).h(28).px(10).gap(5).items_center().flex_none().rounded(7)
     .bg(U.tint(ok ? t.accent : t.dim, "1a")).text_color(ok ? t.accent : t.dim).text_size(12).font_medium()
-    .when(ok && !v.running, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
+    .when(bg, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
+      .on_click((_e, cx) => { cx.stop_propagation(); v.openOutput(cx, "run", a); }))
+    .when(!bg && ok && !v.running, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
       .on_click((_e, cx) => { cx.stop_propagation(); v.runNow(cx, a); }))
-    .tooltip(ok ? "Run (Enter)" : `Runs only in: ${filterParts(a.filter).join(", ")}`)
-    .child(running ? svg(U.icon("refresh")).size(12).spin(900).text_color(t.accent) : svg(U.icon("play")).size(12).text_color(ok ? t.accent : t.dim))
-    .child("Run");
+    .tooltip(bg ? "It runs in the background: click to see the output" : ok ? "Run (Enter)" : `Runs only in: ${filterParts(a.filter).join(", ")}`)
+    .child(running || bg ? svg(U.icon("refresh")).size(12).spin(900).text_color(t.accent) : svg(U.icon("play")).size(12).text_color(ok ? t.accent : t.dim))
+    .child(bg ? "Output" : "Run");
   const actions = h_flex().gap(4).items_center().flex_none()
     .child(runButton)
     .child(U.iconButton(t, `qa-pin-${i}`, "pin", a.pinned ? "In the bar: click to take it away" : "Pin to the bar of Dock and Kanban", (cx) => v.pin(cx, a), a.pinned ? t.accent : null))

@@ -27,7 +27,7 @@ A Herdr mod that keeps named scripts and runs them in the terminal of the shown 
 | `id` | `a-z`, `0-9`, `-`, up to 24 characters (`q` + time + random). |
 | `name`, `icon` | The icon is a file of the mod: `zap`, `play`, `terminal`, `refresh`, `download`, `package`, `git-branch`, `sparkles`, `code`, `gear`, `globe`, `server`, `file-terminal`, `folder`, `trash`. |
 | `source` | `"inline"` (`script` is the text) or `"file"` (`file` is a path; `~` is the home folder). |
-| `where` | `"terminal"` (the target terminal; a new tab when it is busy) or `"tab"` (always a new tab). |
+| `where` | `"terminal"` (the target terminal; a new tab when it is busy), `"tab"` (always a new tab) or `"background"` (a terminal of herdr-core that is not on the screen; see Background runs). |
 | `confirm` | Ask before the run. |
 | `filter` | Folders and repository names, separated by commas. Empty: everywhere. |
 | `pinned` | A button in the bar of the Dock and Kanban layouts. |
@@ -73,7 +73,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 ## Dialog
 
 - **List** (`list.js`): a 58 px header (32 px tile, "Quick Actions", "Runs in <terminal> · <folder>" or "a new tab (<terminal> runs <program>)", **New**, ×); a warning band when the list file is broken or no runner is alive; a search field (focused at open); 1 row per action (36 px icon tile, the name, labels: lines or file name, terminal or new tab, asks first, the filter), **Run**, pencil, trash (2 clicks). The selected row has an `accent` border. A row whose filter leaves out the target is at 70% and its Run is off. ↑ ↓ select, Enter runs, Esc closes. Empty: **Add 2 examples** (Sync the repository; Update and install, which asks first) and **New action**.
-- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab), Ask before run, Only in, Key (`"ctrl-shift-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list. A row also has a pin button (`accent` when pinned), and the form a **Bar button** switch.
+- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab | Background), Ask before run, Only in, Key (`"ctrl-shift-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list. A row also has a pin button (`accent` when pinned), and the form a **Bar button** switch.
 - **Question** (`confirmView`): the icon, "Run <name>?", where it runs, the expanded script, Cancel and **Run** (Enter).
 - `herdr-app do quick-actions.<new | edit-<id> | list | save | demo | up | down | enter>` drives an open dialog.
 
@@ -94,3 +94,14 @@ The script folder is `shared("quick-actions.scriptDir")` (a setting of the Setti
 ## On and off
 
 `kitOff()` (`herdr-mods.disabled` has `quick-actions`): the dialog closes, the status copy draws nothing and skips its timer and its commands.
+
+## Background runs (`jobs.js`, `output.js`)
+
+- `prepare()` with `where: "background"`: no busy probe (`context(..., { probe: false })`), no new tab, always a run file in the default shell of the machine (`ps` on Windows, `sh` elsewhere) unless the action or the file gives one.
+- Start (`startBackground` in `run.js`): refuse when `"run:<id>"` still runs; `writeRunFile`; on another machine `hc put` to the target terminal (an error without one); `hc run --bg --json --no-parent --no-notify --label quick-actions=<id> [--on <machine>] --cwd <folder> -- <argv>`. argv: PowerShell `pwsh -NoProfile [-ExecutionPolicy Bypass] -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; & '<file>'; if ($LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }"`; bash and sh the shell (Git Bash on Windows); Python `python3` (`python` or `py -3` on Windows); Node.js `node`. Then the job in `shared("quick-actions.jobs")` and a toast. The dialog goes back to the list (a question dialog closes).
+- Job: `{ kind: "run", action, name, address, machine, status: "running", started, deadline, code, ended, reason, stopping, timedOut }`.
+- Check (`checkJobs`, every 1 s, only while a job runs): the runner copy that holds `shared("quick-actions.lease")` (`{ owner, at }`, 4 s), or an open dialog when no runner holds it. `hc get`: not finished and past the deadline → `timedOut`, `hc kill`; finished → output (`hc read --lines 2000`) to `data/quick-actions/output/run-<id>.txt`, `hc rm`, status `ok` (exit 0), `failed` (`Exit code N: <last line>`), `stopped`, `timed out`; gone → `lost`. A toast at the end.
+- List: a `server` "background" label; a chip with the state of the last job (`refresh` spinning in `working` "Runs for 12 s", `check` green "Done in 5 s · 1 min ago", `alert` red "Failed (exit 128) · 1 min ago"); a click opens the output view. While it runs, **Run** is **Output** (spinner). The dialog draws again each second while a job runs.
+- Output view (`output.js`): back, a tinted state tile, the name, "In the background · <state>"; the reason (not for stopped); the last 600 lines in mono (live `hc read` each second while it runs, the saved file after); **Stop** (danger) while it runs, **Back**. Esc goes back.
+- `pruneJobs`: when the runner reads the list, jobs of actions that are gone (and not running) and their output files go away.
+- Setting `quick-actions.timeoutMin` (number, 1 to 240, default 30).

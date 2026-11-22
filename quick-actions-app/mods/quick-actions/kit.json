@@ -26,6 +26,18 @@
       "label": "Script folder",
       "placeholder": "~/.config/herdr-app/data/quick-actions/scripts",
       "hint": "Write with an agent puts the new script files here. ~ is your home folder. Empty: the default folder."
+    },
+    {
+      "id": "timeout",
+      "type": "number",
+      "key": "quick-actions.timeoutMin",
+      "default": 30,
+      "min": 1,
+      "max": 240,
+      "step": 1,
+      "unit": "min",
+      "label": "Background timeout",
+      "hint": "An action or an agent that runs in the background stops after this time. A background job cannot answer a question, so a job that waits for one stops here."
     }
   ]
 }

@@ -19,6 +19,8 @@ import { runAction, prepare, fail, scriptText } from "./run.js";
 import { listView, visible, allowed } from "./list.js";
 import { editView, confirmView, errors } from "./form.js";
 import { DEMO, DEMO_CTX } from "./demo.js";
+import { jobs as allJobs, jobKey, isRunning, anyRunning, holdLease, checkJobs, stopJob, jobOutput, pruneJobs } from "./jobs.js";
+import { outputView } from "./output.js";
 import * as U from "./ui.js";
 
 const { KEY, MOD } = S;
@@ -33,6 +35,14 @@ const offView = () => { const o = props()?.overlay; if (o) closeOverlay(o); retu
 
 const runnerAlive = () => Date.now() - (shared(KEY.runner)?.at ?? 0) < STALE_MS;
 const isWin = () => window()?.platform === "windows";
+
+/**
+ * Runs the async work of a handler. The cx of a click, a key or a timer is not valid after an await: the
+ * work gets the cx of cx.spawn. An error shows in a toast.
+ */
+const spawn = (cx, fn) => cx.spawn(async (cx) => {
+  try { await fn(cx); } catch (e) { notify({ title: "Quick Actions", body: String(e?.message ?? e), level: "error", timeout: 8000 }); }
+});
 
 export default class QuickActions extends View {
   init(given, cx) {
@@ -53,10 +63,13 @@ export default class QuickActions extends View {
     this.listRev = undefined;
     this.whereKey = null; // where the filter of the bar buttons was last checked
     this.hiding = false;
+    this.runnerId = Math.random().toString(36).slice(2); // for the lease of the background jobs
+    this.tracking = false;
     if (checking()) return;
     // The bar buttons follow the list, also after a change of the file by hand.
     S.loadList().then((d) => (d.list ? S.syncPanels(d.list) : null)).catch((e) => console.log(`quick-actions: ${e?.message ?? e}`));
     cx.timer.every(BEAT_MS, () => { if (!kitOff()) this.beat(); });
+    cx.timer.every(1000, (cx) => { if (!kitOff()) this.track(cx); });
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -64,6 +77,20 @@ export default class QuickActions extends View {
         if (c === "open") run("mod.open", { name: MOD });
         else if (c.startsWith("run-")) this.runById(cx, c.slice(4));
       }
+    });
+  }
+
+  /**
+   * Checks the background jobs (jobs.js): only while one runs, and only in the copy that holds the lease
+   * (a hidden layout can keep a second runner copy).
+   */
+  track(cx) {
+    if (this.tracking || !anyRunning() || !holdLease(this.runnerId)) return;
+    this.tracking = true;
+    cx.spawn(async (cx) => {
+      try { await checkJobs(); } catch (e) { console.log(`quick-actions: ${e?.message ?? e}`); }
+      this.tracking = false;
+      cx.notify();
     });
   }
 
@@ -79,7 +106,7 @@ export default class QuickActions extends View {
     const rev = shared(KEY.rev) ?? null;
     if (rev !== this.listRev) {
       this.listRev = rev;
-      S.loadList().then((d) => { if (d.list) { this.list = d.list; this.whereKey = null; } });
+      S.loadList().then((d) => { if (d.list) { this.list = d.list; this.whereKey = null; pruneJobs(d.list.map((a) => a.id)).catch(() => {}); } });
     }
     this.updateHidden();
   }
@@ -131,7 +158,7 @@ export default class QuickActions extends View {
     return h_flex().id("qa-status").size_full().items_center().justify_center()
       .bg(t.chrome).border_t(1).border_color(t.border)
       .child(div().id("qa-open").size(22).flex().items_center().justify_center().rounded(5).cursor_pointer()
-        .text_color(this.busy ? t.working : t.dim)
+        .text_color(this.busy || anyRunning() ? t.working : t.dim)
         .hover((s) => s.bg(t.hover).text_color(t.foreground))
         .tooltip("Quick Actions: click to open the list")
         .on_click(() => run("mod.open", { name: MOD }))
@@ -156,6 +183,10 @@ export default class QuickActions extends View {
     this.ctx = null;
     this.demoCtx = DEMO_CTX;
     this.loaded = false;
+    this.runnerId = Math.random().toString(36).slice(2); // for the lease of the background jobs
+    this.tracking = false;
+    this.outputKey = null; // the job of the output view
+    this.outputText = null;
     this.agentList = []; // knownAgents(), for "with an agent" in the form
     // The cx of a callback (init, a click, a key, a timer) is not valid after an await: async work goes
     // through cx.spawn, whose cx stays valid.
@@ -169,7 +200,13 @@ export default class QuickActions extends View {
       cx.spawn(async (cx) => { try { this.ctx = await context(target, new Set(["repo_name"])); cx.notify(); } catch { /* no context */ } });
     }
     if (checking()) return;
-    cx.timer.every(1000, (cx) => { if (!kitOff()) this.refresh(cx); });
+    cx.timer.every(1000, (cx) => {
+      if (kitOff()) return;
+      this.refresh(cx);
+      this.track(cx); // the background jobs, when no runner copy checks them
+      if (this.view === "output") this.updateOutput(cx);
+      else if (anyRunning()) cx.notify(); // the time of a running job in the list
+    });
     cx.timer.every(400, (cx) => { if (!kitOff()) this.updatePreview(cx); });
     // `herdr-app do quick-actions.<command>` drives an open dialog (tests): new, edit-<id>, list, save, demo, pin-<id>, up, down, enter.
     cx.spawn(async (cx) => {
@@ -227,12 +264,12 @@ export default class QuickActions extends View {
 
   /** Pins an action to the bar of the Dock and Kanban layouts, or takes it away. */
   pin(cx, a) {
-    cx.spawn((cx) => this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x))));
+    spawn(cx, (cx) => this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x))));
   }
 
   /** Deletes an action. */
   remove(cx, a) {
-    cx.spawn((cx) => this.change(cx, (l) => l.filter((x) => x.id !== a.id)));
+    spawn(cx, (cx) => this.change(cx, (l) => l.filter((x) => x.id !== a.id)));
   }
 
   /** The preview of the form or of the question: prepare() again when the draft changes. */
@@ -276,7 +313,7 @@ export default class QuickActions extends View {
 
   runNow(cx, a) {
     if (this.running || this.demo || !allowed(this, a)) return;
-    cx.spawn(async (cx) => {
+    spawn(cx, async (cx) => {
       const src = await scriptText(a);
       if (a.confirm || (src.text && asksOf(src.text).length)) {
         this.confirmAction = a;
@@ -318,20 +355,56 @@ export default class QuickActions extends View {
     if (!this.confirmAction || !this.preview || this.preview.error || this.running) return;
     const a = this.confirmAction;
     const answers = this.answers();
-    cx.spawn((cx) => this.exec(cx, a, answers));
+    spawn(cx, (cx) => this.exec(cx, a, answers));
   }
 
   /** Runs an action. Call it only with the cx of cx.spawn: it awaits. */
   async exec(cx, a, answers = null) {
     this.running = a.id;
     cx.notify();
-    const address = await runAction(cx, a, this.target, answers);
+    const r = await runAction(cx, a, this.target, answers);
     this.running = null;
-    if (address) {
+    // A background run has no terminal on the screen: the list shows it (and the toast at its end).
+    if (r?.background) { if (this.props.confirm) this.close_(); else this.back(cx); }
+    else if (r) {
       this.close_();
-      run("pane.focus", { terminal: address });
+      run("pane.focus", { terminal: r.address });
     }
     cx.notify();
+  }
+
+  // ---- the dialog: background jobs ---------------------------------------------------------
+
+  /** Shows the output of a background job (kind "run" or "write") of an action. */
+  openOutput(cx, kind, a) {
+    this.outputKey = jobKey(kind, a.id);
+    this.outputText = null;
+    this.outputReadAt = 0;
+    this.view = "output";
+    this.handle.focus();
+    this.updateOutput(cx);
+    cx.notify();
+  }
+
+  /** Reads the output again: every second while the job runs, once after its end. */
+  updateOutput(cx) {
+    const key = this.outputKey;
+    const j = key ? allJobs()[key] ?? null : null;
+    if (!key || this.outputReading) return;
+    if (!isRunning(j) && this.outputText != null && this.outputReadAt > (j?.ended ?? 0)) return;
+    this.outputReading = true;
+    cx.spawn(async (cx) => {
+      try { this.outputText = await jobOutput(key); } catch { /* keep the old text */ }
+      this.outputReadAt = Date.now();
+      this.outputReading = false;
+      cx.notify();
+    });
+  }
+
+  /** Stops the job of the output view. */
+  stopOutput(cx) {
+    const key = this.outputKey;
+    if (key) spawn(cx, () => stopJob(key));
   }
 
   move(cx, by) {
@@ -353,7 +426,7 @@ export default class QuickActions extends View {
   key(e, cx) {
     if (this.view === "confirm" && e.key === "enter") { this.confirmRun(cx); cx.stop_propagation(); return; }
     if (e.key === "escape") {
-      if (this.view === "edit") this.back(cx);
+      if (this.view === "edit" || this.view === "output") this.back(cx);
       else if (this.view === "confirm" && !this.props.confirm) this.back(cx);
       else this.close_();
       cx.stop_propagation();
@@ -370,7 +443,7 @@ export default class QuickActions extends View {
       confirm: true,
       script: isWin() ? "Set-Location {repo}\ngit pull --ff-only\nif ($?) { npm install }" : "cd {repo}\ngit pull --ff-only && npm install",
     };
-    cx.spawn((cx) => this.change(cx, (l) => [...l, sync, update]));
+    spawn(cx, (cx) => this.change(cx, (l) => [...l, sync, update]));
   }
 
   // ---- the dialog: editing ----------------------------------------------------------------
@@ -432,7 +505,7 @@ export default class QuickActions extends View {
     const d = this.collect();
     if (Object.keys(errors(d)).length) { this.showErrors = true; cx.notify(); return; }
     d.updatedAt = Date.now();
-    cx.spawn(async (cx) => {
+    spawn(cx, async (cx) => {
       await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
       this.back(cx);
     });
@@ -468,7 +541,7 @@ export default class QuickActions extends View {
     d.updatedAt = Date.now();
     w.busy = true;
     cx.notify();
-    cx.spawn((cx) => this.writeWithAgent(cx, w, d, path, what, agent));
+    spawn(cx, (cx) => this.writeWithAgent(cx, w, d, path, what, agent));
   }
 
   /** The work of Start (runWriter), with the cx of cx.spawn. */
@@ -492,6 +565,8 @@ export default class QuickActions extends View {
   /** Back to the list, without saving. */
   back(cx) {
     this.view = "list";
+    this.outputKey = null;
+    this.outputText = null;
     this.draft = null;
     this.confirmAction = null;
     this.askFields = null;
@@ -510,6 +585,7 @@ export default class QuickActions extends View {
     if (this.part === "status") return this.statusView(t);
     let body;
     if (this.view === "edit" && this.draft) body = editView(this, t);
+    else if (this.view === "output") body = outputView(this, t);
     else if (this.view === "confirm") body = confirmView(this, t);
     else {
       const notice = this.listError ?? (!this.demo && !runnerAlive()

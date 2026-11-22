@@ -12,6 +12,7 @@ A Herdr app mod that keeps named scripts and runs them in the terminal of the ac
 - **Safe values.** Each value goes into the script in quotes for the shell (a JSON string for Python and Node.js). Write `cd {repo}`, not `cd "{repo}"`. A branch or a folder with spaces, `;`, `$` or quotes cannot run code. Other text in braces (`@{u}`, a PowerShell script block) does not change.
 - **The terminal that has the focus.** The action types its line into that terminal, after it clears a draft at the prompt. When the terminal runs an agent or a program (`npm`, `vim`, a server), the action opens a new tab in the same space and folder and runs there.
 - **New tab.** An action can always run in a new tab, with the name of the action.
+- **Background.** An action can run with no terminal on the screen: **Where it runs**, **Background**. It runs in the folder of the focused terminal, on its machine. A toast shows when it ends, with the exit code when it fails. Its row in the list shows the state of the last run (running, done, failed, stopped, timed out); a click on it shows the output, and **Stop** stops a run. While it runs, its **Run** button is **Output**. A background run stops after the **Background timeout** of the settings (30 min by default): it cannot answer a question (a password, `Read-Host`, a prompt of `npm`).
 - **Ask before run.** An action can show its script with the values and wait for **Run** (or Enter).
 - **Questions.** `{ask:Label}` or `{ask:Label=default}` in a script asks for a value before the run: the question shows 1 field for each label, with the script and the values. The answer goes in quotes too.
 - **Only in.** An action can have a list of folders and repository names. It runs only there; elsewhere its row is gray.
@@ -91,6 +92,18 @@ In PowerShell, `& '<file>'` runs in your shell: a `Set-Location` in the script s
 
 To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo}\dist` gives 2 words. In `sh`, `{repo}/dist` works. In Python, `os.path.join({repo}, "dist")`; in Node.js, `path.join({repo}, "dist")`.
 
+## Background runs
+
+A background run is a terminal of herdr-core that is not on the screen (`hc run --bg`), with the label `quick-actions=<id>`. The run file goes to that terminal as with a new tab, and the shell of the machine runs it:
+
+| Language | Program |
+| --- | --- |
+| PowerShell | `pwsh -NoProfile -Command "& '<file>'; …"`: the exit code of the last program that failed (PowerShell itself ends with 0 after it), or 1 after an error |
+| bash, sh | `bash '<file>'` (Git Bash on Windows): the exit code of the script. Put `set -e` at the top to stop at the first error |
+| Python, Node.js | `python3`, `python` or `py -3`, and `node`: the exit code of the script |
+
+The terminal gets the environment of herdr-core and no profile (`-NoProfile`): a program that only your profile puts in the `PATH` is not found. The status bar item of Quick Actions checks the runs every second, so it must be in the layout (the Dock and Kanban layouts have it). The output of the last run of each action stays in `~/.config/herdr-app/data/quick-actions/output/`. When Herdr or herdr-core restarts during a run, the run is **lost**.
+
 ## Limits
 
 - **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it. A program with a window that the shell started (`Start-Process notepad`) is a child process too: the terminal is busy until the program closes, and the actions open a new tab.
@@ -100,6 +113,8 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 
 - `~/.config/herdr-app/data/quick-actions.json`: the actions. You can edit it by hand; the list reads it again.
 - `~/.config/herdr-app/data/quick-actions/runs/`: the run files.
+- `~/.config/herdr-app/data/quick-actions/output/`: the output of the last background run of each action.
+- `shared("quick-actions.jobs")`: the state of the last background run of each action.
 - `~/.config/herdr-app/data/quick-actions/scripts/`: the script files that an agent writes (the default **Script folder**).
 - `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, at the end of the list. It changes no other entry.
 - `shared("dock.hiddenEntries")`: `{ "quick-actions": [ "qa-<id>" ] }`, the buttons that the bars leave out now.
@@ -107,6 +122,7 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 ## What it runs
 
 - `hc keys` (Esc or Ctrl+U, to clear a draft at the prompt), `hc send` and `hc read` on the terminal that gets the line, and `hc put` to copy a run file to another machine.
+- A background run: `hc run --bg` (on the machine of the space), then `hc get` each second, `hc read` for the output, `hc kill` for Stop and the timeout, and `hc rm` at the end.
 - `git rev-parse --show-toplevel` and `git branch --show-current` in the folder of the terminal, only when the script or its filter needs `{repo}`, `{repo_name}` or `{branch}`.
 - On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command, and once for each machine `Get-Command` and `Test-Path`, to find Git Bash and Python.
 - `python`, `python3`, `py`, `node`, `bash` or `pwsh`, when an action in that language runs.

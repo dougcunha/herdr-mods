@@ -19,6 +19,9 @@ export const KEY = {
   runner: "quick-actions.runner", // { at }: the runner is on the screen
   scriptDir: "quick-actions.scriptDir", // a setting: the folder of the scripts that an agent writes
   agent: "quick-actions.agent", // the agent that wrote the last script (the choice of the form)
+  jobs: "quick-actions.jobs", // { "<kind>:<action id>": job }: the last background run and agent of each action (jobs.js)
+  lease: "quick-actions.lease", // { owner, at }: the runner copy that checks the background jobs
+  timeout: "quick-actions.timeoutMin", // a setting: the minutes before a background job is stopped
   hidden: "dock.hiddenEntries", // { "<mod>": [ <panels.json id> ] }: the bars of Dock and Kanban leave out these buttons
 };
 
@@ -92,7 +95,7 @@ export function blank() {
     source: "inline", // "inline" (script is the text) | "file" (file is the path of a script)
     script: "",
     file: "",
-    where: "terminal", // "terminal" (the focused terminal; a new tab when it is busy) | "tab" (always a new tab)
+    where: "terminal", // "terminal" (the focused terminal; a new tab when it is busy) | "tab" (always a new tab) | "background" (no terminal on the screen)
     confirm: false, // ask before the run
     filter: "", // folders and repository names, separated by commas; empty: everywhere
     pinned: false, // a button in the bar of the Dock and Kanban layouts
@@ -117,7 +120,7 @@ export function normalize(a) {
     source: a.source === "file" ? "file" : "inline",
     script: str(a.script),
     file: str(a.file),
-    where: a.where === "tab" ? "tab" : "terminal",
+    where: a.where === "tab" || a.where === "background" ? a.where : "terminal",
     confirm: a.confirm === true,
     filter: str(a.filter),
     pinned: a.pinned === true,

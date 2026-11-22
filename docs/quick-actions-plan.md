@@ -311,3 +311,27 @@ active space with one click or one key. Examples: sync the repository
 ## Open questions
 
 None.
+
+### Phase 5 (as built): background runs and a background agent
+
+Asked on 2026-11-22: run an action and the script agent with no terminal on the screen.
+
+- **Spikes first.** `hc run --bg` gives a terminal of herdr-core that is not on the screen; `hc get --json`
+  gives `state: finished`, `exit_code` and `reason` (`exited`, `killed`); `hc read --lines` reads
+  the output of a finished terminal (200 columns, no wrap below that); a removed terminal gives
+  `not_found`. `--on <machine>` works with the run file of `hc put` (the target terminal is needed for
+  it). A `.ps1` with a failed `git` and no `exit` ends with 0, so PowerShell runs through
+  `-Command "& '<file>'; if ($LASTEXITCODE) { exit $LASTEXITCODE }; if (-not $?) { exit 1 }"`.
+  `-NoProfile` still finds `node` and `npm` (the environment of herdr-core).
+- **Phase 5a: actions.** `where: "background"`. `prepare()` skips the busy probe and always uses a run
+  file in the default shell of the machine. `jobs.js` keeps the state in `shared("quick-actions.jobs")`
+  (`"run:<id>"`), so every copy shows it. The runner copy that holds `shared("quick-actions.lease")`
+  (a hidden layout can keep a second copy) checks the running jobs every second; an open dialog checks
+  them too when no runner holds the lease. At the end: the output goes to
+  `data/quick-actions/output/run-<id>.txt`, `hc rm`, the status (ok, failed, stopped, timed out, lost)
+  and a toast. The timeout is the setting `quick-actions.timeoutMin` (30 min). The list row shows the
+  state; a click opens the output view (live `hc read` while it runs, Stop). A second start of a
+  running action is refused. Jobs of deleted actions go away when the runner reads the list.
+- **Tested in the app (5a):** ok, failed (128 from `git`, 4 from Python), bash, Stop, the timeout, a
+  removed terminal (lost), Enter in the dialog, a space on `notebook` (pwsh, accents) and on `ubuntu`
+  (sh). Not tested from the shell: clicks.

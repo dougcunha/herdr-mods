@@ -101,8 +101,9 @@ export function editView(v, t) {
       U.segmented(t, "qa-shell", SHELLS.map((s) => ({ value: s, label: SHELL_LABEL[s] })), d.shell,
         (val, cx) => v.set(cx, (x) => { x.shell = val; }))))
     .child(U.formRow(t, "Preview", "The script with the values of the terminal that has the focus now.", preview(v, t)))
-    .child(U.formRow(t, "Where it runs", "Terminal: the terminal that has the focus. When it runs an agent or a program, a new tab in the same folder.",
-      U.segmented(t, "qa-where", [{ value: "terminal", label: "Terminal" }, { value: "tab", label: "New tab" }], d.where,
+    .child(U.formRow(t, "Where it runs",
+      "Terminal: the terminal that has the focus (a new tab in the same folder when it runs an agent or a program). Background: no terminal on the screen; a toast shows the end, and the list shows the output. A background job cannot answer a question (a password, Read-Host): it stops after the timeout of the settings.",
+      U.segmented(t, "qa-where", [{ value: "terminal", label: "Terminal" }, { value: "tab", label: "New tab" }, { value: "background", label: "Background" }], d.where,
         (val, cx) => v.set(cx, (x) => { x.where = val; }))))
     .child(U.formRow(t, "Ask before run", "Shows the script and asks before it runs.",
       U.toggle(t, "qa-confirm", d.confirm ? "On" : "Off", d.confirm, (cx) => v.set(cx, (x) => { x.confirm = !x.confirm; }))))
