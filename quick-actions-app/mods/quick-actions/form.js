@@ -55,11 +55,11 @@ function writerPanel(v, t) {
     .child(installed.length
       ? U.segmented(t, "qa-agent", installed.map((a) => ({ value: a.key, label: a.name })), w.agent, (val, cx) => { w.agent = val; cx.notify(); })
       : div().text_size(11.5).text_color(t.blocked).child("No agent is installed."))
-    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action with this script file. Then the agent works in a new tab and writes ${path}. Run the action when it is done.`))
+    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action with this script file. Then the agent writes ${path} in a new tab of this space (a new space on this computer when this space is on another machine). Run the action when it is done.`))
     .when(Boolean(w.error), (e) => e.child(h_flex().gap(5).items_center().text_size(11.2).text_color(t.blocked)
       .child(svg(U.icon("alert")).size(12).flex_none().text_color(t.blocked)).child(w.error)))
     .child(h_flex().gap(8)
-      .child(U.button(t, "qa-agent-go", "Start", (cx) => v.runWriter(cx), { kind: "primary", iconName: "sparkles", disabled: !installed.length }))
+      .child(U.button(t, "qa-agent-go", w.busy ? "Starting…" : "Start", (cx) => v.runWriter(cx), { kind: "primary", iconName: "sparkles", disabled: !installed.length || Boolean(w.busy) }))
       .child(U.button(t, "qa-agent-cancel", "Cancel", (cx) => { v.writer = null; cx.notify(); })));
 }
 

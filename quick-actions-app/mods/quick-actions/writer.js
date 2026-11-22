@@ -1,8 +1,9 @@
 // "New with an agent…" and "Edit with an agent…" of the form: an agent writes the script file of an
-// action from a description. The action is saved first (source "file"), then the agent starts in a new
-// tab of the shown space, in the folder of the file, with the task below. See docs/quick-actions-plan.md.
+// action from a description. The action is saved first (source "file"), then the agent starts in the
+// folder of the file, with the task below: in a new tab of the shown space, or in a new space on this
+// computer when the shown space is on another machine (the file is on this computer). See docs/quick-actions-plan.md.
 
-import { exec, run, notify, shared, setShared, home, window } from "herdr";
+import { exec, run, notify, shared, setShared, home, window, spaces, terminals } from "herdr";
 import { KEY } from "./store.js";
 import { VARIABLES, psq } from "./vars.js";
 import { expandHome, fileShell } from "./run.js";
@@ -101,18 +102,34 @@ export function writerTask(mode, path, what) {
   ].join("\n");
 }
 
+const wait = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
+
 /**
- * Starts the agent: a tab in the space `space` (null: a new space), in the folder of the file.
- * `agent`: an entry of knownAgents(). Returns false when it could not start.
+ * Starts the agent in the folder of the file, on this computer: the script file is on this computer.
+ * A local `space` gets a new tab; a space on another machine (or none) gives a new space on this computer.
+ * `agent`: an entry of knownAgents(). Throws an Error with a message for the person when no terminal starts.
  */
-export async function startWriter({ mode, path, what, agent, space, name }) {
+export async function startWriter(cx, { mode, path, what, agent, space, name }) {
   const folder = dirOf(path);
   await makeDir(folder);
   setShared(KEY.agent, agent.key);
   const start = agentStart(agent.run, writerTask(mode, path, what));
   const tabName = `Script: ${name}`.slice(0, 40);
-  if (space) run("tab.new", { space, folder, name: tabName, focus: true, ...start });
-  else run("space.new", { folder, name: tabName, ...start });
-  notify({ title: "Quick Actions", body: `${agent.name} writes ${shortPath(path)}. Run the action when it is done.`, level: "info", timeout: 7000 });
-  return true;
+  const local = Boolean(space) && spaces().some((s) => s.id === space && !s.machine);
+  const before = new Set(terminals().map((x) => x.address));
+  if (local) run("tab.new", { space, folder, name: tabName, focus: true, ...start });
+  else run("space.new", { machine: "", folder, name: tabName, focus: true, ...start });
+  // run() gives no result: a new terminal on this computer shows that the tab started.
+  let started = false;
+  for (let i = 0; i < 40 && !started; i++) {
+    await wait(cx, 150);
+    started = terminals().some((x) => !before.has(x.address) && !x.address.includes("/"));
+  }
+  if (!started) throw new Error(`The terminal of the agent did not start in ${shortPath(folder)}.`);
+  notify({
+    title: "Quick Actions",
+    body: `${agent.name} writes ${shortPath(path)}${local ? "" : " in a new space on this computer"}. Run the action when it is done.`,
+    level: "info",
+    timeout: 7000,
+  });
 }

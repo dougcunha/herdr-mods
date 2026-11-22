@@ -434,7 +434,7 @@ export default class QuickActions extends View {
   /** Saves the action with its script file, starts the agent that writes the file, and closes the dialog. */
   async runWriter(cx) {
     const w = this.writer;
-    if (!w || this.demo) return;
+    if (!w || w.busy || this.demo) return;
     const d = this.collect();
     const what = w.desc.value().trim();
     const agent = this.agentList.find((x) => x.key === w.agent && x.installed);
@@ -444,8 +444,21 @@ export default class QuickActions extends View {
     d.source = "file";
     d.file = shortPath(path);
     d.updatedAt = Date.now();
-    await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
-    await startWriter({ mode: w.mode, path, what, agent, space: this.target?.space ?? null, name: d.name });
+    w.busy = true;
+    cx.notify();
+    try {
+      await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
+      // The form shows the saved file from now on (Save after a fault keeps it).
+      this.draft = { ...this.draft, source: "file", file: d.file };
+      this.f.file.set_value(d.file);
+      await startWriter(cx, { mode: w.mode, path, what, agent, space: this.target?.space ?? null, name: d.name });
+    } catch (e) {
+      w.busy = false;
+      w.error = `The agent did not start: ${e?.message ?? e}`;
+      notify({ title: "Quick Actions", body: w.error, level: "error", timeout: 8000 });
+      cx.notify();
+      return;
+    }
     this.close_();
   }
 
