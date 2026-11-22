@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
-Status: design agreed on 2026-11-22 (1 round of questions). Phase 1 done on
-2026-11-22 (setup versions 129 and 130).
+Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 and 2 done on
+2026-11-22 (setup versions 129 to 131).
 
 ## Goal
 
@@ -203,6 +203,29 @@ active space with one click or one key. Examples: sync the repository
   Without the status block, `herdr-app do quick-actions.run-<id>` answers
   "unknown command". Not tested from the shell: the keyboard focus (search
   field, arrows, Enter, Esc after a click).
+
+### Phase 2 (as built)
+
+- **Sync.** `syncPanels(list)` in `store.js` runs after each change of the
+  list in the dialog and once when the runner starts (so a change of the file
+  by hand also reaches the bar). It owns only the `qa-<id>` entries. The
+  **Actions** entry (`id: "quick-actions"`, `mod.open:quick-actions`) is not
+  written by the mod: `SETUP-PROMPT.md` and the README add it, as for
+  `github-clone`.
+- **Hidden buttons.** `shared("dock.hiddenEntries")` is
+  `{ "<mod>": [ <id> ] }`, so 2 mods do not overwrite each other. The runner
+  checks again when the target terminal, its folder or the list changes
+  (`context(..., { probe: false })`: no child-process check). The bars leave
+  out the ids only where they draw the command buttons; a key of the entry
+  still runs it, and the runner then shows the filter toast.
+- **Tested in the app:** the sync (a hand-made `qa-u1` entry went away, 3
+  pinned actions came in), the hidden button in and outside a repository, in
+  `tabs-dock` and in `kanban`, a run through `tabs-dock.qa-<id>` and
+  `kanban.panel-qa-<id>`, and unpin through the dialog (`pin-<id>`). A real
+  mouse click on a bar button was not tested (no click from the shell); if
+  the click takes the focus from the terminal, the runner uses the kept
+  target.
+- Setup version 131. `tabs-dock` and `kanban` changed too.
 
 ## Open questions
 

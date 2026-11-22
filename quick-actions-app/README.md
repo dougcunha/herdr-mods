@@ -12,6 +12,7 @@ A Herdr app mod that keeps named scripts and runs them in the terminal of the ac
 - **New tab.** An action can always run in a new tab, with the name of the action.
 - **Ask before run.** An action can show its script with the values and wait for **Run** (or Enter).
 - **Only in.** An action can have a list of folders and repository names. It runs only there; elsewhere its row is gray.
+- **Bar buttons.** Pin an action (the pin of its row, or **Bar button** in the form) and the bar of the [Dock](../dock-app) and [Kanban](../kanban-app) layouts shows a button with its name and icon. A button with **Only in** shows only while the focused terminal is in one of its folders or repositories. **Bar buttons** in the gear menu of the bar moves and hides them, as the other buttons.
 - **Keys.** Each action has a command: `quick-actions.run-<id>`. The form shows it, ready for `keys.json`.
 
 [`RECIPE.md`](RECIPE.md) describes the mod in full.
@@ -35,7 +36,13 @@ Then add the status bar item to the `children` of the `status-row` block of your
 { "id": "quick-actions-status", "type": "block", "content": { "mod": "quick-actions", "props": { "part": "status" } }, "size": { "px": 34 } }
 ```
 
-**The keys of the actions work only while the shown layout has this item.** A key sends `quick-actions.run-<id>`, and only a copy of the mod on the screen gets it. The item also remembers the last terminal that had the focus. Without it, the list shows a warning, and its **Run** buttons still work.
+**The keys and the bar buttons of the actions work only while the shown layout has this item.** A key or a button sends `quick-actions.run-<id>`, and only a copy of the mod on the screen gets it. The item also remembers the last terminal that had the focus. Without it, the list shows a warning, and its **Run** buttons still work.
+
+For an **Actions** button (it opens the list) in the Dock and Kanban bars, add this entry to `~/.config/herdr-app/dock/panels.json`:
+
+```json
+{ "id": "quick-actions", "label": "Actions", "icon": "mods/quick-actions/actions.svg", "opens": "command", "run": "mod.open", "args": { "name": "quick-actions" } }
+```
 
 Then add the key to the `global` section of `~/.config/herdr-app/keys.json` (the file [`keys.json`](keys.json) has it):
 
@@ -78,6 +85,8 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 
 - `~/.config/herdr-app/data/quick-actions.json`: the actions. You can edit it by hand; the list reads it again.
 - `~/.config/herdr-app/data/quick-actions/runs/`: the run files.
+- `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, at the end of the list. It changes no other entry.
+- `shared("dock.hiddenEntries")`: `{ "quick-actions": [ "qa-<id>" ] }`, the buttons that the bars leave out now.
 
 ## What it runs
 

@@ -74,6 +74,8 @@ export function editView(v, t) {
         (val, cx) => v.set(cx, (x) => { x.where = val; }))))
     .child(U.formRow(t, "Ask before run", "Shows the script and asks before it runs.",
       U.toggle(t, "qa-confirm", d.confirm ? "On" : "Off", d.confirm, (cx) => v.set(cx, (x) => { x.confirm = !x.confirm; }))))
+    .child(U.formRow(t, "Bar button", "A button with the name and the icon in the bar of the Dock and Kanban layouts. With Only in, it shows only there.",
+      U.toggle(t, "qa-pinned", d.pinned ? "On" : "Off", d.pinned, (cx) => v.set(cx, (x) => { x.pinned = !x.pinned; }))))
     .child(U.formRow(t, "Only in", "Folders (and the folders in them) or repository names, separated by commas. * works. Empty: everywhere.",
       fld(v.f.filter)))
     .child(U.formRow(t, "Key", "Add this action to keys.json, for example:",

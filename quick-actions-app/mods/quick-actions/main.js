@@ -11,9 +11,9 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, checking, window } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window } from "herdr";
 import * as S from "./store.js";
-import { currentTarget, context } from "./vars.js";
+import { currentTarget, context, filterMatches, filterNeedsRepo } from "./vars.js";
 import { runAction, prepare, fail } from "./run.js";
 import { listView, visible, allowed } from "./list.js";
 import { editView, confirmView, errors } from "./form.js";
@@ -48,7 +48,13 @@ export default class QuickActions extends View {
   initStatus(cx) {
     this.busy = false;
     this.aliveAt = 0;
+    this.list = []; // the actions, for the filter of the bar buttons
+    this.listRev = undefined;
+    this.whereKey = null; // where the filter of the bar buttons was last checked
+    this.hiding = false;
     if (checking()) return;
+    // The bar buttons follow the list, also after a change of the file by hand.
+    S.loadList().then((d) => (d.list ? S.syncPanels(d.list) : null)).catch((e) => console.log(`quick-actions: ${e?.message ?? e}`));
     cx.timer.every(BEAT_MS, () => { if (!kitOff()) this.beat(); });
     cx.spawn(async (cx) => {
       for (;;) {
@@ -69,6 +75,34 @@ export default class QuickActions extends View {
     }
     const now = Date.now();
     if (now - this.aliveAt >= ALIVE_MS) { this.aliveAt = now; setShared(KEY.runner, { at: now }); }
+    const rev = shared(KEY.rev) ?? null;
+    if (rev !== this.listRev) {
+      this.listRev = rev;
+      S.loadList().then((d) => { if (d.list) { this.list = d.list; this.whereKey = null; } });
+    }
+    this.updateHidden();
+  }
+
+  /**
+   * The bar buttons of the pinned actions whose filter leaves out the target terminal go into
+   * shared("dock.hiddenEntries"): the bars of Dock and Kanban do not draw them. Checked again when the target,
+   * its folder or the list changes.
+   */
+  updateHidden() {
+    const pinned = this.list.filter((a) => a.pinned && a.filter.trim());
+    const target = pinned.length ? currentTarget() : null;
+    if (!target) { S.setHidden([]); this.whereKey = null; return; }
+    const f = focused();
+    const cwd = (f?.terminal && f.terminal === target.terminal && f.cwd) || panes().find((p) => p.terminal === target.terminal)?.cwd || "";
+    const key = JSON.stringify([target.terminal, target.space, cwd, pinned.map((a) => `${a.id} ${a.filter}`)]);
+    if (key === this.whereKey || this.hiding) return;
+    this.whereKey = key;
+    this.hiding = true;
+    const need = new Set(pinned.some((a) => filterNeedsRepo(a.filter)) ? ["repo_name"] : []);
+    context(target, need, { probe: false })
+      .then((ctx) => S.setHidden(pinned.filter((a) => !filterMatches(a.filter, ctx)).map(S.panelId)))
+      .catch(() => {})
+      .finally(() => { this.hiding = false; });
   }
 
   async runById(cx, id) {
@@ -123,7 +157,7 @@ export default class QuickActions extends View {
     if (checking()) return;
     cx.timer.every(1000, (cx) => { if (!kitOff()) this.refresh(cx); });
     cx.timer.every(400, (cx) => { if (!kitOff()) this.updatePreview(cx); });
-    // `herdr-app do quick-actions.<command>` drives an open dialog (tests).
+    // `herdr-app do quick-actions.<command>` drives an open dialog (tests): new, edit-<id>, list, save, demo, pin-<id>, up, down, enter.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -133,6 +167,7 @@ export default class QuickActions extends View {
         else if (c === "list") this.back(cx);
         else if (c === "save" && this.view === "edit") this.save(cx);
         else if (c === "demo") { this.demo = !this.demo; this.selected = 0; cx.notify(); }
+        else if (c.startsWith("pin-") && a(c.slice(4))) this.pin(cx, a(c.slice(4)));
         else if (c === "down" || c === "up") this.move(cx, c === "down" ? 1 : -1);
         else if (c === "enter") { if (this.view === "list") this.runSelected(cx); else if (this.view === "confirm") this.confirmRun(cx); }
       }
@@ -162,8 +197,21 @@ export default class QuickActions extends View {
       this.loadedRev = shared(KEY.rev);
     } catch (e) {
       notify({ title: "Quick Actions", body: `Cannot save: ${e?.message ?? e}`, level: "error", timeout: 8000 });
+      cx.notify();
+      return;
+    }
+    // The bar buttons of the pinned actions (dock/panels.json).
+    try {
+      await S.syncPanels(this.list);
+    } catch (e) {
+      notify({ title: "Quick Actions", body: `Cannot change the bar buttons: ${e?.message ?? e}`, level: "error", timeout: 8000 });
     }
     cx.notify();
+  }
+
+  /** Pins an action to the bar of the Dock and Kanban layouts, or takes it away. */
+  pin(cx, a) {
+    this.change(cx, (l) => l.map((x) => (x.id === a.id ? { ...x, pinned: !x.pinned, updatedAt: Date.now() } : x)));
   }
 
   /** The preview of the form or of the question: prepare() again when the draft changes. */

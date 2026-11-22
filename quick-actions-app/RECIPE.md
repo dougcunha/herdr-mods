@@ -28,7 +28,7 @@ A Herdr mod that keeps named scripts and runs them in the terminal of the shown 
 | `where` | `"terminal"` (the target terminal; a new tab when it is busy) or `"tab"` (always a new tab). |
 | `confirm` | Ask before the run. |
 | `filter` | Folders and repository names, separated by commas. Empty: everywhere. |
-| `pinned` | Reserved for the bar buttons (phase 2). |
+| `pinned` | A button in the bar of the Dock and Kanban layouts. |
 
 Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tries) and set `shared("quick-actions.rev")`; every dialog copy reads the file again when the key changes (1 s timer).
 
@@ -36,6 +36,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 
 - A 34 px block: a 13 px `actions.svg` (Lucide square-terminal) in `dim`, `working` while a run goes on. A click runs `mod.open:quick-actions`.
 - Every 500 ms: when `focused().terminal` is set and differs from `shared("quick-actions.target")` (`{ terminal, space, tab }`), it writes the key. Every 20 s: `shared("quick-actions.runner") = { at }`. The dialog shows a warning when `at` is older than 60 s.
+- At start: `syncPanels(list)`. Every 500 ms, the list again when `quick-actions.rev` changes, and `updateHidden()`: for the pinned actions with a filter, when the target, its folder or the list changed, `context(target, need, { probe: false })` (git only for a name part) and `setHidden(ids)`: `shared("dock.hiddenEntries")["quick-actions"] = ["qa-<id>", …]` for the filters that leave out the target (written only when it changed).
 - `nextCommand()`: `open` opens the dialog; `run-<id>` reads the file, takes the target (`currentTarget()`), and runs the action, or opens a dialog (640 × 340) with `props: { confirm: <id>, target }` when the action asks first.
 
 ## The target terminal
@@ -69,9 +70,13 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 ## Dialog
 
 - **List** (`list.js`): a 58 px header (32 px tile, "Quick Actions", "Runs in <terminal> · <folder>" or "a new tab (<terminal> runs <program>)", **New**, ×); a warning band when the list file is broken or no runner is alive; a search field (focused at open); 1 row per action (36 px icon tile, the name, labels: lines or file name, terminal or new tab, asks first, the filter), **Run**, pencil, trash (2 clicks). The selected row has an `accent` border. A row whose filter leaves out the target is at 70% and its Run is off. ↑ ↓ select, Enter runs, Esc closes. Empty: **Add 2 examples** (Sync the repository; Update and install, which asks first) and **New action**.
-- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab), Ask before run, Only in, Key (`"ctrl-shift-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list.
+- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab), Ask before run, Only in, Key (`"ctrl-shift-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list. A row also has a pin button (`accent` when pinned), and the form a **Bar button** switch.
 - **Question** (`confirmView`): the icon, "Run <name>?", where it runs, the expanded script, Cancel and **Run** (Enter).
 - `herdr-app do quick-actions.<new | edit-<id> | list | save | demo | up | down | enter>` drives an open dialog.
+
+## Bar buttons
+
+`syncPanels(list)` (`store.js`) makes the entries of `dock/panels.json` whose id starts with `qa-` match the pinned actions: `{ id: "qa-<id>", label: <name>, icon: "mods/quick-actions/<icon>.svg", opens: "command", run: "quick-actions.run-<id>" }`. An entry keeps its place and gets the new name and icon; a new one goes at the end; the entry of an action that is not pinned goes away. No other entry changes. No file: nothing. It writes with `writeTextFile(path, text, expected)` (3 tries) after each change of the list in the dialog, and once when the runner starts. The bars run the entry with `run("quick-actions.run-<id>")`; `entryMod()` gives `quick-actions`, so they hide the buttons when the mod is off. They also leave out the ids in `shared("dock.hiddenEntries")` (any mod; the values of all keys).
 
 ## On and off
 

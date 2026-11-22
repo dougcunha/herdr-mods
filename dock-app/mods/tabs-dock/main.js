@@ -53,6 +53,13 @@ const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "git-client": "
 const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(v) ? v.filter(n => typeof n === "string") : []); };
 // The mod of a panels.json entry: its `mod`, the mod of a "<mod>.<command>" or of a mod.open command.
 const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);
+
+// Buttons that a mod hides for now: shared "dock.hiddenEntries" is { "<mod>": [ <panels.json id> ] }. Quick Actions
+// hides the button of a pinned action whose filter leaves out the focused terminal. A key still runs the entry.
+const hiddenEntries = () => {
+  const v = shared("dock.hiddenEntries");
+  return new Set(v && typeof v === "object" && !Array.isArray(v) ? Object.values(v).flat().filter((x) => typeof x === "string") : []);
+};
 const PANEL_NARROW = 1600; // px of window: below it, Auto opens a dialog
 const DIALOG_TITLE = 36; // px: the title row of a panel dialog
 const PANEL_HEAD = 28; // px: the title row of the side panel (the block "panel-head")
@@ -909,7 +916,8 @@ export default class Tabs extends View {
     for (const c of body?.children ?? []) taken.delete(c.id);
     const live = this.liveEntries();
     const wanted = live.filter(e => !isGitEntry(e) && e.opens !== "command" && !taken.has(e.id) && !BUILTIN.some(b => b.id === e.id));
-    const commands = live.filter(e => e.opens === "command");
+    const hidden = hiddenEntries();
+    const commands = live.filter(e => e.opens === "command" && !hidden.has(e.id));
     const panelEntries = wanted.filter(e => e.opens === "panel");
     const injecting = panel && body && this.version ? this.syncGit(root, body, live) || this.inject(root, body, panelEntries) : false;
     // One layout edit for each render: the title row of the side panel, the agents swap and the off mods wait

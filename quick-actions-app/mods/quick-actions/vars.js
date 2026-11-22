@@ -123,8 +123,9 @@ const pad = (n) => String(n).padStart(2, "0");
  * The context of a target: where it is, if its terminal is busy, its shell and the values of the
  * variables in `need` (a Set of names; the git values run git only when needed).
  * { target, machine, windows, folder, busy, busyWith, shell, values }.
+ * `probe: false` skips the check for a running command on Windows (the bar filter does not need it).
  */
-export async function context(target, need = new Set(VARIABLES.map((v) => v[0]))) {
+export async function context(target, need = new Set(VARIABLES.map((v) => v[0])), { probe = true } = {}) {
   const sp = spaces().find((s) => s.id === target.space) ?? null;
   const tab = sp?.tabs?.find((x) => x.id === target.tab) ?? null;
   const machine = sp?.machine ?? null;
@@ -140,7 +141,7 @@ export async function context(target, need = new Set(VARIABLES.map((v) => v[0]))
   let busyWith = busy && target.terminal ? program?.name ?? "" : "";
   // On Windows, Herdr reports the shell also while a command of it runs (npm, git, vim): a child
   // process of the shell tells it.
-  if (!busy && info.windows && term?.pid) {
+  if (probe && !busy && info.windows && term?.pid) {
     const kids = await childNames(term.pid, machine);
     if (kids.length) { busy = true; busyWith = kids[0].replace(/\.exe$/i, ""); }
   }

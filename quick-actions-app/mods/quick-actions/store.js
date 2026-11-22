@@ -17,7 +17,55 @@ export const KEY = {
   rev: "quick-actions.rev", // changes when a copy saves the list
   target: "quick-actions.target", // { terminal, space, tab }: the last terminal that had the focus (the runner writes it)
   runner: "quick-actions.runner", // { at }: the runner is on the screen
+  hidden: "dock.hiddenEntries", // { "<mod>": [ <panels.json id> ] }: the bars of Dock and Kanban leave out these buttons
 };
+
+export const panelsPath = () => `${slash(appHome())}/dock/panels.json`;
+export const panelId = (a) => `qa-${a.id}`;
+
+/** The panels.json entry of a pinned action. */
+const panelEntry = (a) => ({ id: panelId(a), label: a.name || "Action", icon: `mods/quick-actions/${a.icon}.svg`, opens: "command", run: `quick-actions.run-${a.id}` });
+
+/**
+ * Makes the `qa-<id>` entries of dock/panels.json match the pinned actions: an entry keeps its place, a new one
+ * goes at the end, the entry of an action that is not pinned goes away. Other entries do not change. No file (no
+ * Dock layout): nothing. Returns true when it wrote the file.
+ */
+export async function syncPanels(list) {
+  for (let i = 0; i < 3; i++) {
+    const text = await readTextFile(panelsPath());
+    if (text == null) return false;
+    let json;
+    try { json = JSON.parse(text); } catch { throw new Error("dock/panels.json is not valid JSON."); }
+    const panels = Array.isArray(json?.panels) ? json.panels : [];
+    const want = new Map(list.filter((a) => a.pinned).map((a) => [panelId(a), panelEntry(a)]));
+    const next = [];
+    for (const e of panels) {
+      const own = typeof e?.id === "string" && e.id.startsWith("qa-");
+      if (!own) next.push(e);
+      else if (want.has(e.id)) { next.push(want.get(e.id)); want.delete(e.id); }
+    }
+    next.push(...want.values());
+    const out = `${JSON.stringify({ ...json, panels: next }, null, 2)}\n`;
+    if (out === text || JSON.stringify(next) === JSON.stringify(panels)) return false;
+    try {
+      await writeTextFile(panelsPath(), out, text);
+      return true;
+    } catch (e) {
+      if (i === 2) throw e;
+    }
+  }
+  return false;
+}
+
+/** Writes the panels.json ids of this mod that the bars must leave out (only when they changed). */
+export function setHidden(ids) {
+  const cur = shared(KEY.hidden);
+  const all = cur && typeof cur === "object" && !Array.isArray(cur) ? cur : {};
+  const mine = Array.isArray(all[MOD]) ? all[MOD] : [];
+  if (mine.length === ids.length && mine.every((x, i) => x === ids[i])) return;
+  setShared(KEY.hidden, { ...all, [MOD]: ids });
+}
 
 const slash = (p) => String(p ?? "").replace(/\\/g, "/");
 export const dataDir = () => `${slash(appHome())}/data`;

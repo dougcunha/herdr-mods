@@ -99,6 +99,8 @@ The **density** button (two chevrons, left of the panel buttons) goes **Auto →
 
 The **gear** button, right of the density button, opens a menu: **Herdr settings**, **Bar buttons** and, with the `mods-hub` mod installed, **PowerMods** (the dialog on its **Settings** tab). `tabs-dock.gear` in `keys.json` does the same.
 
+A mod can hide a command button for a while: `shared("dock.hiddenEntries")` is `{ "<mod>": [ "<id>", … ] }`, and the bar leaves out these ids. [Quick Actions](../quick-actions-app) writes its `qa-<id>` entries in `panels.json` and hides the ones whose filter leaves out the focused terminal. A key of the entry still runs it.
+
 **Bar buttons** opens a list of the buttons of the panel group (Files, the Git group, the panel, tab and command entries). The top of the list is the left of the bar. Each row has ↑ and ↓ to move the button, and an eye to show or hide it. **Reset** goes back to the order of `panels.json` with all buttons shown. A hidden button still opens its panel with its key in `keys.json`, and the panels of a hidden group button stay in its menu (`tabs-dock.group-<id>`). The choice is saved in `shared("kanban.barButtons")`, and the [Kanban](../kanban-app) bar reads the same value, so both bars show the same order. A new entry of `panels.json` comes at the end. `tabs-dock.buttons` in `keys.json` opens the list.
 
 Language: English, or Portuguese with `"lang": "pt"` in the `props` of the bar block. With the `mods-hub` mod, its **Language** setting (`shared("herdr-mods.lang")`) wins over the prop.

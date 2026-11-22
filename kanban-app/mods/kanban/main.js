@@ -51,6 +51,13 @@ const ORIGINALS = { "space-deck": "spaces", "files-md": "files", "git-client": "
 const offMods = () => { const v = shared(KEY_OFF); return new Set(Array.isArray(v) ? v.filter((n) => typeof n === "string") : []); };
 // The mod of a panels.json entry: its `mod`, the mod of a "<mod>.<command>" or of a mod.open command.
 const entryMod = (e) => e.mod ?? (e.run === "mod.open" ? e.args?.name : String(e.run ?? "").includes(".") ? String(e.run).split(".")[0] : null);
+
+// Buttons that a mod hides for now: shared "dock.hiddenEntries" is { "<mod>": [ <panels.json id> ] }. Quick Actions
+// hides the button of a pinned action whose filter leaves out the focused terminal. A key still runs the entry.
+const hiddenEntries = () => {
+  const v = shared("dock.hiddenEntries");
+  return new Set(v && typeof v === "object" && !Array.isArray(v) ? Object.values(v).flat().filter((x) => typeof x === "string") : []);
+};
 // Steps of the width control. null = Auto: the columns share the whole board.
 const WIDTHS = [150, 180, 220, 260, 320, 400, null];
 const MIN_COLUMN = 150; // narrowest a column may be before the board scrolls
@@ -1518,7 +1525,7 @@ export default class Kanban extends View {
       ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
         ? { ...e, key: `kb-tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
         : { ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
-      ...live.filter((e) => e.opens === "command" && e.run !== "layout.switch").map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
+      ...live.filter((e) => e.opens === "command" && e.run !== "layout.switch" && !hiddenEntries().has(e.id)).map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
     ];
     // The person's order and hidden buttons (KEY_BUTTONS) apply to the folded buttons: a group moves as one button.
     // The group menus and the keys still reach a hidden button.
