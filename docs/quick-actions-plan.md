@@ -335,3 +335,11 @@ Asked on 2026-11-22: run an action and the script agent with no terminal on the 
 - **Tested in the app (5a):** ok, failed (128 from `git`, 4 from Python), bash, Stop, the timeout, a
   removed terminal (lost), Enter in the dialog, a space on `notebook` (pwsh, accents) and on `ubuntu`
   (sh). Not tested from the shell: clicks.
+- **Phase 5b: the script agent.** **In a tab** | **In the background** in the writer panel. The
+  headless commands with a write flag come from `<agent> --help` on this computer; each one wrote a
+  test file (claude, codex, opencode, agy, omp, 11 to 22 s). Copilot is not on the PATH here, so it has
+  no background mode. The launcher sets `[Console]::OutputEncoding` to UTF-8: without it, the output of
+  the agents had broken accents. Success needs exit 0 and a changed file.
+- **Tested in the app (5b):** Claude Code in the background wrote a correct script in 20 s; the form
+  showed the state row, then the script in the preview. An agent without a background mode gave the
+  error in the panel and started nothing.

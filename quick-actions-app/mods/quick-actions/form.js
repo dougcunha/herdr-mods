@@ -7,7 +7,9 @@ import { h_flex, v_flex } from "gpui-base";
 import { ICONS, SHELLS, SHELL_LABEL } from "./store.js";
 import { VARIABLES } from "./vars.js";
 import { howText } from "./run.js";
-import { writerPath, shortPath } from "./writer.js";
+import { writerPath, shortPath, headlessOf } from "./writer.js";
+import { jobOf, isRunning } from "./jobs.js";
+import { jobState } from "./output.js";
 import * as U from "./ui.js";
 
 /** The errors of a draft: { name?, script?, file? }. */
@@ -48,13 +50,22 @@ function writerPanel(v, t) {
   const w = v.writer;
   const installed = v.agentList.filter((a) => a.installed);
   const path = shortPath(writerPath(v.collect(), v.list));
+  const agent = installed.find((a) => a.key === w.agent) ?? null;
   return v_flex().w_full().gap(8).p(12).rounded(8).border_1().border_color(t.input).bg(t.surface)
     .child(div().text_size(12).font_medium().text_color(t.foreground).child(w.mode === "edit" ? "What must change in the script?" : "What must the script do?"))
     .child(U.area(t, w.desc, (e, cx) => v.fieldKey(e, cx)))
     .child(installed.length
       ? U.segmented(t, "qa-agent", installed.map((a) => ({ value: a.key, label: a.name })), w.agent, (val, cx) => { w.agent = val; cx.notify(); })
       : div().text_size(11.5).text_color(t.blocked).child("No agent is installed."))
-    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action with this script file. Then the agent writes ${path} in a new tab of this space (a new space on this computer when this space is on another machine). Run the action when it is done.`))
+    .child(U.segmented(t, "qa-agent-where", [
+      { value: "tab", label: "In a tab", tip: "You see the agent and can help it" },
+      { value: "background", label: "In the background", tip: "No tab: a toast shows the end" },
+    ], w.where, (val, cx) => { w.where = val; w.error = ""; cx.notify(); }))
+    .child(div().text_size(11).text_color(t.dim).child(w.where === "background"
+      ? (agent && !headlessOf(agent)
+        ? `${agent.name} has no background mode. Choose In a tab, or another agent.`
+        : `Start saves the action with this script file. Then the agent writes ${path} in the background, with permission to edit the files of that folder. A toast shows when it ends, and the preview shows the script.`)
+      : `Start saves the action with this script file. Then the agent writes ${path} in a new tab of this space (a new space on this computer when this space is on another machine). Run the action when it is done.`))
     .when(Boolean(w.error), (e) => e.child(U.errorLine(t, w.error)))
     .child(h_flex().gap(8)
       .child(U.button(t, "qa-agent-go", w.busy ? "Starting…" : "Start", (cx) => v.runWriter(cx), { kind: "primary", iconName: "sparkles", disabled: !installed.length || Boolean(w.busy) }))
@@ -72,6 +83,15 @@ export function editView(v, t) {
 
   // An agent can write the script in both modes: the action then uses the file that the agent writes.
   const fileThere = d.source === "file" && v.fileText != null;
+  // An agent that writes the script in the background: its state, Output and Stop.
+  const wj = v.demo ? null : jobOf("write", d.id);
+  const writing = isRunning(wj);
+  const st = writing ? jobState(t, wj) : null;
+  const writingRow = writing ? h_flex().w_full().gap(8).items_center().p(10).rounded(8).border_1().border_color(U.tint(st.color, "55")).bg(U.tint(st.color, "12"))
+    .child(svg(U.icon("refresh")).size(13).flex_none().spin(900).text_color(st.color))
+    .child(div().flex_1().min_w(0).text_size(11.5).text_color(t.foreground).child(`${wj.agentName ?? "The agent"} writes the script in the background · ${st.text}`))
+    .child(U.button(t, "qa-agent-out", "Output", (cx) => v.openOutput(cx, "write", d)))
+    .child(U.button(t, "qa-agent-stop", "Stop", (cx) => v.stopJobOf(cx, "write", d), { kind: "danger", iconName: "close" })) : null;
   const agentButtons = h_flex().gap(8)
     .child(U.button(t, "qa-agent-new", fileThere ? "Write a new one with an agent…" : "Write with an agent…", (cx) => v.openWriter(cx, "new"),
       { iconName: "sparkles", tip: "An agent writes the script file from your description" }))
@@ -84,7 +104,7 @@ export function editView(v, t) {
       .child(h_flex().flex_wrap().gap(5).children(VARIABLES.map(([name, tip], i) => U.token(t, `qa-var-${i}`, `{${name}}`, tip, insert(name))))
         .child(U.token(t, "qa-var-ask", "{ask:Name}", "Asks the person for a value before the run. {ask:Name=default} gives a default.", (cx) => { v.script.replace("{ask:Name}"); v.script.focus(); cx.notify(); }))))
     .when(d.source === "file", (el) => el.child(fld(v.f.file)))
-    .child(v.writer ? writerPanel(v, t) : agentButtons);
+    .child(writing ? writingRow : v.writer ? writerPanel(v, t) : agentButtons);
 
   const body = v_flex().w_full()
     .child(U.formRow(t, "Name", "Shown in the list and on the button.", fld(v.f.name), { error: errs.name }))

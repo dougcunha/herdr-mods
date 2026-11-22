@@ -4,8 +4,9 @@
 // computer when the shown space is on another machine (the file is on this computer). See docs/quick-actions-plan.md.
 
 import { exec, run, notify, shared, setShared, home, window, spaces, terminals } from "herdr";
-import { KEY } from "./store.js";
-import { VARIABLES, psq } from "./vars.js";
+import { KEY, dataDir, ensureDir } from "./store.js";
+import { VARIABLES, psq, shq } from "./vars.js";
+import { jobKey, jobOf, isRunning, addJob, startTerminal, fileSignature } from "./jobs.js";
 import { expandHome, fileShell } from "./run.js";
 import { agentStart } from "./core.js";
 import * as fs from "fs/promises";
@@ -100,6 +101,68 @@ export function writerTask(mode, path, what) {
     "- Other text in braces stays as it is.",
     "- Print a short line before each step.",
   ].join("\n");
+}
+
+// ---- the agent in the background -----------------------------------------------------------------
+// A headless agent cannot ask for permission, so each command has the flag that lets it write files in
+// its folder (the folder of the script). Each one was tested: it wrote a script file (2026-11-22).
+const HEADLESS = {
+  claude: ["claude", "-p", "{prompt}", "--permission-mode", "acceptEdits"],
+  codex: ["codex", "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", "{prompt}"],
+  opencode: ["opencode", "run", "--auto", "{prompt}"],
+  agy: ["agy", "-p", "{prompt}", "--mode", "accept-edits"],
+  omp: ["omp", "-p", "{prompt}", "--approval-mode", "write"],
+};
+HEADLESS.antigravity = HEADLESS.agy;
+
+/** The background command of an agent (an entry of knownAgents()), or null when it has none. */
+export function headlessOf(agent) {
+  if (!agent) return null;
+  if (HEADLESS[agent.key]) return HEADLESS[agent.key];
+  const prog = String(agent.run?.[0] ?? "").split(/[\\/]/).pop().replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
+  return HEADLESS[prog] ?? null;
+}
+
+/**
+ * Starts the agent in the background: a terminal of herdr-core that is not on the screen, in the folder of
+ * the file, on this computer. The task goes in prompt.md (never in a Windows argv), the output in
+ * output.txt. jobs.js checks the end: the file must exist and change.
+ */
+export async function startWriterBackground({ mode, path, what, agent, name, actionId }) {
+  const words = headlessOf(agent);
+  if (!words) throw new Error(`${agent.name} has no background mode. Choose In a tab.`);
+  const key = jobKey("write", actionId);
+  if (isRunning(jobOf("write", actionId))) throw new Error("An agent still writes this script in the background.");
+  const folder = dirOf(path);
+  await makeDir(folder);
+  setShared(KEY.agent, agent.key);
+  const dir = `${slash(dataDir())}/quick-actions/writer/${actionId}`;
+  await ensureDir(dir);
+  const promptFile = `${dir}/prompt.md`;
+  const outFile = `${dir}/output.txt`;
+  await fs.writeFile(promptFile, writerTask(mode, path, what));
+  let argv;
+  if (isWin()) {
+    const line = words.map((w) => (w === "{prompt}" ? "$prompt" : psq(w))).join(" ");
+    const body = [
+      "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+      `$prompt = Get-Content -Raw -Encoding UTF8 -LiteralPath ${psq(promptFile)}`,
+      `& { & ${line} } *> ${psq(outFile)}`,
+      "exit $LASTEXITCODE",
+      "",
+    ].join("\n");
+    await fs.writeFile(`${dir}/agent.ps1`, `﻿${body}`);
+    argv = ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", `${dir}/agent.ps1`];
+  } else {
+    const line = words.map((w) => (w === "{prompt}" ? '"$prompt"' : shq(w))).join(" ");
+    await fs.writeFile(`${dir}/agent.sh`, `prompt=$(cat ${shq(promptFile)})\n${line} > ${shq(outFile)} 2>&1\n`);
+    argv = ["sh", `${dir}/agent.sh`];
+  }
+  const before = await fileSignature(path);
+  await fs.writeFile(outFile, "");
+  const address = await startTerminal({ argv, cwd: folder, labels: { "quick-actions-writer": actionId } });
+  addJob(key, { kind: "write", action: actionId, name, address, machine: null, outFile, file: path, fileShown: shortPath(path), before, agentName: agent.name });
+  notify({ title: `Quick Actions: ${name}`, body: `${agent.name} writes ${shortPath(path)} in the background. A toast shows when it ends.`, level: "info", timeout: 5000 });
 }
 
 const wait = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));

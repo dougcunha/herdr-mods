@@ -49,7 +49,7 @@ export function outputView(v, t) {
         .children(lines.slice(cut).map((l) => div().w_full().whitespace_normal().child(l || " ")));
 
   const header = h_flex().w_full().h(58).px(16).gap(12).items_center().flex_none().border_b(1).border_color(t.border)
-    .child(U.iconButton(t, "qa-out-back", "back", "Back (Esc)", (cx) => v.back(cx)))
+    .child(U.iconButton(t, "qa-out-back", "back", "Back (Esc)", (cx) => v.closeOutput(cx)))
     .child(div().size(32).flex_none().rounded(9).flex().items_center().justify_center().bg(U.tint(st.color, "1f"))
       .child(st.spin ? svg(U.icon(st.icon)).size(15).spin(900).text_color(st.color) : svg(U.icon(st.icon)).size(15).text_color(st.color)))
     .child(v_flex().flex_1().min_w(0).gap(1)
@@ -64,7 +64,7 @@ export function outputView(v, t) {
   const footer = h_flex().w_full().px(16).py(12).gap(8).items_center().justify_end().flex_none().border_t(1).border_color(t.border).bg(t.surface)
     .child(div().flex_1().text_size(11).text_color(t.dim).child(isRunning(j) ? "The output follows the job. A background job cannot answer a question." : ""))
     .when(isRunning(j), (e) => e.child(U.button(t, "qa-out-stop", "Stop", (cx) => v.stopOutput(cx), { kind: "danger", iconName: "close" })))
-    .child(U.button(t, "qa-out-close", "Back", (cx) => v.back(cx)));
+    .child(U.button(t, "qa-out-close", "Back", (cx) => v.closeOutput(cx)));
 
   return v_flex().size_full().min_h(0).child(header).child(body).child(footer);
 }

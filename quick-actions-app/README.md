@@ -7,7 +7,7 @@ A Herdr app mod that keeps named scripts and runs them in the terminal of the ac
 - **The list.** Press `Alt+Q` (or click the Quick Actions icon in the status bar). Type a part of the name, select with ↑ and ↓, and press Enter. The header shows the terminal that gets the script.
 - **Inline script or script file.** Type the script in the form, or give the path of a `.ps1`, `.sh`, `.py` or `.js` file (`~` is your home folder).
 - **Shell.** **Auto** (the default) uses the shell of the terminal for an inline script, and the extension for a script file. Or choose **PowerShell**, **bash**, **Python** or **Node.js** for the action.
-- **A script by an agent.** You do not need a file first. Write the name of the action, choose the **Shell** (the language of the script), click **Write with an agent…**, write what the script must do and choose the agent (from Herdr's agent list). **Start** saves the action with its script file and opens a tab in the space with the agent, in the folder of the file. The script file is on this computer, so when the space is on another machine (WSL, an SSH machine), the agent opens in a new space on this computer. When the agent does not start, the panel shows the error. The agent gets the rules of the variables and writes only the file. Run the action when the agent is done. **Change with an agent…** changes a script that exists. New files go to `~/.config/herdr-app/data/quick-actions/scripts/<name>.<ext>` (**Script folder** in the settings), or to the path that you write.
+- **A script by an agent.** You do not need a file first. Write the name of the action, choose the **Shell** (the language of the script), click **Write with an agent…**, write what the script must do and choose the agent (from Herdr's agent list). **Start** saves the action with its script file and opens a tab in the space with the agent, in the folder of the file. The script file is on this computer, so when the space is on another machine (WSL, an SSH machine), the agent opens in a new space on this computer. When the agent does not start, the panel shows the error. Or choose **In the background**: the agent works with no tab, and a toast shows when it ends; the form shows its state with **Output** and **Stop**, and the preview shows the script when it is there. The agent gets the rules of the variables and writes only the file. Run the action when the agent is done. **Change with an agent…** changes a script that exists. New files go to `~/.config/herdr-app/data/quick-actions/scripts/<name>.<ext>` (**Script folder** in the settings), or to the path that you write.
 - **Variables.** `{folder}`, `{repo}`, `{repo_name}`, `{branch}`, `{space}`, `{tab}`, `{terminal}`, `{machine}`, `{home}`, `{date}` and `{time}` get their values from the terminal and the space when the action runs. The form shows a preview of the script with these values.
 - **Safe values.** Each value goes into the script in quotes for the shell (a JSON string for Python and Node.js). Write `cd {repo}`, not `cd "{repo}"`. A branch or a folder with spaces, `;`, `$` or quotes cannot run code. Other text in braces (`@{u}`, a PowerShell script block) does not change.
 - **The terminal that has the focus.** The action types its line into that terminal, after it clears a draft at the prompt. When the terminal runs an agent or a program (`npm`, `vim`, a server), the action opens a new tab in the same space and folder and runs there.
@@ -104,6 +104,20 @@ A background run is a terminal of herdr-core that is not on the screen (`hc run 
 
 The terminal gets the environment of herdr-core and no profile (`-NoProfile`): a program that only your profile puts in the `PATH` is not found. The status bar item of Quick Actions checks the runs every second, so it must be in the layout (the Dock and Kanban layouts have it). The output of the last run of each action stays in `~/.config/herdr-app/data/quick-actions/output/`. When Herdr or herdr-core restarts during a run, the run is **lost**.
 
+### The agent in the background
+
+A headless agent cannot ask for permission, so the mod gives it the permission to edit the files of the folder of the script (it works in that folder):
+
+| Agent | Command |
+| --- | --- |
+| Claude Code | `claude -p <task> --permission-mode acceptEdits` |
+| Codex | `codex exec --skip-git-repo-check --sandbox workspace-write <task>` |
+| OpenCode | `opencode run --auto <task>` |
+| Antigravity | `agy -p <task> --mode accept-edits` |
+| oh-my-pi | `omp -p <task> --approval-mode write` |
+
+Other agents have no background mode: use **In a tab**. The task goes in a file (`data/quick-actions/writer/<id>/prompt.md`), and the output of the agent in `output.txt` there. The run is **failed** when the agent ends with an error, or when the script file did not change.
+
 ## Limits
 
 - **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it. A program with a window that the shell started (`Start-Process notepad`) is a child process too: the terminal is busy until the program closes, and the actions open a new tab.
@@ -127,6 +141,6 @@ The terminal gets the environment of herdr-core and no profile (`-NoProfile`): a
 - On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command, and once for each machine `Get-Command` and `Test-Path`, to find Git Bash and Python.
 - `python`, `python3`, `py`, `node`, `bash` or `pwsh`, when an action in that language runs.
 - On another machine, `sh` (`uname`, `$HOME`) or `pwsh` (`$HOME`) once, to know its system.
-- **Write with an agent…** and **Change with an agent…**: the agent that you choose, in a new tab (`tab.new` with its command from Herdr's agent list), or in a new space on this computer (`space.new`) when the space is on another machine, with your account. It makes the script folder first (`pwsh New-Item` or `mkdir -p` when the folder is outside your home folder).
+- **Write with an agent…** and **Change with an agent…**: the agent that you choose, in a new tab (`tab.new` with its command from Herdr's agent list), or in a new space on this computer (`space.new`) when the space is on another machine, with your account. **In the background**: its headless command (above) in `hc run --bg`, through `pwsh -NoProfile -File agent.ps1` (or `sh agent.sh`). It makes the script folder first (`pwsh New-Item` or `mkdir -p` when the folder is outside your home folder).
 
 No network of its own. The mod runs only the scripts that you write or ask for, and only when you start them.

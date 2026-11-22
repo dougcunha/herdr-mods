@@ -12,7 +12,7 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
 import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents } from "herdr";
-import { startWriter, writerPath, shortPath } from "./writer.js";
+import { startWriter, startWriterBackground, headlessOf, writerPath, shortPath } from "./writer.js";
 import * as S from "./store.js";
 import { currentTarget, context, filterMatches, filterNeedsRepo, asksOf } from "./vars.js";
 import { runAction, prepare, fail, scriptText } from "./run.js";
@@ -377,6 +377,7 @@ export default class QuickActions extends View {
 
   /** Shows the output of a background job (kind "run" or "write") of an action. */
   openOutput(cx, kind, a) {
+    this.outputFrom = this.view === "edit" && this.draft ? "edit" : "list";
     this.outputKey = jobKey(kind, a.id);
     this.outputText = null;
     this.outputReadAt = 0;
@@ -399,6 +400,19 @@ export default class QuickActions extends View {
       this.outputReading = false;
       cx.notify();
     });
+  }
+
+  /** Leaves the output view: back to the form that opened it, else to the list. */
+  closeOutput(cx) {
+    this.outputKey = null;
+    this.outputText = null;
+    if (this.outputFrom === "edit" && this.draft) { this.view = "edit"; cx.notify(); return; }
+    this.back(cx);
+  }
+
+  /** Stops the background job of a kind ("run" or "write") of an action. */
+  stopJobOf(cx, kind, a) {
+    spawn(cx, () => stopJob(jobKey(kind, a.id)));
   }
 
   /** Stops the job of the output view. */
@@ -426,7 +440,8 @@ export default class QuickActions extends View {
   key(e, cx) {
     if (this.view === "confirm" && e.key === "enter") { this.confirmRun(cx); cx.stop_propagation(); return; }
     if (e.key === "escape") {
-      if (this.view === "edit" || this.view === "output") this.back(cx);
+      if (this.view === "output") this.closeOutput(cx);
+      else if (this.view === "edit") this.back(cx);
       else if (this.view === "confirm" && !this.props.confirm) this.back(cx);
       else this.close_();
       cx.stop_propagation();
@@ -521,7 +536,8 @@ export default class QuickActions extends View {
     desc.on("change", (_e, cx) => cx.notify());
     const installed = this.agentList.filter((x) => x.installed);
     const last = shared(KEY.agent);
-    this.writer = { mode, desc, agent: installed.some((x) => x.key === last) ? last : installed[0]?.key ?? null, error: "" };
+    const where = shared(KEY.writerWhere) === "background" ? "background" : "tab";
+    this.writer = { mode, desc, where, agent: installed.some((x) => x.key === last) ? last : installed[0]?.key ?? null, error: "" };
     cx.timer.after(40, () => desc.focus());
     cx.notify();
   }
@@ -533,7 +549,8 @@ export default class QuickActions extends View {
     const d = this.collect();
     const what = w.desc.value().trim();
     const agent = this.agentList.find((x) => x.key === w.agent && x.installed);
-    w.error = !d.name ? "Write a name for the action first." : !what ? "Write what the script must do." : !agent ? "Choose an agent." : "";
+    w.error = !d.name ? "Write a name for the action first." : !what ? "Write what the script must do." : !agent ? "Choose an agent."
+      : w.where === "background" && !headlessOf(agent) ? `${agent.name} has no background mode. Choose In a tab, or another agent.` : "";
     if (w.error) { cx.notify(); return; }
     const path = writerPath(d, this.list);
     d.source = "file";
@@ -551,6 +568,15 @@ export default class QuickActions extends View {
       // The form shows the saved file from now on (Save after a fault keeps it).
       this.draft = { ...this.draft, source: "file", file: d.file };
       this.f.file.set_value(d.file);
+      this.isNew = false; // the action is saved: the form shows Save, not Create
+      setShared(KEY.writerWhere, w.where);
+      if (w.where === "background") {
+        await startWriterBackground({ mode: w.mode, path, what, agent, name: d.name, actionId: d.id });
+        // The form stays: its preview shows the file when the agent writes it, and a toast shows the end.
+        this.writer = null;
+        cx.notify();
+        return;
+      }
       await startWriter(cx, { mode: w.mode, path, what, agent, space: this.target?.space ?? null, name: d.name });
     } catch (e) {
       w.busy = false;

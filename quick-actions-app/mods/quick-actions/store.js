@@ -19,6 +19,7 @@ export const KEY = {
   runner: "quick-actions.runner", // { at }: the runner is on the screen
   scriptDir: "quick-actions.scriptDir", // a setting: the folder of the scripts that an agent writes
   agent: "quick-actions.agent", // the agent that wrote the last script (the choice of the form)
+  writerWhere: "quick-actions.writerWhere", // "tab" | "background": where the last script agent ran (the choice of the form)
   jobs: "quick-actions.jobs", // { "<kind>:<action id>": job }: the last background run and agent of each action (jobs.js)
   lease: "quick-actions.lease", // { owner, at }: the runner copy that checks the background jobs
   timeout: "quick-actions.timeoutMin", // a setting: the minutes before a background job is stopped
