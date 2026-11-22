@@ -9,7 +9,7 @@
 //   a run file, and the terminal gets 1 line that runs it.
 
 import { hc, run, notify, terminals, readTextFile, home } from "herdr";
-import { context, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, family, psq, shq } from "./vars.js";
+import { context, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, family, asksOf, psq, shq } from "./vars.js";
 import { writeRunFile } from "./store.js";
 
 const wait = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
@@ -55,10 +55,10 @@ function runLine(script, term, path, windows) {
 
 /**
  * Everything that a run needs, without side effects:
- * { ctx, useTab, term, shell, expanded, oneLine, error?, filtered? }.
+ * { ctx, useTab, term, shell, expanded, oneLine, asks, error?, filtered? }. `answers` fill the {ask:…} questions.
  * `term`: the shell of the terminal that gets the line; `shell`: the shell of the script.
  */
-export async function prepare(a, target) {
+export async function prepare(a, target, answers = null) {
   if (!target) return { error: "No space is shown." };
   const src = await scriptText(a);
   if (src.error) return { error: src.error };
@@ -71,9 +71,9 @@ export async function prepare(a, target) {
   // A new tab starts the default shell of the machine: PowerShell on Windows.
   const term = useTab ? (ctx.windows ? "ps" : "sh") : ctx.shell;
   const shell = (a.source === "file" ? fileShell(a.file) : null) ?? term;
-  const expanded = expand(src.text, ctx.values, family(shell)).trim();
+  const expanded = expand(src.text, ctx.values, family(shell), answers).trim();
   const oneLine = a.source !== "file" && !/\r?\n/.test(expanded);
-  return { ctx, useTab, term, shell, expanded, oneLine };
+  return { ctx, useTab, term, shell, expanded, oneLine, asks: asksOf(src.text) };
 }
 
 /** Opens a tab in the space of the context and returns the address of its terminal. */
@@ -111,8 +111,8 @@ async function waitPrompt(cx, address) {
 }
 
 /** Runs an action for a target. Returns the address of the terminal that got the line, or null. */
-export async function runAction(cx, a, target) {
-  const p = await prepare(a, target);
+export async function runAction(cx, a, target, answers = null) {
+  const p = await prepare(a, target, answers);
   if (p.error) { fail(a.name, p.error); return null; }
   const { ctx } = p;
   try {

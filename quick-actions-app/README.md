@@ -6,11 +6,13 @@ A Herdr app mod that keeps named scripts and runs them in the terminal of the ac
 
 - **The list.** Press `Alt+Q` (or click the Quick Actions icon in the status bar). Type a part of the name, select with ↑ and ↓, and press Enter. The header shows the terminal that gets the script.
 - **Inline script or script file.** Type the script in the form, or give the path of a `.ps1` or `.sh` file (`~` is your home folder).
+- **A script by an agent.** For a script file, **New with an agent…** asks what the script must do and which agent writes it (from Herdr's agent list). **Start** saves the action and opens a tab in the space with the agent, in the folder of the file. The agent gets the rules of the variables and writes only the file. **Edit with an agent…** changes a script that exists. New files go to `~/.config/herdr-app/data/quick-actions/scripts/` (**Script folder** in the settings).
 - **Variables.** `{folder}`, `{repo}`, `{repo_name}`, `{branch}`, `{space}`, `{tab}`, `{terminal}`, `{machine}`, `{home}`, `{date}` and `{time}` get their values from the terminal and the space when the action runs. The form shows a preview of the script with these values.
 - **Safe values.** Each value goes into the script in quotes for the shell. Write `cd {repo}`, not `cd "{repo}"`. A branch or a folder with spaces, `;`, `$` or quotes cannot run code. Other text in braces (`@{u}`, a PowerShell script block) does not change.
 - **The terminal that has the focus.** The action types its line into that terminal, after it clears a draft at the prompt. When the terminal runs an agent or a program (`npm`, `vim`, a server), the action opens a new tab in the same space and folder and runs there.
 - **New tab.** An action can always run in a new tab, with the name of the action.
 - **Ask before run.** An action can show its script with the values and wait for **Run** (or Enter).
+- **Questions.** `{ask:Label}` or `{ask:Label=default}` in a script asks for a value before the run: the question shows 1 field for each label, with the script and the values. The answer goes in quotes too.
 - **Only in.** An action can have a list of folders and repository names. It runs only there; elsewhere its row is gray.
 - **Bar buttons.** Pin an action (the pin of its row, or **Bar button** in the form) and the bar of the [Dock](../dock-app) and [Kanban](../kanban-app) layouts shows a button with its name and icon. A button with **Only in** shows only while the focused terminal is in one of its folders or repositories. **Bar buttons** in the gear menu of the bar moves and hides them, as the other buttons.
 - **Keys.** Each action has a command: `quick-actions.run-<id>`. The form shows it, ready for `keys.json`.
@@ -85,6 +87,7 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 
 - `~/.config/herdr-app/data/quick-actions.json`: the actions. You can edit it by hand; the list reads it again.
 - `~/.config/herdr-app/data/quick-actions/runs/`: the run files.
+- `~/.config/herdr-app/data/quick-actions/scripts/`: the script files that an agent writes (the default **Script folder**).
 - `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, at the end of the list. It changes no other entry.
 - `shared("dock.hiddenEntries")`: `{ "quick-actions": [ "qa-<id>" ] }`, the buttons that the bars leave out now.
 
@@ -94,5 +97,6 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 - `git rev-parse --show-toplevel` and `git branch --show-current` in the folder of the terminal, only when the script or its filter needs `{repo}`, `{repo_name}` or `{branch}`.
 - On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command.
 - On another machine, `sh` (`uname`, `$HOME`) or `pwsh` (`$HOME`) once, to know its system.
+- **New with an agent…** and **Edit with an agent…**: the agent that you choose, in a new tab (`tab.new` with its command from Herdr's agent list), with your account. It makes the script folder first (`pwsh New-Item` or `mkdir -p` when the folder is outside your home folder).
 
-No network. The mod runs only the scripts that you write, and only when you start them.
+No network of its own. The mod runs only the scripts that you write or ask for, and only when you start them.

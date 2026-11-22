@@ -19,6 +19,7 @@ const TARGETS = [
   "mods-hub-app/mods/mods-hub/core.js",
   "automations-app/mods/automations/core.js",
   "skill-bundles-app/mods/skill-bundles/core.js",
+  "quick-actions-app/mods/quick-actions/core.js",
 ];
 
 const check = process.argv.includes("--check");

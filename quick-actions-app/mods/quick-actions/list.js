@@ -3,7 +3,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { filterMatches, filterParts } from "./vars.js";
+import { filterMatches, filterParts, asksOf } from "./vars.js";
 import * as U from "./ui.js";
 
 /** The actions that the search shows. */
@@ -40,7 +40,7 @@ function row(v, t, a, i, selected) {
   const metas = h_flex().gap(6).flex_wrap()
     .child(meta(t, a.source === "file" ? "file" : "code", sourceText(a)))
     .child(meta(t, a.where === "tab" ? "plus" : "terminal", a.where === "tab" ? "new tab" : "terminal"))
-    .when(a.confirm, (el) => el.child(meta(t, "check", "asks first")))
+    .when(a.confirm || (a.source === "inline" && asksOf(a.script).length > 0), (el) => el.child(meta(t, "check", "asks first")))
     .when(Boolean(a.filter.trim()), (el) => el.child(meta(t, "filter", filterParts(a.filter).join(", "), ok ? "Runs only here" : "Not for this terminal")));
   const runButton = h_flex().id(`qa-run-${i}`).h(28).px(10).gap(5).items_center().flex_none().rounded(7)
     .bg(U.tint(ok ? t.accent : t.dim, "1a")).text_color(ok ? t.accent : t.dim).text_size(12).font_medium()

@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
-Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 and 2 done on
-2026-11-22 (setup versions 129 to 131).
+Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 to 3 done on
+2026-11-22 (setup versions 129 to 132).
 
 ## Goal
 
@@ -226,6 +226,25 @@ active space with one click or one key. Examples: sync the repository
   the click takes the focus from the terminal, the runner uses the kept
   target.
 - Setup version 131. `tabs-dock` and `kanban` changed too.
+
+### Phase 3 (as built)
+
+- **Agent.** **Start** saves the action first (source `file`), so the
+  dialog can close and the person sees the agent tab (an agent can ask for
+  permission there). The agent works in the folder of the file, in a tab of
+  the target space, started with `agentStart()` of the PowerMods Core client
+  (`core.js`, added to `tools/sync-core-client.mjs`). The task is in
+  `writer.js`. The last agent is `shared("quick-actions.agent")`; the script
+  folder is the setting `quick-actions.scriptDir`.
+- **New on a file that exists** asks the agent to write the file again.
+- **Questions.** An action with `{ask:…}` always shows the question, also
+  without **Ask before run**. A file script is read first to know.
+- **Tested in the app:** an `{ask:…}` action from a key (2 fields, the
+  defaults, Enter runs), and **New with an agent…** with Claude Code: the
+  action was saved, the agent wrote a correct PowerShell script in about
+  40 s, and the action ran it. Typing in the fields was not tested from the
+  shell (a temporary command in the installed copy filled the text).
+- Setup version 132.
 
 ## Open questions
 

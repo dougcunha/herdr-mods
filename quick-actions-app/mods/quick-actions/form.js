@@ -7,6 +7,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { ICONS } from "./store.js";
 import { VARIABLES } from "./vars.js";
 import { howText } from "./run.js";
+import { writerPath, shortPath } from "./writer.js";
 import * as U from "./ui.js";
 
 /** The errors of a draft: { name?, script?, file? }. */
@@ -43,6 +44,25 @@ function preview(v, t) {
   return body;
 }
 
+/** The "with an agent" panel: what the script must do, the agent, Start. */
+function writerPanel(v, t) {
+  const w = v.writer;
+  const installed = v.agentList.filter((a) => a.installed);
+  const path = shortPath(writerPath(v.collect()));
+  return v_flex().w_full().gap(8).p(12).rounded(8).border_1().border_color(t.input).bg(t.surface)
+    .child(div().text_size(12).font_medium().text_color(t.foreground).child(w.mode === "edit" ? "What must change in the script?" : "What must the script do?"))
+    .child(U.area(t, w.desc, (e, cx) => v.fieldKey(e, cx)))
+    .child(installed.length
+      ? U.segmented(t, "qa-agent", installed.map((a) => ({ value: a.key, label: a.name })), w.agent, (val, cx) => { w.agent = val; cx.notify(); })
+      : div().text_size(11.5).text_color(t.blocked).child("No agent is installed."))
+    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action. Then the agent works in a new tab and writes ${path}. Run the action when it is done.`))
+    .when(Boolean(w.error), (e) => e.child(h_flex().gap(5).items_center().text_size(11.2).text_color(t.blocked)
+      .child(svg(U.icon("alert")).size(12).flex_none().text_color(t.blocked)).child(w.error)))
+    .child(h_flex().gap(8)
+      .child(U.button(t, "qa-agent-go", "Start", (cx) => v.runWriter(cx), { kind: "primary", iconName: "sparkles", disabled: !installed.length }))
+      .child(U.button(t, "qa-agent-cancel", "Cancel", (cx) => { v.writer = null; cx.notify(); })));
+}
+
 export function editView(v, t) {
   const d = v.draft;
   const live = v.collect();
@@ -57,8 +77,14 @@ export function editView(v, t) {
       (val, cx) => v.set(cx, (x) => { x.source = val; })))
     .when(d.source === "inline", (el) => el
       .child(U.area(t, v.script, esc).font_family(U.mono()))
-      .child(h_flex().flex_wrap().gap(5).children(VARIABLES.map(([name, tip], i) => U.token(t, `qa-var-${i}`, `{${name}}`, tip, insert(name))))))
-    .when(d.source === "file", (el) => el.child(fld(v.f.file)));
+      .child(h_flex().flex_wrap().gap(5).children(VARIABLES.map(([name, tip], i) => U.token(t, `qa-var-${i}`, `{${name}}`, tip, insert(name))))
+        .child(U.token(t, "qa-var-ask", "{ask:Name}", "Asks the person for a value before the run. {ask:Name=default} gives a default.", (cx) => { v.script.replace("{ask:Name}"); v.script.focus(); cx.notify(); }))))
+    .when(d.source === "file", (el) => el
+      .child(fld(v.f.file))
+      .child(h_flex().gap(8)
+        .child(U.button(t, "qa-agent-new", "New with an agent…", (cx) => v.openWriter(cx, "new"), { iconName: "sparkles" }))
+        .when(v.fileText != null, (e) => e.child(U.button(t, "qa-agent-edit", "Edit with an agent…", (cx) => v.openWriter(cx, "edit"), { iconName: "pencil" }))))
+      .when(Boolean(v.writer), (e) => e.child(writerPanel(v, t))));
 
   const body = v_flex().w_full()
     .child(U.formRow(t, "Name", "Shown in the list and on the button.", fld(v.f.name), { error: errs.name }))
@@ -112,6 +138,10 @@ export function confirmView(v, t) {
         .child(div().text_size(11.5).text_color(t.dim).truncate().child(p && !p.error ? howText(p) : "")))
       .when(Boolean(U.closeX(t)), (e) => e.child(U.closeX(t))))
     .child(v_flex().id("qa-confirm-body").flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(8)
+      .when(Boolean(v.askFields?.length), (el) => el.child(v_flex().w_full().gap(10).pb(6)
+        .children(v.askFields.map((f) => v_flex().w_full().gap(4)
+          .child(div().text_size(11.5).font_medium().text_color(t.muted).child(f.label))
+          .child(U.field(t, f.state, { onKey: (e, cx) => v.askKey(e, cx) }))))))
       .child(!p ? div().text_size(11.5).text_color(t.dim).child("Reading the terminal…")
         : p.error ? h_flex().gap(6).items_center().text_size(12).text_color(t.blocked)
           .child(svg(U.icon("alert")).size(13).flex_none().text_color(t.blocked)).child(p.error)

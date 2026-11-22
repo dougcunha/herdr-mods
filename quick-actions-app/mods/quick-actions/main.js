@@ -11,10 +11,11 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents } from "herdr";
+import { startWriter, writerPath, shortPath } from "./writer.js";
 import * as S from "./store.js";
-import { currentTarget, context, filterMatches, filterNeedsRepo } from "./vars.js";
-import { runAction, prepare, fail } from "./run.js";
+import { currentTarget, context, filterMatches, filterNeedsRepo, asksOf } from "./vars.js";
+import { runAction, prepare, fail, scriptText } from "./run.js";
 import { listView, visible, allowed } from "./list.js";
 import { editView, confirmView, errors } from "./form.js";
 import { DEMO, DEMO_CTX } from "./demo.js";
@@ -111,8 +112,11 @@ export default class QuickActions extends View {
     const { list, error } = await S.loadList();
     const a = (list ?? []).find((x) => x.id === id);
     if (!a) { fail(id, error ?? `No action has the id ${id}.`); return; }
-    if (a.confirm) {
-      openOverlay({ mod: MOD, kind: "dialog", width: 640, height: 340, props: { confirm: a.id, target } });
+    // The question shows the script, and a field for each {ask:…}.
+    const src = await scriptText(a);
+    const asks = src.text ? asksOf(src.text) : [];
+    if (a.confirm || asks.length) {
+      openOverlay({ mod: MOD, kind: "dialog", width: 640, height: 340 + asks.length * 58, props: { confirm: a.id, target } });
       return;
     }
     this.busy = true;
@@ -149,6 +153,8 @@ export default class QuickActions extends View {
     this.ctx = null;
     this.demoCtx = DEMO_CTX;
     this.loaded = false;
+    this.agentList = []; // knownAgents(), for "with an agent" in the form
+    knownAgents().then((list) => { this.agentList = list ?? []; cx.notify(); }).catch(() => {});
     this.search = InputState.new({ placeholder: "Search the actions" });
     this.search.on("change", (_e, cx) => { this.selected = 0; cx.notify(); });
     this.view = this.props.confirm ? "confirm" : "list";
@@ -218,10 +224,25 @@ export default class QuickActions extends View {
   updatePreview(cx) {
     const a = this.view === "edit" && this.draft ? this.collect() : this.view === "confirm" ? this.confirmAction : null;
     if (!a) return;
-    const key = JSON.stringify([a.source, a.script, a.file, a.filter, a.where]);
+    // A script file can change on disk (an agent writes it): its text is read again every 2 s.
+    if (a.source === "file" && Date.now() - (this.fileReadAt ?? 0) > 2000) {
+      this.fileReadAt = Date.now();
+      const path = a.file;
+      scriptText(a).then((s) => {
+        const text = s.text ?? null;
+        if (path === a.file && text !== this.fileText) { this.fileText = text; cx.notify(); }
+      });
+    }
+    const answers = this.view === "confirm" ? this.answers() : null;
+    const key = JSON.stringify([a.source, a.script, a.file, a.filter, a.where, answers, a.source === "file" ? this.fileText : null]);
     if (key === this.previewKey) return;
     this.previewKey = key;
-    prepare(a, this.target).then((p) => { if (this.previewKey === key) { this.preview = p; cx.notify(); } }).catch(() => {});
+    prepare(a, this.target, answers).then((p) => {
+      if (this.previewKey !== key) return;
+      this.preview = p;
+      if (this.view === "confirm" && !this.askFields && p.asks) this.buildAsks(cx, p.asks);
+      cx.notify();
+    }).catch(() => {});
   }
 
   close_() {
@@ -236,10 +257,12 @@ export default class QuickActions extends View {
     if (a) this.runNow(cx, a);
   }
 
-  runNow(cx, a) {
+  async runNow(cx, a) {
     if (this.running || this.demo || !allowed(this, a)) return;
-    if (a.confirm) {
+    const src = await scriptText(a);
+    if (a.confirm || (src.text && asksOf(src.text).length)) {
       this.confirmAction = a;
+      this.askFields = null;
       this.preview = null;
       this.previewKey = null;
       this.view = "confirm";
@@ -250,14 +273,36 @@ export default class QuickActions extends View {
     this.exec(cx, a);
   }
 
-  confirmRun(cx) {
-    if (this.confirmAction && this.preview && !this.preview.error) this.exec(cx, this.confirmAction);
+  /** The fields of the {ask:…} questions of the question view, with their defaults. */
+  buildAsks(cx, asks) {
+    this.askFields = asks.map((q) => {
+      const state = InputState.new({ value: q.def, placeholder: q.label });
+      state.on("change", (_e, cx) => cx.notify());
+      return { ...q, state };
+    });
+    if (this.askFields.length) cx.timer.after(40, () => this.askFields?.[0]?.state.focus());
+    cx.notify();
   }
 
-  async exec(cx, a) {
+  /** The answers of the question view: { label: value }, or null without questions. */
+  answers() {
+    return this.askFields?.length ? Object.fromEntries(this.askFields.map((f) => [f.label, f.state.value()])) : null;
+  }
+
+  /** Enter in a field of a question runs; Esc goes back (the field has the keyboard, so the mod gets Esc). */
+  askKey(e, cx) {
+    if (e.key === "enter") { this.confirmRun(cx); cx.stop_propagation(); }
+    else if (e.key === "escape") { if (this.props.confirm) this.close_(); else this.back(cx); cx.stop_propagation(); }
+  }
+
+  confirmRun(cx) {
+    if (this.confirmAction && this.preview && !this.preview.error) this.exec(cx, this.confirmAction, this.answers());
+  }
+
+  async exec(cx, a, answers = null) {
     this.running = a.id;
     cx.notify();
-    const address = await runAction(cx, a, this.target);
+    const address = await runAction(cx, a, this.target, answers);
     this.running = null;
     if (address) {
       this.close_();
@@ -330,6 +375,9 @@ export default class QuickActions extends View {
     this.script.on("change", (_e, cx) => cx.notify());
     this.preview = null;
     this.previewKey = null;
+    this.fileText = undefined;
+    this.fileReadAt = 0;
+    this.writer = null; // the "with an agent" panel of the form
     this.view = "edit";
     cx.timer.after(40, () => this.f.name.focus());
     cx.notify();
@@ -365,11 +413,46 @@ export default class QuickActions extends View {
     this.back(cx);
   }
 
+  /** Opens the "with an agent" panel of the form. mode: "new" | "edit". */
+  openWriter(cx, mode) {
+    const desc = TextareaState.new({
+      value: "",
+      placeholder: mode === "edit" ? "Example: also run the tests after the install" : "Example: pull the branch, then install the npm packages and the plugins of the repository",
+      rows: 4,
+    });
+    desc.on("change", (_e, cx) => cx.notify());
+    const installed = this.agentList.filter((x) => x.installed);
+    const last = shared(KEY.agent);
+    this.writer = { mode, desc, agent: installed.some((x) => x.key === last) ? last : installed[0]?.key ?? null, error: "" };
+    cx.timer.after(40, () => desc.focus());
+    cx.notify();
+  }
+
+  /** Saves the action with its script file, starts the agent that writes the file, and closes the dialog. */
+  async runWriter(cx) {
+    const w = this.writer;
+    if (!w || this.demo) return;
+    const d = this.collect();
+    const what = w.desc.value().trim();
+    const agent = this.agentList.find((x) => x.key === w.agent && x.installed);
+    w.error = !d.name ? "Write a name for the action first." : !what ? "Write what the script must do." : !agent ? "Choose an agent." : "";
+    if (w.error) { cx.notify(); return; }
+    const path = writerPath(d);
+    d.source = "file";
+    d.file = shortPath(path);
+    d.updatedAt = Date.now();
+    await this.change(cx, (list) => (list.some((x) => x.id === d.id) ? list.map((x) => (x.id === d.id ? d : x)) : [...list, d]));
+    await startWriter({ mode: w.mode, path, what, agent, space: this.target?.space ?? null, name: d.name });
+    this.close_();
+  }
+
   /** Back to the list, without saving. */
   back(cx) {
     this.view = "list";
     this.draft = null;
     this.confirmAction = null;
+    this.askFields = null;
+    this.fileText = undefined;
     this.preview = null;
     this.previewKey = null;
     cx.timer.after(40, () => this.search.focus());

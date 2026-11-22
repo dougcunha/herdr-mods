@@ -31,10 +31,35 @@ export const shq = (s) => `'${String(s ?? "").replace(/'/g, `'\\''`)}'`;
 /** The names of the known variables that a text uses. */
 export const usedVars = (text) => new Set([...String(text ?? "").matchAll(VAR_RE)].map((m) => m[1]).filter((n) => NAMES.has(n)));
 
-/** The text with each known {name} as 1 quoted literal for the shell. Other {…} stay as they are. */
-export function expand(text, values, shell) {
+// {ask:Label} or {ask:Label=default}: the person gives the value before the run.
+const ASK_RE = /\{ask:([^{}=\n]+?)(?:=([^{}\n]*))?\}/g;
+
+/** The questions of a script: [{ label, def }], in the order of the text, each label once. */
+export function asksOf(text) {
+  const out = [];
+  const seen = new Set();
+  for (const m of String(text ?? "").matchAll(ASK_RE)) {
+    const label = m[1].trim();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    out.push({ label, def: m[2] ?? "" });
+  }
+  return out;
+}
+
+/**
+ * The text with each known {name} as 1 quoted literal for the shell. Other {…} stay as they are.
+ * `answers` ({ label: value }) fill the {ask:…}; without answers (a preview), the default or <Label> shows.
+ */
+export function expand(text, values, shell, answers = null) {
   const q = shell === "ps" ? psq : shq;
-  return String(text ?? "").replace(VAR_RE, (m, n) => (NAMES.has(n) ? q(values[n] ?? "") : m));
+  return String(text ?? "")
+    .replace(VAR_RE, (m, n) => (NAMES.has(n) ? q(values[n] ?? "") : m))
+    .replace(ASK_RE, (m, label, def) => {
+      const key = label.trim();
+      if (answers) return q(answers[key] ?? def ?? "");
+      return q(def ?? `<${key}>`);
+    });
 }
 
 // A path with forward slashes and no slash at the end ("/" and "C:/" keep theirs).

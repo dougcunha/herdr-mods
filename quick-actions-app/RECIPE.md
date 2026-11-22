@@ -14,6 +14,8 @@ A Herdr mod that keeps named scripts and runs them in the terminal of the shown 
 | `vars.js` | The target terminal, its context (folder, busy, shell, the values of the variables), `expand()`, the filter. |
 | `run.js` | `prepare()` (no side effects) and `runAction()`: the run file, the new tab, `hc keys` and `hc send`. |
 | `list.js`, `form.js`, `ui.js` | The views. |
+| `writer.js` | **New with an agent…** and **Edit with an agent…**: the path of the file, the task of the agent, the tab. |
+| `core.js` | The client of PowerMods Core (`agentStart()`); a copy of `powermods-core-app/client/core.js`. |
 | `demo.js` | Example actions for the preview (`quick-actions.demo`). |
 
 ## Data
@@ -77,6 +79,16 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 ## Bar buttons
 
 `syncPanels(list)` (`store.js`) makes the entries of `dock/panels.json` whose id starts with `qa-` match the pinned actions: `{ id: "qa-<id>", label: <name>, icon: "mods/quick-actions/<icon>.svg", opens: "command", run: "quick-actions.run-<id>" }`. An entry keeps its place and gets the new name and icon; a new one goes at the end; the entry of an action that is not pinned goes away. No other entry changes. No file: nothing. It writes with `writeTextFile(path, text, expected)` (3 tries) after each change of the list in the dialog, and once when the runner starts. The bars run the entry with `run("quick-actions.run-<id>")`; `entryMod()` gives `quick-actions`, so they hide the buttons when the mod is off. They also leave out the ids in `shared("dock.hiddenEntries")` (any mod; the values of all keys).
+
+## Questions
+
+`{ask:Label}` and `{ask:Label=default}` (`asksOf()`, `expand(text, values, shell, answers)`): each label once, in the order of the text. With answers, the answer (or the default) as 1 quoted literal; without answers (the form preview), the default or `<Label>`. The runner opens the question dialog (640 × 340 + 58 px for each question) for an action with `confirm` or with questions (it reads the script first); the list does the same in its own view. The question view makes 1 field for each label (the default as its value, the first one focused); a change of an answer prepares the preview again. Enter in a field runs, Esc goes back (or closes the question dialog).
+
+## Scripts by an agent
+
+In the form, for a script file: **New with an agent…** (always) and **Edit with an agent…** (when the file can be read). The panel has a textarea (what the script must do, or what must change), the installed agents of `knownAgents()` (the last one used is `shared("quick-actions.agent")`), a line with the path, and **Start**. Start needs a name, a text and an agent; it saves the action with `source: "file"` and `file` = the file of the action, else `<script folder>/<slug of the name>.ps1` (`.sh` on macOS and Linux), with `~` for the home folder; it makes the folder of the file (`fs.mkdir`, else `pwsh New-Item` or `mkdir -p`), and runs `tab.new { space: <target space>, folder: <folder of the file>, name: "Script: <name>", focus: true, ...agentStart(agent.run, task) }` (`space.new` without a space). Then a toast, and the dialog closes. The task (`writerTask()`) gives the path, the shell, the text of the person, and the rules: only this file, do not run it; the variables and their quotes; `{ask:…}`; `Join-Path` and `$ErrorActionPreference = 'Stop'` for PowerShell, `set -e` for sh; a short line before each step. The form reads the file again every 2 s, so the preview follows the agent.
+
+The script folder is `shared("quick-actions.scriptDir")` (a setting of the Settings tab), else `~/.config/herdr-app/data/quick-actions/scripts`.
 
 ## On and off
 

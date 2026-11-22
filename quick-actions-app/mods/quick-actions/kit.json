@@ -18,6 +18,14 @@
       "button": "Open Quick Actions",
       "label": "Actions",
       "hint": "Make, change and delete the actions in the list."
+    },
+    {
+      "id": "scriptDir",
+      "type": "text",
+      "key": "quick-actions.scriptDir",
+      "label": "Script folder",
+      "placeholder": "~/.config/herdr-app/data/quick-actions/scripts",
+      "hint": "New with an agent writes the new script files here. ~ is your home folder. Empty: the default folder."
     }
   ]
 }

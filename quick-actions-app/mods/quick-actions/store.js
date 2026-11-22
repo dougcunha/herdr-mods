@@ -17,6 +17,8 @@ export const KEY = {
   rev: "quick-actions.rev", // changes when a copy saves the list
   target: "quick-actions.target", // { terminal, space, tab }: the last terminal that had the focus (the runner writes it)
   runner: "quick-actions.runner", // { at }: the runner is on the screen
+  scriptDir: "quick-actions.scriptDir", // a setting: the folder of the scripts that an agent writes
+  agent: "quick-actions.agent", // the agent that wrote the last script (the choice of the form)
   hidden: "dock.hiddenEntries", // { "<mod>": [ <panels.json id> ] }: the bars of Dock and Kanban leave out these buttons
 };
 
