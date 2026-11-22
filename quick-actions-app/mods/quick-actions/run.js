@@ -78,11 +78,18 @@ export async function prepare(a, target) {
 
 /** Opens a tab in the space of the context and returns the address of its terminal. */
 async function openTab(cx, ctx, name) {
+  const space = ctx.target.space;
+  // Only a terminal of the target space: a background terminal (an Automations run) has no space label.
+  // A space on another machine has the id "<machine>/<id>"; its label there has no machine.
+  const inSpace = (x) => {
+    const l = x.labels?.["herdr.space"];
+    return Boolean(l) && (l === space || String(space).endsWith(`/${l}`));
+  };
   const before = new Set(terminals().map((x) => x.address));
-  run("tab.new", { space: ctx.target.space, folder: ctx.folder || undefined, name: name || undefined, focus: true });
+  run("tab.new", { space, folder: ctx.folder || undefined, name: name || undefined, focus: true });
   for (let i = 0; i < 70; i++) {
     await wait(cx, 150);
-    const fresh = terminals().find((x) => !before.has(x.address));
+    const fresh = terminals().find((x) => !before.has(x.address) && inSpace(x));
     if (fresh) return fresh.address;
   }
   throw new Error("The terminal of the new tab did not start.");

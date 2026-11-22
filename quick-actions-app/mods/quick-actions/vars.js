@@ -24,7 +24,8 @@ export const VARIABLES = [
 const NAMES = new Set(VARIABLES.map((v) => v[0]));
 const VAR_RE = /\{([a-z_]+)\}/g;
 
-export const psq = (s) => `'${String(s ?? "").replace(/'/g, "''")}'`;
+// PowerShell also takes ‘ ’ ‚ ‛ as single quotes: each one is doubled too, else a value could close the literal.
+export const psq = (s) => `'${String(s ?? "").replace(/['‘’‚‛]/g, (c) => c + c)}'`;
 export const shq = (s) => `'${String(s ?? "").replace(/'/g, `'\\''`)}'`;
 
 /** The names of the known variables that a text uses. */

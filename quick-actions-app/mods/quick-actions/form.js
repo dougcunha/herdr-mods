@@ -77,7 +77,7 @@ export function editView(v, t) {
     .child(U.formRow(t, "Only in", "Folders (and the folders in them) or repository names, separated by commas. * works. Empty: everywhere.",
       fld(v.f.filter)))
     .child(U.formRow(t, "Key", "Add this action to keys.json, for example:",
-      div().text_size(11.5).font_family(U.mono()).text_color(t.muted).child(`"alt-1": "quick-actions.run-${d.id}"`), { last: true }));
+      div().text_size(11.5).font_family(U.mono()).text_color(t.muted).child(`"ctrl-shift-1": "quick-actions.run-${d.id}"`), { last: true }));
 
   const back = U.iconButton(t, "qa-back", "back", "Back (Backspace)", (cx) => v.back(cx));
   return v_flex().size_full().min_h(0)
@@ -116,6 +116,6 @@ export function confirmView(v, t) {
         : div().w_full().p(10).rounded(7).bg(t.background).border_1().border_color(t.border)
           .font_family(U.mono()).text_size(11.5).text_color(t.foreground).whitespace_normal().child(p.expanded)))
     .child(h_flex().w_full().px(16).py(12).gap(8).items_center().justify_end().flex_none().border_t(1).border_color(t.border).bg(t.surface)
-      .child(U.button(t, "qa-no", "Cancel", () => v.close_()))
+      .child(U.button(t, "qa-no", "Cancel", (cx) => (v.props.confirm ? v.close_() : v.back(cx))))
       .child(U.button(t, "qa-yes", "Run", (cx) => v.confirmRun(cx), { kind: "primary", iconName: "play", disabled: !p || Boolean(p.error) || Boolean(v.running) })));
 }

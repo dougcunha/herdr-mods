@@ -54,7 +54,7 @@ Then add the key to the `global` section of `~/.config/herdr-app/keys.json` (the
 To give an action its own key, copy the line under **Key** in the form into the `global` section of `keys.json`, for example:
 
 ```json
-"alt-1": "quick-actions.run-q1abcd"
+"ctrl-shift-1": "quick-actions.run-q1abcd"
 ```
 
 ## How a script gets to the terminal
@@ -71,7 +71,7 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 ## Limits
 
 - **Other machines.** In a space on another machine (`hc machine ls`), only scripts of 1 line run. Scripts of 2 or more lines and script files run only on this computer.
-- **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it.
+- **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it. A program with a window that the shell started (`Start-Process notepad`) is a child process too: the terminal is busy until the program closes, and the actions open a new tab.
 - **No command palette entries.** A mod cannot add entries to the command palette. Use the list or a key.
 
 ## Files

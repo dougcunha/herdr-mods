@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
 Status: design agreed on 2026-11-22 (1 round of questions). Phase 1 done on
-2026-11-22 (setup version 129).
+2026-11-22 (setup versions 129 and 130).
 
 ## Goal
 
@@ -190,6 +190,19 @@ active space with one click or one key. Examples: sync the repository
   PowerShell. The README says to use `Join-Path {repo} dist`.
 - **Key.** `alt-q` opens the list (`keys.json` of the app folder).
 - **Status block** of 34 px, before `repo-launcher-status`.
+- **Curly quotes.** PowerShell also takes `‘ ’ ‚ ‛` as single quotes, so
+  `psq` doubles them too (setup version 130). Tested: a value with
+  `’;Write-Output INJECTED;‘` stays 1 literal. The `psq` of `automations` and
+  the `psQuote` of `github-clone` still double only `'`.
+- **New tab.** The new terminal must have the `herdr.space` label of the
+  target space, so a background terminal that starts at the same time does
+  not get the line.
+- **Tested in the app:** runs from the list (Enter) with a free and a busy
+  terminal, the question in the list and in its own dialog, a `.ps1` script
+  file, the `kanban` layout, and on and off through `mods-hub.off-quick-actions`.
+  Without the status block, `herdr-app do quick-actions.run-<id>` answers
+  "unknown command". Not tested from the shell: the keyboard focus (search
+  field, arrows, Enter, Esc after a click).
 
 ## Open questions
 

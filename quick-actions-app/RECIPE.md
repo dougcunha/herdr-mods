@@ -57,19 +57,19 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 1. The script text (the file is read with `readTextFile`). Empty: an info message.
 2. The context; the filter (a folder part matches the folder and its subfolders, `*` and `**` work; a name part matches `repo_name`, `*` works).
 3. A new tab when `where` is `tab` or the terminal is busy. The shell of the line: the shell of the target terminal, or `ps` on Windows and `sh` elsewhere for a new tab. The shell of the script: the extension of a script file (`.ps1`, `.sh`, `.bash`, `.zsh`), else the shell of the line.
-4. `expand()`: only the known `{name}`s; each value becomes 1 literal: PowerShell `'…'` with `''`, sh `'…'` with `'\''`. Other braces stay.
+4. `expand()`: only the known `{name}`s; each value becomes 1 literal: PowerShell `'…'` with each `'`, `‘`, `’`, `‚` and `‛` doubled (PowerShell takes all of them as single quotes), sh `'…'` with `'\''`. Other braces stay.
 
 `runAction()`:
 
 1. 1 line (inline only): the line itself. Else: a run file `data/quick-actions/runs/<time36>-<slug>.ps1|.sh` (the last 20 stay), and the line `& '<file>'` (PowerShell), `pwsh -NoProfile -File '<file>'` (a `.ps1` in a POSIX shell), or `<shell> '<file>'`. On another machine, only 1 line runs: else an error toast.
 2. Target terminal: `hc keys <t> esc` (PowerShell: PSReadLine reverts the line) or `hc keys <t> ctrl+u`, then `hc send <t> <line>` (it pastes and presses Enter).
-3. New tab: `tab.new { space, folder, name, focus: true }`; the new terminal is the address that `terminals()` did not have before (150 ms polls, 10 s); then the screen must be the same in 2 reads of `hc read --lines 30` (150 ms apart, 12 s at most); then `hc send`.
+3. New tab: `tab.new { space, folder, name, focus: true }`; the new terminal is an address that `terminals()` did not have before, with the `herdr.space` label of the target space (150 ms polls, 10 s); then the screen must be the same in 2 reads of `hc read --lines 30` (150 ms apart, 12 s at most); then `hc send`.
 4. `pane.focus { terminal }`. A failure posts an error toast `Quick action: <name>`.
 
 ## Dialog
 
 - **List** (`list.js`): a 58 px header (32 px tile, "Quick Actions", "Runs in <terminal> · <folder>" or "a new tab (<terminal> runs <program>)", **New**, ×); a warning band when the list file is broken or no runner is alive; a search field (focused at open); 1 row per action (36 px icon tile, the name, labels: lines or file name, terminal or new tab, asks first, the filter), **Run**, pencil, trash (2 clicks). The selected row has an `accent` border. A row whose filter leaves out the target is at 70% and its Run is off. ↑ ↓ select, Enter runs, Esc closes. Empty: **Add 2 examples** (Sync the repository; Update and install, which asks first) and **New action**.
-- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab), Ask before run, Only in, Key (`"alt-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list.
+- **Form** (`form.js`): rows of 200 px labels: Name, Icon (15 buttons), Script (Inline | Script file; a mono textarea with the variable tokens, a click inserts `{name}` at the cursor; or the path field), Preview (prepare() again 400 ms after a change: where it runs, and the expanded script), Where it runs (Terminal | New tab), Ask before run, Only in, Key (`"ctrl-shift-1": "quick-actions.run-<id>"`). Save checks name and script; Esc in a field goes back to the list.
 - **Question** (`confirmView`): the icon, "Run <name>?", where it runs, the expanded script, Cancel and **Run** (Enter).
 - `herdr-app do quick-actions.<new | edit-<id> | list | save | demo | up | down | enter>` drives an open dialog.
 
