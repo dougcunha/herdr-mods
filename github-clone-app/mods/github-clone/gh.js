@@ -74,6 +74,41 @@ export async function fetchAccount(on) {
   return { login, repos, orgs: lines(orgText) };
 }
 
+const SEARCH_FIELDS = "fullName,owner,name,description,language,stargazersCount,updatedAt,isPrivate,isFork,isArchived,defaultBranch";
+
+/**
+ * The words of a search text as arguments for `gh search repos`: a quoted
+ * phrase stays 1 argument (gh quotes it again), a qualifier such as
+ * `stars:>100` or `-topic:x` stays as it is.
+ */
+export function queryArgs(text) {
+  return (String(text ?? "").match(/"[^"]*"|\S+/g) ?? [])
+    .map((t) => (t.length > 1 && t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t))
+    .filter(Boolean);
+}
+
+/**
+ * Searches the repositories of GitHub (`gh search repos`).
+ * `sort`: "" (best match), "stars" or "updated". Resolves with repositories
+ * (as repoOf() makes them, plus `stars`). Rejects with a GhError.
+ */
+export async function searchRepos(on, text, { sort = "", limit = 30 } = {}) {
+  const args = ["search", "repos", "--limit", String(limit), "--json", SEARCH_FIELDS];
+  if (sort) args.push("--sort", sort);
+  // After "--", a word that starts with "-" (an excluded qualifier) is not a flag.
+  args.push("--", ...queryArgs(text));
+  const out = await gh(on, args, 60000);
+  let list = [];
+  try { list = JSON.parse(out || "[]"); } catch { throw new GhError("error", "gh gave a search result that is not JSON"); }
+  return list.filter((x) => x?.fullName).map((x) => ({
+    ...repoOf({
+      f: x.fullName, o: x.owner?.login ?? x.fullName.split("/")[0], n: x.name, p: x.isPrivate, k: x.isFork, a: x.isArchived,
+      d: x.description, l: x.language, u: x.updatedAt, b: x.defaultBranch,
+    }),
+    stars: Number(x.stargazersCount) || 0,
+  }));
+}
+
 /** The first 100 branches of a repository. */
 export async function fetchBranches(on, full) {
   return lines(await gh(on, ["api", `repos/${full}/branches?per_page=100`, "--jq", ".[].name"], 30000));

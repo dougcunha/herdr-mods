@@ -1,6 +1,6 @@
 {
   "app": "github-clone-app",
-  "description": "Clone a GitHub repository from a dialog: the repositories of the gh account of each machine, with owner chips and a fuzzy search, cloned in a visible terminal into the folder that you set for each machine and owner. Needs gh.",
+  "description": "Clone a GitHub repository from a dialog: the repositories of the gh account of each machine (owner chips, fuzzy search) or a search of all of GitHub (topics, organizations, languages, stars), cloned in a visible terminal into the folder that you set for each machine and owner. Needs gh.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/github-clone-app",
   "settings": [
     {

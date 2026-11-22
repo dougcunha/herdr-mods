@@ -30,5 +30,11 @@ export const DEMO = {
       repo("tiny-tools", "port-check", { desc: "Which program uses this port?", lang: "Go", days: 75 }),
     ],
   },
+  search: [
+    { ...repo("open-tools", "fast-grep", { desc: "A grep that skips what .gitignore skips", lang: "Rust", days: 1 }), stars: 18400 },
+    { ...repo("termkit", "termkit", { desc: "Widgets for terminal apps", lang: "Go", days: 3 }), stars: 9200 },
+    { ...repo("acme-labs", "design-system", { desc: "Components, tokens and icons of Acme apps", lang: "TypeScript", days: 2 }), stars: 310 },
+    { ...repo("you", "notes-cli", { desc: "Take notes from the terminal", lang: "Rust", days: 12 }), stars: 42 },
+  ],
   status: { "you/herdr-mods": "cloned", "you/dotfiles": "cloned", "acme-labs/infra": "used" },
 };

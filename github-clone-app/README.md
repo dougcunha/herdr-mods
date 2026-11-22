@@ -11,6 +11,7 @@ A Herdr app mod that clones a GitHub repository from a dialog. Press `Alt+G` (or
 - **Archived chip.** The archived repositories are hidden until you click **Archived**.
 - **Order.** Name (the default), Last push or Owner. The choice stays.
 - **Cloned mark.** A repository that is cloned in its folder already shows **cloned**. A folder with the same name and other content shows **folder in use**. The mod does not clone over them: it asks for another folder.
+- **Search all of GitHub.** The **GitHub** tab (`Ctrl+G`) searches every public repository with `gh search repos`. Type words of the name or the description; the search starts after a short pause. Qualifiers work too (`topic:cli`, `org:vercel`, `user:torvalds`, `language:rust`, `stars:>500`, `-topic:deprecated`), and chips write the common ones. Sort by best match, stars or last update; 30 results, and **More results** up to 100. A result clones the same way as your own repositories.
 - **Open on GitHub.** `Ctrl+O`, or the arrow button of the selected row or of the clone step, opens the page of the repository in your browser.
 - **Clone step.** The folder (with a check that it is free), the branch (with the branches of the repository as suggestions) and a **Shallow clone** switch (`--depth 1`). The step shows the command that it runs.
 - **A visible clone.** A new space starts a shell in the parent folder and runs `gh repo clone`. You see the progress and can answer a prompt (an SSH passphrase, a host key). At the end, the shell is in the new folder, and the space takes the name of the repository.
@@ -63,7 +64,8 @@ Without a key, open it with `herdr-app do mod.open --name github-clone`, or from
 | List | `↑` `↓`, `PgUp` `PgDn` | Move the selection |
 | List | `Enter` | Open the clone step |
 | List | `Ctrl+M` | Next machine |
-| List | `Ctrl+R` | Read the list again |
+| List | `Ctrl+R` | Read the list again (GitHub tab: search again) |
+| List | `Ctrl+G` | Switch between your repositories and the GitHub search |
 | List, clone step | `Ctrl+O` | Open the repository on GitHub |
 | List | `Esc` | Close the dialog |
 | Clone step | `Enter` | Clone (in the branch field with a suggestion selected: take the suggestion) |
@@ -73,7 +75,7 @@ Without a key, open it with `herdr-app do mod.open --name github-clone`, or from
 
 ## What it runs, and its limits
 
-- **Programs.** `gh api` (the account, its repositories, its organizations and the branches of 1 repository) on the machine of the list. PowerShell on Windows, or `sh`, to list the clone folders (and the `origin` URL of each Git folder), to check that a folder is free and to make the parent folder. `hc read` and `hc send` to send the clone line to the new terminal. `gh repo clone` runs in that terminal. Everything uses the `gh` login of the machine; the mod stores no credential.
+- **Programs.** `gh api` (the account, its repositories, its organizations and the branches of 1 repository) and `gh search repos` (the GitHub tab) on the machine of the list. PowerShell on Windows, or `sh`, to list the clone folders (and the `origin` URL of each Git folder), to check that a folder is free and to make the parent folder. `hc read` and `hc send` to send the clone line to the new terminal. `gh repo clone` runs in that terminal. Everything uses the `gh` login of the machine; the mod stores no credential.
 - **Network.** Only through `gh`. **Open on GitHub** opens `https://github.com/<owner>/<name>` with the opener of the system (`rundll32 url.dll,FileProtocolHandler`, `open` or `xdg-open`).
 - **Files that it writes.** Its settings, the saved lists and the clones in progress go in the shared state of the app (`shared.json`, keys `github-clone.*`). It adds new clones to `repo-launcher.cache`, and a folder to `repo-launcher.settings` only when you click **Add to Repo Launcher**.
 - **No `gh` or no login.** The dialog says so. **Log in…** opens a terminal on that machine with `gh auth login`.

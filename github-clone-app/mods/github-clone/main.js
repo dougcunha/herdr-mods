@@ -21,6 +21,7 @@ import { mkey, cacheOf, setCacheOf, order, setOrder, folderFor, rootOf, rulesOf,
 import { icon, tint, nameColor, letterTile, pill, kbd, hint, iconButton, button, segmented, chip, highlighted, ago, notice } from "./ui.js";
 import { stepMethods } from "./step.js";
 import { folderMethods } from "./folders.js";
+import { searchMethods } from "./search.js";
 import { DEMO } from "./demo.js";
 import { memory, machineList, machineLabel, ROW_H, HEAD_H, FOOT_H } from "./common.js";
 
@@ -74,6 +75,10 @@ export default class GitHubClone extends View {
 
     this.initStep(cx);
     this.initFolders(cx);
+    // The tab of the list: "mine" (the repositories of the account) or "github" (search.js).
+    this.tab = memory.tab === "github" ? "github" : "mine";
+    this.initSearch(cx);
+    if (this.tab === "github") this.focusQuery(cx);
 
     if (checking()) return;
     cx.spawn(async (cx) => {
@@ -83,6 +88,7 @@ export default class GitHubClone extends View {
     this.ensureFresh(this.machine, cx);
     this.probe(this.machine, cx);
     this.cleanPending(cx);
+    if (this.tab === "github" && memory.search.text.trim() && this.searchStale()) this.runSearch(cx);
     // Commands for tests and for the preview: `herdr-app do github-clone.<name>`.
     cx.spawn(async (cx) => {
       for (;;) {
@@ -92,10 +98,11 @@ export default class GitHubClone extends View {
         else if (c === "list") this.back(cx);
         else if (c === "refresh") this.refresh(this.machine, cx, { loud: true });
         else if (c === "machine") this.cycleMachine(cx);
-        else if (c === "step") this.choose(this.selectedRow()?.repo, cx);
+        else if (c === "step") this.choose(this.currentRepo(), cx);
+        else if (c === "tab") this.setTab(this.tab === "github" ? "mine" : "github", cx);
         else if (c === "clone" && this.view === "step") this.launchClone(cx);
         else if (c === "owner") this.cycleOwner(cx);
-        else if (c === "web") { const repo = this.view === "step" ? this.step?.repo : this.selectedRow()?.repo; if (repo) openUrl(repoUrl(repo.full)); }
+        else if (c === "web") { const repo = this.view === "step" ? this.step?.repo : this.currentRepo(); if (repo) openUrl(repoUrl(repo.full)); }
         else if (c === "down" || c === "up") this.onKey({ key: c, modifiers: {} }, { stop_propagation() {}, notify() {} });
         cx.notify();
       }
@@ -112,9 +119,16 @@ export default class GitHubClone extends View {
     cx.timer.after(40, () => this.handle.focus());
   }
 
+  /** Gives the keyboard to the search field of the shown tab. */
   focusQuery(cx) {
-    this.query.focus();
-    cx.timer.after(40, () => this.query.focus());
+    const input = this.tab === "github" ? this.searchInput : this.query;
+    input.focus();
+    cx.timer.after(40, () => input.focus());
+  }
+
+  /** The selected repository of the shown tab. */
+  currentRepo() {
+    return this.tab === "github" ? this.searchRows()[this.searchAt]?.repo ?? null : this.selectedRow()?.repo ?? null;
   }
 
   // ---------------------------------------------------------------------------
@@ -254,6 +268,8 @@ export default class GitHubClone extends View {
     if (!checking()) {
       this.ensureFresh(machine, cx);
       this.probe(machine, cx);
+      // The search runs with the gh of the machine: search again there.
+      if (this.tab === "github" && memory.search.text.trim()) this.runSearch(cx);
     }
     this.focusQuery(cx);
     cx.notify();
@@ -372,6 +388,9 @@ export default class GitHubClone extends View {
     }
     // The list view. A focused search field keeps Esc from Herdr: close here.
     if (k === "escape") { cx.stop_propagation(); return this.close(); }
+    if (ctrl && k === "g") { cx.stop_propagation(); return this.setTab(this.tab === "github" ? "mine" : "github", cx); }
+    if (ctrl && k === "m") { cx.stop_propagation(); return this.cycleMachine(cx); }
+    if (this.tab === "github") return this.searchKey(e, cx);
     const rows = this.rows();
     if (k === "down" || k === "up") {
       if (!rows.length) return;
@@ -384,9 +403,6 @@ export default class GitHubClone extends View {
     } else if (ctrl && k === "r") {
       this.refresh(this.machine, cx, { loud: true });
       this.probe(this.machine, cx, { force: true });
-    } else if (ctrl && k === "m") {
-      cx.stop_propagation();
-      return this.cycleMachine(cx);
     } else if (ctrl && k === "o") {
       const repo = this.selectedRow(rows)?.repo;
       if (repo) openUrl(repoUrl(repo.full));
@@ -403,6 +419,7 @@ export default class GitHubClone extends View {
     const t = theme();
     const body = this.view === "step" ? this.renderStep(t)
       : this.view === "folders" ? this.renderFolders(t)
+      : this.tab === "github" ? this.renderSearch(t)
       : this.renderList(t);
     return v_flex().id("github-clone").size_full().min_h(0).bg(t.popover).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)
@@ -446,6 +463,14 @@ export default class GitHubClone extends View {
       .child(Input.new(state).flex_1().h_full().text_size(12.5).when(mono, (e) => e.font_family(font)));
   }
 
+  /** The switch between the repositories of the account and the search of GitHub (Ctrl+G). */
+  tabSwitch(t) {
+    return segmented(t, "gc-tab", [
+      { value: "mine", label: "Mine", symbol: "user", tooltip: "The repositories of your gh account (Ctrl+G)" },
+      { value: "github", label: "GitHub", symbol: "globe", tooltip: "Search all public repositories of GitHub (Ctrl+G)" },
+    ], this.tab, (v, cx) => this.setTab(v, cx));
+  }
+
   machinePicker(t) {
     const list = machineList();
     if (list.length < 2) return null;
@@ -472,6 +497,7 @@ export default class GitHubClone extends View {
     const head = this.header(t, "Clone a repository", subtitle, {
       leading: this.brandTile(t),
       trailing: [
+        this.tabSwitch(t),
         iconButton(t, "gc-refresh", "refresh", (cx) => { this.refresh(this.machine, cx, { loud: true }); this.probe(this.machine, cx, { force: true }); },
           { tooltip: "Read the list again (Ctrl+R)", spin: loading }),
         iconButton(t, "gc-folders", "settings", (cx) => this.openFolders(cx), { tooltip: "Clone folders" }),
@@ -526,6 +552,7 @@ export default class GitHubClone extends View {
       .child(hint(t, ["↵"], "clone"))
       .when(machineList().length > 1, (e) => e.child(hint(t, ["Ctrl+M"], "machine")))
       .child(hint(t, ["Ctrl+R"], "refresh"))
+      .child(hint(t, ["Ctrl+G"], "search GitHub"))
       .child(hint(t, ["Ctrl+O"], "GitHub"))
       .child(div().flex_1())
       .child(div().text_size(11).text_color(t.dim).child(memory.demo ? "Demo data" : loading ? "Reading…" : c?.fetchedAt ? `Read ${ago(c.fetchedAt)}` : ""));
@@ -567,17 +594,17 @@ export default class GitHubClone extends View {
    * wheel moves them, and while `follow` is on the list moves just enough to
    * show the selected row.
    */
-  scrollList(t, items, rowH, height, focus, draw) {
+  scrollList(t, items, rowH, height, focus, draw, scroll = { get: () => this.scrollTop, set: (v) => { this.scrollTop = v; } }) {
     const total = items.length * rowH;
     const h = Math.min(height, total);
     const max = Math.max(0, total - h);
-    let top = this.scrollTop;
+    let top = scroll.get();
     if (this.follow && focus >= 0) {
       if (focus * rowH < top) top = focus * rowH;
       if ((focus + 1) * rowH > top + h) top = (focus + 1) * rowH - h;
     }
     top = Math.max(0, Math.min(top, max));
-    this.scrollTop = top;
+    scroll.set(top);
     const first = Math.floor(top / rowH);
     const last = Math.min(items.length - 1, Math.ceil((top + h) / rowH));
     const rows = [];
@@ -588,7 +615,7 @@ export default class GitHubClone extends View {
     return div().id("gc-scroll").relative().w_full().h(h).flex_none().overflow_hidden()
       .on_scroll_wheel((e, cx) => {
         this.follow = false;
-        this.scrollTop = Math.max(0, Math.min(this.scrollTop - e.delta.y, max));
+        scroll.set(Math.max(0, Math.min(scroll.get() - e.delta.y, max)));
         cx.notify();
       })
       .children(rows)
@@ -602,7 +629,7 @@ export default class GitHubClone extends View {
     return null;
   }
 
-  repoRow(t, r, selected, index) {
+  repoRow(t, r, selected, index, select = () => { this.at = index; }) {
     const { repo, match, status } = r;
     const statusEl = this.statusPill(t, status, repo);
     return h_flex().id(`gc-row-${repo.full}`).h(ROW_H).px(8).flex_none()
@@ -611,7 +638,7 @@ export default class GitHubClone extends View {
         .bg(selected ? tint(t.accent, "1c") : "#00000000")
         .when(!selected, (e) => e.hover((s) => s.bg(t.hover)))
         .on_click((_e, cx) => {
-          this.at = index;
+          select();
           this.choose(repo, cx);
         })
         .child(letterTile(repo.name, nameColor(repo.name), 32))
@@ -627,7 +654,9 @@ export default class GitHubClone extends View {
             .when(Boolean(statusEl), (e) => e.child(statusEl)))
           .when(Boolean(repo.desc), (e) => e.child(div().text_size(11).text_color(t.dim).truncate().child(repo.desc))))
         .child(v_flex().flex_none().items_end().gap(2)
-          .child(div().text_size(11).text_color(t.muted).child(repo.lang || ""))
+          .child(h_flex().gap(8).items_center()
+            .child(div().text_size(11).text_color(t.muted).child(repo.lang || ""))
+            .when(repo.stars != null, (e) => e.child(this.starsLabel(t, repo))))
           .child(div().text_size(10.5).text_color(t.dim).child(ago(repo.pushed))))
         .when(selected, (e) => e
           .child(iconButton(t, `gc-web-${repo.full}`, "external", () => openUrl(repoUrl(repo.full)), { tooltip: "Open on GitHub (Ctrl+O)", size: 26 }))
@@ -635,4 +664,4 @@ export default class GitHubClone extends View {
   }
 }
 
-Object.assign(GitHubClone.prototype, stepMethods, folderMethods);
+Object.assign(GitHubClone.prototype, stepMethods, folderMethods, searchMethods);

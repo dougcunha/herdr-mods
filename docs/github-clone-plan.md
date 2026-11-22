@@ -1,7 +1,8 @@
 # Plan: the `github-clone` mod
 
 Status: design agreed in the grilling session of 2026-11-22 (4 rounds).
-Phase 1 done on 2026-11-22 (setup version 125). Phase 2 next.
+Phase 1 done on 2026-11-22 (setup version 125). Phase 2 done on 2026-11-22
+(setup version 126).
 
 ## Goal
 
@@ -261,6 +262,15 @@ The mod only clones. To open a repository, the person uses `repo-launcher`.
 - **Large accounts.** 165 repositories take 3 s. An account with thousands
   takes much longer: the cache and a background refresh must keep the dialog
   fast.
+
+### Phase 2 (as built)
+
+- The search runs with the `gh` of the source machine, like the list.
+- The tab switch is in the header (`Mine | GitHub`, `Ctrl+G`). The dialog
+  opens on the last tab; the last search stays in memory until Herdr
+  restarts.
+- Chips: `language:`, `topic:`, `org:`, `user:`, `stars:>100`. The order:
+  Best match, Stars, Updated. 30 results, then `More results` up to 100.
 
 ## Open questions
 
