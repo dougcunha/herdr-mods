@@ -178,5 +178,6 @@ Rules:
 - `agent-desktop` runs headless and cannot click. To test a mod from the shell, give it commands with `nextCommand()` and run `herdr-app do <mod>.<command>`. `kanban.panel-<id>` opens a panel.
 - `herdr-app do <mod>.<command>` answers "unknown command" when no copy of the mod is on the screen. A tab made with `tab.new --mod <mod>` does not show in the `kanban` layout, so the mod does not load there. Test in the layout that shows the mod (`main-dock` for `agent-cards`).
 - `herdr-app do` takes flags: `herdr-app do tab.close --id <tab> --confirmed true`. In PowerShell, a JSON object in quotes does not work.
+- A program in `argv` cannot change the shell of its terminal (a `cd` there is lost). To run a line whose `cd` must stay: `space.new` (or `tab.new`) without `argv`, find the new terminal (`panes()` before and after), wait until `hc read` shows the same screen twice, then `hc send` the line. On Windows use `; if ($?) { … }`: Windows PowerShell 5.1 has no `&&`.
 
 <!-- End claude-reflect section -->
