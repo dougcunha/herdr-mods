@@ -6,7 +6,8 @@
 // - The target terminal is busy, there is no terminal, or the action says "New tab": a new tab
 //   in the same space and folder gets the line when its shell is ready.
 // - A script of 1 line goes as that line. A script of 2 or more lines and a script file go into
-//   a run file, and the terminal gets 1 line that runs it.
+//   a run file, and the terminal gets 1 line that runs it. On another machine, `hc put` copies the run
+//   file there first (a script file stays on this computer).
 
 import { hc, run, notify, terminals, readTextFile, home } from "herdr";
 import { context, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, family, asksOf, psq, shq } from "./vars.js";
@@ -110,18 +111,21 @@ async function waitPrompt(cx, address) {
   }
 }
 
+/** Copies a local file to the machine of a terminal (`hc put`) and returns its path there. */
+async function putFile(address, local) {
+  const r = await hc(["put", "--json", address, local]);
+  let path = null;
+  try { path = JSON.parse(r.stdout)?.path ?? null; } catch { path = null; }
+  if (r.code !== 0 || !path) throw new Error(`Cannot copy the script to the machine of ${address}: ${(r.stderr || r.stdout || "").trim()}`);
+  return String(path).replace(/\\/g, "/");
+}
+
 /** Runs an action for a target. Returns the address of the terminal that got the line, or null. */
 export async function runAction(cx, a, target, answers = null) {
   const p = await prepare(a, target, answers);
   if (p.error) { fail(a.name, p.error); return null; }
   const { ctx } = p;
   try {
-    let line = p.expanded;
-    if (!p.oneLine) {
-      if (ctx.machine) throw new Error(`The space is on ${ctx.machine}. Scripts of 2 or more lines and script files run only on this computer.`);
-      const path = await writeRunFile(a.name, p.shell === "ps" ? "ps1" : "sh", `${p.expanded}\n`);
-      line = runLine(p.shell, p.term, path, ctx.windows);
-    }
     let address = ctx.target.terminal;
     if (p.useTab) {
       address = await openTab(cx, ctx, a.name);
@@ -129,6 +133,13 @@ export async function runAction(cx, a, target, answers = null) {
     } else {
       // A draft at the prompt would go before the line.
       await hc(["keys", address, p.term === "ps" ? "esc" : "ctrl+u"]);
+    }
+    let line = p.expanded;
+    if (!p.oneLine) {
+      let path = await writeRunFile(a.name, p.shell === "ps" ? "ps1" : "sh", `${p.expanded}\n`);
+      // A terminal on another machine: `hc put` copies the run file to that machine.
+      if (ctx.machine) path = await putFile(address, path);
+      line = runLine(p.shell, p.term, path, ctx.windows);
     }
     const r = await hc(["send", address, line]);
     if (r.code !== 0) throw new Error((r.stderr || r.stdout || "").trim() || "hc send failed");

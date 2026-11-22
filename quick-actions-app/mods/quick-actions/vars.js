@@ -195,9 +195,22 @@ export async function context(target, need = new Set(VARIABLES.map((v) => v[0]))
   return { target, machine, windows: info.windows, folder, busy, busyWith, shell, values };
 }
 
-/** The names of the child processes of a process on a Windows machine (not the console hosts). */
+/**
+ * The names of the child processes of the shell of a terminal on a Windows machine (not the console hosts).
+ * A launcher (a scoop shim) can start the real PowerShell as its only child: then the children of that
+ * PowerShell count (up to 3 levels).
+ */
 async function childNames(pid, machine) {
-  const script = `@(Get-CimInstance Win32_Process -Filter 'ParentProcessId=${Number(pid)}' | Where-Object { $_.Name -notin 'conhost.exe','OpenConsole.exe' } | ForEach-Object Name) -join ','`;
+  const script = [
+    `$p = ${Number(pid)}`,
+    "$kids = @()",
+    "for ($i = 0; $i -lt 3; $i++) {",
+    "  $kids = @(Get-CimInstance Win32_Process -Filter \"ParentProcessId=$p\" | Where-Object { $_.Name -notin 'conhost.exe','OpenConsole.exe' })",
+    "  if ($kids.Count -eq 1 -and $kids[0].Name -in 'pwsh.exe','powershell.exe') { $p = $kids[0].ProcessId; continue }",
+    "  break",
+    "}",
+    "@($kids | ForEach-Object Name) -join ','",
+  ].join("\n");
   for (const ps of ["pwsh", "powershell"]) {
     try {
       const r = await exec(ps, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { on: machine ?? undefined, timeout: 10000 });

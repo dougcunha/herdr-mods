@@ -75,11 +75,12 @@ To give an action its own key, copy the line under **Key** in the form into the 
 
 In PowerShell, `& '<file>'` runs in your shell: a `Set-Location` in the script stays after the run.
 
+**Other machines.** In a space on another machine (`hc machine ls`), the actions run the same way: the values come from that machine (its folder, its `git`, its home folder), and `hc put` copies the run file there first. A script file stays on this computer: the mod reads it here and sends a copy with each run. The shell of the terminal decides: PowerShell on a Windows machine, `bash`, `zsh` or `sh` on macOS and Linux.
+
 To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo}\dist` gives 2 words. In `sh`, `{repo}/dist` works.
 
 ## Limits
 
-- **Other machines.** In a space on another machine (`hc machine ls`), only scripts of 1 line run. Scripts of 2 or more lines and script files run only on this computer.
 - **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it. A program with a window that the shell started (`Start-Process notepad`) is a child process too: the terminal is busy until the program closes, and the actions open a new tab.
 - **No command palette entries.** A mod cannot add entries to the command palette. Use the list or a key.
 
@@ -93,7 +94,7 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 
 ## What it runs
 
-- `hc keys` (Esc or Ctrl+U, to clear a draft at the prompt), `hc send` and `hc read` on the terminal that gets the line.
+- `hc keys` (Esc or Ctrl+U, to clear a draft at the prompt), `hc send` and `hc read` on the terminal that gets the line, and `hc put` to copy a run file to another machine.
 - `git rev-parse --show-toplevel` and `git branch --show-current` in the folder of the terminal, only when the script or its filter needs `{repo}`, `{repo_name}` or `{branch}`.
 - On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command.
 - On another machine, `sh` (`uname`, `$HOME`) or `pwsh` (`$HOME`) once, to know its system.

@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
-Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 to 3 done on
-2026-11-22 (setup versions 129 to 132).
+Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 to 4 done on
+2026-11-22 (setup versions 129 to 133).
 
 ## Goal
 
@@ -245,6 +245,23 @@ active space with one click or one key. Examples: sync the repository
   40 s, and the action ran it. Typing in the fields was not tested from the
   shell (a temporary command in the installed copy filled the text).
 - Setup version 132.
+
+### Phase 4 (as built)
+
+- **`hc put`, not `hc exec`.** `hc put --json <terminal> <local file>` copies a
+  file next to a terminal on its machine and prints the path there. It works
+  for Linux and Windows machines, with no quoting or encoding of the script.
+  The mod writes the run file here, puts it, and sends the line with the path
+  there. A script file stays on this computer. The plan said
+  `hc exec --on`: `exec` and `hc()` have no stdin, so `hc put` is simpler.
+- **Scoop shims.** On `notebook`, the terminal runs `scoop\shims\pwsh.exe`,
+  which starts the real `pwsh.exe` as a child: every terminal looked busy.
+  The child-process check goes down into an only child that is PowerShell
+  (up to 3 levels).
+- **Tested in the app:** a script of 2 lines and a script of 1 line in a
+  space on `ubuntu` (WSL) and on `notebook` (Windows), free and busy (a new
+  tab there), and again on this computer, free and busy.
+- Setup version 133.
 
 ## Open questions
 

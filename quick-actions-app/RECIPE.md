@@ -49,7 +49,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 
 - Machine: the `machine` of the space. This computer: `window().platform`. Another machine: `sh -c 'uname -s; printf "%s\n" "$HOME"'`, else `pwsh -Command $HOME` (cached).
 - Folder: `focused().cwd` for the focused terminal, else the pane `cwd`, else the terminal's `foreground.cwd` or `cwd`, else the space folder. Forward slashes; values use the slashes of the machine.
-- Busy: no terminal, or `program.shell` is false (an agent, or a program that Herdr sees). On Windows, Herdr reports the shell also while a command runs, so the mod also runs `Get-CimInstance Win32_Process -Filter 'ParentProcessId=<pid>'` (not `conhost.exe` or `OpenConsole.exe`): a child process makes the terminal busy (about 0.6 s).
+- Busy: no terminal, or `program.shell` is false (an agent, or a program that Herdr sees). On Windows, Herdr reports the shell also while a command runs, so the mod also runs `Get-CimInstance Win32_Process -Filter 'ParentProcessId=<pid>'` (not `conhost.exe` or `OpenConsole.exe`): a child process makes the terminal busy (about 0.6 s). A launcher such as a scoop shim starts the real PowerShell as its only child: when the only child is `pwsh.exe` or `powershell.exe`, its children count (up to 3 levels).
 - Shell: the name of the foreground process or of the program (`pwsh`, `powershell` → `ps`; `bash`, `zsh`, `sh`, `dash`, `ksh`, `fish`), else `ps` on Windows and `sh` elsewhere.
 - Values: `folder`, `space`, `tab`, `terminal`, `machine` (`local`), `home`, `date`, `time`, `branch` (the pane's branch), and only when the script or the filter needs them: `repo`, `repo_name` (`git rev-parse --show-toplevel`), `branch` (`git branch --show-current` when the pane has none).
 
@@ -64,7 +64,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 
 `runAction()`:
 
-1. 1 line (inline only): the line itself. Else: a run file `data/quick-actions/runs/<time36>-<slug>.ps1|.sh` (the last 20 stay), and the line `& '<file>'` (PowerShell), `pwsh -NoProfile -File '<file>'` (a `.ps1` in a POSIX shell), or `<shell> '<file>'`. On another machine, only 1 line runs: else an error toast.
+1. 1 line (inline only): the line itself. Else: a run file `data/quick-actions/runs/<time36>-<slug>.ps1|.sh` (the last 20 stay), and the line `& '<file>'` (PowerShell), `pwsh -NoProfile -File '<file>'` (a `.ps1` in a POSIX shell), or `<shell> '<file>'`. On another machine, `hc put --json <terminal> <run file>` copies the run file next to the terminal (`~/.local/state/herdr-core/default/files/<t>/` on Linux), and the line uses that path. The run file is made after the target terminal is known (a new tab first).
 2. Target terminal: `hc keys <t> esc` (PowerShell: PSReadLine reverts the line) or `hc keys <t> ctrl+u`, then `hc send <t> <line>` (it pastes and presses Enter).
 3. New tab: `tab.new { space, folder, name, focus: true }`; the new terminal is an address that `terminals()` did not have before, with the `herdr.space` label of the target space (150 ms polls, 10 s); then the screen must be the same in 2 reads of `hc read --lines 30` (150 ms apart, 12 s at most); then `hc send`.
 4. `pane.focus { terminal }`. A failure posts an error toast `Quick action: <name>`.
