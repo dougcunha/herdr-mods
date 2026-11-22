@@ -4,6 +4,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { filterMatches, filterParts, asksOf } from "./vars.js";
+import { SHELL_LABEL } from "./store.js";
 import * as U from "./ui.js";
 
 /** The actions that the search shows. */
@@ -25,9 +26,10 @@ function meta(t, iconName, text, tip = null) {
 }
 
 function sourceText(a) {
-  if (a.source === "file") return U.baseName(a.file) || "(no file)";
+  const shell = a.shell && a.shell !== "auto" ? ` · ${SHELL_LABEL[a.shell]}` : "";
+  if (a.source === "file") return (U.baseName(a.file) || "(no file)") + shell;
   const n = a.script.trim() ? a.script.trim().split(/\r?\n/).length : 0;
-  return n === 1 ? "1 line" : `${n} lines`;
+  return (n === 1 ? "1 line" : `${n} lines`) + shell;
 }
 
 function row(v, t, a, i, selected) {

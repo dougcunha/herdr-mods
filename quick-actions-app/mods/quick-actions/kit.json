@@ -25,7 +25,7 @@
       "key": "quick-actions.scriptDir",
       "label": "Script folder",
       "placeholder": "~/.config/herdr-app/data/quick-actions/scripts",
-      "hint": "New with an agent writes the new script files here. ~ is your home folder. Empty: the default folder."
+      "hint": "Write with an agent puts the new script files here. ~ is your home folder. Empty: the default folder."
     }
   ]
 }

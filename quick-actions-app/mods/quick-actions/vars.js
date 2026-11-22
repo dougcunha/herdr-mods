@@ -50,11 +50,11 @@ export function asksOf(text) {
 }
 
 /**
- * The text with each known {name} as 1 quoted literal for the shell. Other {…} stay as they are.
+ * The text with each known {name} as 1 literal for the language of `shell` (see quoter()). Other {…} stay as they are.
  * `answers` ({ label: value }) fill the {ask:…}; without answers (a preview), the default or <Label> shows.
  */
 export function expand(text, values, shell, answers = null) {
-  const q = shell === "ps" ? psq : shq;
+  const q = quoter(shell);
   // 1 pass for {name} and {ask:…}: a value never goes through the replace again, so a value with
   // "{ask:…}" in it (a folder, a space name) stays inside its quotes.
   return String(text ?? "").replace(TOKEN_RE, (m, name, label, def) => {
@@ -120,8 +120,15 @@ export function shellOf(name) {
   return POSIX.includes(n) ? n : null;
 }
 
-/** The quoting family of a shell: "ps" or "sh". */
-export const family = (shell) => (shell === "ps" ? "ps" : "sh");
+/**
+ * The literal of a value for the language of a script: PowerShell and sh quotes, and a JSON string for
+ * Python and Node.js (a JSON string is a valid string literal in both).
+ */
+export function quoter(shell) {
+  if (shell === "ps") return psq;
+  if (shell === "python" || shell === "node") return (s) => JSON.stringify(String(s ?? ""));
+  return shq;
+}
 
 /** The repository root of a folder, or "". */
 async function repoRoot(folder, machine) {
@@ -221,6 +228,46 @@ async function childNames(pid, machine) {
     } catch { /* try the next PowerShell */ }
   }
   return [];
+}
+
+// Finds Git Bash and Python on a Windows machine. The `bash` of the PATH can be the one of WSL
+// (System32), which cannot read a Windows path, and `python` can be the Microsoft Store link (WindowsApps).
+const TOOLS_PS = String.raw`$ErrorActionPreference = 'SilentlyContinue'
+$c = @()
+$b = Get-Command bash | Select-Object -First 1
+if ($b -and $b.Source -notmatch '\\(System32|WindowsApps)\\') { $c += $b.Source }
+$g = Get-Command git | Select-Object -First 1
+if ($g) {
+  $d = Split-Path $g.Source
+  $c += (Join-Path $d '..\bin\bash.exe'), (Join-Path $d '..\..\bin\bash.exe'), (Join-Path $d '..\apps\git\current\bin\bash.exe')
+}
+$c += (Join-Path $env:ProgramFiles 'Git\bin\bash.exe'), (Join-Path $HOME 'scoop\apps\git\current\bin\bash.exe')
+$bash = ''
+foreach ($p in $c) { if ($p -and (Test-Path -LiteralPath $p)) { $bash = (Resolve-Path -LiteralPath $p).Path; break } }
+$py = Get-Command python | Where-Object { $_.Source -notmatch '\\WindowsApps\\' } | Select-Object -First 1
+$python = if ($py) { $py.Source } elseif (Get-Command py) { 'py' } else { '' }
+"bash=$bash"
+"python=$python"`;
+
+const toolCache = new Map();
+
+/** Git Bash and Python of a Windows machine (null: this computer): { bash, python } (a path, "py", or null). */
+export async function windowsTools(machine) {
+  const key = machine ?? "";
+  if (toolCache.has(key)) return toolCache.get(key);
+  let out = { bash: null, python: null };
+  for (const ps of ["pwsh", "powershell"]) {
+    try {
+      const r = await exec(ps, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", TOOLS_PS], { on: machine ?? undefined, timeout: 20000 });
+      if (r.code !== 0) continue;
+      const get = (k) => (new RegExp(`^${k}=(.*)$`, "m").exec(r.stdout)?.[1] ?? "").trim() || null;
+      out = { bash: get("bash"), python: get("python") };
+      break;
+    } catch { /* try the next PowerShell */ }
+  }
+  // Keep only a full answer: a machine that was off is asked again next time.
+  if (out.bash || out.python) toolCache.set(key, out);
+  return out;
 }
 
 // ---- the filter -----------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { ICONS } from "./store.js";
+import { ICONS, SHELLS, SHELL_LABEL } from "./store.js";
 import { VARIABLES } from "./vars.js";
 import { howText } from "./run.js";
 import { writerPath, shortPath } from "./writer.js";
@@ -14,7 +14,7 @@ import * as U from "./ui.js";
 export function errors(d) {
   const e = {};
   if (!d.name.trim()) e.name = "Write a name.";
-  if (d.source === "file" && !d.file.trim()) e.file = "Write the path of a .ps1 or .sh file.";
+  if (d.source === "file" && !d.file.trim()) e.file = "Write the path of a script file, or click Write with an agent….";
   if (d.source === "inline" && !d.script.trim()) e.script = "Write the script.";
   return e;
 }
@@ -55,7 +55,7 @@ function writerPanel(v, t) {
     .child(installed.length
       ? U.segmented(t, "qa-agent", installed.map((a) => ({ value: a.key, label: a.name })), w.agent, (val, cx) => { w.agent = val; cx.notify(); })
       : div().text_size(11.5).text_color(t.blocked).child("No agent is installed."))
-    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action. Then the agent works in a new tab and writes ${path}. Run the action when it is done.`))
+    .child(div().text_size(11).text_color(t.dim).child(`Start saves the action with this script file. Then the agent works in a new tab and writes ${path}. Run the action when it is done.`))
     .when(Boolean(w.error), (e) => e.child(h_flex().gap(5).items_center().text_size(11.2).text_color(t.blocked)
       .child(svg(U.icon("alert")).size(12).flex_none().text_color(t.blocked)).child(w.error)))
     .child(h_flex().gap(8)
@@ -72,6 +72,12 @@ export function editView(v, t) {
   const insert = (name) => (cx) => { v.script.replace(`{${name}}`); v.script.focus(); cx.notify(); };
   const firstError = Object.values(errs)[0] ?? "";
 
+  // An agent can write the script in both modes: the action then uses the file that the agent writes.
+  const fileThere = d.source === "file" && v.fileText != null;
+  const agentButtons = h_flex().gap(8)
+    .child(U.button(t, "qa-agent-new", fileThere ? "Write a new one with an agent…" : "Write with an agent…", (cx) => v.openWriter(cx, "new"),
+      { iconName: "sparkles", tip: "An agent writes the script file from your description" }))
+    .when(fileThere, (e) => e.child(U.button(t, "qa-agent-edit", "Change with an agent…", (cx) => v.openWriter(cx, "edit"), { iconName: "pencil" })));
   const scriptControl = v_flex().gap(8).w_full()
     .child(U.segmented(t, "qa-src", [{ value: "inline", label: "Inline" }, { value: "file", label: "Script file" }], d.source,
       (val, cx) => v.set(cx, (x) => { x.source = val; })))
@@ -79,21 +85,23 @@ export function editView(v, t) {
       .child(U.area(t, v.script, esc).font_family(U.mono()))
       .child(h_flex().flex_wrap().gap(5).children(VARIABLES.map(([name, tip], i) => U.token(t, `qa-var-${i}`, `{${name}}`, tip, insert(name))))
         .child(U.token(t, "qa-var-ask", "{ask:Name}", "Asks the person for a value before the run. {ask:Name=default} gives a default.", (cx) => { v.script.replace("{ask:Name}"); v.script.focus(); cx.notify(); }))))
-    .when(d.source === "file", (el) => el
-      .child(fld(v.f.file))
-      .child(h_flex().gap(8)
-        .child(U.button(t, "qa-agent-new", "New with an agent…", (cx) => v.openWriter(cx, "new"), { iconName: "sparkles" }))
-        .when(v.fileText != null, (e) => e.child(U.button(t, "qa-agent-edit", "Edit with an agent…", (cx) => v.openWriter(cx, "edit"), { iconName: "pencil" }))))
-      .when(Boolean(v.writer), (e) => e.child(writerPanel(v, t))));
+    .when(d.source === "file", (el) => el.child(fld(v.f.file)))
+    .child(v.writer ? writerPanel(v, t) : agentButtons);
 
   const body = v_flex().w_full()
     .child(U.formRow(t, "Name", "Shown in the list and on the button.", fld(v.f.name), { error: errs.name }))
     .child(U.formRow(t, "Icon", null, iconPicker(v, t, d)))
     .child(U.formRow(t, "Script",
       d.source === "inline"
-        ? "PowerShell on Windows. A click on a variable inserts it. Its value comes in quotes: write cd {repo}, not cd \"{repo}\"."
-        : "A .ps1 or .sh file (~ is your home folder). The variables in the file get their values too.",
+        ? "A click on a variable inserts it. Its value comes in quotes (a string in Python and Node.js): write cd {repo}, not cd \"{repo}\"."
+        : "A .ps1, .sh, .py or .js file (~ is your home folder). The variables in the file get their values too.",
       scriptControl, { error: errs.script ?? errs.file }))
+    .child(U.formRow(t, "Shell",
+      d.source === "file"
+        ? "Auto: the extension of the file. Python runs with python (python3 on macOS and Linux), Node.js with node, bash with Git Bash on Windows."
+        : "Auto: the shell of the terminal (PowerShell on Windows). Another shell, Python and Node.js run the script from a file.",
+      U.segmented(t, "qa-shell", SHELLS.map((s) => ({ value: s, label: SHELL_LABEL[s] })), d.shell,
+        (val, cx) => v.set(cx, (x) => { x.shell = val; }))))
     .child(U.formRow(t, "Preview", "The script with the values of the terminal that has the focus now.", preview(v, t)))
     .child(U.formRow(t, "Where it runs", "Terminal: the terminal that has the focus. When it runs an agent or a program, a new tab in the same folder.",
       U.segmented(t, "qa-where", [{ value: "terminal", label: "Terminal" }, { value: "tab", label: "New tab" }], d.where,

@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
 Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 to 4 done on
-2026-11-22 (setup versions 129 to 134).
+2026-11-22 (setup versions 129 to 135).
 
 ## Goal
 
@@ -277,6 +277,30 @@ active space with one click or one key. Examples: sync the repository
 - `preview-src.png` again, with the pin buttons (2 demo actions pinned).
 - Still open, not in this mod: the `psq` of `automations` and the
   `psQuote` of `github-clone` do not double the curly quotes.
+
+### Shell field and the agent flow (setup version 135)
+
+- **Shell.** `shell`: `auto`, `ps`, `bash`, `python`, `node`. Auto is the
+  shell of the terminal (inline) or the extension of the file (`.ps1`, `.sh`,
+  `.py`, `.js`, `.mjs`, `.cjs`). A line goes as it is only in the language of
+  the terminal; else a run file. Values: PowerShell and sh quotes, a JSON
+  string for Python and Node.js.
+- **Windows programs.** On `notebook`, `bash` is the WSL `System32ash.exe`,
+  which cannot read a Windows path; here, `python3` is the Microsoft Store
+  link. `windowsTools()` finds Git Bash (next to `git`, Program Files, scoop)
+  and Python (`python` not in WindowsApps, else `py -3`), once for each
+  machine. The program is checked before a new tab opens.
+- **The agent flow.** The person asked why a new script must exist first. The
+  preview showed "Cannot read the script file" in red and the agent button
+  was only in **Script file** mode. Now **Write with an agent…** is in both
+  modes, a missing file is a gray note, and the task lists 1 variable for
+  each line with the rules of the language and a warning about variables in
+  strings, f-strings and template strings.
+- **Tested in the app:** inline Python, Node.js, bash and PowerShell, and
+  `.py`, `.js`, `.sh` files, here, on `ubuntu` and on `notebook` (Git Bash
+  found through scoop). While the tests ran, the person moved the focus to a
+  work space, and 1 test action opened a tab there (2 `Write-Output` lines);
+  the tab was closed. A test must check the focus before each command.
 
 ## Open questions
 

@@ -107,7 +107,10 @@ export default class QuickActions extends View {
   }
 
   async runById(cx, id) {
-    if (this.busy) return;
+    if (this.busy) {
+      notify({ title: "Quick Actions", body: "An action is still starting. Try again in a moment.", level: "info", timeout: 3000 });
+      return;
+    }
     const target = currentTarget();
     const { list, error } = await S.loadList();
     const a = (list ?? []).find((x) => x.id === id);
@@ -364,7 +367,7 @@ export default class QuickActions extends View {
     };
     this.f = {
       name: inp(d.name, "Example: Sync the repository"),
-      file: inp(d.file, isWin() ? "Example: ~/scripts/sync.ps1" : "Example: ~/scripts/sync.sh"),
+      file: inp(d.file, isWin() ? "Example: ~/scripts/sync.ps1, or empty: Write with an agent… picks it" : "Example: ~/scripts/sync.sh, or empty: Write with an agent… picks it"),
       filter: inp(d.filter, "Example: D:/MyProjects, herdr-mods"),
     };
     this.script = TextareaState.new({

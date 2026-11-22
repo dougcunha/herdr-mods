@@ -14,7 +14,7 @@ A Herdr mod that keeps named scripts and runs them in the terminal of the shown 
 | `vars.js` | The target terminal, its context (folder, busy, shell, the values of the variables), `expand()`, the filter. |
 | `run.js` | `prepare()` (no side effects) and `runAction()`: the run file, the new tab, `hc keys` and `hc send`. |
 | `list.js`, `form.js`, `ui.js` | The views. |
-| `writer.js` | **New with an agent…** and **Edit with an agent…**: the path of the file, the task of the agent, the tab. |
+| `writer.js` | **Write with an agent…** and **Change with an agent…**: the path of the file, the task of the agent, the tab. |
 | `core.js` | The client of PowerMods Core (`agentStart()`); a copy of `powermods-core-app/client/core.js`. |
 | `demo.js` | Example actions for the preview (`quick-actions.demo`). |
 
@@ -31,6 +31,7 @@ A Herdr mod that keeps named scripts and runs them in the terminal of the shown 
 | `confirm` | Ask before the run. |
 | `filter` | Folders and repository names, separated by commas. Empty: everywhere. |
 | `pinned` | A button in the bar of the Dock and Kanban layouts. |
+| `shell` | `"auto"` (the shell of the terminal; for a script file, its extension), `"ps"`, `"bash"`, `"python"` or `"node"`. |
 
 Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tries) and set `shared("quick-actions.rev")`; every dialog copy reads the file again when the key changes (1 s timer).
 
@@ -86,7 +87,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 
 ## Scripts by an agent
 
-In the form, for a script file: **New with an agent…** (always) and **Edit with an agent…** (when the file can be read). The panel has a textarea (what the script must do, or what must change), the installed agents of `knownAgents()` (the last one used is `shared("quick-actions.agent")`), a line with the path, and **Start**. Start needs a name, a text and an agent; it saves the action with `source: "file"` and `file` = the file of the action, else `<script folder>/<slug of the name>.ps1` (`.sh` on macOS and Linux; `<slug>-<id>` when another action uses that file), with `~` for the home folder; it makes the folder of the file (`fs.mkdir`, else `pwsh New-Item` or `mkdir -p`), and runs `tab.new { space: <target space>, folder: <folder of the file>, name: "Script: <name>", focus: true, ...agentStart(agent.run, task) }` (`space.new` without a space). Then a toast, and the dialog closes. The task (`writerTask()`) gives the path, the shell, the text of the person, and the rules: only this file, do not run it; the variables and their quotes; `{ask:…}`; `Join-Path` and `$ErrorActionPreference = 'Stop'` for PowerShell, `set -e` for sh; a short line before each step. The form reads the file again every 2 s, so the preview follows the agent.
+In the form, in both modes (no file is needed first): **Write with an agent…** (always; **Write a new one with an agent…** when the file exists) and **Change with an agent…** (a script file that can be read). Without a file, the preview shows a gray note, not an error. The panel has a textarea (what the script must do, or what must change), the installed agents of `knownAgents()` (the last one used is `shared("quick-actions.agent")`), a line with the path, and **Start**. Start needs a name, a text and an agent; it saves the action with `source: "file"` and `file` = the file of the action, else `<script folder>/<slug of the name>.<ext>` (the extension of the **Shell**: `.ps1`, `.sh`, `.py`, `.js`; with **Auto**, `.ps1` on Windows and `.sh` elsewhere; `<slug>-<id>` when another action uses that file), with `~` for the home folder; it makes the folder of the file (`fs.mkdir`, else `pwsh New-Item` or `mkdir -p`), and runs `tab.new { space: <target space>, folder: <folder of the file>, name: "Script: <name>", focus: true, ...agentStart(agent.run, task) }` (`space.new` without a space). Then a toast, and the dialog closes. The task (`writerTask()`) gives the path, the language (from the extension), the text of the person, and the rules: only this file, do not run it; every variable with its meaning; how a value is written in that language (a quoted literal for PowerShell and bash, a string literal for Python and Node.js: no quotes around a variable); how to join a value and more text and stop on an error (`Join-Path` and `$ErrorActionPreference = 'Stop'`; `set -euo pipefail`; `os.path.join` and `subprocess.run(check=True)`; `path.join` and `execFileSync`); `{ask:…}`; a short line before each step. The form reads the file again every 2 s, so the preview follows the agent.
 
 The script folder is `shared("quick-actions.scriptDir")` (a setting of the Settings tab), else `~/.config/herdr-app/data/quick-actions/scripts`.
 

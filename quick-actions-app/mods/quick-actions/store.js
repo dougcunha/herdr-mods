@@ -77,6 +77,10 @@ export const runsDir = () => `${dataDir()}/quick-actions/runs`;
 export const newId = (prefix = "") => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // The icons that an action can have (files of this mod).
+// The shells of an action. "auto": the shell of the terminal; for a script file, its extension.
+export const SHELLS = ["auto", "ps", "bash", "python", "node"];
+export const SHELL_LABEL = { auto: "Auto", ps: "PowerShell", bash: "bash", zsh: "zsh", sh: "sh", fish: "fish", dash: "dash", ksh: "ksh", python: "Python", node: "Node.js" };
+
 export const ICONS = ["zap", "play", "terminal", "refresh", "download", "package", "git-branch", "sparkles", "code", "gear", "globe", "server", "file-terminal", "folder", "trash"];
 
 /** A new action with every field. */
@@ -91,7 +95,8 @@ export function blank() {
     where: "terminal", // "terminal" (the focused terminal; a new tab when it is busy) | "tab" (always a new tab)
     confirm: false, // ask before the run
     filter: "", // folders and repository names, separated by commas; empty: everywhere
-    pinned: false, // a button in the bar of the Dock and Kanban layouts (phase 2)
+    pinned: false, // a button in the bar of the Dock and Kanban layouts
+    shell: "auto", // see SHELLS
     updatedAt: Date.now(),
   };
 }
@@ -116,6 +121,7 @@ export function normalize(a) {
     confirm: a.confirm === true,
     filter: str(a.filter),
     pinned: a.pinned === true,
+    shell: SHELLS.includes(a.shell) ? a.shell : "auto",
   };
 }
 
@@ -164,7 +170,7 @@ export async function writeRunFile(name, ext, text) {
   // A BOM: Windows PowerShell 5.1 reads a .ps1 without it in the code page of the system (accents break).
   await fs.writeFile(path, (ext === "ps1" ? "\uFEFF" : "") + String(text ?? ""));
   try {
-    const files = (await fs.readdir(dir)).filter((f) => /^[0-9a-z]+-.+\.(ps1|sh)$/.test(f)).sort();
+    const files = (await fs.readdir(dir)).filter((f) => /^[0-9a-z]+-.+\.(ps1|sh|py|js|mjs|cjs)$/.test(f)).sort();
     for (const f of files.slice(0, Math.max(0, files.length - KEEP_RUNS))) await fs.unlink(`${dir}/${f}`).catch(() => null);
   } catch { /* the folder went away */ }
   return path;

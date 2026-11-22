@@ -5,10 +5,11 @@
 A Herdr app mod that keeps named scripts and runs them in the terminal of the active space with 1 click or 1 key. Examples: sync the repository, install the plugins, start the dev server.
 
 - **The list.** Press `Alt+Q` (or click the Quick Actions icon in the status bar). Type a part of the name, select with ↑ and ↓, and press Enter. The header shows the terminal that gets the script.
-- **Inline script or script file.** Type the script in the form, or give the path of a `.ps1` or `.sh` file (`~` is your home folder).
-- **A script by an agent.** For a script file, **New with an agent…** asks what the script must do and which agent writes it (from Herdr's agent list). **Start** saves the action and opens a tab in the space with the agent, in the folder of the file. The agent gets the rules of the variables and writes only the file. **Edit with an agent…** changes a script that exists. New files go to `~/.config/herdr-app/data/quick-actions/scripts/` (**Script folder** in the settings).
+- **Inline script or script file.** Type the script in the form, or give the path of a `.ps1`, `.sh`, `.py` or `.js` file (`~` is your home folder).
+- **Shell.** **Auto** (the default) uses the shell of the terminal for an inline script, and the extension for a script file. Or choose **PowerShell**, **bash**, **Python** or **Node.js** for the action.
+- **A script by an agent.** You do not need a file first. Write the name of the action, choose the **Shell** (the language of the script), click **Write with an agent…**, write what the script must do and choose the agent (from Herdr's agent list). **Start** saves the action with its script file and opens a tab in the space with the agent, in the folder of the file. The agent gets the rules of the variables and writes only the file. Run the action when the agent is done. **Change with an agent…** changes a script that exists. New files go to `~/.config/herdr-app/data/quick-actions/scripts/<name>.<ext>` (**Script folder** in the settings), or to the path that you write.
 - **Variables.** `{folder}`, `{repo}`, `{repo_name}`, `{branch}`, `{space}`, `{tab}`, `{terminal}`, `{machine}`, `{home}`, `{date}` and `{time}` get their values from the terminal and the space when the action runs. The form shows a preview of the script with these values.
-- **Safe values.** Each value goes into the script in quotes for the shell. Write `cd {repo}`, not `cd "{repo}"`. A branch or a folder with spaces, `;`, `$` or quotes cannot run code. Other text in braces (`@{u}`, a PowerShell script block) does not change.
+- **Safe values.** Each value goes into the script in quotes for the shell (a JSON string for Python and Node.js). Write `cd {repo}`, not `cd "{repo}"`. A branch or a folder with spaces, `;`, `$` or quotes cannot run code. Other text in braces (`@{u}`, a PowerShell script block) does not change.
 - **The terminal that has the focus.** The action types its line into that terminal, after it clears a draft at the prompt. When the terminal runs an agent or a program (`npm`, `vim`, a server), the action opens a new tab in the same space and folder and runs there.
 - **New tab.** An action can always run in a new tab, with the name of the action.
 - **Ask before run.** An action can show its script with the values and wait for **Run** (or Enter).
@@ -70,14 +71,25 @@ To give an action its own key, copy the line under **Key** in the form into the 
 
 | Script | What the terminal gets |
 | --- | --- |
-| 1 line | That line, so your shell history shows the real command. |
-| 2 or more lines, or a script file | 1 line that runs a file with the script and its values: `& '<file>'` in PowerShell, `<your shell> '<file>'` elsewhere (for example `bash '<file>'`). The files are in `~/.config/herdr-app/data/quick-actions/runs/` (the last 20). |
+| 1 line in the shell of the terminal | That line, so your shell history shows the real command. |
+| 2 or more lines, a script file, another shell, Python or Node.js | 1 line that runs a file with the script and its values. The files are in `~/.config/herdr-app/data/quick-actions/runs/` (the last 20). |
+
+The line that runs the file:
+
+| Language | In PowerShell | In bash, zsh or sh |
+| --- | --- | --- |
+| PowerShell | `& '<file>'` | `pwsh -NoProfile -File '<file>'` |
+| bash | `& '<Git Bash>' '<file>'` on Windows | `bash '<file>'` |
+| Python | `& '<python.exe>' '<file>'` (or `py -3`) on Windows | `python3 '<file>'` |
+| Node.js | `& 'node' '<file>'` | `node '<file>'` |
+
+On Windows, the mod looks for Git Bash (next to `git`, in `Program Files\Git` or in scoop), because the `bash` of the PATH can be the one of WSL, which cannot read a Windows path. It also skips the `python` link of the Microsoft Store. It asks each machine once.
 
 In PowerShell, `& '<file>'` runs in your shell: a `Set-Location` in the script stays after the run.
 
 **Other machines.** In a space on another machine (`hc machine ls`), the actions run the same way: the values come from that machine (its folder, its `git`, its home folder), and `hc put` copies the run file there first. A script file stays on this computer: the mod reads it here and sends a copy with each run. The shell of the terminal decides: PowerShell on a Windows machine, `bash`, `zsh` or `sh` on macOS and Linux.
 
-To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo}\dist` gives 2 words. In `sh`, `{repo}/dist` works.
+To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo}\dist` gives 2 words. In `sh`, `{repo}/dist` works. In Python, `os.path.join({repo}, "dist")`; in Node.js, `path.join({repo}, "dist")`.
 
 ## Limits
 
@@ -96,8 +108,9 @@ To join a value and more text in PowerShell, use `Join-Path {repo} dist`: `{repo
 
 - `hc keys` (Esc or Ctrl+U, to clear a draft at the prompt), `hc send` and `hc read` on the terminal that gets the line, and `hc put` to copy a run file to another machine.
 - `git rev-parse --show-toplevel` and `git branch --show-current` in the folder of the terminal, only when the script or its filter needs `{repo}`, `{repo_name}` or `{branch}`.
-- On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command.
+- On Windows, `pwsh` (or `powershell`) with `Get-CimInstance Win32_Process`, to see if the shell runs a command, and once for each machine `Get-Command` and `Test-Path`, to find Git Bash and Python.
+- `python`, `python3`, `py`, `node`, `bash` or `pwsh`, when an action in that language runs.
 - On another machine, `sh` (`uname`, `$HOME`) or `pwsh` (`$HOME`) once, to know its system.
-- **New with an agent…** and **Edit with an agent…**: the agent that you choose, in a new tab (`tab.new` with its command from Herdr's agent list), with your account. It makes the script folder first (`pwsh New-Item` or `mkdir -p` when the folder is outside your home folder).
+- **Write with an agent…** and **Change with an agent…**: the agent that you choose, in a new tab (`tab.new` with its command from Herdr's agent list), with your account. It makes the script folder first (`pwsh New-Item` or `mkdir -p` when the folder is outside your home folder).
 
 No network of its own. The mod runs only the scripts that you write or ask for, and only when you start them.
