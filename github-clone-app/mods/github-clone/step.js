@@ -360,7 +360,8 @@ export const stepMethods = {
       .child(toggle(t, "gc-shallow", st.shallow, (cx) => { st.shallow = !st.shallow; cx.notify(); }))
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().text_size(12.5).child("Shallow clone (--depth 1)"))
-        .child(div().text_size(11).text_color(t.dim).child("Only the last commit of the branch. Faster for a big repository, but with no history.")));
+        .child(div().text_size(11).text_color(t.dim).child("Only the last commit of the branch, also in the submodules. Faster for a big repository, but with no history.")))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child("Submodules: cloned too"));
 
     const cmdInfo = info ?? knownInfo(st.machine) ?? { windows: false, home: "~", fold: false };
     const preview = text && isFullPath(text) ? cloneLine(cmdInfo, repo.full, expandHome(text, cmdInfo), { branch: this.branchArg(), shallow: st.shallow }) : "";

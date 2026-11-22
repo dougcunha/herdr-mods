@@ -210,11 +210,13 @@ export async function makeDir(on, info, path) {
 export function cloneLine(info, full, dest, { branch = "", shallow = false } = {}) {
   const path = nativePath(dest, info);
   const q = info.windows ? psQuote : shQuote;
-  const extra = [];
+  // The submodules are cloned with the repository (no effect on a repository without them).
+  const extra = ["--recurse-submodules"];
   if (branch) extra.push("--branch", q(branch));
-  if (shallow) extra.push("--depth", "1");
+  // A shallow clone makes shallow submodules too.
+  if (shallow) extra.push("--depth", "1", "--shallow-submodules");
   // A quoted '--' always reaches gh, also from PowerShell.
-  const tail = extra.length ? ` ${q("--")} ${extra.join(" ")}` : "";
+  const tail = ` ${q("--")} ${extra.join(" ")}`;
   const clone = `gh repo clone ${q(full)} ${q(path)}${tail}`;
   return info.windows ? `${clone}; if ($?) { Set-Location -LiteralPath ${q(path)} }` : `${clone} && cd ${q(path)}`;
 }

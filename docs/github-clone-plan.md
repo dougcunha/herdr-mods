@@ -194,6 +194,13 @@ The mod only clones. To open a repository, the person uses `repo-launcher`.
     (`rundll32 url.dll,FileProtocolHandler`, `open` or `xdg-open`, as in
     the `issues` mod).
 
+### After phase 2
+
+20. **Submodules.** The person asked that the clone initializes the
+    submodules by itself. The clone line always has `--recurse-submodules`
+    (git clones and checks out the submodules; no effect without them), and
+    a shallow clone adds `--shallow-submodules`. No switch.
+
 ### Defaults (agreed in round 4)
 
 - **Machine picker.** Chips: this computer and each machine of `machines()`
