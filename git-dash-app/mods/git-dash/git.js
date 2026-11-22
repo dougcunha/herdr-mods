@@ -38,7 +38,7 @@ export const samePath = (p) => slash(String(p || "")).replace(/\/+$/, "").toLowe
 const PS_SCAN = (root, depth) => `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$root = '${root.replace(/'/g, "''")}'
+$root = '${root.replace(/['\u2018-\u201B]/g, "$&$&")}'
 $depth = ${depth}
 $max = ${MAX_REPOS}
 $skip = @{}

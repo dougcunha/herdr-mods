@@ -64,7 +64,8 @@ function kindOf(name, dir, open) {
   const [icon, color] = KINDS.find(k => k[2].test(name)) ?? ["file", "dim"];
   return { icon, color };
 }
-const quote = s => "'" + s.replaceAll("'", "''") + "'";
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const quote = s => "'" + s.replace(/['\u2018-\u201B]/g, "$&$&") + "'";
 const PER_FOLDER = 500, TOTAL = 5000;
 // Cut or Copy keeps { path, name, cut, on } here; Paste in any copy of the panel reads it.
 const CLIPBOARD = "files-md.clipboard";

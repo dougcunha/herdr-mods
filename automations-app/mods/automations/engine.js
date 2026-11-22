@@ -469,7 +469,7 @@ export class Engine {
     } catch { /* too large */ }
     try {
       const r = Sh.isWin()
-        ? await exec("pwsh", ["-NoProfile", "-Command", `Get-Content -Tail 200 -LiteralPath '${path.replace(/'/g, "''")}'`], { timeout: 15000 })
+        ? await exec("pwsh", ["-NoProfile", "-Command", `Get-Content -Tail 200 -LiteralPath '${path.replace(/['\u2018-\u201B]/g, "$&$&")}'`], { timeout: 15000 })
         : await exec("tail", ["-n", "200", path], { timeout: 15000 });
       return r.stdout;
     } catch {

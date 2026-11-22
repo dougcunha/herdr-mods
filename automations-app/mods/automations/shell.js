@@ -7,7 +7,8 @@ import { writeFile } from "./store.js";
 
 export const isWin = () => window()?.platform === "windows";
 
-const psq = (s) => `'${String(s ?? "").replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const psq = (s) => `'${String(s ?? "").replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 const shq = (s) => `'${String(s ?? "").replace(/'/g, `'\\''`)}'`;
 export const quote = (s) => (isWin() ? psq(s) : shq(s));
 

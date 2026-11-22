@@ -32,7 +32,8 @@ export function splitArgs(text) {
   return out;
 }
 
-const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const psQuote = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 
 /**
  * The argv that starts `agent` (from knownAgents()) with the extra

@@ -127,7 +127,7 @@ export async function storeSignIn(site, email, token, kind = "jira") {
   // The folder must exist and be private before the token goes near it.
   const made = os !== "windows"
     ? await exec("sh", ["-c", 'mkdir -p "$1" && chmod 700 "$1" && [ "$(stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1")" = 700 ] && rm -f "$1"/t-*', "sh", dir]).catch(() => null)
-    : await ps(`New-Item -ItemType Directory -Force -Path '${dir.replace(/'/g, "''")}' | Out-Null; Get-ChildItem -LiteralPath '${dir.replace(/'/g, "''")}' -Filter 't-*' | Remove-Item -Force`).catch(() => null);
+    : await ps(`New-Item -ItemType Directory -Force -Path '${dir.replace(/['\u2018-\u201B]/g, "$&$&")}' | Out-Null; Get-ChildItem -LiteralPath '${dir.replace(/['\u2018-\u201B]/g, "$&$&")}' -Filter 't-*' | Remove-Item -Force`).catch(() => null);
   if (made?.code !== 0) return "Can't make a private folder for the token; use environment variables instead.";
   let r;
   try {
@@ -144,7 +144,7 @@ export async function storeSignIn(site, email, token, kind = "jira") {
       if (r.code === 127) return "secret-tool isn't installed (package libsecret-tools or libsecret): install it, or use environment variables.";
     } else {
       await writeTextFile(file, token, null);
-      const f = file.replace(/'/g, "''");
+      const f = file.replace(/['\u2018-\u201B]/g, "$&$&");
       r = await ps(`${VAULT}; try { $t = (Get-Content -Raw -LiteralPath '${f}').Trim(); Remove-Item -LiteralPath '${f}' -Force; try { $v.FindAllByResource('${service(site, kind)}') | ForEach-Object { $v.Remove($_) } } catch {}; $v.Add((New-Object Windows.Security.Credentials.PasswordCredential('${service(site, kind)}', '${email}', $t))) } finally { if (Test-Path -LiteralPath '${f}') { Remove-Item -LiteralPath '${f}' -Force -ErrorAction SilentlyContinue } }`);
       // The try block deletes the file, so the finally only deletes it after a failure: a delete of a
       // missing file fails silently and makes powershell exit 1, which read as a refused store.
@@ -153,7 +153,7 @@ export async function storeSignIn(site, email, token, kind = "jira") {
     return scrub(e?.message ?? e) || "The credential store refused it.";
   } finally {
     // Gone already on success; this catches a failed start.
-    await (os === "windows" ? ps(`Remove-Item -LiteralPath '${file.replace(/'/g, "''")}' -Force -ErrorAction SilentlyContinue`) : exec("rm", ["-f", file])).catch(() => null);
+    await (os === "windows" ? ps(`Remove-Item -LiteralPath '${file.replace(/['\u2018-\u201B]/g, "$&$&")}' -Force -ErrorAction SilentlyContinue`) : exec("rm", ["-f", file])).catch(() => null);
   }
   if (r?.code !== 0) return scrub(r?.stderr || r?.stdout) || "The credential store refused it.";
   // `security -i` can exit 0 when its command failed: read it back to be sure.

@@ -14,7 +14,8 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, run, exec, notify, theme, setShared, window } from "herdr";
 
-const psQuote = s => "'" + s.replaceAll("'", "''") + "'";
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const psQuote = s => "'" + s.replace(/['\u2018-\u201B]/g, "$&$&") + "'";
 
 // A file name must not be empty, ".", "..", or hold a folder separator (and on Windows, other reserved signs).
 function badName(name) {

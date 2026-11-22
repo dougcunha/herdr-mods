@@ -1,4 +1,4 @@
-<!-- herdr-mods-setup-version: 135 -->
+<!-- herdr-mods-setup-version: 136 -->
 # Set up or update my Herdr mods
 
 The first line of this file holds the version of the prompt. The `mods-hub`

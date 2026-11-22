@@ -138,6 +138,7 @@ export function hash(s) {
 }
 
 /** Text in single quotes for PowerShell. */
-export const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+export const psq = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 /** Text in single quotes for sh. */
 export const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;

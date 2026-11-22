@@ -19,7 +19,8 @@ const STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 8];
 const CACHE = "data/image-viewer";
 
 const kb = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
-const quote = s => "'" + s.replaceAll("'", "''") + "'";
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const quote = s => "'" + s.replace(/['\u2018-\u201B]/g, "$&$&") + "'";
 const hash = s => { let h = 5381; for (const c of s) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return h.toString(36); };
 
 // Copies `src` to `dst` and reports "size width height" (width and height are 0 when unknown).

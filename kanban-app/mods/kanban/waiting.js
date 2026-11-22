@@ -152,7 +152,8 @@ const MARKS = ['"name":"Agent"', '"name":"Task"', '"name":"Bash"', '"name":"Powe
   "Async agent launched", "Command running in background", "<task-notification>"];
 // The scripts contain no backslash: the way to a remote machine can drop it.
 const shq = (s) => `'${String(s).replace(/'/g, `'"'"'`)}'`;
-const psq = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const psq = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 // A PowerShell string with double quotes, made with [char]34.
 const psText = (s) => `(${String(s).split('"').map(psq).join("+$q+")})`;
 const PS_HEAD = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $q = [string][char]34; ";

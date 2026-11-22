@@ -119,7 +119,8 @@ export async function machineInfo(on) {
   return info;
 }
 
-export const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+export const psQuote = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 export const shQuote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
 /** Runs a PowerShell script on Windows or an `sh` script elsewhere, with `args`. */

@@ -41,7 +41,8 @@ export const inside = (p, root) => {
 export const native = (p) => (isWin() ? norm(p).replace(/\//g, "\\") : norm(p));
 export const join = (...parts) => norm(parts.filter(Boolean).join("/"));
 export const baseName = (p) => norm(p).split("/").pop() || p;
-export const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+export const psQuote = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 
 /** Runs a PowerShell command (Windows PowerShell is always there) and returns stdout. */
 export async function powershell(command, cwd) {

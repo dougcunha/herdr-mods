@@ -170,7 +170,7 @@ export async function saveComponents(repo, names) {
   }
   const dir = `${repo.main}/.herdr`;
   await (isWindows()
-    ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Directory -Force -Path '${dir.replace(/'/g, "''")}' | Out-Null`])
+    ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Directory -Force -Path '${dir.replace(/['\u2018-\u201B]/g, "$&$&")}' | Out-Null`])
     : exec("mkdir", ["-p", dir])).catch(() => null);
   try { await writeTextFile(path, next, now); }
   catch (e) { throw new Error(`Could not write ${FILE}: ${String(e?.message ?? e)}`); }

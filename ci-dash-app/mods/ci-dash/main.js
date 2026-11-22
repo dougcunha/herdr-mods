@@ -102,7 +102,7 @@ function location() {
 async function dirExists(dir, on) {
   try {
     const r = isWin()
-      ? await exec("pwsh", ["-NoProfile", "-Command", `Test-Path -LiteralPath '${dir.replace(/'/g, "''")}' -PathType Container`], { on })
+      ? await exec("pwsh", ["-NoProfile", "-Command", `Test-Path -LiteralPath '${dir.replace(/['\u2018-\u201B]/g, "$&$&")}' -PathType Container`], { on })
       : await exec("test", ["-d", dir], { on });
     return isWin() ? r.stdout.trim() === "True" : r.code === 0;
   } catch { return false; }

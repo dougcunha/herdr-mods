@@ -275,8 +275,10 @@ active space with one click or one key. Examples: sync the repository
 - **Same name, same file.** **New with an agent…** adds the action id to the
   file name when another action uses the file already.
 - `preview-src.png` again, with the pin buttons (2 demo actions pinned).
-- Still open, not in this mod: the `psq` of `automations` and the
-  `psQuote` of `github-clone` do not double the curly quotes.
+- Fixed in setup version 136, in 14 other mods: every PowerShell literal
+  that the mods build doubles the curly quotes too (a regex replace of
+  `'`, U+2018 to U+201B, each one doubled). Tested in pwsh 7 and in
+  Windows PowerShell 5.1: the value stays exact and nothing runs.
 
 ### Shell field and the agent flow (setup version 135)
 

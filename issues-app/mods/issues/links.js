@@ -384,7 +384,7 @@ export function writeIcons() {
   iconsWritten ??= (async () => {
     const dir = `${appHome()}/${ICONS}`;
     const win = (() => { try { return appWindow().platform === "windows"; } catch { return false; } })();
-    await (win ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Directory -Force -Path '${dir.replace(/'/g, "''")}' | Out-Null`]) : exec("mkdir", ["-p", dir])).catch(() => null);
+    await (win ? exec("powershell", ["-NoProfile", "-NonInteractive", "-Command", `New-Item -ItemType Directory -Force -Path '${dir.replace(/['\u2018-\u201B]/g, "$&$&")}' | Out-Null`]) : exec("mkdir", ["-p", dir])).catch(() => null);
     for (const [name, body] of Object.entries(LUCIDE)) {
       const path = `${dir}/${name}.svg`;
       const text = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>\n`;

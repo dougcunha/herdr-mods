@@ -15,7 +15,8 @@ const CARD_HEAD = 26;
 const PAD = 10;
 
 const kb = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
-const quote = (s) => "'" + String(s).replaceAll("'", "''") + "'";
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const quote = (s) => "'" + String(s).replace(/['\u2018-\u201B]/g, "$&$&") + "'";
 const hash = (s) => { let h = 5381; for (const c of String(s)) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return h.toString(36); };
 
 function parseStageOut(out) {

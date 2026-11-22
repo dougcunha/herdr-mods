@@ -90,7 +90,8 @@ export async function machineInfo(on) {
   return info;
 }
 
-const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
+// PowerShell also takes the curly quotes ‘ ’ ‚ ‛ as single quotes: they are doubled too.
+const psQuote = (s) => `'${String(s).replace(/['\u2018-\u201B]/g, "$&$&")}'`;
 
 // Breadth-first: a folder with `.git` (a folder or a file, for worktrees and
 // submodules) is a repository, and the search does not go into it.
