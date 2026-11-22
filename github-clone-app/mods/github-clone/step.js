@@ -56,9 +56,12 @@ export const stepMethods = {
   enterStep(repo, cx) {
     const machine = this.machine;
     // With no clone folder yet, the first root folder of Repo Launcher is the suggestion.
-    const folder = folderFor(machine, repo.owner) || (launcherRoots(machine)[0] ?? "");
+    const own = folderFor(machine, repo.owner);
+    const folder = own || (launcherRoots(machine)[0] ?? "");
+    // A folder from an owner rule is not offered as the clone folder of the machine.
+    const fromRule = Boolean(own) && own !== rootOf(machine);
     const st = {
-      repo, machine, shallow: false, saveRoot: !rootOf(machine), branches: null, branchError: "", branchTyped: false,
+      repo, machine, shallow: false, fromRule, saveRoot: !rootOf(machine) && !fromRule, branches: null, branchError: "", branchTyped: false,
       suggestAt: -1, check: null, status: this.repoStatus(repo), info: knownInfo(machine), launching: false,
     };
     this.step = st;
@@ -96,7 +99,17 @@ export const stepMethods = {
   destProblem(text) {
     if (!text) return "Type the folder for the clone.";
     if (!isFullPath(text)) return "Use a full path, for example ~/code/<name>.";
+    // The folder goes into a line for a live shell: no control characters, and
+    // no typographic quotes (PowerShell reads them as quotes too).
+    if (/[\u0000-\u001f\u007f‘-‛`]/.test(text)) return "The folder has a character that the clone line cannot carry (a control character, a ‘ ’ quote or `).";
     return "";
+  },
+
+  /** A problem with the branch text, or "". A branch name goes into a line for a live shell. */
+  branchProblem() {
+    const b = this.branchInput.value().trim();
+    if (!b || /^[\w][\w./+@-]*$/.test(b)) return "";
+    return "Use only letters, digits and . / _ + @ - in the branch name.";
   },
 
   scheduleCheck(cx) {
@@ -193,6 +206,10 @@ export const stepMethods = {
     const problem = this.destProblem(text);
     if (problem) {
       st.check = { text, status: "bad", message: problem };
+      cx.notify();
+      return;
+    }
+    if (this.branchProblem()) {
       cx.notify();
       return;
     }
@@ -316,7 +333,7 @@ export const stepMethods = {
     const destRow = h_flex().gap(8).items_center()
       .child(this.inputBox(t, this.destInput, { symbol: "folder", focus: this.focusField === "dest", mono: true }))
       .when(!st.machine, (e) => e.child(button(t, "gc-browse", "Browse…", (cx) => this.browseDest(cx))));
-    const saveRoot = !rootOf(st.machine) && isFullPath(text) ? h_flex().gap(10).items_center()
+    const saveRoot = !rootOf(st.machine) && !st.fromRule && isFullPath(text) ? h_flex().gap(10).items_center()
       .child(toggle(t, "gc-save-root", st.saveRoot, (cx) => { st.saveRoot = !st.saveRoot; cx.notify(); }))
       .child(div().flex_1().min_w(0).text_size(11.5).text_color(t.muted)
         .child(`Save ${parentOf(normalize(text))} as the clone folder of ${where}`)) : null;
@@ -334,7 +351,8 @@ export const stepMethods = {
           .child(div().flex_1().min_w(0).truncate().text_size(12).font_family(font).child(b))
           .when(b === repo.branch, (e) => e.child(div().text_size(10.5).text_color(t.dim).child("default")))))))
       .child(div().text_size(11).text_color(t.dim).child(
-        st.branchError ? `Could not read the branches: ${st.branchError}`
+        this.branchProblem() ? this.branchProblem()
+          : st.branchError ? `Could not read the branches: ${st.branchError}`
           : !st.branches ? "Reading the branches…"
           : `${st.branches.length}${st.branches.length >= 100 ? "+" : ""} branch${st.branches.length === 1 ? "" : "es"}. Default: ${repo.branch || "?"}. A name that is not in the list works too.`));
 
@@ -367,7 +385,7 @@ export const stepMethods = {
       .child(div().flex_1())
       .child(button(t, "gc-step-back", "Back", (cx) => this.back(cx)))
       .child(button(t, "gc-clone", st.launching ? "Starting…" : "Clone", (cx) => this.launchClone(cx),
-        { primary: true, symbol: "download", spin: st.launching, disabled: st.launching || !free }));
+        { primary: true, symbol: "download", spin: st.launching, disabled: st.launching || !free || Boolean(this.branchProblem()) }));
 
     return v_flex().size_full().min_h(0).child(head).child(body).child(footer);
   },
