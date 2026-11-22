@@ -48,7 +48,7 @@ function preview(v, t) {
 function writerPanel(v, t) {
   const w = v.writer;
   const installed = v.agentList.filter((a) => a.installed);
-  const path = shortPath(writerPath(v.collect()));
+  const path = shortPath(writerPath(v.collect(), v.list));
   return v_flex().w_full().gap(8).p(12).rounded(8).border_1().border_color(t.input).bg(t.surface)
     .child(div().text_size(12).font_medium().text_color(t.foreground).child(w.mode === "edit" ? "What must change in the script?" : "What must the script do?"))
     .child(U.area(t, w.desc, (e, cx) => v.fieldKey(e, cx)))

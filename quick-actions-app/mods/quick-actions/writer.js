@@ -27,10 +27,16 @@ export function shortPath(path) {
 const dirOf = (path) => slash(path).replace(/\/[^/]*$/, "") || ".";
 const slug = (name) => String(name || "action").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "action";
 
-/** The path of the script file that the agent writes: the file of the action, else <script folder>/<name>.<ext>. */
-export function writerPath(d) {
+/**
+ * The path of the script file that the agent writes: the file of the action, else <script folder>/<name>.<ext>
+ * (with the id of the action when another action of `list` uses that file).
+ */
+export function writerPath(d, list = []) {
   if (d.file.trim()) return expandHome(d.file);
-  return `${scriptDir()}/${slug(d.name)}.${isWin() ? "ps1" : "sh"}`;
+  const base = `${scriptDir()}/${slug(d.name)}`;
+  const ext = isWin() ? "ps1" : "sh";
+  const used = (p) => list.some((x) => x.id !== d.id && x.file && expandHome(x.file).toLowerCase() === p.toLowerCase());
+  return used(`${base}.${ext}`) ? `${base}-${d.id}.${ext}` : `${base}.${ext}`;
 }
 
 /** Makes a folder and its parents. `fs` works only inside the home folder; elsewhere a shell makes it. */

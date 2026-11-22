@@ -6,9 +6,9 @@ import { normalize } from "./store.js";
 const action = (id, name, icon, script, more = {}) => normalize({ id, name, icon, script, ...more });
 
 export const DEMO = [
-  action("demo-sync", "Sync the repository", "refresh", "git pull --ff-only"),
+  action("demo-sync", "Sync the repository", "refresh", "git pull --ff-only", { pinned: true }),
   action("demo-install", "Install the plugins", "package", "Set-Location {repo}\ngit submodule update --init --recursive\nnpm ci"),
-  action("demo-dev", "Start the dev server", "play", "npm run dev", { where: "tab" }),
+  action("demo-dev", "Start the dev server", "play", "npm run dev", { where: "tab", pinned: true }),
   action("demo-pr", "Open the pull request", "globe", "gh pr view --web", { filter: "herdr-mods, herdr-plugins" }),
   action("demo-clean", "Clean the build", "trash", "Remove-Item -Recurse -Force (Join-Path {repo} dist)", { confirm: true }),
   action("demo-notes", "Write the release notes", "sparkles", "", { source: "file", file: "~/scripts/release-notes.ps1", filter: "api-gateway" }),

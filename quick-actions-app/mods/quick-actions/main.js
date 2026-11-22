@@ -437,7 +437,7 @@ export default class QuickActions extends View {
     const agent = this.agentList.find((x) => x.key === w.agent && x.installed);
     w.error = !d.name ? "Write a name for the action first." : !what ? "Write what the script must do." : !agent ? "Choose an agent." : "";
     if (w.error) { cx.notify(); return; }
-    const path = writerPath(d);
+    const path = writerPath(d, this.list);
     d.source = "file";
     d.file = shortPath(path);
     d.updatedAt = Date.now();

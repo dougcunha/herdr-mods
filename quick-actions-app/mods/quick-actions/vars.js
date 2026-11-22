@@ -33,6 +33,8 @@ export const usedVars = (text) => new Set([...String(text ?? "").matchAll(VAR_RE
 
 // {ask:Label} or {ask:Label=default}: the person gives the value before the run.
 const ASK_RE = /\{ask:([^{}=\n]+?)(?:=([^{}\n]*))?\}/g;
+// A {name} or an {ask:Label=default}, for expand().
+const TOKEN_RE = /\{(?:([a-z_]+)|ask:([^{}=\n]+?)(?:=([^{}\n]*))?)\}/g;
 
 /** The questions of a script: [{ label, def }], in the order of the text, each label once. */
 export function asksOf(text) {
@@ -53,13 +55,14 @@ export function asksOf(text) {
  */
 export function expand(text, values, shell, answers = null) {
   const q = shell === "ps" ? psq : shq;
-  return String(text ?? "")
-    .replace(VAR_RE, (m, n) => (NAMES.has(n) ? q(values[n] ?? "") : m))
-    .replace(ASK_RE, (m, label, def) => {
-      const key = label.trim();
-      if (answers) return q(answers[key] ?? def ?? "");
-      return q(def ?? `<${key}>`);
-    });
+  // 1 pass for {name} and {ask:…}: a value never goes through the replace again, so a value with
+  // "{ask:…}" in it (a folder, a space name) stays inside its quotes.
+  return String(text ?? "").replace(TOKEN_RE, (m, name, label, def) => {
+    if (name !== undefined) return NAMES.has(name) ? q(values[name] ?? "") : m;
+    const key = label.trim();
+    if (answers) return q(answers[key] ?? def ?? "");
+    return q(def ?? `<${key}>`);
+  });
 }
 
 // A path with forward slashes and no slash at the end ("/" and "C:/" keep theirs).

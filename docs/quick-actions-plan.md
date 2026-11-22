@@ -1,7 +1,7 @@
 # Plan: the `quick-actions` mod
 
 Status: design agreed on 2026-11-22 (1 round of questions). Phases 1 to 4 done on
-2026-11-22 (setup versions 129 to 133).
+2026-11-22 (setup versions 129 to 134).
 
 ## Goal
 
@@ -262,6 +262,21 @@ active space with one click or one key. Examples: sync the repository
   space on `ubuntu` (WSL) and on `notebook` (Windows), free and busy (a new
   tab there), and again on this computer, free and busy.
 - Setup version 133.
+
+### After phase 4 (setup version 134)
+
+- **A second injection path.** `expand()` replaced `{name}` first and then
+  read the result again for `{ask:…}`: a folder or a space named
+  `x{ask:a=;Write-Output INJECTED;}y` put code outside the quotes. Now 1 pass
+  with 1 pattern does both. Tested with pwsh and bash, and in the app with a
+  space of that name in a folder with accents, through the 1-line path and the
+  run-file path.
+- **Accents.** A `.ps1` run file starts with a BOM, for Windows PowerShell 5.1.
+- **Same name, same file.** **New with an agent…** adds the action id to the
+  file name when another action uses the file already.
+- `preview-src.png` again, with the pin buttons (2 demo actions pinned).
+- Still open, not in this mod: the `psq` of `automations` and the
+  `psQuote` of `github-clone` do not double the curly quotes.
 
 ## Open questions
 

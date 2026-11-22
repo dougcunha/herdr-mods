@@ -161,7 +161,8 @@ export async function writeRunFile(name, ext, text) {
   await ensureDir(dir);
   const slug = String(name || "action").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "action";
   const path = `${dir}/${Date.now().toString(36)}-${slug}.${ext}`;
-  await fs.writeFile(path, String(text ?? ""));
+  // A BOM: Windows PowerShell 5.1 reads a .ps1 without it in the code page of the system (accents break).
+  await fs.writeFile(path, (ext === "ps1" ? "\uFEFF" : "") + String(text ?? ""));
   try {
     const files = (await fs.readdir(dir)).filter((f) => /^[0-9a-z]+-.+\.(ps1|sh)$/.test(f)).sort();
     for (const f of files.slice(0, Math.max(0, files.length - KEEP_RUNS))) await fs.unlink(`${dir}/${f}`).catch(() => null);
