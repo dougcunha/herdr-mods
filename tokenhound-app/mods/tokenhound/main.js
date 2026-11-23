@@ -69,6 +69,7 @@ export default class TokenHound extends View {
     this.props = (given && Object.keys(given).length ? given : props()) || {};
     this.part = this.props.part ?? "panel";
     this.width = 0;
+    this.height = 0;
     this.result = null;
     this.reading = false;
     this.watching = false;
@@ -222,17 +223,20 @@ export default class TokenHound extends View {
     run("layout.resize", { id: node.id, px });
   }
 
-  /** Keeps the width at zoom 1 (on_size_change reports zoomed pixels), and redraws only on a change. */
-  setWidth(size, cx) {
-    const width = Math.round(size.width / (Number(settings().zoom) || 1));
-    if (width === this.width) return;
+  /** Keeps the width and height at zoom 1 (on_size_change reports zoomed pixels), and redraws only on a change. */
+  setSize(size, cx) {
+    const zoom = Number(settings().zoom) || 1;
+    const width = Math.round(size.width / zoom);
+    const height = Math.round(size.height / zoom);
+    if (width === this.width && height === this.height) return;
     this.width = width;
+    this.height = height;
     cx.notify();
   }
 
-  /** The panel in a dialog: 2 columns of cards. */
+  /** The panel in a dialog: up to 86% of the window height, shrinking to fit the masonry cards inside. */
   openDialog() {
-    openOverlay({ mod: MOD, kind: "dialog", width: 760, height: 620, props: { part: "dialog", lang: this.lang } });
+    openOverlay({ mod: MOD, kind: "dialog", frame: "none", width: 820, height: 0.86, props: { part: "dialog", lang: this.lang } });
   }
 
   /** In a dialog (its own, or a Dock panel dialog), a click gives the panel the keyboard, so Esc closes it. */
@@ -256,10 +260,10 @@ export default class TokenHound extends View {
       case "section":
         this.syncSize();
         return sectionView(t, m, this.width, () => this.openDialog())
-          .on_size_change((size, cx) => { this.setWidth(size, cx); });
+          .on_size_change((size, cx) => { this.setSize(size, cx); });
       default:
-        return this.dialogKeys(panelView(t, m, { width: this.width }))
-          .on_size_change((size, cx) => { this.setWidth(size, cx); });
+        return this.dialogKeys(panelView(t, m, { width: this.width, height: this.height }))
+          .on_size_change((size, cx) => { this.setSize(size, cx); });
     }
   }
 }

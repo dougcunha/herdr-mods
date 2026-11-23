@@ -100,17 +100,19 @@ const valueColor = (t, p, f) => statusColor(t, p.status) ?? (hasFraction(f) ? le
 const busyDot = (size) => div().size(size).flex_none().rounded(size / 2).bg(BUSY)
   .loop("opacity", { from: 0.35, to: 1, period: 1200 });
 
-function bar(t, fraction, height = 4) {
+function bar(t, fraction, height = 5) {
   const f = Math.min(1, Math.max(0, fraction));
-  return div().w_full().h(height).flex_none().rounded(height / 2).bg(t.raised)
-    .child(div().h_full().w(`${(f * 100).toFixed(1)}%`).rounded(height / 2).bg(levelColor(t, fraction)));
+  const color = levelColor(t, fraction);
+  return div().w_full().h(height).flex_none().rounded(height / 2).bg(tint(t.foreground, "14")).overflow_hidden()
+    .when(f > 0, (e) => e.child(div().h_full().w(`${(f * 100).toFixed(1)}%`).min_w(height).rounded(height / 2).bg(color)));
 }
 
 function statePill(t, m) {
   const color = stateColor(t, m.state);
-  return h_flex().h(20).px(8).gap(5).flex_none().items_center().rounded(6).text_size(11)
-    .bg(tint(color, "1f")).text_color(color)
-    .child(div().size(6).rounded(3).bg(color))
+  const dot = m.state === "live" ? busyDot(6) : div().size(6).flex_none().rounded(3).bg(color);
+  return h_flex().h(22).px(9).gap(6).flex_none().items_center().rounded(11).text_size(11).font_medium()
+    .bg(tint(color, "1f")).border_1().border_color(tint(color, "44")).text_color(color)
+    .child(dot)
     .child(m.str[m.state] ?? m.state);
 }
 
@@ -126,78 +128,147 @@ function row(t, m, r) {
   return v_flex().gap(4).w_full()
     .child(h_flex().gap(8).items_center().w_full()
       .child(h_flex().gap(6).flex_1().min_w(0).items_center()
-        .child(div().truncate().text_size(12).text_color(t.foreground).child(r.label ?? ""))
-        .when(Boolean(r.scopeText), (e) => e.child(div().truncate().text_size(11).text_color(t.dim).child(r.scopeText))))
-      .child(div().flex_none().text_size(12).font_semibold().text_color(color).child(primaryText(m, r))))
-    .when(hasFraction(r.usedFraction), (e) => e.child(bar(t, r.usedFraction)))
-    .when(Boolean(r.secondaryText || reset), (e) => e.child(h_flex().gap(8).w_full().text_size(11).text_color(t.dim)
+        .child(div().flex_initial().min_w(0).truncate().text_size(12).font_medium().text_color(t.foreground).child(r.label ?? ""))
+        .when(Boolean(r.scopeText), (e) => e.child(div().flex_shrink_1().min_w(0).truncate().px(6).py(1).rounded(4)
+          .bg(t.raised).text_size(10).text_color(t.muted).child(r.scopeText))))
+      .child(div().flex_none().text_size(11.5).font_semibold().text_color(color).child(primaryText(m, r))))
+    .when(hasFraction(r.usedFraction), (e) => e.child(bar(t, r.usedFraction, 5)))
+    .when(Boolean(r.secondaryText || reset), (e) => e.child(h_flex().gap(8).w_full().text_size(10.5).text_color(t.dim)
       .child(div().flex_1().min_w(0).truncate().child(r.secondaryText ?? ""))
       .child(div().flex_none().child(reset))))
     .when(Boolean(r.errorText), (e) => e.child(div().text_size(11).text_color(t.ansi1).child(r.errorText)));
 }
 
-function card(t, m, p, width) {
+function card(t, m, p) {
   const note = p.statusMessage ?? p.activeSessionText ?? "";
   const noteColor = p.statusMessage ? (statusColor(t, p.status) ?? t.muted) : t.dim;
   const rows = Array.isArray(p.rows) ? p.rows : [];
-  return v_flex().id(`th-card-${p.providerId}`).when(width > 0, (e) => e.w(width)).when(!width, (e) => e.w_full())
-    .flex_none().p(10).gap(8).rounded(10)
-    .bg(t.surface).border_1().border_color(t.border)
-    .child(h_flex().gap(9).items_center().w_full()
-      .child(badge(t, m, p, 24))
-      .child(v_flex().flex_1().min_w(0)
+  const active = p.isBusy === true;
+  return v_flex().id(`th-card-${p.providerId}`).w_full().flex_none().rounded(12).overflow_hidden()
+    .bg(t.surface).border_1().border_color(active ? tint(BUSY, "55") : t.border)
+    .child(h_flex().w_full().px(13).py(9).gap(10).items_center()
+      .bg(active ? tint(BUSY, "0d") : tint(t.foreground, "05"))
+      .when(rows.length > 0, (e) => e.border_b(1).border_color(tint(t.border, "99")))
+      .child(badge(t, m, p, 26))
+      .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().truncate().text_size(13).font_semibold().text_color(t.foreground).child(p.displayName ?? p.providerId))
-        .when(Boolean(note), (e) => e.child(div().truncate().text_size(11).text_color(noteColor).child(note))))
-      .when(p.isBusy === true, (e) => e.child(h_flex().gap(5).flex_none().items_center().text_size(11).text_color(BUSY)
-        .child(busyDot(7)).child(m.str.busy)))
-      .when(Boolean(m.ui), (e) => e.child(iconButton(t, `th-hide-${p.providerId}`, "eye-off", m.str.hideProvider, () => m.ui.hide(p.providerId)))))
-    .children(rows.map((r) => row(t, m, r)));
+        .when(Boolean(note), (e) => e.child(div().truncate().text_size(10.5).text_color(noteColor).child(note))))
+      .when(active, (e) => e.child(h_flex().h(20).px(7).gap(5).flex_none().items_center().rounded(10)
+        .bg(tint(BUSY, "1f")).text_size(10.5).font_medium().text_color(BUSY)
+        .child(busyDot(6)).child(m.str.busy)))
+      .when(Boolean(m.ui), (e) => e.child(iconButton(t, `th-hide-${p.providerId}`, "eye-off", m.str.hideProvider, () => m.ui.hide(p.providerId), 22))))
+    .when(rows.length > 0, (e) => e.child(v_flex().w_full().px(13).py(10).gap(8)
+      .children(rows.map((r) => row(t, m, r)))));
 }
 
 function message(t, m) {
-  return v_flex().w_full().p(16).gap(6).items_center()
-    .child(svg(ICON).size(22).text_color(stateColor(t, m.state)))
-    .child(div().text_size(13).text_color(t.foreground).child(m.str[m.state] ?? m.state))
-    .child(div().max_w(300).text_size(11).text_color(t.dim).child(stateHint(m)));
+  return v_flex().w_full().p(20).gap(8).items_center()
+    .child(div().size(40).rounded(12).flex().items_center().justify_center().bg(tint(stateColor(t, m.state), "1a"))
+      .child(svg(ICON).size(20).text_color(stateColor(t, m.state))))
+    .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(m.str[m.state] ?? m.state))
+    .child(div().max_w(320).text_center().text_size(11.5).text_color(t.dim).child(stateHint(m)));
 }
 
 function header(t, m) {
   const written = Date.parse(m.doc?.writtenAtUtc ?? "");
   const age = Number.isFinite(written) ? fill(m.str.updated, { age: duration(m.now - written) }) : "";
-  return h_flex().w_full().flex_none().px(12).py(10).gap(8).items_center().border_b(1).border_color(t.border)
-    .child(svg(ICON).size(15).flex_none().text_color(t.accent))
-    .child(div().text_size(13).font_semibold().text_color(t.foreground).child(m.str.title))
+  return h_flex().w_full().flex_none().px(14).py(11).gap(10).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    .child(div().size(26).flex_none().rounded(7).flex().items_center().justify_center().bg(tint(t.accent, "20"))
+      .child(svg(ICON).size(15).flex_none().text_color(t.accent)))
+    .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child(m.str.title))
     .child(statePill(t, m))
     .child(div().flex_1())
-    .child(div().flex_none().text_size(11).text_color(t.dim).child(age))
+    .when(Boolean(age), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(age)))
     .when(Boolean(ownDialog()), (e) => e.child(iconButton(t, "th-close", "close", m.str.close ?? "Close", () => closeOverlay(ownDialog()), 26)));
 }
 
-/** The card width in a wide panel: columns of at least CARD_MIN px. 0: one column, full width. */
-const CARD_MIN = 340;
-function cardWidth(width) {
-  const inner = width - 20; // the list padding
-  const columns = Math.floor((inner + 8) / (CARD_MIN + 8));
-  return columns < 2 ? 0 : Math.floor((inner - 8 * (columns - 1)) / columns);
+/** Number of masonry columns for the available panel width. */
+const CARD_MIN = 310;
+const GRID_GAP = 12;
+function columnCount(width, count) {
+  if (count <= 1 || width <= 0) return 1;
+  const inner = width - 28; // horizontal padding
+  const cols = Math.floor((inner + GRID_GAP) / (CARD_MIN + GRID_GAP));
+  return Math.max(1, Math.min(count, cols));
+}
+
+/** Estimated height of a provider card (px), used to balance masonry columns without gaps. */
+function cardHeight(p) {
+  const rows = Array.isArray(p.rows) ? p.rows : [];
+  const head = (p.statusMessage || p.activeSessionText) ? 54 : 46;
+  const body = rows.reduce((h, r) => {
+    let rh = 20;
+    if (hasFraction(r.usedFraction)) rh += 9;
+    if (r.secondaryText || r.resetTimeUtc || r.resetText) rh += 17;
+    if (r.errorText) rh += 17;
+    return h + rh + 8;
+  }, rows.length ? 22 : 0);
+  return head + body;
+}
+
+/** Distributes providers across `cols` masonry columns, placing each card in the shortest column. */
+function packColumns(providers, cols) {
+  if (cols <= 1) return [providers];
+  const buckets = Array.from({ length: cols }, () => ({ items: [], height: 0 }));
+  for (const p of providers) {
+    let best = buckets[0];
+    for (let i = 1; i < buckets.length; i++) {
+      if (buckets[i].height < best.height) best = buckets[i];
+    }
+    best.items.push(p);
+    best.height += cardHeight(p) + GRID_GAP;
+  }
+  return buckets.map((b) => b.items).filter((items) => items.length > 0);
+}
+
+/** Suggested dialog height (px) so the packed masonry columns fit without scrolling when possible. */
+export function dialogHeight(providers, width, hasHidden = false) {
+  const list = Array.isArray(providers) ? providers : [];
+  if (!list.length) return 320;
+  const cols = columnCount(width, list.length);
+  const buckets = Array.from({ length: cols }, () => 0);
+  for (const p of list) {
+    let idx = 0;
+    for (let i = 1; i < buckets.length; i++) if (buckets[i] < buckets[idx]) idx = i;
+    buckets[idx] += cardHeight(p) + GRID_GAP;
+  }
+  const tallest = Math.max(...buckets) - GRID_GAP;
+  return Math.ceil(50 + 28 + tallest + (hasHidden ? 38 : 0) + 20);
 }
 
 /**
- * The full panel. `width`: the panel width at zoom 1 (0 when not known yet); a wide panel
- * shows the cards in columns.
+ * The full panel. `width`/`height`: available size at zoom 1 (0 when not known yet); a wide panel
+ * packs the cards into balanced masonry columns so short cards never leave empty gaps. In its own
+ * dialog (frame: "none", height: 0.86), the card fits its content up to the window's 86% cap.
  */
-export function panelView(t, m, { width = 0 } = {}) {
+export function panelView(t, m, { width = 0, height = 0 } = {}) {
   const warn = m.state === "stale" || m.state === "stopped";
-  const cw = cardWidth(width);
-  const list = v_flex().w_full().p(10).gap(8)
-    .when(warn, (e) => e.child(div().w_full().text_size(11).text_color(t.ansi3).child(stateHint(m))))
+  const cols = columnCount(width, m.providers.length);
+  const columns = packColumns(m.providers, cols);
+  const list = v_flex().w_full().p(14).gap(12)
+    .when(warn, (e) => e.child(div().w_full().px(10).py(7).rounded(8).bg(tint(t.ansi3, "18")).border_1().border_color(tint(t.ansi3, "44"))
+      .text_size(11).text_color(t.ansi3).child(stateHint(m))))
     .when(m.providers.length === 0, (e) => e.child(div().p(12).text_size(12).text_color(t.dim).child(m.str.empty)))
-    .child(h_flex().w_full().flex_wrap().items_start().gap(8)
-      .children(m.providers.map((p) => card(t, m, p, cw))))
+    .when(m.providers.length > 0, (e) => e.child(h_flex().w_full().items_start().gap(GRID_GAP)
+      .children(columns.map((items) => v_flex().flex_1().min_w(0).gap(GRID_GAP)
+        .children(items.map((p) => card(t, m, p)))))))
     .when(m.hidden.length > 0 && Boolean(m.ui), (e) => e.child(hiddenChips(t, m)));
   const body = SHOWS_DATA.has(m.state) ? list : message(t, m);
-  return v_flex().id("tokenhound").size_full().bg(t.background)
+  const dialog = ownDialog();
+  const panel = v_flex().id("tokenhound").w_full().rounded(12).overflow_hidden().bg(t.background)
+    .when(!dialog, (e) => e.h_full())
+    .when(Boolean(dialog), (e) => {
+      const wanted = SHOWS_DATA.has(m.state) ? dialogHeight(m.providers, width || 820, m.hidden.length > 0) : 240;
+      const fitted = height > 0 ? Math.min(height, Math.max(220, wanted)) : wanted;
+      return e.h(fitted).border_1().border_color(t.border).shadow_lg()
+        .on_click((_e, cx) => cx.stop_propagation());
+    })
     .child(header(t, m))
     .child(v_flex().id("tokenhound-scroll").flex_1().min_h(0).overflow_y_scrollbar().child(body));
+  if (!dialog) return panel;
+  return v_flex().id("tokenhound-backdrop").size_full().justify_center()
+    .on_click(() => closeOverlay(dialog))
+    .child(panel);
 }
 
 function statusEntry(t, m, p) {
