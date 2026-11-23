@@ -10,9 +10,9 @@
 //   1 line that runs it. On another machine, `hc put` copies the run file there first (a script file
 //   stays on this computer).
 
-import { hc, run, notify, terminals, readTextFile, home } from "herdr";
-import { context, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, asksOf, psq, shq, windowsTools } from "./vars.js";
-import { writeRunFile, SHELL_LABEL } from "./store.js";
+import { hc, run, notify, terminals, spaces, readTextFile, home } from "herdr";
+import { context, currentTarget, expand, usedVars, filterMatches, filterNeedsRepo, filterParts, asksOf, psq, shq, windowsTools } from "./vars.js";
+import { writeRunFile, logRun, SHELL_LABEL } from "./store.js";
 import { jobKey, jobOf, isRunning, addJob, startTerminal, timeoutMin } from "./jobs.js";
 
 const wait = (cx, ms) => new Promise((resolve) => cx.timer.after(ms, () => resolve()));
@@ -95,6 +95,9 @@ async function runnerFor(p) {
  * `term`: the shell of the terminal that gets the line; `shell`: the language of the script.
  */
 export async function prepare(a, target, answers = null) {
+  // The dialog keeps the target of the moment it opened: its space or its terminal can be closed since then.
+  const live = (t) => spaces().some((s) => s.id === t.space) && (!t.terminal || terminals().some((x) => x.address === t.terminal));
+  if (target && !live(target)) target = currentTarget();
   if (!target) return { error: "No space is shown." };
   const src = await scriptText(a);
   if (src.error) return { error: src.error, info: src.info, missing: src.missing };
@@ -207,31 +210,59 @@ async function startBackground(a, p) {
 }
 
 /**
+ * Runs `hc keys` or `hc send`. Herdr holds a key or a line while a person types in the terminal (a line: until
+ * 60 s after the last key of the person), and then the line goes after the text of the person. After 3 s, a toast
+ * tells the person why nothing comes yet.
+ */
+async function hcToTerminal(cx, args, address) {
+  let done = false;
+  cx.timer.after(3000, () => {
+    if (done) return;
+    notify({ title: "Quick Actions", level: "warning", timeout: 12000,
+      body: `Herdr holds the line because you typed in ${address}. It comes at most 60 s after your last key there. Do not type there now: the line goes after your text.` });
+  });
+  try { return await hc(args); } finally { done = true; }
+}
+
+/**
  * Runs an action for a target. Returns { address, background } (the terminal that got the line, or the
- * background terminal), or null.
+ * background terminal), or null. Every run writes its steps to the run log (store.js), and every fault
+ * shows in a toast.
  */
 export async function runAction(cx, a, target, answers = null) {
-  const p = await prepare(a, target, answers);
-  if (p.error) { fail(a.name, p.error); return null; }
-  const { ctx } = p;
-  if (p.background) {
-    try {
-      return { address: await startBackground(a, p), background: true };
-    } catch (e) {
-      fail(a.name, String(e?.message ?? e));
+  const t0 = Date.now();
+  const log = { at: new Date(t0).toISOString(), action: a.name, id: a.id, target, steps: [] };
+  const step = (name, more = {}) => log.steps.push({ ms: Date.now() - t0, step: name, ...more });
+  const end = (result) => { log.result = result; log.ms = Date.now() - t0; logRun(log); };
+  try {
+    const p = await prepare(a, target, answers);
+    if (p.error) {
+      step("prepare", { error: p.error });
+      end("refused");
+      fail(a.name, p.error);
       return null;
     }
-  }
-  try {
+    const { ctx } = p;
+    step("prepare", { target: ctx.target, machine: ctx.machine, folder: ctx.folder, busy: ctx.busy, busyWith: ctx.busyWith,
+      term: p.term, shell: p.shell, useTab: p.useTab, oneLine: p.oneLine, background: p.background });
+    if (p.background) {
+      const address = await startBackground(a, p);
+      step("background", { address });
+      end("ok");
+      return { address, background: true };
+    }
     // The program of the run file first: no new tab when it is not there.
     const lineOf = p.oneLine ? null : await runnerFor(p);
     let address = ctx.target.terminal;
     if (p.useTab) {
       address = await openTab(cx, ctx, a.name);
+      step("tab", { address });
       await waitPrompt(cx, address);
+      step("prompt");
     } else {
       // A draft at the prompt would go before the line.
-      await hc(["keys", address, p.term === "ps" ? "esc" : "ctrl+u"]);
+      await hcToTerminal(cx, ["keys", address, p.term === "ps" ? "esc" : "ctrl+u"], address);
+      step("clear", { address });
     }
     let line = p.expanded;
     if (lineOf) {
@@ -239,13 +270,19 @@ export async function runAction(cx, a, target, answers = null) {
       // A terminal on another machine: `hc put` copies the run file to that machine.
       if (ctx.machine) path = await putFile(address, path);
       line = lineOf(path);
+      step("file", { path });
     }
-    const r = await hc(["send", address, line]);
+    const r = await hcToTerminal(cx, ["send", address, line], address);
+    step("send", { code: r.code, out: (r.stderr || r.stdout || "").trim().slice(0, 300) });
     if (r.code !== 0) throw new Error((r.stderr || r.stdout || "").trim() || "hc send failed");
     run("pane.focus", { terminal: address });
+    end("ok");
     return { address, background: false };
   } catch (e) {
-    fail(a.name, String(e?.message ?? e));
+    const msg = String(e?.message ?? e);
+    step("error", { error: msg });
+    end("failed");
+    fail(a.name, msg);
     return null;
   }
 }

@@ -69,7 +69,7 @@ function row(v, t, a, i, selected) {
     .bg(U.tint(ok ? t.accent : t.dim, "1a")).text_color(ok ? t.accent : t.dim).text_size(12).font_medium()
     .when(bg, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
       .on_click((_e, cx) => { cx.stop_propagation(); v.openOutput(cx, "run", a); }))
-    .when(!bg && ok && !v.running, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
+    .when(!bg && ok, (el) => el.cursor_pointer().hover((s) => s.bg(U.tint(t.accent, "33")))
       .on_click((_e, cx) => { cx.stop_propagation(); v.runNow(cx, a); }))
     .tooltip(bg ? "It runs in the background: click to see the output" : ok ? "Run (Enter)" : `Runs only in: ${filterParts(a.filter).join(", ")}`)
     .child(running || bg ? svg(U.icon("refresh")).size(12).spin(900).text_color(t.accent) : svg(U.icon("play")).size(12).text_color(ok ? t.accent : t.dim))

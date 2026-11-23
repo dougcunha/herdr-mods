@@ -4,12 +4,15 @@
 //                               hand; every copy reads it again when shared("quick-actions.rev") changes.
 // data/quick-actions/runs/      the run files: the expanded script of a run of 2 or more lines, or of a
 //                               script file. The mod keeps the last KEEP_RUNS.
+// data/quick-actions/run-log.json  the steps of the last KEEP_LOG runs, with their times and errors: it
+//                               tells why a run did nothing.
 
 import { appHome, readTextFile, writeTextFile, shared, setShared } from "herdr";
 import * as fs from "fs/promises";
 
 export const MOD = "quick-actions";
 export const KEEP_RUNS = 20;
+export const KEEP_LOG = 15;
 
 export const KEY = {
   lang: "herdr-mods.lang",
@@ -93,6 +96,7 @@ const slash = (p) => String(p ?? "").replace(/\\/g, "/");
 export const dataDir = () => `${slash(appHome())}/data`;
 export const listPath = () => `${dataDir()}/quick-actions.json`;
 export const runsDir = () => `${dataDir()}/quick-actions/runs`;
+export const runLogPath = () => `${dataDir()}/quick-actions/run-log.json`;
 
 export const newId = (prefix = "") => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -180,6 +184,18 @@ export async function updateList(change) {
 
 /** The mods-hub turned this mod off. */
 export const kitOff = () => { const v = shared(KEY.disabled); return Array.isArray(v) && v.includes(MOD); };
+
+/** Adds the entry of a run to the run log, which keeps the last KEEP_LOG runs. A fault of the log stops nothing. */
+export async function logRun(entry) {
+  try {
+    let list = [];
+    try { list = JSON.parse((await readTextFile(runLogPath())) ?? "[]"); } catch { list = []; }
+    if (!Array.isArray(list)) list = [];
+    list.push(entry);
+    await ensureDir(`${dataDir()}/quick-actions`);
+    await fs.writeFile(runLogPath(), `${JSON.stringify(list.slice(-KEEP_LOG), null, 2)}\n`);
+  } catch { /* only a log */ }
+}
 
 /** Writes a run file and deletes the oldest ones. Returns its path (forward slashes). */
 export async function writeRunFile(name, ext, text) {

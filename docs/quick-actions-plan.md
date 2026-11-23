@@ -377,3 +377,22 @@ line, then the actions), not as buttons of their own.
   the bar shows a plain **Actions** button.
 - The panel and the README say what each background mode may do (OpenCode `--auto`: everything that
   its settings do not deny).
+
+### Fix of 2026-11-22: runs with no effect (v143)
+
+- **Report:** "Contex brake Init" (inline, Shell PowerShell, in the terminal) did nothing. The run could
+  not be found again: the `pos` space was closed, and no terminal had the line.
+- **Found:** at 20:34 in `pos`, the line of **Sync repo** went after the text `context-brake init` at the
+  prompt, so PowerShell ran `context-brake init &` as a background job and only printed the path of the
+  run file. `hc send` holds a line while a person types in the terminal (at most 60 s after the last
+  key, `draft_wait` in `~/.config/herdr-core/config.toml`), then pastes after the text at the prompt.
+  `hc keys` waits only for ~3 s of quiet. A test with no typing: `hc keys` 126 ms, `hc send` 279 ms.
+- **Silent paths:** the runner called `runById` with no catch; `prepare()` was outside the try of
+  `runAction()`; a click on **Run** while `running` was set did nothing; the dialog kept a target whose
+  space was closed.
+- **Fix:** every fault shows a toast; a warning toast when `hc keys` or `hc send` takes more than 3 s;
+  a closed target becomes `currentTarget()`; the run log `data/quick-actions/run-log.json` (the last 15
+  runs, with the steps and their times).
+- **Tested in the app** (a test-only command in the installed copy, with a fixed target and no focus
+  change): a run with the flags of the report (`ok`, 0.9 s, the steps in the log), a run with a filter
+  that does not match (`refused`, a toast). Not tested: the hold toast (the shell cannot type as a person).

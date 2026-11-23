@@ -121,6 +121,7 @@ Other agents have no background mode: use **In a tab**. The agent works in a wor
 ## Limits
 
 - **PowerShell commands.** On Windows, the mod finds a busy terminal through the child processes of the shell. A command that runs inside PowerShell (for example `Start-Sleep`) has no child process: the line waits and runs after it. A program with a window that the shell started (`Start-Process notepad`) is a child process too: the terminal is busy until the program closes, and the actions open a new tab.
+- **Text that you type in the terminal.** Herdr holds a line while you type in the target terminal: the line comes when you press Enter or clear your text, at most 60 s after your last key there. Then the line goes after the text at the prompt. The mod clears the prompt first (Esc in PowerShell, Ctrl+U in the other shells), but text that you type during the wait stays. When the line waits more than 3 s, a toast says so: do not type in that terminal until the line comes.
 - **No command palette entries.** A mod cannot add entries to the command palette. Use the list or a key.
 
 ## Files
@@ -128,6 +129,7 @@ Other agents have no background mode: use **In a tab**. The agent works in a wor
 - `~/.config/herdr-app/data/quick-actions.json`: the actions. You can edit it by hand; the list reads it again.
 - `~/.config/herdr-app/data/quick-actions/runs/`: the run files.
 - `~/.config/herdr-app/data/quick-actions/output/`: the output of the last background run of each action.
+- `~/.config/herdr-app/data/quick-actions/run-log.json`: the steps of the last 15 runs (the target terminal, busy or free, the line, the result of `hc send`, the error). When a run does nothing, this file tells why.
 - `shared("quick-actions.jobs")`: the state of the last background run of each action.
 - `~/.config/herdr-app/data/quick-actions/scripts/`: the script files that an agent writes (the default **Script folder**).
 - `~/.config/herdr-app/dock/panels.json`: the mod writes 1 entry for each pinned action, with the id `qa-<id>`, `"group": "quick-actions"` and `"section": "pinned"`, at the end of the list. It adds `"group": "quick-actions"` to the **Actions** entry (the id `quick-actions`), so both share 1 button. It changes no other entry.

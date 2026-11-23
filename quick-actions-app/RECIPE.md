@@ -58,6 +58,7 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 
 `prepare(action, target)`:
 
+0. A target whose space or terminal is closed (the dialog keeps the target of the moment it opened) becomes `currentTarget()`.
 1. The script text (the file is read with `readTextFile`). Empty: an info message.
 2. The context; the filter (a folder part matches the folder and its subfolders, `*` and `**` work; a name part matches `repo_name`, `*` works).
 3. A new tab when `where` is `tab` or the terminal is busy. The shell of the line: the shell of the target terminal, or `ps` on Windows and `sh` elsewhere for a new tab. The shell of the script: the extension of a script file (`.ps1`, `.sh`, `.bash`, `.zsh`), else the shell of the line.
@@ -66,9 +67,12 @@ Saves go through `writeTextFile(path, text, expected)` on the newest file (3 tri
 `runAction()`:
 
 1. 1 line (inline only): the line itself. Else: a run file `data/quick-actions/runs/<time36>-<slug>.ps1|.sh` (the last 20 stay; a `.ps1` starts with a BOM, so Windows PowerShell 5.1 reads accents right), and the line `& '<file>'` (PowerShell), `pwsh -NoProfile -File '<file>'` (a `.ps1` in a POSIX shell), or `<shell> '<file>'`. On another machine, `hc put --json <terminal> <run file>` copies the run file next to the terminal (`~/.local/state/herdr-core/default/files/<t>/` on Linux), and the line uses that path. The run file is made after the target terminal is known (a new tab first).
-2. Target terminal: `hc keys <t> esc` (PowerShell: PSReadLine reverts the line) or `hc keys <t> ctrl+u`, then `hc send <t> <line>` (it pastes and presses Enter).
+2. Target terminal: `hc keys <t> esc` (PowerShell: PSReadLine reverts the line) or `hc keys <t> ctrl+u`, then `hc send <t> <line>` (it pastes and presses Enter). Herdr holds both while a person types in the terminal: `hc send` waits until the person sends or clears the draft, at most 60 s after the last key, and then pastes after the text at the prompt. When `hc keys` or `hc send` takes more than 3 s, a warning toast tells the person not to type there (`hcToTerminal`).
 3. New tab: `tab.new { space, folder, name, focus: true }`; the new terminal is an address that `terminals()` did not have before, with the `herdr.space` label of the target space (150 ms polls, 10 s); then the screen must be the same in 2 reads of `hc read --lines 30` (150 ms apart, 12 s at most); then `hc send`.
-4. `pane.focus { terminal }`. A failure posts an error toast `Quick action: <name>`.
+4. `pane.focus { terminal }`. Every fault (also in `prepare()`) posts an error toast `Quick action: <name>`.
+5. The run log: `data/quick-actions/run-log.json`, the last 15 runs: `{ at, action, id, target, steps: [{ ms, step, ... }], result: ok | refused | failed, ms }`. Steps: `prepare` (the target, the machine, the folder, `busy`, `busyWith`, `term`, `shell`, `useTab`, `oneLine`, `background`, or the error), `tab`, `prompt`, `clear`, `file`, `send` (the exit code and output of `hc send`), `background`, `error`.
+
+The runner wraps `runById` in try/catch/finally, so a fault shows a toast and `busy` goes back. In the dialog, a click on **Run** while an action starts shows a toast (it was a click with no effect before).
 
 ## Dialog
 

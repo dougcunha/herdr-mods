@@ -138,20 +138,28 @@ export default class QuickActions extends View {
       notify({ title: "Quick Actions", body: "An action is still starting. Try again in a moment.", level: "info", timeout: 3000 });
       return;
     }
-    const target = currentTarget();
-    const { list, error } = await S.loadList();
-    const a = (list ?? []).find((x) => x.id === id);
-    if (!a) { fail(id, error ?? `No action has the id ${id}.`); return; }
-    // The question shows the script, and a field for each {ask:…}.
-    const src = await scriptText(a);
-    const asks = src.text ? asksOf(src.text) : [];
-    if (a.confirm || asks.length) {
-      openOverlay({ mod: MOD, kind: "dialog", width: 640, height: 340 + asks.length * 58, props: { confirm: a.id, target } });
-      return;
-    }
     this.busy = true;
     cx.notify();
-    try { await runAction(cx, a, target); } finally { this.busy = false; cx.notify(); }
+    // A fault here must show: the key or the bar button that sent the command shows nothing.
+    try {
+      const target = currentTarget();
+      const { list, error } = await S.loadList();
+      const a = (list ?? []).find((x) => x.id === id);
+      if (!a) { fail(id, error ?? `No action has the id ${id}.`); return; }
+      // The question shows the script, and a field for each {ask:…}.
+      const src = await scriptText(a);
+      const asks = src.text ? asksOf(src.text) : [];
+      if (a.confirm || asks.length) {
+        openOverlay({ mod: MOD, kind: "dialog", width: 640, height: 340 + asks.length * 58, props: { confirm: a.id, target } });
+        return;
+      }
+      await runAction(cx, a, target);
+    } catch (e) {
+      fail(id, String(e?.message ?? e));
+    } finally {
+      this.busy = false;
+      cx.notify();
+    }
   }
 
   statusView(t) {
@@ -312,7 +320,12 @@ export default class QuickActions extends View {
   }
 
   runNow(cx, a) {
-    if (this.running || this.demo || !allowed(this, a)) return;
+    if (this.demo || !allowed(this, a)) return;
+    if (this.running) {
+      const busy = this.list.find((x) => x.id === this.running)?.name ?? "An action";
+      notify({ title: "Quick Actions", body: `${busy} is still starting. Try again when its line is in the terminal.`, level: "info", timeout: 5000 });
+      return;
+    }
     spawn(cx, async (cx) => {
       const src = await scriptText(a);
       if (a.confirm || (src.text && asksOf(src.text).length)) {
@@ -362,8 +375,8 @@ export default class QuickActions extends View {
   async exec(cx, a, answers = null) {
     this.running = a.id;
     cx.notify();
-    const r = await runAction(cx, a, this.target, answers);
-    this.running = null;
+    let r = null;
+    try { r = await runAction(cx, a, this.target, answers); } finally { this.running = null; }
     // A background run has no terminal on the screen: the list shows it (and the toast at its end).
     if (r?.background) { if (this.props.confirm) this.close_(); else this.back(cx); }
     else if (r) {
