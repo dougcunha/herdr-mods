@@ -90,15 +90,18 @@ export function filterChip(t, id, label, count, active, onClick, color) {
 }
 
 /** A square button that holds an icon. `spin` swaps the icon for a spinner; `tooltip` is the hover label. */
-export function iconButton(t, id, name, onClick, { active = false, disabled = false, spin = false, tooltip = "" } = {}) {
+export function iconButton(t, id, name, onClick, { active = false, disabled = false, spin = false, tooltip = "", size = 28, iconSize = 15, danger = false, stop = false } = {}) {
   const color = disabled ? t.dim : active || spin ? t.accent : t.muted;
-  return div().id(id).size(28).flex_none().flex().items_center().justify_center().rounded(7)
+  return div().id(id).size(size).flex_none().flex().items_center().justify_center().rounded(size <= 22 ? 5 : 7)
     .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
     .when(active, (e) => e.bg(tint(t.accent, "26")))
-    .when(!disabled, (e) => e.cursor_pointer().hover((s) => s.bg(active ? tint(t.accent, "33") : t.hover)).on_click((_e, cx) => onClick(cx)))
+    .when(stop, (e) => e.on_mouse_down("left", (_e, cx) => cx.stop_propagation()))
+    .when(!disabled, (e) => e.cursor_pointer()
+      .hover((s) => (danger ? s.bg(tint(t.ansi1, "24")).text_color(t.ansi1) : s.bg(active ? tint(t.accent, "33") : t.hover)))
+      .on_click((_e, cx) => { if (stop) cx.stop_propagation(); onClick(cx); }))
     .child(spin
-      ? svg(icon("spinner")).size(15).text_color(color).spin(900)
-      : svg(icon(name)).size(15).text_color(color));
+      ? svg(icon("spinner")).size(iconSize).text_color(color).spin(900)
+      : svg(icon(name)).size(iconSize).text_color(color));
 }
 
 /**

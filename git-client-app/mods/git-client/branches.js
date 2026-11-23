@@ -107,7 +107,7 @@ export class Branches {
       .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); this.menu(target, e); })
       .child(svg(icon(glyph)).size(12).flex_none().text_color(glyphColor))
       .child(h_flex().flex_1().min_w(0).gap(6).items_center()
-        .child(div().flex_none().max_w(240).min_w(0).truncate().child(name))
+        .child(div().min_w(0).truncate().when(!detail, (e) => e.flex_1()).child(name))
         .when(Boolean(detail), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(detail))))
       .when(Boolean(extra), (e) => e.child(extra))
       .when(Boolean(right), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(right)));

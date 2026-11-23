@@ -1,6 +1,6 @@
 // Git side of the Git Dash mod: finds repositories under a folder and reads
 // their pending work. Port of git-pendencias.py.
-import { exec, home } from "herdr";
+import { exec, home, readTextFile, writeTextFile } from "herdr";
 import { worktrees } from "./core.js";
 
 // A mod may read files only inside the Herdr home, so the folder search runs
@@ -336,17 +336,18 @@ export async function analyze({ path: repo, operations }, root, { fetch = false 
       const kind = line[0];
       if (kind === "1" || kind === "2") {
         const xy = line.slice(2, 4);
+        const submodule = line.slice(5, 9).startsWith("S");
         if (xy[0] !== ".") r.staged += 1;
         if (xy[1] !== ".") r.modified += 1;
         let path = after(line, kind === "1" ? 8 : 9);
         if (kind === "2") path = path.split("\t")[0];
-        r.files.push({ state: xy.replace(/\./g, " "), path });
+        r.files.push({ state: xy.replace(/\./g, " "), path, submodule });
       } else if (kind === "u") {
         r.conflicts += 1;
-        r.files.push({ state: "UU", path: after(line, 10) });
+        r.files.push({ state: "UU", path: after(line, 10), submodule: false });
       } else if (kind === "?") {
         r.untracked += 1;
-        r.files.push({ state: "??", path: line.slice(2) });
+        r.files.push({ state: "??", path: line.slice(2), submodule: false });
       }
     }
 
@@ -464,6 +465,64 @@ export function fixes(r, inUse = () => false) {
 export function commitSteps(mode, message) {
   const add = mode === "all" ? [["add", "-A"]] : mode === "tracked" ? [["add", "-u"]] : [];
   return [...add, ["commit", "-m", message]];
+}
+
+/** Git steps for a submodule pointer: "remote" updates to its remote branch, "reset" returns to the recorded commit. */
+export function submoduleSteps(file, mode) {
+  if (mode === "remote") return [["submodule", "update", "--init", "--remote", "--recursive", "--", file.path]];
+  const staged = file.state[0] !== " ";
+  return [
+    ...(staged ? [["restore", "--staged", "--", file.path]] : []),
+    ["submodule", "update", "--init", "--recursive", "--", file.path],
+  ];
+}
+
+/** Git steps to discard a tracked file's changes or delete an untracked file/folder. */
+export function discardSteps(file) {
+  if (file.state === "??") return [["clean", "-f", "-d", "--", file.path]];
+  if (file.state[0] === "A") return [["rm", "--cached", "-f", "--", file.path], ["clean", "-f", "-d", "--", file.path]];
+  if (file.state[0] !== " ") return [["restore", "--staged", "--worktree", "--", file.path]];
+  return [["restore", "--worktree", "--", file.path]];
+}
+
+const ignoreEscape = (text) => String(text).replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ");
+const ignoreLine = (path, dir = false) => `/${ignoreEscape(path)}${dir ? "/" : ""}`;
+
+/** Ignore patterns offered for an untracked path: the item, its extension (in this folder and everywhere), and parent folders. */
+export function ignoreChoices(path) {
+  const isDir = String(path).endsWith("/");
+  const clean = String(path).replace(/\/+$/, "");
+  const parts = clean.split("/"), name = parts.pop(), dir = parts.join("/");
+  const dot = !isDir ? name.lastIndexOf(".") : -1, ext = dot > 0 ? name.slice(dot + 1) : "";
+  const parents = parts.map((_, i) => parts.slice(0, i + 1).join("/")).reverse();
+  return [
+    { value: "file", label: isDir ? `${name}/` : name, kind: isDir ? "ignoreFolder" : "ignoreFile", line: ignoreLine(clean, isDir) },
+    ...(ext ? [
+      { value: "extdir", label: `${dir ? `${dir}/` : "/"}*.${ext}`, kind: "ignoreExtDir", line: `${dir ? ignoreLine(dir) : ""}/*.${ignoreEscape(ext)}` },
+      { value: "ext", label: `*.${ext}`, kind: "ignoreExt", line: `*.${ignoreEscape(ext)}` },
+    ] : []),
+    ...parents.map((d) => ({ value: `dir:${d}`, label: `${d}/`, kind: "ignoreParent", line: ignoreLine(d, true) })),
+  ];
+}
+
+/** Appends `line` to `<repo>/.gitignore` or the repository's `info/exclude`, skipping duplicates. */
+export async function addIgnoreLine(repo, line, where) {
+  const shortName = where === "exclude" ? ".git/info/exclude" : ".gitignore";
+  let file = `${repo.replace(/[\\/]+$/, "")}/.gitignore`;
+  if (where === "exclude") {
+    const r = await git(repo, ["rev-parse", "--path-format=absolute", "--git-path", "info/exclude"]);
+    if (r.code !== 0 || !r.stdout.trim()) return { ok: false, out: r.stderr.trim() || "Cannot find .git/info/exclude" };
+    file = r.stdout.trim();
+  }
+  try {
+    const text = await readTextFile(file).catch(() => null);
+    if (text != null && text.split(/\r?\n/).includes(line)) return { ok: true, existed: true, file: shortName };
+    const base = text ?? "", eol = base.includes("\r\n") ? "\r\n" : "\n";
+    await writeTextFile(file, `${base}${base && !base.endsWith("\n") ? eol : ""}${line}${eol}`, text);
+    return { ok: true, existed: false, file: shortName };
+  } catch (e) {
+    return { ok: false, out: String(e?.message || e) };
+  }
 }
 
 /** The command line of one step, for the confirmation text. */

@@ -3,7 +3,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { theme, props, shared, setShared, pickFolder, run, panes, spaces, layout, openOverlay, notify, home, nextCommand, closeOverlay } from "herdr";
-import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
+import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, submoduleSteps, discardSteps, ignoreChoices, addIgnoreLine, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
 import { WtTab, WT_STR } from "./wt-view.js";
 
@@ -110,6 +110,17 @@ const STR = {
     removeTipBoth: "Remove the worktree {path} and delete the branch {branch} here and on {remote}.",
     blocked_locked: "the worktree is locked", blocked_inUse: "close the terminals in this folder first",
     removed: "Worktree removed", removedFailed: "Worktree removed, but a later step failed",
+    refreshRepo: "Refresh this repository",
+    fix_subLatest: "Update submodule", subLatestTip: "Update submodule pointer to the latest commit of its remote branch",
+    fix_subReset: "Reset submodule", subResetTip: "Discard pointer change (reset submodule to the recorded commit)",
+    fix_discard: "Discard", discardTip: "Discard changes to this file",
+    fix_deleteFile: "Delete", deleteFileTip: "Delete this untracked file",
+    ignoreTip: "Add to .gitignore or .git/info/exclude",
+    ignoreTitle: "Ignore {path}",
+    ignoreFile: "Only this file", ignoreFolder: "This folder",
+    ignoreExtDir: "This extension in this folder", ignoreExt: "This extension everywhere", ignoreParent: "Parent folder",
+    ignoreAdd: "Add", ignoreGitignore: ".gitignore", ignoreExclude: ".git/info/exclude (local)",
+    ignoreAdded: "Added {line} to {file}.", ignoreExists: "{line} is already in {file}.",
   },
   pt: {
     title: "Git Dash", choose: "Escolher pasta", refresh: "Atualizar",
@@ -161,6 +172,17 @@ const STR = {
     removeTipBoth: "Remove o worktree {path} e apaga a branch {branch} aqui e em {remote}.",
     blocked_locked: "o worktree está travado", blocked_inUse: "feche os terminais nesta pasta antes",
     removed: "Worktree removido", removedFailed: "Worktree removido, mas um passo seguinte falhou",
+    refreshRepo: "Atualizar este repositório",
+    fix_subLatest: "Atualizar submódulo", subLatestTip: "Atualizar ponteiro do submódulo para o último commit do branch remoto",
+    fix_subReset: "Resetar submódulo", subResetTip: "Descartar mudança do ponteiro (voltar para o commit gravado no repo)",
+    fix_discard: "Descartar", discardTip: "Descartar alterações deste arquivo",
+    fix_deleteFile: "Apagar", deleteFileTip: "Apagar este arquivo não versionado",
+    ignoreTip: "Adicionar ao .gitignore ou .git/info/exclude",
+    ignoreTitle: "Ignorar {path}",
+    ignoreFile: "Só este arquivo", ignoreFolder: "Esta pasta",
+    ignoreExtDir: "Esta extensão nesta pasta", ignoreExt: "Esta extensão em todo o repo", ignoreParent: "Pasta pai",
+    ignoreAdd: "Adicionar", ignoreGitignore: ".gitignore", ignoreExclude: ".git/info/exclude (local)",
+    ignoreAdded: "Adicionado {line} em {file}.", ignoreExists: "{line} já está em {file}.",
   },
 };
 
@@ -206,9 +228,10 @@ export default class GitDash extends View {
     this.query = InputState.new({ placeholder: this.s("filterPh") });
     this.query.on("change", (_e, cx) => cx.notify());
 
-    // Fixes. Only one card at a time asks for a confirmation or a commit message.
-    this.ask = null; // { path, kind: "confirm", fix } | { path, kind: "commit", mode }
+    // Fixes. Only one card at a time asks for a confirmation, commit message or ignore rule.
+    this.ask = null; // { path, kind: "confirm", fix } | { path, kind: "commit", mode } | { path, kind: "ignore", file, choices, choice, where }
     this.running = new Map(); // path -> label of the fix that runs
+    this.refreshing = new Set(); // paths being refreshed individually
     this.result = new Map(); // path -> { ok, out, failed }
     this.msg = InputState.new({ placeholder: this.s("commitPh") });
     this.msg.on("change", (_e, cx) => cx.notify());
@@ -319,7 +342,7 @@ export default class GitDash extends View {
     this.sig = rootsSig(this.roots);
     if (save) setShared(KEY_ROOTS, this.roots);
     this.gen += 1; this.loading = false; this.scanning = false;
-    this.repos.clear(); this.open.clear(); this.ask = null; this.running.clear(); this.result.clear();
+    this.repos.clear(); this.open.clear(); this.ask = null; this.running.clear(); this.refreshing.clear(); this.result.clear();
     this.rootErrors = {}; this.updated = 0; this.scanError = null; this.capped = false;
     this.wt.due = true; // the shown tab reads again in render()
     cx?.notify();
@@ -382,20 +405,59 @@ export default class GitDash extends View {
 
   // ---- fixes -------------------------------------------------------------
 
-  /** Reads one repository again (its operations too), after a fix or a terminal. */
-  refreshOne(path, cx) {
+  /** Reads one repository again (its operations too), after a fix, a terminal or a manual click. */
+  refreshOne(path, cx, { fetch = false } = {}) {
     const gen = this.gen, root = this.repos.get(path)?.root;
-    if (!root) return;
+    if (!root || this.refreshing.has(path)) return;
+    this.refreshing.add(path);
+    cx.notify();
     cx.spawn(async (cx) => {
-      const found = await findRepos(path, 0).catch(() => null);
-      const entry = found?.find((e) => samePath(e.path) === samePath(path))
-        ?? { path, operations: this.repos.get(path)?.operations ?? [] };
-      const r = await analyze({ path, operations: entry.operations }, root);
-      if (gen !== this.gen || !this.repos.has(path)) return;
-      r.root = root;
-      this.repos.set(path, r);
-      cx.notify();
+      try {
+        const found = await findRepos(path, 0).catch(() => null);
+        const entry = found?.find((e) => samePath(e.path) === samePath(path))
+          ?? { path, operations: this.repos.get(path)?.operations ?? [] };
+        const r = await analyze({ path, operations: entry.operations }, root, { fetch });
+        if (gen !== this.gen || !this.repos.has(path)) return;
+        r.root = root;
+        this.repos.set(path, r);
+      } finally {
+        this.refreshing.delete(path);
+        cx.notify();
+      }
     });
+  }
+
+  /** Opens the inline ignore picker for an untracked file or folder. */
+  startIgnore(r, f, cx) {
+    this.result.delete(r.path);
+    const choices = ignoreChoices(f.path);
+    this.ask = { path: r.path, kind: "ignore", file: f.path, choices, choice: choices[0]?.value ?? "file", where: "gitignore" };
+    cx.notify();
+  }
+
+  /** Appends the chosen ignore pattern to .gitignore or .git/info/exclude, then refreshes the repo. */
+  applyIgnore(cx) {
+    const a = this.ask;
+    if (!a || a.kind !== "ignore") return;
+    const pick = a.choices.find((c) => c.value === a.choice);
+    if (!pick) return;
+    const path = a.path, where = a.where;
+    this.ask = null;
+    this.running.set(path, this.s("ignoreAdd"));
+    this.result.delete(path);
+    cx.spawn(async (cx) => {
+      const res = await addIgnoreLine(path, pick.line, where);
+      this.running.delete(path);
+      if (res.ok) {
+        this.result.set(path, { ok: true, out: this.s(res.existed ? "ignoreExists" : "ignoreAdded", { line: pick.line, file: res.file }) });
+        cx.notify();
+        this.refreshOne(path, cx);
+      } else {
+        this.result.set(path, { ok: false, out: res.out || this.s("failed") });
+        cx.notify();
+      }
+    });
+    cx.notify();
   }
 
   /** Starts a fix: a commit asks for a message, the other fixes ask for a confirmation. */
@@ -636,11 +698,33 @@ export default class GitDash extends View {
     return items;
   }
 
-  fileRow(f, t) {
+  fileRow(r, f, t) {
     const color = f.state === "UU" ? t.ansi1 : f.state === "??" ? t.ansi6 : f.state[0] !== " " ? t.ansi2 : t.ansi3;
-    return h_flex().h(20).flex_none().gap(8).items_center().text_size(11)
+    const busyNow = this.running.has(r.path);
+    const idBase = `gd-f-${r.path}-${f.path}`;
+    const untracked = f.state === "??", conflict = f.state === "UU";
+    return h_flex().h(22).flex_none().gap(6).px(4).rounded(4).items_center().text_size(11).hover((s) => s.bg(t.hover))
       .child(div().w(18).flex_none().font_family(mono()).text_color(color).child(f.state.trim() || "·"))
-      .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(f.path));
+      .when(Boolean(f.submodule), (e) => e.child(svg(icon("package")).size(11).flex_none().text_color(t.dim)))
+      .child(div().flex_1().min_w(0).truncate().text_color(t.muted).child(f.path))
+      .when(Boolean(f.submodule), (e) => e
+        .child(iconButton(t, `${idBase}-sub-up`, "download",
+          (cx) => this.startFix(r, { id: "subLatest", steps: submoduleSteps(f, "remote") }, cx),
+          { size: 20, iconSize: 12, disabled: busyNow, tooltip: this.s("subLatestTip"), stop: true }))
+        .child(iconButton(t, `${idBase}-sub-rst`, "reset",
+          (cx) => this.startFix(r, { id: "subReset", danger: true, steps: submoduleSteps(f, "reset") }, cx),
+          { size: 20, iconSize: 12, danger: true, disabled: busyNow, tooltip: this.s("subResetTip"), stop: true })))
+      .when(!f.submodule && untracked, (e) => e
+        .child(iconButton(t, `${idBase}-ign`, "eye-off",
+          (cx) => this.startIgnore(r, f, cx),
+          { size: 20, iconSize: 12, disabled: busyNow, tooltip: this.s("ignoreTip"), stop: true }))
+        .child(iconButton(t, `${idBase}-del`, "trash",
+          (cx) => this.startFix(r, { id: "deleteFile", danger: true, steps: discardSteps(f) }, cx),
+          { size: 20, iconSize: 12, danger: true, disabled: busyNow, tooltip: this.s("deleteFileTip"), stop: true })))
+      .when(!f.submodule && !untracked && !conflict, (e) => e
+        .child(iconButton(t, `${idBase}-dsc`, "reset",
+          (cx) => this.startFix(r, { id: "discard", danger: true, steps: discardSteps(f) }, cx),
+          { size: 20, iconSize: 12, danger: true, disabled: busyNow, tooltip: this.s("discardTip"), stop: true })));
   }
 
   /** The fix area of an open card: buttons, a confirmation or the commit form, then the result. */
@@ -665,7 +749,28 @@ export default class GitDash extends View {
         ...steps.map(code),
         h_flex().gap(6)
           .child(smallButton(t, key("gd-run"), this.s("run"), (cx) => this.execute(p, steps, this.fixLabel(ask.fix), cx, ask.fix),
-            { tone: ask.fix.id.startsWith("delete") ? "danger" : "primary" }))
+            { tone: ask.fix.danger || ask.fix.id.startsWith("delete") ? "danger" : "primary" }))
+          .child(cancel));
+    } else if (ask?.kind === "ignore") {
+      const pick = ask.choices.find((c) => c.value === ask.choice) ?? ask.choices[0];
+      main = panel(
+        div().text_size(11).font_semibold().text_color(t.foreground).truncate().child(this.s("ignoreTitle", { path: ask.file })),
+        v_flex().gap(2).children(ask.choices.map((c) => {
+          const on = c.value === ask.choice;
+          return h_flex().id(key(`gd-ign-${c.value}`)).h(24).px(8).gap(8).items_center().rounded(6).cursor_pointer()
+            .bg(on ? tint(t.accent, "26") : t.background).border_1().border_color(on ? t.accent : t.border)
+            .hover((s) => s.bg(on ? tint(t.accent, "33") : t.hover))
+            .on_click((_e, cx) => { cx.stop_propagation(); ask.choice = c.value; cx.notify(); })
+            .child(div().flex_shrink_1().min_w(0).truncate().font_family(mono()).text_size(11).text_color(on ? t.accent : t.foreground).child(c.line))
+            .child(div().flex_1().min_w(0).truncate().text_size(10.5).text_color(t.dim).child(this.s(c.kind)));
+        })),
+        h_flex().flex_wrap().gap(4)
+          .child(smallButton(t, key("gd-ign-gitignore"), this.s("ignoreGitignore"), (cx) => { ask.where = "gitignore"; cx.notify(); },
+            { tone: ask.where === "gitignore" ? "primary" : "" }))
+          .child(smallButton(t, key("gd-ign-exclude"), this.s("ignoreExclude"), (cx) => { ask.where = "exclude"; cx.notify(); },
+            { tone: ask.where === "exclude" ? "primary" : "" })),
+        h_flex().gap(6)
+          .child(smallButton(t, key("gd-ign-add"), this.s("ignoreAdd"), (cx) => this.applyIgnore(cx), { tone: "primary", disabled: !pick }))
           .child(cancel));
     } else if (ask?.kind === "commit") {
       const modes = [r.staged && "staged", r.modified && "tracked", r.untracked && "all"].filter(Boolean);
@@ -759,12 +864,15 @@ export default class GitDash extends View {
       .child(h_flex().gap(8).items_center()
         .child(div().size(8).rounded(4).flex_none().bg(this.sevColor(r, t)))
         .child(div().flex_1().min_w(0).truncate().text_size(13).font_semibold().child(this.label(r)))
+        .child(iconButton(t, `gd-ref-${r.path}`, "refresh",
+          (cx) => { this.result.delete(r.path); this.refreshOne(r.path, cx, { fetch: this.fetch }); },
+          { size: 22, iconSize: 13, spin: this.refreshing.has(r.path), disabled: this.refreshing.has(r.path) || this.running.has(r.path), tooltip: this.s("refreshRepo"), stop: true }))
         .when(expandable, (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(open ? "▾" : "▸"))))
       .when(Boolean(r.error), (e) => e.child(div().pl(16).text_size(11).text_color(t.ansi1).child(r.error)))
       .when(!r.error, (e) => e.child(h_flex().pl(16).flex_wrap().gap(6).items_center().children(this.pills(r, t))))
       .when(notes.length > 0, (e) => e.child(div().pl(16).text_size(11).text_color(t.dim).child(notes.join(" · "))))
       .when(open && expandable && r.files.length > 0, (e) => e.child(v_flex().pl(16).pt(2)
-        .children(r.files.slice(0, MAX_FILES).map((f) => this.fileRow(f, t)))
+        .children(r.files.slice(0, MAX_FILES).map((f) => this.fileRow(r, f, t)))
         .when(r.files.length > MAX_FILES, (x) => x.child(div().h(20).text_size(11).text_color(t.dim).child(this.s("moreFiles", { n: r.files.length - MAX_FILES }))))))
       .when(open && expandable, (e) => e.child(this.actions(r, fx, t)));
   }
