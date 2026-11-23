@@ -110,6 +110,7 @@ A second mod, `repo-launcher-status`, is a 120 px block at the right end of the 
 - **`spaces()[i].folder` is where a space was made, not where it works.** A space made in one repository and then moved to another keeps the old folder. Find the space of a repository from the live folders of its terminals.
 - **`space.select` does not show a space in every layout.** A layout that shows the focused pane (a board of agents) keeps showing its pane. `pane.focus` works everywhere.
 - **Backslashes.** Write the files with an editor, not with shell `heredoc` or `sed`: some shells drop a backslash, and `"D:\\Projects"` becomes `"D:\Projects"`.
+- **Render time.** Herdr interrupts a render that runs for more than about 80 ms and shows "This view could not be rendered: interrupted". With 80+ repositories the list reached it: every row read `shared()` (30-50 µs) through `settings()` and `cache()`, and every path went through a regex replace (25-40 µs in this engine) and `window()`. Read `cache()` and `settings()` once per render, keep the favorites in a `Set`, compute the open spaces of a row once, and remember `normalize`/`pathKey` results and the platform in a `Map` (about 1 µs).
 - **Limits.** 3 folder levels, 2000 repositories per root folder, accounts only for Claude Code and Codex and only on this computer. A folder on another machine is typed, not picked.
 
 ## Done when

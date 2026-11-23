@@ -20,17 +20,43 @@ const SKIP = [
   ".git", "vendor", "Pods", "DerivedData",
 ];
 
-export const isWindows = () => window()?.platform === "windows";
+// Herdr interrupts a render that runs for more than about 80 ms ("This view
+// could not be rendered: interrupted"). The list calls these functions
+// thousands of times per render, and a regex replace (25-40 µs) and window()
+// are slow in the script engine, so remember the platform (it never changes;
+// not stored until it is known) and the paths (a Map lookup is about 1 µs).
+let platformCache = null;
+function platform() {
+  if (!platformCache) platformCache = window()?.platform ?? null;
+  return platformCache;
+}
+const normalized = new Map();
+const keyed = new Map();
+function remember(map, key, value) {
+  if (map.size > 4000) map.clear();
+  map.set(key, value);
+  return value;
+}
+
+export const isWindows = () => platform() === "windows";
 
 /** A path with forward slashes and no slash at the end. */
 export function normalize(path) {
-  return String(path ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const s = String(path ?? "");
+  const hit = normalized.get(s);
+  if (hit !== undefined) return hit;
+  return remember(normalized, s, s.replace(/\\/g, "/").replace(/\/+$/, ""));
 }
 
 /** The key that compares two paths: case-insensitive on Windows and macOS. */
 export function pathKey(path) {
-  const p = normalize(path);
-  return window()?.platform === "linux" ? p : p.toLowerCase();
+  const s = String(path ?? "");
+  const hit = keyed.get(s);
+  if (hit !== undefined) return hit;
+  const p = normalize(s);
+  const os = platform();
+  const key = os === "linux" ? p : p.toLowerCase();
+  return os ? remember(keyed, s, key) : key;
 }
 
 /** True when `path` is `folder` or inside it. */
