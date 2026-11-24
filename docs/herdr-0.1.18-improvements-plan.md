@@ -84,10 +84,10 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
     - `visual-review-app/mods/visual-review/main.js`
   - Verification: `herdr-app check` + test mouse back/forward buttons in each mod.
 
-- [ ] **Phase 7 — Layout polish (`main-dock.json`, `kanban.json`) & `setAgentOrder`**
-  - Add `"hover": "accent"` on root `divider` and resizable container dividers (`work-body`, `board-view`) in `dock-app/layouts/main-dock.json` and `kanban-app/layouts/kanban.json`
-  - Evaluate `pane.veil` (~`0.18`) on pane frames
-  - Review `space-deck` vs `setAgentOrder`
+- [x] **Phase 7 — Layout polish (`main-dock.json`, `kanban.json`) & `setAgentOrder`**
+  - Add `"hover": "accent"` on root `divider` and resizable container dividers (`work-body`, `board-view`, `sidebar-lists`) in `dock-app/layouts/main-dock.json` and `kanban-app/layouts/kanban.json`
+  - Add `"veil": 0.18` on pane frames
+  - Reviewed `setAgentOrder`: `agent-cards` and `kanban` already own `setAgentOrder`, so `space-deck` intentionally does not override them
   - Verification: copy layouts to `~/.config/herdr-app/layouts/`, ensure no `layout.error`, and inspect split panes with `herdr-app shot`.
 
 - [ ] **Phase 8 — Clean text field focus release (`.blur()`)**

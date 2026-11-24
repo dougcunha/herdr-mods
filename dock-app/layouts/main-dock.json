@@ -20,6 +20,11 @@
         {
           "id": "sidebar-lists",
           "type": "column",
+          "divider": {
+            "width": 1,
+            "color": "#00000000",
+            "hover": "accent"
+          },
           "children": [
             {
               "id": "spaces",
@@ -111,6 +116,7 @@
                   },
                   "radius": 10,
                   "gap": 8,
+                  "veil": 0.18,
                   "lone": true
                 }
               }
@@ -164,7 +170,12 @@
             }
           ],
           "padding": 8,
-          "gap": 8
+          "gap": 8,
+          "divider": {
+            "width": 1,
+            "color": "#00000000",
+            "hover": "accent"
+          }
         },
         {
           "id": "status",
@@ -187,7 +198,8 @@
   ],
   "divider": {
     "width": 1,
-    "color": "border"
+    "color": "border",
+    "hover": "accent"
   },
   "titlebar": "none",
   "traffic_lights": [

@@ -49,6 +49,7 @@
           "type": "row",
           "padding": 12,
           "gap": 12,
+          "divider": { "width": 1, "color": "#00000000", "hover": "accent" },
           "children": [
             {
               "id": "view",
@@ -59,6 +60,7 @@
                   "id": "board-view",
                   "type": "row",
                   "gap": 12,
+                  "divider": { "width": 1, "color": "#00000000", "hover": "accent" },
                   "children": [
                     {
                       "id": "board",
@@ -97,6 +99,7 @@
                       "focus": { "width": 1, "color": "accent" },
                       "radius": 10,
                       "gap": 8,
+                      "veil": 0.18,
                       "lone": true
                     }
                   }
@@ -138,7 +141,7 @@
   ],
   "background": "canvas",
   "terminal_padding": [14, 12],
-  "divider": { "width": 1, "color": "border" },
+  "divider": { "width": 1, "color": "border", "hover": "accent" },
   "titlebar": "none",
   "traffic_lights": [12, 16],
   "preview": "layouts/kanban.svg"
