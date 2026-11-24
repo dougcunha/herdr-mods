@@ -54,7 +54,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - Note: Do NOT pause background workers (`automations` beat, `powermods-core` pump, `quick-actions` beat/track, `agent-cards` `syncSounds`, `agent-resume` `scan`).
   - Verification: `herdr-app check` on all updated mods + minimize and restore Herdr to verify panels refresh on return.
 
-- [ ] **Phase 3 — Window-wide drags (`.on_window_mouse_move` / `.on_window_mouse_up`)**
+- [x] **Phase 3 — Window-wide drags (`.on_window_mouse_move` / `.on_window_mouse_up`)**
   - `visual-review-app/mods/visual-review/canvas.js` (graph pan) & `main.js` (side panel resize)
   - `git-client-app/mods/git-client/history.js` (column resize; remove `on_hover` cancel workaround)
   - `space-deck-app/mods/space-deck/main.js` & `dock-app/mods/tabs-dock/main.js` (clear pressed/drag state on window mouse up)

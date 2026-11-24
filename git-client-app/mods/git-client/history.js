@@ -324,6 +324,7 @@ export class History {
   moveDrag(e, cx) {
     const d = this.drag;
     if (!d) return;
+    if (e?.pressed_button !== "left") { this.endDrag(cx); return; }
     const w = this.clampColumn(d.key, d.from + COLUMNS[d.key].side * (e.position.x - d.x) / this.unit());
     if (w !== this.cols[d.key]) { this.cols = { ...this.cols, [d.key]: w }; d.moved = true; cx.notify(); }
   }
@@ -696,9 +697,8 @@ export class History {
     }
     this.detailsOpen = open;
     return v_flex().id("gc-history").flex_1().min_h(0).w_full()
-      .on_mouse_move((e, cx) => this.moveDrag(e, cx))
-      .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
-      .on_hover((hovered, cx) => { if (!hovered) this.endDrag(cx); })
+      .on_window_mouse_move((e, cx) => this.moveDrag(e, cx))
+      .on_window_mouse_up("left", (_e, cx) => this.endDrag(cx))
       .on_size_change((size, cx) => {
         const width = size.width / this.unit(), wide = width >= 600, graphMax = Math.max(60, Math.round(width * 0.4));
         this.width = width;

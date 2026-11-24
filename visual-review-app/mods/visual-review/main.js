@@ -433,6 +433,7 @@ export default class VisualReview extends View {
 
   moveResize(e, cx) {
     if (!this.resize) return;
+    if (e?.pressed_button !== "left") { this.endResize(); return; }
     const x = e?.position?.x;
     if (x == null) return;
     const z = settings()?.zoom || 1;
@@ -1113,6 +1114,7 @@ export default class VisualReview extends View {
         },
         onPanMove: (e, cx) => {
           if (!this.drag) return;
+          if (e?.pressed_button !== "left") { this.drag = null; return; }
           const pos = e?.position;
           if (!pos) return;
           const dx = pos.x - this.drag.x;
@@ -1263,8 +1265,8 @@ export default class VisualReview extends View {
       .bg(t.background)
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.handleKeyDown(e, cx))
-      .on_mouse_move((e, cx) => this.moveResize(e, cx))
-      .on_mouse_up("left", () => this.endResize())
+      .on_window_mouse_move((e, cx) => this.moveResize(e, cx))
+      .on_window_mouse_up("left", () => this.endResize())
       .on_size_change((size, cx) => {
         const z = settings()?.zoom || 1;
         this.viewSize = { width: size.width / z, height: size.height / z };

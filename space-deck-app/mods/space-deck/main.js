@@ -363,7 +363,7 @@ class Deck {
   draggable(el, r, section) {
     const me = { id: r.id, key: r.key, section };
     return el
-      .on_mouse_down("left", () => { this.pressed = me; this.over = me; })
+      .on_mouse_down("left", () => { this.pressGen = (this.pressGen ?? 0) + 1; this.pressed = me; this.over = me; })
       .on_mouse_move((_e, cx) => {
         if (!this.pressed) return;
         const over = this.canDrop(this.pressed, me) ? me : null;
@@ -640,6 +640,22 @@ class Deck {
       .text_size(13)
       .on_size_change((size, cx) => {
         if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); }
+      })
+      .on_window_mouse_move((e, cx) => {
+        if (!this.pressed || e?.pressed_button === "left") return;
+        this.pressed = null;
+        this.over = null;
+        cx.notify();
+      })
+      .on_window_mouse_up("left", (_e, cx) => {
+        if (!this.pressed) return;
+        const gen = this.pressGen;
+        cx.timer.after(0, (cx) => {
+          if (this.pressGen !== gen || !this.pressed) return;
+          this.pressed = null;
+          this.over = null;
+          cx.notify();
+        });
       })
       .child(h_flex().h(31).flex_none().pl(narrow ? 0 : 8).pr(narrow ? 0 : 8).gap(2).items_center()
         .when(narrow, (el) => el.justify_center())

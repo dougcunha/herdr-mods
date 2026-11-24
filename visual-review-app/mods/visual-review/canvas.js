@@ -422,8 +422,8 @@ export function renderCanvas({
     .bg(t.canvas)
     .overflow_hidden()
     .on_mouse_down("left", (e, cx) => onPanStart(e, cx))
-    .on_mouse_move((e, cx) => onPanMove(e, cx))
-    .on_mouse_up("left", (e, cx) => onPanEnd(e, cx))
+    .on_window_mouse_move((e, cx) => onPanMove(e, cx))
+    .on_window_mouse_up("left", (e, cx) => onPanEnd(e, cx))
     .on_scroll_wheel((e, cx) => onWheel(e, cx))
     .on_pinch((e, cx) => onPinch(e, cx))
     .on_click((e, cx) => onBackgroundClick(e, cx));

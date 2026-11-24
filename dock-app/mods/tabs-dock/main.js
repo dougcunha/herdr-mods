@@ -896,7 +896,7 @@ export default class Tabs extends View {
         .when(i <= active, el => el.on_size_change((_size, cx) => { this.scroll.scroll_to_item(activeItem); cx.notify(); }))
         .border(1).border_color(c.active ? t.border : t.chrome).bg(c.active ? t.raised : t.chrome).text_color(c.active ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover))
-        .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); })
+        .on_mouse_down("left", (e, cx) => { cx.stop_propagation(); this.pressGen = (this.pressGen ?? 0) + 1; this.pressed = i; if (e.click_count === 2) run("tab.rename", { id: c.id }); })
         .on_mouse_up("left", () => {
           const from = this.pressed; this.pressed = null;
           if (from !== null && from !== i) run("tab.move", { id: shown[from].id, index: space.tabs.findIndex(x => x.id === c.id) + 1 });
@@ -1016,12 +1016,22 @@ export default class Tabs extends View {
         .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(wbtn("maximize", win ? svg(`mods/tabs-dock/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(wbtn("close-window", win ? svg("mods/tabs-dock/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
-    return h_flex().size_full().min_w(0).pl(lightsPadding).pr(BAR_RIGHT).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+    return h_flex().id("tabs-dock-bar").size_full().min_w(0).pl(lightsPadding).pr(BAR_RIGHT).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_size_change((size, cx) => {
         const width = Math.round(size.width);
         if (width !== this.barW) { this.barW = width; cx.notify(); }
       })
       .on_mouse_up("left", () => { this.pressed = null; })
+      .on_window_mouse_move((e) => {
+        if (this.pressed !== null && e?.pressed_button !== "left") this.pressed = null;
+      })
+      .on_window_mouse_up("left", (_e, cx) => {
+        if (this.pressed === null) return;
+        const gen = this.pressGen;
+        cx.timer.after(0, () => {
+          if (this.pressGen === gen && this.pressed !== null) this.pressed = null;
+        });
+      })
       .on_scroll_wheel(e => this.wheel(e))
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().track_scroll(this.scroll)
         .on_size_change((_size, cx) => { if (activeItem >= 0) { this.scroll.scroll_to_item(activeItem); cx.notify(); } })
