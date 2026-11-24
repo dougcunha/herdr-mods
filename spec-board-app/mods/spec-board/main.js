@@ -57,7 +57,7 @@ const STR = {
     contOpen: "Continue in open session", startOpen: "Start in open session", openTip: "Sends the prompt to {where}",
     sent: "Prompt sent", sentBody: "{skill} for {name} in {where}",
     del: "Delete", openFolder: "Open folder", edit: "Edit", save: "Save", cancel: "Cancel", reload: "Reload",
-    back: "Back", saved: "Saved", conflict: "The file changed on disk. Reload it or copy your text first.",
+    back: "Back", saved: "Saved", conflict: "The file changed on disk. Reload it or copy your text first.", wrap: "Wrap",
     level: "Level", mode: "Mode", review: "Review", next: "Next",
     newTitle: "New spec", newHint: "Describe the request. The agent runs {skill} with it, then the SDD flow.",
     newPlaceholder: "What do you want to build or change?", startHere: "Start here", startInWt: "Start in a worktree…",
@@ -96,7 +96,7 @@ const STR = {
     contOpen: "Continuar na sessão aberta", startOpen: "Iniciar na sessão aberta", openTip: "Envia o prompt para {where}",
     sent: "Prompt enviado", sentBody: "{skill} para {name} em {where}",
     del: "Apagar", openFolder: "Abrir pasta", edit: "Editar", save: "Salvar", cancel: "Cancelar", reload: "Recarregar",
-    back: "Voltar", saved: "Salvo", conflict: "O arquivo mudou no disco. Recarregue ou copie o seu texto antes.",
+    back: "Voltar", saved: "Salvo", conflict: "O arquivo mudou no disco. Recarregue ou copie o seu texto antes.", wrap: "Quebra",
     level: "Nível", mode: "Modo", review: "Revisão", next: "Próximo",
     newTitle: "Nova spec", newHint: "Descreva o pedido. O agente executa {skill} com ele e depois o fluxo SDD.",
     newPlaceholder: "O que você quer construir ou mudar?", startHere: "Iniciar aqui", startInWt: "Iniciar em worktree…",
@@ -518,11 +518,30 @@ export default class SpecBoard extends View {
 
   startEdit(path, cx) {
     const original = this.texts.get(path) ?? "";
+    const t = theme();
     const state = EditorState.new({
-      language: "markdown", value: original, soft_wrap: true, line_numbers: false, folding: false,
-      font_family: settings().font_family, font_size: 13,
+      language: path.endsWith(".json") ? "json" : "markdown",
+      value: original,
+      soft_wrap: this.softWrap !== false,
+      tab_size: 2,
+      line_numbers: false,
+      folding: false,
+      font_family: settings().font_family,
+      font_size: 13,
+      syntax: {
+        keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4,
+        type: t.ansi3, number: t.ansi1, constant: t.ansi6,
+        heading: t.ansi4, strong: t.ansi3, emphasis: t.ansi5, code: t.ansi2,
+        quote: t.dim, list: t.ansi6, link: t.accent,
+      },
     });
     this.edit = { path, state, original, error: "" };
+    cx.notify();
+  }
+
+  toggleWrap(cx) {
+    this.softWrap = this.softWrap === false;
+    if (this.edit?.state) this.edit.state.set_soft_wrap(this.softWrap);
     cx.notify();
   }
 
@@ -934,6 +953,11 @@ export default class SpecBoard extends View {
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(rel))
       .when(!editing && typeof text === "string", (e) => e.child(this.btn(t, "sb-edit", this.s("edit"), (cx) => this.startEdit(path, cx), { compact: true, symbol: "pencil" })))
       .when(editing, (e) => e
+        .child(h_flex().id("sb-wrap").h(26).px(9).flex_none().items_center().rounded(8).text_size(12).font_semibold()
+          .bg(t.raised).border_1().border_color(this.softWrap !== false ? t.accent : t.border)
+          .text_color(this.softWrap !== false ? t.accent : t.muted)
+          .cursor_pointer().hover((s) => s.opacity(0.85)).on_click((_e, cx) => { cx.stop_propagation(); this.toggleWrap(cx); })
+          .child(this.s("wrap")))
         .child(this.btn(t, "sb-cancel", this.s("cancel"), (cx) => { this.edit = null; cx.notify(); }, { compact: true }))
         .when(Boolean(this.edit?.error), (x) => x.child(this.btn(t, "sb-reload", this.s("reload"), (cx) => this.reloadEdit(cx), { compact: true })))
         .child(this.btn(t, "sb-save", this.s("save"), (cx) => this.saveEdit(cx), { compact: true, tone: "primary", symbol: "save" })));
@@ -944,7 +968,7 @@ export default class SpecBoard extends View {
         .child(div().flex_1().min_h(0).p(4).child(Editor.new(this.edit.state).size_full()));
     } else if (typeof text === "string") {
       body = div().id(`sb-doc-${path}`).flex_1().min_h(0).overflow_y_scrollbar().px(18).py(12)
-        .child(TextView.markdown(`sb-md-${path}`, rel.endsWith(".json") ? "```json\n" + text + "\n```" : text).selectable(true).scrollable(false).text_size(13));
+        .child(TextView.markdown(`sb-md-${path}`, rel.endsWith(".json") ? "```json\n" + text + "\n```" : text).raw_html(false).selectable(true).scrollable(false).text_size(13));
     } else {
       body = this.message(t, text === null ? this.s("noFile", { name: rel }) : this.s("loading"));
     }

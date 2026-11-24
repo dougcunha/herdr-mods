@@ -84,13 +84,13 @@ export function detail(pr, t, a) {
     return v_flex().rounded(8).border_1().border_color(t.border).overflow_hidden().ml(38).children(rows);
   };
 
-  const descriptionTab = () => [k.panel(`pr-body-${pr.number}`, TextView.markdown(`body-${pr.number}`, pr.body || "_No description._").selectable(true).on_link_click((url) => openUrl(url)))];
+  const descriptionTab = () => [k.panel(`pr-body-${pr.number}`, TextView.markdown(`body-${pr.number}`, pr.body || "_No description._").raw_html(false).selectable(true).on_link_click((url) => openUrl(url)))];
   const conversationTab = () => [
     ...(pr.conversation.length ? [] : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments or reviews yet.")]),
     ...pr.conversation.map((c, i) => (c.text != null
       ? k.event(`ev-${pr.number}-${i}`, c.who, c.text, `${ago(c.at)} ago`, c.color && t[c.color])
       : k.card(`cv-${pr.number}-${i}`, c.who, c.verdict ? h_flex().gap(6).items_center().child("reviewed").child(k.pill(VERDICT[c.verdict]?.[0] ?? c.verdict.toLowerCase(), t[VERDICT[c.verdict]?.[2]] ?? t.muted)) : "commented",
-        c.at ? `${ago(c.at)} ago` : "", c.body ? TextView.markdown(`comment-${pr.number}-${i}`, c.body).selectable(true).on_link_click((url) => openUrl(url)) : div().text_size(fs.meta).text_color(t.dim).child("No comment.")))),
+        c.at ? `${ago(c.at)} ago` : "", c.body ? TextView.markdown(`comment-${pr.number}-${i}`, c.body).raw_html(false).selectable(true).on_link_click((url) => openUrl(url)) : div().text_size(fs.meta).text_color(t.dim).child("No comment.")))),
     merge(),
   ];
   const checksTab = () => [checks.length

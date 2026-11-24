@@ -44,6 +44,7 @@ const key = () => JSON.stringify(location());
 // js, json, html, css, yaml and bash by those names (checked in the app); other names show as plain text.
 // An extension that is not listed is passed as it is, so a language the editor learns later just works.
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", cjs: "js", toml: "yaml", yml: "yaml", jsonc: "json", jsonl: "json",
+  md: "markdown", markdown: "markdown", mdown: "markdown", mkd: "markdown", mdx: "markdown",
   svelte: "html", vue: "html", htm: "html", xml: "html", csproj: "html", props: "html", xaml: "html",
   sh: "bash", zsh: "bash", ps1: "bash", psm1: "bash", dockerfile: "bash", h: "c", hpp: "cpp", cc: "cpp", cxx: "cpp",
   kt: "java", kts: "java", scala: "java", pyw: "py", rb: "ruby", scss: "css", sass: "css", less: "css" };
@@ -202,6 +203,7 @@ export default class Files extends View {
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set();
     this.handle = cx.focus_handle(); // the panel's own keyboard focus, for Esc in a dialog
+    try { this.softWrap = localStorage.getItem("files-md.softWrap") === "1"; } catch { this.softWrap = false; }
     // The filter: its text field, the file index it searches, and the row that Enter opens.
     this.filter = InputState.new({ placeholder: "Filter files (fuzzy)…" });
     // Wait for a short pause in the typing, so a fast typist does not search on every key.
@@ -618,9 +620,28 @@ export default class Files extends View {
   // A read-only, highlighted view of the text of the open file.
   highlight(path) {
     const t = theme(), ext = path.includes(".") ? path.split(".").pop().toLowerCase() : "txt";
-    return EditorState.new({ language: LANG[ext] ?? ext, readonly: true, value: this.text,
-      font_family: settings().font_family, font_size: 12,
-      syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 } });
+    return EditorState.new({
+      language: LANG[ext] ?? ext,
+      readonly: true,
+      value: this.text,
+      soft_wrap: Boolean(this.softWrap),
+      tab_size: 2,
+      font_family: settings().font_family,
+      font_size: 12,
+      syntax: {
+        keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4,
+        type: t.ansi3, number: t.ansi1, constant: t.ansi6,
+        heading: t.ansi4, strong: t.ansi3, emphasis: t.ansi5, code: t.ansi2,
+        quote: t.dim, list: t.ansi6, link: t.accent,
+      },
+    });
+  }
+
+  toggleWrap(cx) {
+    this.softWrap = !this.softWrap;
+    try { localStorage.setItem("files-md.softWrap", this.softWrap ? "1" : "0"); } catch {}
+    if (this.code) this.code.set_soft_wrap(this.softWrap);
+    cx.notify();
   }
 
   toggleSource(cx) {
@@ -686,6 +707,9 @@ export default class Files extends View {
           ? [this.file, this.picture?.w ? `${this.picture.w}×${this.picture.h}` : null, this.picture ? kb(this.picture.bytes) : null].filter(Boolean).join(" · ")
           : this.root?.split(/[\\/]/).pop() ?? ""))
         .when(Boolean(this.picture), el => el.child(this.zoomBar(t)))
+        .when(Boolean(this.file) && Boolean(this.code) && !this.rendered && !this.picture, el => el.child(div().id("files-wrap").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
+          .text_color(this.softWrap ? t.accent : t.muted).bg(this.softWrap ? t.raised : t.background)
+          .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleWrap(cx); }).child("Wrap")))
         .when(Boolean(this.file) && this.text !== null && isMarkdown(this.file), el => el.child(div().id("files-source").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12).text_color(t.muted)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleSource(cx); }).child(this.rendered ? "Source" : "Rendered"))))
       .when(!this.file && Boolean(this.root), el => el.child(this.filterBar(t)))
@@ -703,7 +727,7 @@ export default class Files extends View {
       .when(Boolean(this.file), el => el.child(this.rendered && this.text !== null
         // The id changes with the file, so the rendered text and its scroll start over for each one.
         ? div().id(`files-doc-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(14)
-          .child(TextView.markdown(`files-md-${this.file}`, this.text || "*This file is empty.*").w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false))
+          .child(TextView.markdown(`files-md-${this.file}`, this.text || "*This file is empty.*").raw_html(false).w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false))
         : this.picture ? this.imageView(t)
         : this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || (isImage(this.file) ? "Loading image…" : "Loading file…"))));
   }

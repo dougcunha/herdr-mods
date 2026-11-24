@@ -844,7 +844,7 @@ export default class SpaceIssues extends View {
         .child(`${this.only.at + 1} of ${this.only.list.length}`)
       : full ? k.button("issue-back", "← Back", () => run("issues.back")) : null;
     const m = p?.meta ?? {};
-    const md = (id, body) => TextView.markdown(id, body).selectable(true).on_link_click((url) => openUrl(url));
+    const md = (id, body) => TextView.markdown(id, body).raw_html(false).selectable(true).on_link_click((url) => openUrl(url));
     // A text block (the description, a refinement): the start, then Show full text for a long one. The
     // choice is kept for each issue and field while the page stays open (the same in the list, the dialog).
     const fullPanel = (id, lt, fallback) => {

@@ -66,7 +66,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - `image-viewer-app/mods/image-viewer/main.js`: `Open…` button with `multiple: true` and prev/next navigation
   - Verification: `herdr-app check` + click `Choose…` / `Open…` inside `cx.spawn` in the live app.
 
-- [ ] **Phase 5 — Editor & Markdown upgrades**
+- [x] **Phase 5 — Editor & Markdown upgrades**
   - `spec-board-app/mods/spec-board/main.js`: theme-aware Markdown `syntax` (`heading`, `strong`, `emphasis`, `code`, `quote`, `list`, `link`), live `set_soft_wrap` toggle, `tab_size`, `.raw_html(false)`
   - `dock-app/mods/files-md/main.js`: theme-aware Markdown `syntax` in Source mode, live `set_soft_wrap` toggle, `.raw_html(false)`
   - `issues-app/mods/issues/main.js` & `issues-app/mods/prs/detail.js`: `.raw_html(false)` on `TextView.markdown`
