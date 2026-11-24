@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, nextCommand, run, knownAgents, pickFolder, notify, agents } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, nextCommand, run, knownAgents, pickFolder, notify, agents, window } from "herdr";
 import * as S from "./store.js";
 import { Engine } from "./engine.js";
 import { nextDue, whenText } from "./schedule.js";
@@ -81,7 +81,11 @@ export default class Automations extends View {
       this.view = "history";
       if (focus.run) this.toggleRun(cx, focus.run);
     }
-    cx.timer.every(1000, (cx) => { if (!kitOff()) this.refresh(cx); });
+    cx.timer.every(1000, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.refresh(cx);
+    });
     this.refresh(cx);
     // `herdr-app do automations.new | edit-<id> | history-<id>` shows a view of an open dialog.
     cx.spawn(async (cx) => {
@@ -319,8 +323,12 @@ export default class Automations extends View {
 
   // ---- views -------------------------------------------------------------------------------
 
-  render() {
+  render(cx) {
     if (kitOff()) return offView();
+    if (this.part !== "status" && this.resumeDue && window()?.visible !== false) {
+      this.resumeDue = false;
+      this.refresh(cx);
+    }
     const t = theme();
     if (this.part === "status") return this.statusView(t);
     let body;

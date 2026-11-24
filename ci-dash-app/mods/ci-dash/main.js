@@ -2,7 +2,7 @@
 // focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, TextView } from "gpui-base";
-import { spaces, panes, focused, exec, home, theme, notify, props, shared, setShared, closeOverlay, pickFolder } from "herdr";
+import { spaces, panes, focused, exec, home, theme, notify, props, shared, setShared, closeOverlay, pickFolder, window } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
 import { Dispatch } from "./dispatch.js";
@@ -129,7 +129,11 @@ export default class CiDash extends View {
     this.artFilter = this.makeFilter("Filter artifacts…");
     this.runSort = loadSort();
     this.reset();
-    cx.timer.every(POLL_MS, (cx) => kitOff() || this.tick(cx));
+    cx.timer.every(POLL_MS, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.tick(cx);
+    });
   }
 
   makeFilter(placeholder) {
@@ -784,6 +788,7 @@ export default class CiDash extends View {
   render(cx) {
     if (kitOff()) return offView();
     this.ensureContext(cx);
+    if (this.resumeDue && window()?.visible !== false) { this.resumeDue = false; this.tick(cx); }
     const t = theme();
     let body;
     if (!this.repo) body = this.error ? this.errorView(t, this.error) : this.message(t, "Looking for a GitHub repository…");

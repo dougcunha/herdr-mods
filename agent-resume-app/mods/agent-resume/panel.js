@@ -3,7 +3,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, props, closeOverlay } from "herdr";
+import { theme, props, closeOverlay, window } from "herdr";
 import {
   AGENTS, config, setConfig, labeled, inspect, sessionState, resumeNow, forget,
   SETTLE_MIN_MS, SETTLE_MAX_MS,
@@ -23,7 +23,10 @@ export class Panel {
     this.infos = {}; // address -> full terminal record
     this.busy = {}; // address -> true while a button runs
     this.message = null;
-    cx.timer.every(REFRESH_MS, (cx) => this.refresh(cx));
+    cx.timer.every(REFRESH_MS, (cx) => {
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.refresh(cx);
+    });
     this.refresh(cx);
   }
 
@@ -55,7 +58,8 @@ export class Panel {
     });
   }
 
-  render(_cx) {
+  render(cx) {
+    if (this.resumeDue && window()?.visible !== false) { this.resumeDue = false; this.refresh(cx); }
     const t = theme();
     const c = config();
     const rows = labeled().map((term) => this.infos[term.address] ?? term);

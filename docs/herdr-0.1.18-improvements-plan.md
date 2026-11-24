@@ -34,7 +34,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
     - `kanban-app/mods/kanban/mod.json`
   - Verification: `herdr-app check` on each installed mod + open `app.palette` and confirm `PowerMods` entries appear and launch cleanly.
 
-- [ ] **Phase 2 — Pause UI polling when window is hidden (`window()?.visible`)**
+- [x] **Phase 2 — Pause UI polling when window is hidden (`window()?.visible`)**
   - Guard UI/polling timers with `window()?.visible === false` and trigger pending refresh when `render()` runs with `window()?.visible !== false`:
     - `dock-app/mods/files-md/main.js`
     - `git-client-app/mods/git-client/history.js`
@@ -44,14 +44,14 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
     - `space-deck-app/mods/space-deck/main.js`
     - `spec-board-app/mods/spec-board/main.js`
     - `tokenhound-app/mods/tokenhound/main.js`
-    - `agent-resume-app/mods/agent-resume/main.js` & `panel.js`
+    - `agent-resume-app/mods/agent-resume/panel.js` (`agent-resume/main.js` `scan()` stays active as a background session worker)
     - `agent-cards-app/mods/agent-cards/main.js` (visual timer only; keep `syncSounds` active)
     - `kanban-app/mods/kanban/main.js` (visual timer only)
     - `mods-hub-app/mods/mods-hub/main.js`
     - `skill-bundles-app/mods/skill-bundles/main.js`
     - `automations-app/mods/automations/main.js` (dialog UI timer only; keep scheduler `beat` active)
     - `quick-actions-app/mods/quick-actions/main.js` (dialog UI/preview timers only; keep `beat`/`track` active)
-  - Note: Do NOT pause background workers (`automations` beat, `powermods-core` pump, `quick-actions` beat/track, `agent-cards` `syncSounds`).
+  - Note: Do NOT pause background workers (`automations` beat, `powermods-core` pump, `quick-actions` beat/track, `agent-cards` `syncSounds`, `agent-resume` `scan`).
   - Verification: `herdr-app check` on all updated mods + minimize and restore Herdr to verify panels refresh on return.
 
 - [ ] **Phase 3 — Window-wide drags (`.on_window_mouse_move` / `.on_window_mouse_up`)**

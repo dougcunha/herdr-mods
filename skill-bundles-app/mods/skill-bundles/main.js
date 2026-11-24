@@ -20,7 +20,7 @@
 
 import { View, div } from "gpui-kit";
 import { InputState } from "gpui-base";
-import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents } from "herdr";
+import { theme, props, shared, setShared, focused, spaces, panes, readTextFile, notify, run, openOverlay, nextCommand, settings, closeOverlay, knownAgents, window } from "herdr";
 import * as C from "./catalog.js";
 import { writeFileOn } from "./remote.js";
 import { formatManifest, sameRepo, withSource, withSkills, withoutSource, orderBundles } from "./manifest.js";
@@ -140,6 +140,7 @@ export default class SkillBundles extends View {
     cx.timer.every(CHECK_MS, (cx) => {
       if (kitOff()) return;
       if (this.running) setShared(KEY.job, { ...(shared(KEY.job) ?? {}), at: Date.now() });
+      if (window()?.visible === false) { this.due = true; return; }
       // The status copy reads at once. A panel copy only asks for a read: render() does it, and
       // Herdr does not draw a hidden copy, so a hidden panel runs no git until it shows again.
       if (this.part === "status") this.reload(cx, false);
@@ -1040,7 +1041,7 @@ export default class SkillBundles extends View {
 
   render(cx) {
     if (kitOff()) return offView();
-    if (this.due) { this.due = false; this.reload(cx, false); }
+    if (this.due && window()?.visible !== false) { this.due = false; this.reload(cx, false); }
     this.watchChanges(cx);
     const t = theme();
     const m = this.model();

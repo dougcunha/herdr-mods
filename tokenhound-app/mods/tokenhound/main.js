@@ -12,7 +12,7 @@
 // The mod only reads the file. It runs no program and uses no network.
 
 import { View, div } from "gpui-kit";
-import { theme, props, shared, setShared, settings, layout, run, openOverlay, closeOverlay, nextCommand, watchFolder } from "herdr";
+import { theme, props, shared, setShared, settings, layout, run, openOverlay, closeOverlay, nextCommand, watchFolder, window } from "herdr";
 import { feedDir, feedState, hiddenIds, isFeedPath, readFeed, visibleProviders } from "./feed.js";
 import { loadPrograms, providerIcon } from "./icons.js";
 import { STR } from "./text.js";
@@ -79,7 +79,11 @@ export default class TokenHound extends View {
     this.programs = new Map(); // Herdr's program table, for the agent icons (icons.js)
     cx.spawn(async (cx) => { this.programs = await loadPrograms(); cx.notify(); });
     this.reload(cx);
-    cx.timer.every(REFRESH_MS, (cx) => kitOff() || this.reload(cx));
+    cx.timer.every(REFRESH_MS, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.reload(cx);
+    });
     // "tokenhound.open" (a key in keys.json, or herdr-app do) opens the panel as a dialog.
     // Only the status bar copy listens: a command reaches every shown copy, so more listeners
     // would open more dialogs.
@@ -250,8 +254,9 @@ export default class TokenHound extends View {
       });
   }
 
-  render() {
+  render(cx) {
     if (kitOff()) return offView();
+    if (this.resumeDue && window()?.visible !== false) { this.resumeDue = false; this.reload(cx); }
     const t = theme();
     const m = this.model();
     switch (this.part) {

@@ -13,7 +13,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay, layout } from "herdr";
+import { spaces, run, theme, shared, setShared, props, nextCommand, readTextFile, appHome, home, closeOverlay, layout, window } from "herdr";
 import { Git } from "./git.js";
 import { rows, sections, recentRows, needsYou } from "./model.js";
 import { KEYS, item, pins, pinAt, unpin, view, cardField, gitEvery, needsYouFirst, recentCount, terminalsMode, touch, fillOf, PALETTE } from "./store.js";
@@ -133,9 +133,20 @@ class Deck {
     // Space key -> true (terminals shown) or false (hidden), when the person clicked the toggle of the space.
     try { this.termOpen = JSON.parse(localStorage.getItem("termOpen") ?? "{}") ?? {}; } catch { this.termOpen = {}; }
     this.refreshFiles(cx);
-    cx.timer.every(10000, (cx) => kitOff() || this.refreshFiles(cx));
-    cx.timer.every(1000, (cx) => kitOff() || this.tick(cx));
-    cx.timer.every(30000, (cx) => kitOff() || cx.notify()); // the "5m" times
+    cx.timer.every(10000, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.filesDue = true; return; }
+      this.refreshFiles(cx);
+    });
+    cx.timer.every(1000, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.tickDue = true; return; }
+      this.tick(cx);
+    });
+    cx.timer.every(30000, (cx) => {
+      if (kitOff() || window()?.visible === false) return;
+      cx.notify();
+    }); // the "5m" times
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -603,6 +614,10 @@ class Deck {
   }
 
   render(cx) {
+    if (window()?.visible !== false) {
+      if (this.filesDue) { this.filesDue = false; this.refreshFiles(cx); }
+      if (this.tickDue) { this.tickDue = false; this.tick(cx); }
+    }
     const t = theme();
     let model;
     if (this.demo) {

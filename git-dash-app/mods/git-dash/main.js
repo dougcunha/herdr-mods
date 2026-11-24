@@ -2,7 +2,7 @@
 // one or more base folders. Port of git-pendencias.py.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, shared, setShared, pickFolder, run, panes, spaces, layout, openOverlay, notify, home, nextCommand, closeOverlay } from "herdr";
+import { theme, props, shared, setShared, pickFolder, run, panes, spaces, layout, openOverlay, notify, home, nextCommand, closeOverlay, window } from "herdr";
 import { findRepos, analyze, mapLimit, pending, severity, fixes, commitSteps, submoduleSteps, discardSteps, ignoreChoices, addIgnoreLine, runSteps, removedBy, samePath, show, MAX_REPOS } from "./git.js";
 import { icon, mono, pill, searchBox, busy, filterChip, iconButton, button, smallButton, tint, dialogKeys } from "./ui.js";
 import { WtTab, WT_STR } from "./wt-view.js";
@@ -968,7 +968,7 @@ export default class GitDash extends View {
     if (auto && !this.refreshTimer) {
       // Refresh starts in render, so a hidden panel does not start a scan.
       this.refreshTimer = cx.timer.every(30000, (cx) => {
-        if (!kitOff() && this.autoRefresh) cx.notify();
+        if (!kitOff() && this.autoRefresh && window()?.visible !== false) cx.notify();
       });
     } else if (!auto && this.refreshTimer) {
       this.refreshTimer.cancel();

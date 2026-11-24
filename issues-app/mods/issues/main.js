@@ -12,7 +12,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
-import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
+import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window } from "herdr";
 import { search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
@@ -206,9 +206,16 @@ export default class SpaceIssues extends View {
     });
     this.refresh(cx);
     cx.spawn(async (cx) => { await writeIcons(); cx.notify(); });
-    cx.timer.every(120000, (cx) => { if (!kitOff() && this.visible()) this.refresh(cx); });
+    cx.timer.every(120000, (cx) => {
+      if (kitOff() || !this.visible()) return;
+      if (window()?.visible === false) { this.stale = true; return; }
+      this.refresh(cx);
+    });
     // Following the link (a space switch is caught in render): a cheap check.
-    cx.timer.every(1500, (cx) => { if (!kitOff() && this.visible() && (this.stale || contextKey(this.space()) !== this.context)) this.refresh(cx); });
+    cx.timer.every(1500, (cx) => {
+      if (kitOff() || !this.visible() || window()?.visible === false) return;
+      if (this.stale || contextKey(this.space()) !== this.context) this.refresh(cx);
+    });
     // Key commands from keys.json ("issues.down"), also reachable with `herdr-app do`.
     cx.spawn(async (cx) => { try { for (;;) this.command(await nextCommand(), cx); } catch { /* the copy is closing */ } });
   }
@@ -1285,6 +1292,7 @@ export default class SpaceIssues extends View {
   render(cx) {
     if (kitOff()) return offView();
     if (this.dialog) return this.dialog;
+    if (this.stale && this.visible() && window()?.visible !== false) this.refresh(cx);
     this.followChanges(cx);
     this.followRowAction(cx);
     readSizes();

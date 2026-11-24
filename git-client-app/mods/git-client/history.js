@@ -6,7 +6,7 @@
 // Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
-import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run } from "herdr";
+import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run, window as appWindow } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
@@ -132,7 +132,12 @@ export class History {
     this.refresh(cx);
     cx.timer.after(1500, (cx) => this.warm(cx));
     // Remote spaces can't be watched: poll them gently. New folders get read ahead.
-    cx.timer.every(15000, (cx) => { if (this.host.off()) return; if (!this.watching) this.refresh(cx, true); this.warm(cx); });
+    cx.timer.every(15000, (cx) => {
+      if (this.host.off()) return;
+      if (appWindow()?.visible === false) { this.resumeDue = true; return; }
+      if (!this.watching) this.refresh(cx, true);
+      this.warm(cx);
+    });
   }
 
   key() { return JSON.stringify(this.host.location()); }
@@ -666,6 +671,11 @@ export class History {
 
   // Called on every render of the host, also while another tab shows: shared changes reach the reader.
   sync(cx) {
+    if (this.resumeDue && appWindow()?.visible !== false) {
+      this.resumeDue = false;
+      if (!this.watching) this.refresh(cx, true);
+      this.warm(cx);
+    }
     if (this.key() !== this.context) this.refresh(cx);
     const changed = shared("git-client.changed");
     if (changed !== this.seenChange) { this.seenChange = changed; if (this.root) this.refresh(cx); }

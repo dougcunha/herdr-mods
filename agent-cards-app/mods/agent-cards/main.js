@@ -5,7 +5,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, terminals, panes, spaces, run, theme, layout, setAgentOrder, nextCommand, shared, setShared,
-  openOverlay, readTextFile, appHome, hc, home, exec } from "herdr";
+  openOverlay, readTextFile, appHome, hc, home, exec, window } from "herdr";
 import { stage, STYLES } from "./robot.js";
 // A copy of kanban/waiting.js: it finds the Claude Code agents that wait for background work.
 import { WaitingTracker } from "./waiting.js";
@@ -169,7 +169,7 @@ export default class AgentCards extends View {
       if (namer !== this.namer || kanban !== this.kanban) { this.namer = namer; this.kanban = kanban; cx.notify(); }
     });
     findNamer(cx);
-    cx.timer.every(60000, (cx) => findNamer(cx));
+    cx.timer.every(60000, (cx) => { if (window()?.visible !== false) findNamer(cx); });
     // The sounds of the animation style go into settings.json when the style changes (sounds.js).
     // The hub can change the style while the cards are hidden, so a short timer looks, not render.
     this.soundBusy = false;
@@ -183,7 +183,7 @@ export default class AgentCards extends View {
     };
     syncSounds(cx);
     cx.timer.every(1500, (cx) => syncSounds(cx));
-    cx.timer.every(30000, (cx) => cx.notify());
+    cx.timer.every(30000, (cx) => { if (window()?.visible !== false) cx.notify(); });
     // Which Claude Code agents wait for background work.
     this.tracker = new WaitingTracker({ hc, home, exec });
     this.waitSig = null;
@@ -191,6 +191,7 @@ export default class AgentCards extends View {
     // The jobs run on their own: look again now and then at the agents known to wait, so a
     // limit of time or a lost session cannot keep a card in Waiting for good.
     cx.timer.every(30000, (cx) => {
+      if (window()?.visible === false) { this.waitDue = true; return; }
       if (waitingOn() && this.tracker.waits.size) this.syncWaiting(cx, true);
     });
     // `herdr-app do agent-cards.demo` shows one example card for each status.
@@ -732,7 +733,9 @@ export default class AgentCards extends View {
     const base = theme();
     const t = { ...base, waiting: base.ansi5 || base.accent };
     const now = Date.now();
-    this.syncWaiting(cx);
+    const waitForce = Boolean(this.waitDue && window()?.visible !== false);
+    if (waitForce) this.waitDue = false;
+    this.syncWaiting(cx, waitForce);
     const list = this.withWaiting([...agents()]);
     this.track(list, now);
     this.listed = new Map(list.map((a) => [a.address, a.status]));

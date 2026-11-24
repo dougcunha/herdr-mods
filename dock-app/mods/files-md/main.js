@@ -216,7 +216,11 @@ export default class Files extends View {
     // the first frame, so focus it again a moment later.
     this.filter.focus();
     cx.timer.after(40, cx => { if (!this.file) this.filter.focus(); cx.notify(); });
-    cx.timer.every(10000, cx => kitOff() || this.refresh(cx));
+    cx.timer.every(10000, cx => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.refresh(cx);
+    });
     sweepImages();
     // The optional third-party reader adds a menu item when it is installed.
     try { readTextFile(`${appHome()}/mods/markdown-reader/mod.json`).then(text => { this.reader = text !== null; }).catch(() => {}); } catch {}
@@ -646,7 +650,7 @@ export default class Files extends View {
 
   render(cx) {
     if (kitOff()) return offView();
-    if (key() !== this.context?.key) this.refresh(cx);
+    if (key() !== this.context?.key || (this.resumeDue && window()?.visible !== false)) { this.resumeDue = false; this.refresh(cx); }
     const t = theme();
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)

@@ -365,7 +365,7 @@ export default class Kanban extends View {
       if (found !== this.namer) { this.namer = found; cx.notify(); }
     });
     findNamer(cx);
-    cx.timer.every(60000, (cx) => findNamer(cx));
+    cx.timer.every(60000, (cx) => { if (window()?.visible !== false) findNamer(cx); });
     if (this.part === "bar") {
       this.query = InputState.new({ placeholder: this.s("search"), value: String(shared(KEY_QUERY) ?? "") });
       this.query.on("change", () => setShared(KEY_QUERY, this.query.value()));
@@ -407,11 +407,12 @@ export default class Kanban extends View {
         }
       });
     } else {
-      cx.timer.every(30000, (cx) => cx.notify()); // keeps "3 min ago" fresh
+      cx.timer.every(30000, (cx) => { if (window()?.visible !== false) cx.notify(); }); // keeps "3 min ago" fresh
     }
     // The subagents run on their own: look again now and then at the agents known to wait, so a
     // limit of time or a lost session cannot keep a card here for good.
     cx.timer.every(30000, (cx) => {
+      if (window()?.visible === false) { this.waitDue = true; return; }
       if (this.waitingOn() && this.tracker.waits.size) this.syncWaiting(cx, true);
     });
   }
@@ -1719,7 +1720,9 @@ export default class Kanban extends View {
     if (this.part === "clone-menu") return this.cloneMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
-    this.syncWaiting(cx);
+    const waitForce = Boolean(this.waitDue && window()?.visible !== false && this.waitingOn() && this.tracker.waits.size);
+    if (waitForce) this.waitDue = false;
+    this.syncWaiting(cx, waitForce);
     if (this.part === "bar") return this.bar(t);
     return v_flex().id("kanban").size_full().min_h(0).min_w(0).text_color(t.foreground).text_size(13)
       .on_size_change((size, cx) => {

@@ -8,7 +8,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, EditorState, Editor, TextView } from "gpui-base";
 import {
   theme, settings, props, shared, setShared, spaces, panes, focused, run, notify, nextCommand,
-  watchFolder, closeOverlay, exec,
+  watchFolder, closeOverlay, exec, window,
 } from "herdr";
 import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin, useMachine, machine, readText, git as gitIn } from "./data.js";
 import { machineInfo, writeFileOn } from "./remote.js";
@@ -165,12 +165,24 @@ export default class SpecBoard extends View {
     this.demo = null;
     this.search = InputState.new({ placeholder: this.s("search") });
     this.search.on("change", (_e, cx) => cx.notify());
-    cx.timer.every(1500, (cx) => kitOff() || this.follow(cx));
+    cx.timer.every(1500, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.followDue = true; return; }
+      this.follow(cx);
+    });
     // The timers only ask for a read. render() does it, and Herdr does not draw a hidden copy
     // (the other child of a stack), so a hidden board runs no git. It reads when it shows again.
     this.due = null; // null | { poll }
-    cx.timer.every(30000, (cx) => { if (!kitOff() && !this.machine) { this.due = { poll: false }; cx.notify(); } });
-    cx.timer.every(REMOTE_POLL_MS, (cx) => { if (!kitOff() && this.machine && !this.demo) { this.due = { poll: true }; cx.notify(); } });
+    cx.timer.every(30000, (cx) => {
+      if (kitOff() || this.machine) return;
+      this.due = { poll: false };
+      if (window()?.visible !== false) cx.notify();
+    });
+    cx.timer.every(REMOTE_POLL_MS, (cx) => {
+      if (kitOff() || !this.machine || this.demo) return;
+      this.due = { poll: true };
+      if (window()?.visible !== false) cx.notify();
+    });
     this.follow(cx);
     cx.spawn(async (cx) => {
       for (;;) {
@@ -1013,7 +1025,8 @@ export default class SpecBoard extends View {
   render(cx) {
     if (kitOff()) return offView();
     this.cx = cx;
-    if (this.due) { const { poll } = this.due; this.due = null; this.refresh(cx, poll, true); }
+    if (this.followDue && window()?.visible !== false) { this.followDue = false; this.follow(cx); }
+    if (this.due && window()?.visible !== false) { const { poll } = this.due; this.due = null; this.refresh(cx, poll, true); }
     const t = theme();
     const wide = this.width >= WIDE;
     if (wide && !this.selected && this.specs.length) {

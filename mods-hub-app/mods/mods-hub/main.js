@@ -59,8 +59,14 @@ export default class ModsUpdate extends View {
     this.checking = false;
     if (this.dialog) return this.initDialog(cx);
 
-    cx.timer.every(READ_EVERY, (cx) => this.readLocal(cx));
-    cx.timer.every(10 * 60 * 1000, (cx) => this.check(cx, false));
+    cx.timer.every(READ_EVERY, (cx) => {
+      if (window()?.visible === false) { this.readDue = true; return; }
+      this.readLocal(cx);
+    });
+    cx.timer.every(10 * 60 * 1000, (cx) => {
+      if (window()?.visible === false) { this.checkDue = true; return; }
+      this.check(cx, false);
+    });
     this.readLocal(cx);
     this.check(cx, false);
     // `herdr-app do mods-hub.check` (or a key bound to it) checks GitHub now. `mods-hub.off-<mod>` and
@@ -205,7 +211,7 @@ export default class ModsUpdate extends View {
     cx.timer.after(40, () => this.handle.focus());
     this.loadMods(cx);
     // The Worktrees tab shows times ("40 s ago"): draw it again every second.
-    cx.timer.every(1000, (cx) => { if (this.shownTab() === "worktrees") cx.notify(); });
+    cx.timer.every(1000, (cx) => { if (this.shownTab() === "worktrees" && window()?.visible !== false) cx.notify(); });
     cx.spawn(async (cx) => {
       this.local = await installedVersion();
       this.tab = this.startTab();
@@ -514,7 +520,11 @@ export default class ModsUpdate extends View {
   // ---------------------------------------------------------------------------
   // Drawing
 
-  render() {
+  render(cx) {
+    if (!this.dialog && window()?.visible !== false) {
+      if (this.readDue) { this.readDue = false; this.readLocal(cx); }
+      if (this.checkDue) { this.checkDue = false; this.check(cx, false); }
+    }
     return this.dialog ? this.renderDialog(theme()) : this.renderStatus(theme());
   }
 

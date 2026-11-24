@@ -6,7 +6,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run } from "herdr";
+import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window } from "herdr";
 import { me, list, mentioned, hasGhStack, TRANSIENT, view, haystack, words, matches, ago, hash, slug, GROUPS } from "./data.js";
 import { stacks, stackOf, stackAgent, agentMode } from "./stacks.js";
 import { detail, prepare } from "./detail.js";
@@ -135,9 +135,16 @@ export default class PullRequests extends View {
     this.search = InputState.new({ placeholder: "Search pull requests" });
     this.search.on("change", (_e, cx) => { this.query = this.search.value(); cx.notify(); });
     this.refresh(cx);
-    cx.timer.every(60000, (cx) => { if (!kitOff() && this.visible()) this.refresh(cx); });
+    cx.timer.every(60000, (cx) => {
+      if (kitOff() || !this.visible()) return;
+      if (window()?.visible === false) { this.stale = true; return; }
+      this.refresh(cx);
+    });
     // Following the link (a space switch is caught in render): a cheap check.
-    cx.timer.every(1500, (cx) => { if (!kitOff() && this.visible() && (this.stale || contextKey(this.space()) !== this.context)) this.refresh(cx); });
+    cx.timer.every(1500, (cx) => {
+      if (kitOff() || !this.visible() || window()?.visible === false) return;
+      if (this.stale || contextKey(this.space()) !== this.context) this.refresh(cx);
+    });
   }
 
   space() { return this.home ? spaces().find((s) => s.id === this.home) ?? null : activeSpace(); }
@@ -597,6 +604,7 @@ export default class PullRequests extends View {
   render(cx) {
     if (kitOff()) return offView();
     if (this.dialog) return this.dialog;
+    if (this.stale && this.visible() && window()?.visible !== false) this.refresh(cx);
     this.followRowAction(cx);
     readSizes();
     if (this.open != null) this.watchAgents(cx, agentSpaces(this.where?.repo?.main).prs.get(this.open));

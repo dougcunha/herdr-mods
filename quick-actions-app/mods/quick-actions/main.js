@@ -210,12 +210,17 @@ export default class QuickActions extends View {
     if (checking()) return;
     cx.timer.every(1000, (cx) => {
       if (kitOff()) return;
-      this.refresh(cx);
       this.track(cx); // the background jobs, when no runner copy checks them
+      if (window()?.visible === false) { this.resumeDue = true; return; }
+      this.refresh(cx);
       if (this.view === "output") this.updateOutput(cx);
       else if (anyRunning()) cx.notify(); // the time of a running job in the list
     });
-    cx.timer.every(400, (cx) => { if (!kitOff()) this.updatePreview(cx); });
+    cx.timer.every(400, (cx) => {
+      if (kitOff()) return;
+      if (window()?.visible === false) { this.previewDue = true; return; }
+      this.updatePreview(cx);
+    });
     // `herdr-app do quick-actions.<command>` drives an open dialog (tests): new, edit-<id>, list, save, demo, pin-<id>, up, down, enter.
     cx.spawn(async (cx) => {
       for (;;) {
@@ -618,8 +623,16 @@ export default class QuickActions extends View {
 
   // ---- views -------------------------------------------------------------------------------
 
-  render() {
+  render(cx) {
     if (kitOff()) return offView();
+    if (this.part !== "status" && window()?.visible !== false) {
+      if (this.resumeDue) {
+        this.resumeDue = false;
+        this.refresh(cx);
+        if (this.view === "output") this.updateOutput(cx);
+      }
+      if (this.previewDue) { this.previewDue = false; this.updatePreview(cx); }
+    }
     const t = theme();
     if (this.part === "status") return this.statusView(t);
     let body;
