@@ -90,7 +90,12 @@ const order = () => (pref("issues", "order") === "backlog" ? "backlog" : "priori
 // The list's space and every link: either changing means another project.
 const REPO_ON = "issues.repoOn";
 const repoFilter = () => shared(REPO_ON) === true;
-const contextKey = (space) => `${space?.id}|${order()}|${repoFilter()}|${JSON.stringify(shared("space-links") ?? {})}|${JSON.stringify(defaultJira())}`;
+const splitCsv = (v) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+const reopenedOpts = () => ({
+  extra: splitCsv(shared("issues.reopenedStatuses")),
+  from: splitCsv(shared("issues.reopenedFromStatuses")),
+});
+const contextKey = (space) => `${space?.id}|${order()}|${repoFilter()}|${shared("issues.reopenedStatuses") ?? ""}|${shared("issues.reopenedFromStatuses") ?? ""}|${JSON.stringify(shared("space-links") ?? {})}|${JSON.stringify(defaultJira())}`;
 // The last list per space and order, so a switch or a restart shows it at once while it refreshes.
 const remembered = (key) => { try { return JSON.parse(localStorage.getItem(`issues:${key}`) ?? "null"); } catch { return null; } };
 const remember = (key, v) => { try { localStorage.setItem(`issues:${key}`, JSON.stringify(v)); } catch { /* best effort */ } };
@@ -109,7 +114,7 @@ const KEPT = ["repo", "github", "projects", "from", "capped", "issues", "data", 
 // What a row draws, worked out once per load: the row renderer runs inside layout, twice
 // for every frame Herdr draws (hover, scrolling, any spinner on screen), so it only reads.
 const rowData = (i) => ({
-  key: i.key, title: i.fields.summary, status: i.fields.status?.name ?? "", blocked: i.blocked,
+  key: i.key, title: i.fields.summary, status: i.fields.status?.name ?? "", blocked: i.blocked, reopened: Boolean(i.reopened),
   active: i.fields.status?.statusCategory?.key === "indeterminate", assignee: i.fields.assignee?.displayName ?? null,
   kind: issueKind(i.fields.issuetype?.name, i.fields.labels ?? []),
   points: typeof i.points === "number" ? points(i.points) : null,
@@ -180,7 +185,7 @@ export default class SpaceIssues extends View {
     // A move made in the Move menu (transition.js) reloads that issue here: the list and an open page.
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.issues = []; this.projects = []; this.from = null; this.error = null; this.loading = false; this.capped = false;
-    this.query = ""; this.searching = false; this.searchCollapsed = new Set(); this.filter = null; this.sprint = null; this.repoNames = []; this.repoMiss = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
+    this.query = ""; this.searching = false; this.searchCollapsed = new Set(); this.filter = null; this.sprint = null; this.reopened = false; this.repoNames = []; this.repoMiss = null; this.nextSprints = new Set(); this.mentions = null; this.mentionsVersion = 0; this.me = {}; this.open = null; this.page = null; this.pageError = null;
     this.width = lastWidth(); this.cache = null; this.signIn = null; this.version = 0; this.gen = 0;
     this.data = new Map(); this.hay = new Map(); this.saved = null; this.versions = 0; this.kept = new Map();
     // The highlight shows only while the keys move it: a clicked row isn't left marked.
@@ -274,6 +279,8 @@ export default class SpaceIssues extends View {
     else if (name === "sprint" || name === "next-sprint") { if (this.projects.some((p) => !isGithub(p))) this.pickSprint(name === "sprint" ? "current" : "next", cx); }
     // The Repo chip (Jira only), for a key or `herdr-app do issues.repo`.
     else if (name === "repo") { if (this.projects.length && this.projects.every((p) => !isGithub(p))) this.pickRepo(cx); }
+    // The Reopened chip (Jira only), for a key or `herdr-app do issues.reopened`.
+    else if (name === "reopened") { if (this.projects.length && this.projects.every((p) => !isGithub(p))) this.pickReopened(cx); }
     else if (name === "open") this.enter(cx);
     else if (name === "browser") { const i = this.issues.find((x) => x.key === this.cursor); if (i) openUrl(browse(i)); }
     else if (name === "link") openLinkDialog("issues");
@@ -349,7 +356,7 @@ export default class SpaceIssues extends View {
             if (!components.length) { missed.push(...wanted); return { issues: [], capped: false }; }
             for (const n of components) used.add(n);
           }
-          return search(p, order(), sprint, components);
+          return search(p, order(), sprint, components, reopenedOpts());
         }));
         if (!current()) return;
         // Every project missed: the list says which names it looked for.
@@ -397,12 +404,13 @@ export default class SpaceIssues extends View {
 
   // The filters, like GitHub's: Assigned to me, Created by me, Mentioned (Watching on
   // Jira) and Recent activity (updated in the last 7 days). None picked: every issue.
-  // A sprint chip narrows first, and a filter narrows what is left.
-  keep(i) {
+  // A sprint chip narrows first, the Reopened chip narrows further, and the segmented filter narrows what is left.
+  keep(i, { ignoreReopened = false } = {}) {
     // Jira only: a GitHub list shows no chip to turn off.
     const sprint = isGithub(i) ? null : this.sprint;
     if (sprint === "current" && i.sprint?.state !== "active") return false;
     if (sprint === "next" && !(i.sprint?.state === "future" && this.nextSprints.has(i.sprint.id ?? i.sprint.name))) return false;
+    if (!ignoreReopened && !isGithub(i) && this.reopened && !i.reopened) return false;
     const me = this.me[i.site];
     if (this.filter === "assigned") return (i.assignees ?? [i.fields.assignee?.accountId]).includes(me);
     if (this.filter === "created") return i.author != null && i.author === me;
@@ -441,6 +449,12 @@ export default class SpaceIssues extends View {
     setShared(REPO_ON, on ? true : null);
     if (!on) { this.repoMiss = null; this.repoNames = []; }
     this.refresh(cx);
+  }
+
+  // A click on the Reopened chip: on, or off when it is on. Combines with All / Assigned / Created / Watching / Recent.
+  pickReopened(cx) {
+    this.reopened = !this.reopened;
+    cx.notify();
   }
 
   // An issue's page takes the list's place; the list keeps its search and highlight.
@@ -641,9 +655,10 @@ export default class SpaceIssues extends View {
   items() {
     const here = this.branchKey();
     const collapsed = this.activeCollapsed();
-    const k = `${this.version}|${this.query}|${this.filter}|${this.sprint}|${this.mentionsVersion}|${here}|${collapsed.sig}`;
+    const k = `${this.version}|${this.query}|${this.filter}|${this.sprint}|${this.reopened ? 1 : 0}|${this.mentionsVersion}|${here}|${collapsed.sig}`;
     if (this.cache?.k !== k) {
       const ws = words(this.query);
+      const reopenedCount = this.issues.reduce((n, i) => (!isGithub(i) && i.reopened && matches(this.hay.get(i.key), ws) && this.keep(i, { ignoreReopened: true }) ? n + 1 : n), 0);
       const groups = rows(this.issues, (i) => matches(this.hay.get(i.key), ws) && this.keep(i), order(), (i) => collapsed.has(i));
       const items = [];
       // The issue the shown branch names, pinned on top (it stays in its own group too).
@@ -663,7 +678,7 @@ export default class SpaceIssues extends View {
       const allCollapsed = tree && groups.every((g) => g.rows.every((r) => !r.hasKids || r.collapsed));
       // The key column fits the longest key shown: "#172" needs far less than "ACME0010-1156".
       const longest = items.reduce((n, i) => Math.max(n, i.data?.key.length ?? 0), 0);
-      this.cache = { k, items, flat: flat.slice(0, SHOWN), total: flat.length, tree, allCollapsed, keyW: Math.min(110, Math.max(36, Math.ceil(longest * 6.6) + 8)) };
+      this.cache = { k, items, flat: flat.slice(0, SHOWN), total: flat.length, reopenedCount, tree, allCollapsed, keyW: Math.min(110, Math.max(36, Math.ceil(longest * 6.6) + 8)) };
     }
     return this.cache;
   }
@@ -737,6 +752,10 @@ export default class SpaceIssues extends View {
     const status = div().flex_none().max_w(110).truncate().px(6).py(1).rounded(4).text_size(fs.tiny)
       .bg(d.active ? s.activeBg : t.raised).text_color(d.active ? t.accent : t.muted).child(d.status);
     const blocked = (e) => (d.blocked ? e.child(div().flex_none().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(fs.tiny).text_color(t.ansi1).child("blocked")) : e);
+    const reopened = (e) => (d.reopened
+      ? e.child(div().flex_none().px(6).py(1).rounded(4).border_1().border_color(tint(t.ansi3, "66")).bg(tint(t.ansi3, "1a")).text_size(fs.tiny).font_semibold().text_color(t.ansi3)
+          .tooltip("This issue was reopened").child("reopened"))
+      : e);
     const count = (e) => (collapsed && hidden > 0
       ? e.child(div().flex_none().px(5).py(1).rounded(4).bg(t.raised).text_size(fs.tiny).text_color(t.dim)
           .tooltip(`${hidden} hidden ${hidden === 1 ? "issue" : "issues"}`).child(String(hidden)))
@@ -765,9 +784,9 @@ export default class SpaceIssues extends View {
     // Narrow (the side panel): two lines, so the summary keeps the whole width.
     if (s.two) return base(v_flex()).h(fs.row2).justify_center().gap(3)
       .child(h_flex().gap(8).items_center().child(kind).child(key).child(title).child(age))
-      .child(sp(count(agent(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
-        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned")))))).child(status));
-    return sp(count(agent(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title))))).child(status)
+      .child(sp(count(agent(reopened(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
+        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned"))))))).child(status));
+    return sp(count(agent(reopened(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title)))))).child(status)
       .child(avatar(d.assignee, t))
       .child(age);
   }
@@ -1013,6 +1032,7 @@ export default class SpaceIssues extends View {
       title: f.summary, key: i.key, copy: (cx) => this.copyKey(i, cx),
       // The facts that matter at a glance, as chips under the title.
       status: h_flex().gap(6).items_center().flex_wrap().child(badge)
+        .when(Boolean(i.reopened), (e) => e.child(k.chip("alert", "Reopened", t.ansi3, true)))
         .child(k.chip(kind, f.issuetype?.name ?? "Issue", kindColor(kind, t)))
         .when(Boolean(prio), (e) => e.child(k.chip("flag", prio, prioColor, urgent)))
         .when(m.points != null, (e) => e.child(k.chip("points", `${points(m.points)} pts`, t.accent, true)))
@@ -1363,11 +1383,11 @@ export default class SpaceIssues extends View {
     }
     // In a dialog of the dock, the title row of the dialog shows the name and the ×: this header leaves them out.
     const t = theme(), overlay = props()?.overlay, dock = inDockDialog(), wide = this.width >= WIDE;
-    const { items, total, keyW, tree, allCollapsed } = this.projects.length ? this.items() : { items: [], total: 0, keyW: 36, tree: false, allCollapsed: false };
+    const { items, total, reopenedCount, keyW, tree, allCollapsed } = this.projects.length ? this.items() : { items: [], total: 0, reopenedCount: 0, keyW: 36, tree: false, allCollapsed: false };
     const toggle = (id, label, _on, flip) => button(t, id, label, (cx) => { flip(cx); cx.notify(); });
     const unlinked = !this.loading && !this.error && !this.projects.length;
     const repoUi = this.projects.length > 0 && this.projects.every((p) => !isGithub(p)) && repoFilter();
-    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : repoUi && this.repoMiss ? (this.repoMiss.length ? `No Jira component matches ${this.repoMiss.join(", ")}. Set the components of this repository (cog → Repository components…), or press Reload there if the component is new.` : "This space has no git repository, so there is no component to look for.") : repoUi && !this.issues.length && this.repoNames.length ? `No open issues for the Jira component ${this.repoNames.join(", ")}.` : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
+    const empty = this.signIn ? `Jira doesn't accept the sign-in for ${this.signIn}.` : this.error || (this.loading ? "Loading issues…" : unlinked ? "No issues linked to this space: link a Jira project or a GitHub repository." : repoUi && this.repoMiss ? (this.repoMiss.length ? `No Jira component matches ${this.repoMiss.join(", ")}. Set the components of this repository (cog → Repository components…), or press Reload there if the component is new.` : "This space has no git repository, so there is no component to look for.") : repoUi && !this.issues.length && this.repoNames.length ? `No open issues for the Jira component ${this.repoNames.join(", ")}.` : this.issues.length ? (this.filter === "mentioned" && this.mentionsLoading ? "Loading…" : this.reopened ? "No reopened issues match the current filters." : "Nothing matches.") : this.sprint === "current" ? "No open issues in an open sprint." : this.sprint === "next" ? "No open issues in a future sprint." : "No open issues.");
     const source = this.projects.map((p) => (isGithub(p) ? `GitHub ${p.repo}` : p.key)).join(", ")
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
@@ -1409,6 +1429,16 @@ export default class SpaceIssues extends View {
             .child(toggle("token-page", "API tokens ↗", false, () => openUrl(TOKEN_PAGE)))
             .child(toggle("sign-in-help", "Link space", false, () => openLinkDialog("issues")))))));
     const watching = this.projects.length > 0 && this.projects.every((p) => !isGithub(p));
+    const reopenedChip = h_flex().id("reopened").h(26).px(10).gap(5).flex_none().items_center().rounded(13).text_size(12).cursor_pointer().border_1()
+      .border_color(this.reopened ? t.ansi3 : reopenedCount > 0 ? tint(t.ansi3, "66") : t.border)
+      .bg(this.reopened ? tint(t.ansi3, "26") : t.background)
+      .text_color(this.reopened ? t.ansi3 : reopenedCount > 0 ? t.foreground : t.muted)
+      .when(this.reopened, (e) => e.font_semibold())
+      .hover((s) => s.bg(this.reopened ? tint(t.ansi3, "38") : t.hover))
+      .tooltip("Show only reopened Jira issues (works with All, Assigned, Created, Watching, Recent, Sprint and Repo). Configure extra statuses in PowerMods → Settings → Issues.")
+      .on_click((_e, cx) => this.pickReopened(cx))
+      .child("Reopened")
+      .when(reopenedCount > 0, (e) => e.child(div().px(5).rounded(8).bg(tint(t.ansi3, this.reopened ? "33" : "22")).text_size(fs.tiny).font_semibold().text_color(t.ansi3).child(String(reopenedCount))));
     // A wrapped row: the sprint chips go under the filters in a narrow panel. GitHub has no sprints.
     const filters = h_flex().w_full().flex_wrap().gap(6).items_center().child(segmented("filter", [["assigned", "Assigned"], ["created", "Created"], ["mentioned", watching ? "Watching" : "Mentioned"], ["recent", "Recent"]], this.filter, (id, cx) => {
       this.filter = id;
@@ -1418,7 +1448,8 @@ export default class SpaceIssues extends View {
         .child(chip(t, "sprint-current", "Sprint", this.sprint === "current", (cx) => this.pickSprint("current", cx)))
         .child(chip(t, "sprint-next", "Next sprint", this.sprint === "next", (cx) => this.pickSprint("next", cx)))
         .child(chip(t, "repo", "Repo", repoFilter(), (cx) => this.pickRepo(cx))
-          .tooltip(repoFilter() && this.repoNames.length ? `Jira components: ${this.repoNames.join(", ")}` : "Only the issues of this repository: its Jira component (the folder name, or the components line of .herdr/jira.toml)")))
+          .tooltip(repoFilter() && this.repoNames.length ? `Jira components: ${this.repoNames.join(", ")}` : "Only the issues of this repository: its Jira component (the folder name, or the components line of .herdr/jira.toml)"))
+        .child(reopenedChip))
       .when(tree, (e) => e.child(iconButton(t, "tree-fold", allCollapsed ? "chevrons-up-down" : "chevrons-down-up",
         (cx) => this.foldAll(!allCollapsed, cx), { tooltip: allCollapsed ? "Expand all" : "Collapse all" })));
     // Refresh (a spinner while loading), the cog and × in a window: the icon buttons of the kit.

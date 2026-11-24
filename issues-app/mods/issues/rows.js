@@ -13,7 +13,7 @@ function priority(issue) {
 // The text search looks in, built once per load: { raw, lower }.
 export function haystack(issue) {
   const f = issue.fields;
-  const raw = `${issue.key} ${f.summary} ${f.status?.name ?? ""} ${f.assignee?.displayName ?? ""} ${(f.labels ?? []).join(" ")} ${f.issuetype?.name ?? ""}`;
+  const raw = `${issue.key} ${f.summary} ${f.status?.name ?? ""} ${f.assignee?.displayName ?? ""} ${(f.labels ?? []).join(" ")} ${f.issuetype?.name ?? ""}${issue.reopened ? " reopened" : ""}`;
   return { raw, lower: raw.toLowerCase() };
 }
 

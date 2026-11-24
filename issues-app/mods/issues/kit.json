@@ -1,6 +1,6 @@
 {
   "app": "issues-app",
-  "description": "The issues of the shown space from Jira Cloud or GitHub, with a Repo chip for the Jira issues of the shown repository (by Jira component), a page for each issue, comments, a Move menu for its Jira status (with a form for the fields that a move requires), a Fix version menu, a Components menu, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a Start agent dialog with a non-blocking Jira pre-flight checklist. Based on Herdr Ranch.",
+  "description": "The issues of the shown space from Jira Cloud or GitHub, with a Repo chip for the Jira issues of the shown repository (by Jira component), a combinable Reopened urgency filter and badge, a page for each issue, comments, a Move menu for its Jira status (with a form for the fields that a move requires), a Fix version menu, a Components menu, the attachments of a Jira issue (saved into .jira/<key>/ of the space) and a Start agent dialog with a non-blocking Jira pre-flight checklist. Based on Herdr Ranch.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/issues-app",
   "credit": { "text": "Based on Herdr Ranch by Jelle Slowack (MIT license).", "url": "https://github.com/jslowack/herdr-ranch" },
   "settings": [
@@ -75,6 +75,24 @@
       "label": "Extra Jira fields",
       "placeholder": "Refinement, customfield_10545",
       "hint": "Jira fields for the Start agent prompts, by name or id, split by commas. Each one is a placeholder ({refinement}) and {fields} holds all of them. On the issue page a long field gets a tab, a short one a row of Details."
+    },
+    {
+      "id": "reopenedStatuses",
+      "type": "text",
+      "key": "issues.reopenedStatuses",
+      "default": "",
+      "label": "Reopened statuses",
+      "hint": "Optional Jira status names (split by commas) that mark an open issue as reopened when it is in or passed through them. \"Reopened\" / \"Reaberta\" and Done-category statuses are detected automatically.",
+      "placeholder": "Rework, Returned"
+    },
+    {
+      "id": "reopenedFromStatuses",
+      "type": "text",
+      "key": "issues.reopenedFromStatuses",
+      "default": "",
+      "label": "Returned from statuses",
+      "hint": "Optional Jira status names (split by commas) that mark an open issue as reopened when it was in one of them and moved to another open status (for example, sent back from QA or Review).",
+      "placeholder": "In QA, Code Review"
     },
     {
       "id": "components",

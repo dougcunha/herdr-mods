@@ -8,6 +8,15 @@ import { componentJql } from "./components.js";
 
 const CAP = 500;
 const FIELDS = ["summary", "status", "priority", "issuetype", "assignee", "reporter", "labels", "parent", "updated", "issuelinks"];
+const REOPENED_RE = /re-?open|reabert/i;
+const quoteJql = (s) => `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+// True when a status name itself represents a reopened state (or is listed in the user's extra statuses).
+export function isReopenedStatus(name, extra = []) {
+  if (!name) return false;
+  const lower = String(name).toLowerCase();
+  return REOPENED_RE.test(name) || extra.some((e) => String(e).toLowerCase() === lower);
+}
 
 // ---- Projects named in a repository ------------------------------------------
 
@@ -303,6 +312,7 @@ function slim(i, site, sprintField, pointsFields = []) {
   const pts = pointsFields.map((id) => f[id]).find((v) => typeof v === "number") ?? null;
   return {
     key: i.key, site,
+    reopened: false,
     // For the Sprint and Next sprint chips. Null: no sprint, or a site without a Sprint field.
     sprint: sprintField ? sprintOf(f[sprintField]) : null,
     // Story points for the list row. Null: not estimated, or a site without a Story Points field.
@@ -335,7 +345,7 @@ function slimParent(p, site) {
   const f = p?.fields;
   if (!p?.key || !f?.summary) return null;
   return {
-    key: p.key, site, sprint: null, points: null, assignees: [], author: null, blocked: false,
+    key: p.key, site, sprint: null, points: null, assignees: [], author: null, blocked: false, reopened: false,
     fields: {
       summary: f.summary, updated: "", labels: [],
       status: f.status && { name: f.status.name, statusCategory: { key: f.status.statusCategory?.key } },
@@ -390,16 +400,87 @@ async function withParents(site, issues, sprintField, pointsFields, fallbacks) {
   return out;
 }
 
+// Project statuses for reopened history detection, read once per session and site/project.
+const projectStatuses = new Map();
+function statusesOf(site, key) {
+  const k = `${site}|${key}`;
+  if (!projectStatuses.has(k)) {
+    projectStatuses.set(k, call(site, `/rest/api/3/project/${encodeURIComponent(key)}/statuses`)
+      .then((types) => {
+        const seen = new Map();
+        for (const t of Array.isArray(types) ? types : []) {
+          for (const st of t?.statuses ?? []) {
+            const id = String(st?.id ?? "");
+            if (!/^\d+$/.test(id) || seen.has(id)) continue;
+            seen.set(id, { id, name: String(st?.name ?? ""), category: String(st?.statusCategory?.key ?? "") });
+          }
+        }
+        return [...seen.values()];
+      })
+      .catch((e) => { projectStatuses.delete(k); throw e; }));
+  }
+  return projectStatuses.get(k);
+}
+
+// Builds the JQL history clause that detects reopened open issues:
+// - issues that were in any Done-category status, a Reopened/Reaberta status, or a user-listed reopened status;
+// - issues that were in a "returned from" status (e.g. QA/Review) and are no longer in those statuses.
+function reopenedClause(statuses, extra = [], from = [], useIds = true) {
+  const extraSet = new Set((extra ?? []).map((s) => String(s).toLowerCase()));
+  const fromSet = new Set((from ?? []).map((s) => String(s).toLowerCase()));
+  const was = [], left = [];
+  for (const st of statuses) {
+    const lower = st.name.toLowerCase();
+    if (st.category === "done" || REOPENED_RE.test(st.name) || extraSet.has(lower)) was.push(st);
+    else if (fromSet.has(lower)) left.push(st);
+  }
+  const fmt = (list) => (useIds ? list.map((s) => s.id).join(", ") : [...new Set(list.map((s) => s.name))].map(quoteJql).join(", "));
+  const parts = [];
+  if (was.length) parts.push(`status WAS IN (${fmt(was)})`);
+  if (left.length) {
+    const v = fmt(left);
+    parts.push(`(status WAS IN (${v}) AND status NOT IN (${v}))`);
+  }
+  return !parts.length ? null : parts.length === 1 ? parts[0] : `(${parts.join(" OR ")})`;
+}
+
+// Keys of open issues in `baseJql` that have been reopened (by status history). Falls back to status names on 400.
+async function reopenedKeys(p, baseJql, { extra = [], from = [] } = {}) {
+  const statuses = await statusesOf(p.site, p.key).catch(() => []);
+  const runClause = async (clause) => {
+    const keys = new Set();
+    let nextPageToken;
+    do {
+      const page = await call(p.site, "/rest/api/3/search/jql", { jql: `${baseJql} AND ${clause}`, fields: ["summary"], maxResults: 100, ...(nextPageToken ? { nextPageToken } : {}) });
+      for (const raw of page.issues ?? []) if (raw?.key) keys.add(raw.key);
+      nextPageToken = page.isLast ? null : page.nextPageToken;
+    } while (nextPageToken && keys.size < CAP);
+    return keys;
+  };
+  const byId = reopenedClause(statuses, extra, from, true);
+  if (!byId) return new Set();
+  try {
+    return await runClause(byId);
+  } catch (e) {
+    if (e?.status !== 400) throw e;
+    const byName = reopenedClause(statuses, extra, from, false);
+    return byName ? await runClause(byName) : new Set();
+  }
+}
+
 // Open issues of one linked project, at most CAP: newest first, or in backlog order (Rank).
 // `sprint` ("current" | "next", optional): only the issues of the open sprints or of the future sprints.
 // `components` (optional): exact Jira component names (components.js resolveComponents); only the issues that have one of them.
-export async function search(p, order, sprint = null, components = null) {
+// `reopened` (optional): `{ extra, from }` extra status lists for reopened history detection.
+export async function search(p, order, sprint = null, components = null, reopened = {}) {
   // The list must load on a site without a Sprint or Story Points field too.
   const mf = await metaFields(p.site).catch(() => null);
   const sprintField = mf?.sprint ?? null;
   const pointsFields = mf?.points ?? [];
   const fields = [...new Set([...FIELDS, ...(sprintField ? [sprintField] : []), ...pointsFields])];
-  const jql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)}${components?.length ? ` AND ${componentJql(components)}` : ""} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
+  const baseJql = `project = "${p.key}" AND statusCategory != Done${narrowed(p, sprint)}${components?.length ? ` AND ${componentJql(components)}` : ""}`;
+  const jql = `${baseJql} ORDER BY ${order === "backlog" ? "Rank ASC" : "updated DESC"}`;
+  const reopenedPromise = reopenedKeys(p, baseJql, reopened).catch(() => new Set());
   const issues = [];
   const fallbacks = new Map();
   let nextPageToken;
@@ -414,6 +495,8 @@ export async function search(p, order, sprint = null, components = null) {
   } while (nextPageToken && issues.length < CAP);
   const capped = Boolean(nextPageToken);
   const full = await withParents(p.site, issues.slice(0, CAP), sprintField, pointsFields, fallbacks);
+  const reopenedSet = await reopenedPromise;
+  for (const i of full) i.reopened = reopenedSet.has(i.key) || isReopenedStatus(i.fields.status?.name, reopened.extra);
   return { issues: full, capped };
 }
 
