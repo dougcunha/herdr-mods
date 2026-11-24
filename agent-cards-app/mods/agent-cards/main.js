@@ -435,6 +435,25 @@ export default class AgentCards extends View {
       .child(svg("mods/agent-cards/copy.svg").size(13));
   }
 
+  // The close button: shown while the pointer is on the card. It closes the pane of the agent, as the
+  // X of a terminal card does (this ends the agent's terminal).
+  close(t, a) {
+    return div()
+      .id(`close-${a.address}`)
+      .flex_none()
+      .p(2)
+      .rounded(4)
+      .text_color(t.dim)
+      .cursor_pointer()
+      .hover((s) => s.bg(t.blocked + "26").text_color(t.blocked))
+      .tooltip("Close pane")
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (!a.demo && a.pane) run("pane.close", { pane: a.pane });
+      })
+      .child(svg("mods/workspace-chrome/x.svg").size(13));
+  }
+
   // Open non-agent terminal panes across all spaces, enriched with space/tab metadata.
   openTerminals(agentList) {
     const allSpaces = spaces();
@@ -698,6 +717,7 @@ export default class AgentCards extends View {
             .when(hovered && Boolean(a.wait), (el) => el.child(this.notWaiting(t, a)))
             .when(hovered && this.namer && !namerOff(), (el) => el.child(this.rename(t, a)))
             .when(hovered && this.kanban && !kanbanOff(), (el) => el.child(this.duplicate(t, a)))
+            .when(hovered && Boolean(a.pane), (el) => el.child(this.close(t, a)))
             .when(hovered || a.pinned, (el) => el.child(this.pin(t, a))))
           .when(Boolean(info.detail), (el) => el.child(div().truncate().text_size(11.5).text_color(t.dim).child(info.detail)))
           .child(h_flex().gap(6).items_center()
