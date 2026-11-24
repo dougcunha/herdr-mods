@@ -5,7 +5,7 @@
 import { View, div, svg } from "gpui-kit";
 import { image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { props, exec, appHome, window, theme, settings, shared, closeOverlay } from "herdr";
+import { props, exec, appHome, window, theme, settings, shared, closeOverlay, pickFiles, notify } from "herdr";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -44,7 +44,9 @@ async function stage(src, dst) {
 export default class ImageViewer extends View {
   init(_props, cx) {
     const p = props() ?? {};
-    this.file = p.file ?? null;
+    this.files = Array.isArray(p.files) && p.files.length ? p.files.filter(Boolean) : (p.file ? [p.file] : []);
+    this.index = 0;
+    this.file = this.files[0] ?? null;
     this.on = p.fileOn ?? null;
     // Optional prop `zoom`: "fit" (default) or a scale such as 1 or 0.5.
     this.zoom = typeof p.zoom === "number" && p.zoom > 0 ? p.zoom : "fit";
@@ -102,6 +104,39 @@ export default class ImageViewer extends View {
 
   async close(_cx) { await this.unstage(); }
 
+  openPicker(cx) {
+    cx.spawn(async (cx) => {
+      try {
+        const picked = await pickFiles({ prompt: "Open image", multiple: true });
+        if (!picked?.length) return;
+        const valid = picked.filter((f) => EXT.test(f));
+        if (!valid.length) {
+          notify({ title: "Image Viewer", body: "Choose an image file (PNG, JPG, GIF, WebP, BMP, SVG, ICO, TIFF).", level: "warning", timeout: 5000 });
+          return;
+        }
+        this.files = valid;
+        this.index = 0;
+        this.file = valid[0];
+        this.on = null;
+        this.zoom = "fit";
+        this.load(cx);
+        cx.notify();
+      } catch (e) {
+        notify({ title: "Image Viewer", body: String(e?.message ?? e), level: "error", timeout: 8000 });
+      }
+    });
+  }
+
+  go(delta, cx) {
+    if (this.files.length < 2) return;
+    this.index = (this.index + delta + this.files.length) % this.files.length;
+    this.file = this.files[this.index];
+    this.on = null;
+    this.zoom = "fit";
+    this.load(cx);
+    cx.notify();
+  }
+
   // The scale now on screen: the fit scale in Fit mode.
   scale() {
     if (this.zoom !== "fit") return this.zoom;
@@ -130,6 +165,10 @@ export default class ImageViewer extends View {
       .child(div().font_semibold().flex_none().child("Image"))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted)
         .child(this.status === "ready" ? [this.name(), this.size ? `${this.size.w}×${this.size.h}` : null, kb(this.bytes)].filter(Boolean).join(" · ") : this.name()))
+      .when(this.files.length > 1, el => el
+        .child(this.button("‹", "iv-prev", false, cx => this.go(-1, cx), t))
+        .child(div().flex_none().text_size(12).text_color(t.muted).child(`${this.index + 1}/${this.files.length}`))
+        .child(this.button("›", "iv-next", false, cx => this.go(1, cx), t)))
       .when(this.status === "ready", el => el
         .child(this.button("Fit", "iv-fit", this.zoom === "fit", cx => { this.zoom = "fit"; cx.notify(); }, t))
         .child(this.button("100%", "iv-100", this.zoom === 1, cx => { this.zoom = 1; cx.notify(); }, t, !zoomable))
@@ -137,6 +176,7 @@ export default class ImageViewer extends View {
         .child(div().w(44).flex_none().text_center().text_size(12).text_color(t.muted).child(zoomable ? `${Math.round(this.scale() * 100)}%` : ""))
         .child(this.button("+", "iv-in", false, cx => this.step(1, cx), t, !zoomable))
         .child(this.button("↻", "iv-reload", false, cx => { this.load(cx); cx.notify(); }, t)))
+      .child(this.button("Open…", "iv-open", false, cx => this.openPicker(cx), t))
       // The × of a dialog of this mod's own. A panel dialog of the dock has its own × in its title row.
       .when(Boolean(ownDialog()), el => el.child(div().id("iv-close").size(26).flex_none().flex().items_center().justify_center().rounded(8)
         .cursor_pointer().hover(s => s.bg(t.hover)).tooltip("Close")
@@ -155,8 +195,12 @@ export default class ImageViewer extends View {
       body = this.zoom === "fit"
         ? div().id("iv-view").flex_1().min_h(0).p(10).flex().items_center().justify_center().overflow_hidden().child(pic)
         : div().id("iv-scroll").flex_1().min_h(0).overflow_scroll().p(10).child(pic);
+    } else if (this.status === "empty") {
+      body = v_flex().flex_1().min_h(0).p(24).gap(12).items_center().justify_center()
+        .child(div().text_color(t.dim).child("Open an image from the Files panel, or choose files from disk."))
+        .child(this.button("Open image…", "iv-empty-open", true, cx => this.openPicker(cx), t));
     } else {
-      const text = this.status === "loading" ? "Loading image…" : this.status === "empty" ? "Open an image from the Files panel." : this.error;
+      const text = this.status === "loading" ? "Loading image…" : this.error;
       body = div().flex_1().min_h(0).p(16).text_color(this.status === "error" ? t.ansi1 : t.dim).child(text);
     }
 

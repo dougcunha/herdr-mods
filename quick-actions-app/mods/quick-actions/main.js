@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents, pickFiles } from "herdr";
 import { startWriter, startWriterBackground, headlessOf, writerPath, shortPath } from "./writer.js";
 import * as S from "./store.js";
 import { currentTarget, context, filterMatches, filterNeedsRepo, asksOf } from "./vars.js";
@@ -619,6 +619,16 @@ export default class QuickActions extends View {
     this.previewKey = null;
     cx.timer.after(40, () => this.search.focus());
     cx.notify();
+  }
+
+  pickFile(cx) {
+    spawn(cx, async (cx) => {
+      const picked = await pickFiles({ prompt: "Choose script" });
+      const file = picked?.[0];
+      if (!file || !this.f?.file) return;
+      this.f.file.set_value(shortPath(file.replace(/\\/g, "/")));
+      cx.notify();
+    });
   }
 
   // ---- views -------------------------------------------------------------------------------

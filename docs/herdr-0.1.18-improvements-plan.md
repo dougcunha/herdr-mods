@@ -60,7 +60,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - `space-deck-app/mods/space-deck/main.js` & `dock-app/mods/tabs-dock/main.js` (clear pressed/drag state on window mouse up)
   - Verification: `herdr-app check` + drag across element and terminal boundaries in all 4 mods.
 
-- [ ] **Phase 4 — Native file picker (`pickFiles`)**
+- [x] **Phase 4 — Native file picker (`pickFiles`)**
   - `quick-actions-app/mods/quick-actions/form.js` & `main.js`: `Choose…` button for script files
   - `automations-app/mods/automations/form.js` & `main.js`: `Choose…` button for `check`/`pre`/`post` script files (converting paths inside the automation folder to relative paths)
   - `image-viewer-app/mods/image-viewer/main.js`: `Open…` button with `multiple: true` and prev/next navigation

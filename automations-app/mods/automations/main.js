@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, nextCommand, run, knownAgents, pickFolder, notify, agents, window } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, nextCommand, run, knownAgents, pickFolder, pickFiles, notify, agents, window } from "herdr";
 import * as S from "./store.js";
 import { Engine } from "./engine.js";
 import { nextDue, whenText } from "./schedule.js";
@@ -307,7 +307,33 @@ export default class Automations extends View {
   back(cx) { this.view = "list"; this.draft = null; cx.notify(); }
 
   pick(cx) {
-    pickFolder({ prompt: "Use folder" }).then((p) => { if (p) { this.f.folder.set_value(p.replace(/\\/g, "/")); cx.notify(); } });
+    cx.spawn(async (cx) => {
+      try {
+        const p = await pickFolder({ prompt: "Use folder" });
+        if (p && this.f?.folder) { this.f.folder.set_value(p.replace(/\\/g, "/")); cx.notify(); }
+      } catch (e) {
+        notify({ title: "Automations", body: String(e?.message ?? e), level: "error", timeout: 8000 });
+      }
+    });
+  }
+
+  pickScript(k, cx) {
+    cx.spawn(async (cx) => {
+      try {
+        const picked = await pickFiles({ prompt: "Choose script" });
+        const raw = picked?.[0];
+        const field = this.scriptFields?.[k]?.file;
+        if (!raw || !field) return;
+        const file = raw.replace(/\\/g, "/");
+        const base = (this.f?.folder?.value().trim() ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+        const isWinPath = /^[a-z]:\//i.test(file);
+        const samePrefix = base && (isWinPath ? file.toLowerCase().startsWith(`${base.toLowerCase()}/`) : file.startsWith(`${base}/`));
+        field.set_value(samePrefix ? file.slice(base.length + 1) : file);
+        cx.notify();
+      } catch (e) {
+        notify({ title: "Automations", body: String(e?.message ?? e), level: "error", timeout: 8000 });
+      }
+    });
   }
 
   // ---- the dialog: history ----------------------------------------------------------------

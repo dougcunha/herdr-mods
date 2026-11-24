@@ -223,7 +223,9 @@ function scripts(v, t, d, f, fld, esc, set) {
     return v_flex().gap(8).w_full()
       .child(kinds)
       .when(kind === "file", (el) => el
-        .child(fld(sf.file))
+        .child(h_flex().gap(8).w_full()
+          .child(div().flex_1().min_w(0).child(fld(sf.file)))
+          .child(U.button(t, `au-pick-${k}`, "Choose…", (cx) => v.pickScript(k, cx), { iconName: "file" })))
         .child(hint(".ps1 runs with PowerShell, .sh with bash, .py with python, .js with node. A relative path starts at the folder of the automation.")))
       .when(kind === "inline", (el) => el
         .child(U.area(t, sf.inline, esc).font_family(U.mono()))

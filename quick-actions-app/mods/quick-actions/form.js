@@ -103,7 +103,11 @@ export function editView(v, t) {
       .child(U.area(t, v.script, esc).font_family(U.mono()))
       .child(h_flex().flex_wrap().gap(5).children(VARIABLES.map(([name, tip], i) => U.token(t, `qa-var-${i}`, `{${name}}`, tip, insert(name))))
         .child(U.token(t, "qa-var-ask", "{ask:Name}", "Asks the person for a value before the run. {ask:Name=default} gives a default.", (cx) => { v.script.replace("{ask:Name}"); v.script.focus(); cx.notify(); }))))
-    .when(d.source === "file", (el) => el.child(fld(v.f.file)))
+    .when(d.source === "file", (el) => el.child(
+      h_flex().gap(8).w_full()
+        .child(div().flex_1().min_w(0).child(fld(v.f.file)))
+        .child(U.button(t, "qa-pick-file", "Choose…", (cx) => v.pickFile(cx), { iconName: "file" })),
+    ))
     .child(writing ? writingRow : v.writer ? writerPanel(v, t) : agentButtons);
 
   const body = v_flex().w_full()
