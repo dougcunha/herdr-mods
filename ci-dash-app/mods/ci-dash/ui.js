@@ -35,7 +35,7 @@ export function dialogKeys(el, handle) {
 export const escapeKey = (state, clear) => (e, cx) => {
   if (e.key !== "escape") return;
   if (clear && state.value()) clear(cx);
-  else if (!closeDialog()) return;
+  else if (!closeDialog()) state.blur();
   cx.stop_propagation();
 };
 export const icon = (name) => `mods/${MOD}/${name}.svg`;

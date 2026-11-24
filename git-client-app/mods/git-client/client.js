@@ -256,16 +256,16 @@ export class Client {
         // A text field has the keyboard: Esc leaves it. In a dialog, an empty field closes the dialog.
         if (this.typing) {
           if (!this.changes.message.trim() && dialog) closeOverlay(dialog);
-          else { this.typing = false; this.handle.focus(); cx.notify(); }
+          else { this.typing = false; if (dialog) this.handle.focus(); else this.changes.input.blur(); cx.notify(); }
         } else if (this.history.typing) {
           if (this.history.search.value().trim()) this.history.clearSearch(cx);
           else if (dialog) closeOverlay(dialog);
-          else { this.history.typing = false; this.handle.focus(); }
+          else { this.history.typing = false; this.history.search.blur(); }
           cx.notify();
         } else if (this.branches.typing) {
           if (this.branches.search.value()) { this.branches.search.set_value(""); this.branches.text = ""; }
           else if (dialog) closeOverlay(dialog);
-          else { this.branches.typing = false; this.handle.focus(); }
+          else { this.branches.typing = false; this.branches.search.blur(); }
           cx.notify();
         } else if (this.fileView.path) {
           this.fileView.close(); cx.notify();

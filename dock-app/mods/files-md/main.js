@@ -388,11 +388,10 @@ export default class Files extends View {
         if (e.key === "down" && n) this.pick = (this.pick + 1) % n;
         else if (e.key === "up" && n) this.pick = (this.pick + n - 1) % n;
         else if (e.key === "escape") {
-          // Esc clears the text first; with an empty field it closes the dialog that shows this panel.
-          // The focused text field keeps Esc from the dialog, so close it here.
+          // Esc clears the text first; with an empty field it closes the dialog, or blurs when docked.
           if (this.query || this.filter.value()) this.clearFilter(cx);
           else if (this.dialog()) closeOverlay(this.dialog());
-          else return;
+          else this.filter.blur();
         }
         else return;
         cx.stop_propagation(); cx.notify();

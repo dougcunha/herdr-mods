@@ -90,16 +90,16 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - Reviewed `setAgentOrder`: `agent-cards` and `kanban` already own `setAgentOrder`, so `space-deck` intentionally does not override them
   - Verification: copy layouts to `~/.config/herdr-app/layouts/`, ensure no `layout.error`, and inspect split panes with `herdr-app shot`.
 
-- [ ] **Phase 8 — Clean text field focus release (`.blur()`)**
+- [x] **Phase 8 — Clean text field focus release (`.blur()`)**
   - Update Esc handling on empty search/input fields when docked (non-dialog) to call `state.blur()` while preserving dialog-close behavior in:
     - `git-dash-app/mods/git-dash/ui.js`
     - `dock-app/mods/files-md/main.js`
     - `skill-bundles-app/mods/skill-bundles/view.js`
-    - `tokenhound-app/mods/tokenhound/main.js`
+    - `tokenhound-app/mods/tokenhound/main.js` (no text inputs; no change needed)
     - `spec-board-app/mods/spec-board/main.js`
     - `ci-dash-app/mods/ci-dash/ui.js`
     - `issues-app/mods/issues/main.js` & `issues-app/mods/prs/main.js`
-    - `git-client-app/mods/git-client/history.js`
+    - `git-client-app/mods/git-client/client.js` (handled history/branches/changes inputs)
   - Verification: `herdr-app check` + test `Esc` in both docked sidebar panels and overlay dialogs.
 
 - [ ] **Phase 9 — Terminal Link Handlers (`link_handlers` + `link.js` with `line`/`column`)**

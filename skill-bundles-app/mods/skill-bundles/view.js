@@ -310,7 +310,7 @@ function addView(t, m, s) {
           .on_key_down((e, cx) => {
             if (e.key !== "escape") return;
             if (m.query.value()) { m.query.set_value(""); cx.stop_propagation(); cx.notify(); }
-            else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
+            else { const id = dialogId(); if (id) closeOverlay(id); else m.query.blur(); cx.stop_propagation(); }
           })))
       .child(button(t, "sb-other-repo", m.str.addRepo, (cx) => m.a.mode("repo", cx), { tip: m.str.addRepoTip })))
     .when(!m.plain, (e) => e.child(persistToggle(t, m)))
@@ -331,7 +331,7 @@ function field(t, state, icon, onEnter = null) {
         if (e.key === "enter" && onEnter) { onEnter(cx); cx.stop_propagation(); return; }
         if (e.key !== "escape") return;
         if (state.value()) { state.set_value(""); cx.stop_propagation(); cx.notify(); }
-        else { const id = dialogId(); if (id) { closeOverlay(id); cx.stop_propagation(); } }
+        else { const id = dialogId(); if (id) closeOverlay(id); else state.blur(); cx.stop_propagation(); }
       }));
 }
 

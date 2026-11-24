@@ -587,10 +587,12 @@ export default class SpecBoard extends View {
   }
 
   /** on_key_down for a text field: Esc closes the sheet, else the dialog. */
-  fieldKey() {
+  fieldKey(state = this.search) {
     return (e, cx) => {
       if (e.key !== "escape") return;
-      if (this.sheet) { this.sheet = null; cx.notify(); } else if (this.search.value()) { this.search.set_value(""); cx.notify(); } else if (!this.closeDialog()) return;
+      if (this.sheet) { this.sheet = null; cx.notify(); }
+      else if (this.search.value()) { this.search.set_value(""); cx.notify(); }
+      else if (!this.closeDialog()) state?.blur();
       cx.stop_propagation();
     };
   }
