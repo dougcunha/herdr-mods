@@ -4,6 +4,7 @@ import { props, theme, closeOverlay, setShared } from "herdr";
 import { Client } from "./client.js";
 import { Menu, icon } from "./menu.js";
 import { Dialog } from "./dialog.js";
+import { ErrorDialog } from "./error-dialog.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { ImageDiffView } from "./imageview.js";
 import { AgentDialog } from "./agent.js";
@@ -50,7 +51,7 @@ class DiffDialog {
 export default class GitClient extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "diff" ? new DiffDialog()
+    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "error" ? new ErrorDialog() : role === "diff" ? new DiffDialog()
       : role === "agent" ? new AgentDialog() : new Client();
     this.part.init(cx);
   }

@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import { exec, notify, readTextFile, writeTextFile, setShared, openOverlay, appHome, run, panes, spaces } from "herdr";
 import { dialogFor, dialogHeight, doneText } from "./git.js";
+import { describeError, errorDialogHeight } from "./errors.js";
 import { samePath } from "./refs.js";
 import { executeAction } from "./execute.js";
 import { worktrees } from "./core.js";
@@ -24,6 +25,11 @@ const io = {
   },
 };
 
+export function openErrorDialog(err, ctx = null) {
+  const error = typeof err === "string" ? describeError(null, err) : err;
+  openOverlay({ mod: "git-client", kind: "dialog", width: 500, height: errorDialogHeight(error), props: { role: "error", error, ctx } });
+}
+
 // Runs an action's git commands in order, stopping at the first failure. Every
 // copy of the panel reads the repository again after, whether or not its folder watch saw the change.
 export async function perform(action, values, ctx, { toast = true, quiet = false } = {}) {
@@ -31,15 +37,16 @@ export async function perform(action, values, ctx, { toast = true, quiet = false
     if (action.type === "addWorktree" || action.type === "removeWorktree") return await viaCore(action, values, ctx, { quiet });
     const result = await executeAction(action, values, ctx, exec, io);
     if (!result.ok) {
-      if (toast) notify({ title: "Couldn't do that", body: result.message, level: "error" });
-      return result;
+      const error = result.error ?? describeError(action, result.message, values);
+      if (toast) openErrorDialog(error, ctx);
+      return { ...result, message: error.summary, error };
     }
     if (!quiet) notify({ title: doneText(action, values), level: "success", timeout: 3000 });
     return { ok: true };
   } catch (e) {
-    const message = String(e?.message ?? e);
-    if (toast) notify({ title: "Git didn't run", body: message, level: "error" });
-    return { ok: false, message };
+    const error = describeError(action, String(e?.message ?? e), values);
+    if (toast) openErrorDialog(error, ctx);
+    return { ok: false, message: error.summary, error };
   } finally {
     setShared("git-client.changed", Date.now());
   }

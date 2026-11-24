@@ -3,9 +3,15 @@
 // io: { writePatch(text) → path, remove(path) }, for hunk patches in a local repository,
 // and appendLine(file, line), for the ignore files of a local repository.
 import { READ, commandsFor, gitError, ignoreLine, ignoreChoices } from "./git.js";
+import { describeError } from "./errors.js";
+
+const fail = (action, raw, values) => {
+  const error = describeError(action, raw, values);
+  return { ok: false, message: error.summary, error };
+};
 
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
-const STAGING = new Set(["stage", "unstage", "discard", "ignore", "untrack", "stageHunk", "unstageHunk", "discardHunk",
+const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany", "stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove"]);
@@ -21,7 +27,18 @@ export async function executeAction(action, values, ctx, exec, io = null) {
     if (!pick) return { ok: false, message: "Invalid choice" };
     return addIgnore(pick.line, values.local ? "exclude" : "gitignore", ctx, exec, io);
   }
-  if (action.type === "untrack" && !["gitignore", "exclude"].includes(values.where)) return { ok: false, message: "Invalid ignore file" };
+  if (action.type === "ignoreMany") {
+    if (!["gitignore", "exclude"].includes(values.where)) return { ok: false, message: "Invalid ignore file" };
+    if (!Array.isArray(action.paths) || !action.paths.length || action.paths.some((p) => typeof p !== "string" || !p || p.includes("\0"))) {
+      return { ok: false, message: "Invalid path" };
+    }
+    for (const p of action.paths) {
+      const added = await addIgnore(ignoreLine(p), values.where, ctx, exec, io);
+      if (!added.ok) return added;
+    }
+    return { ok: true };
+  }
+  if ((action.type === "untrack" || action.type === "untrackMany") && !["gitignore", "exclude"].includes(values.where)) return { ok: false, message: "Invalid ignore file" };
   const commands = commandsFor(action, values, ctx);
   // A dialog/menu describes this snapshot, not whatever HEAD happens to be
   // when the user confirms it. Fetch does not operate on the current branch.
@@ -50,11 +67,17 @@ export async function executeAction(action, values, ctx, exec, io = null) {
   // preflight detects an already changed context; it cannot lock out future edits.
   for (const args of commands) {
     const result = await git(args);
-    if (result.code !== 0) return { ok: false, message: gitError(result) };
+    if (result.code !== 0) return fail(action, gitError(result), values);
   }
   if (action.type === "untrack") {
     const added = await addIgnore(ignoreLine(action.path), values.where, ctx, exec, io);
     if (!added.ok) return { ok: false, message: `Git stopped tracking ${action.path}, but the ignore file did not change.\n${added.message}` };
+  }
+  if (action.type === "untrackMany") {
+    for (const p of action.paths) {
+      const added = await addIgnore(ignoreLine(p), values.where, ctx, exec, io);
+      if (!added.ok) return { ok: false, message: `Git stopped tracking the selected files, but the ignore file did not update cleanly.\n${added.message}` };
+    }
   }
   return { ok: true };
 }
@@ -101,9 +124,9 @@ async function updateSubmoduleBranch(action, branch, ctx, exec) {
   const ref = await git(["check-ref-format", source]);
   if (ref.code !== 0) return { ok: false, message: "Invalid remote branch." };
   const fetched = await git(["fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", "--", remote, `+${source}:${target}`]);
-  if (fetched.code !== 0) return { ok: false, message: gitError(fetched) };
+  if (fetched.code !== 0) return fail(action, gitError(fetched));
   const switched = await git(["switch", "--detach", "--no-recurse-submodules", "--no-overwrite-ignore", target, "--"]);
-  return switched.code === 0 ? { ok: true } : { ok: false, message: gitError(switched) };
+  return switched.code === 0 ? { ok: true } : fail(action, gitError(switched));
 }
 
 // One hunk with `git apply`. exec takes no input, so the patch goes through a file here, and
@@ -120,7 +143,10 @@ async function applyPatch(patch, flags, ctx, exec, io) {
     try { result = await exec("git", [...args, file], { cwd: ctx.root }); }
     finally { await io.remove(file); }
   }
-  if (result.code !== 0) return { ok: false, message: `${gitError(result)}\nIf the file changed after the diff was read, refresh and try again.` };
+  if (result.code !== 0) {
+    const type = flags.includes("-R") ? (flags.includes("--cached") ? "unstageHunk" : "discardHunk") : "stageHunk";
+    return fail({ type }, `${gitError(result)}\nIf the file changed after the diff was read, refresh and try again.`);
+  }
   return { ok: true };
 }
 

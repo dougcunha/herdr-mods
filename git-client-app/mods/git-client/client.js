@@ -238,6 +238,12 @@ export class Client {
         if (width !== this.width || height !== this.height) { this.width = width; this.height = height; cx.notify(); }
       })
       .on_key_down((e, cx) => {
+        if ((e.key === "a" || e.key === "A") && (e.modifiers?.control || e.modifiers?.platform) && !e.modifiers?.shift && !e.modifiers?.alt
+            && this.tab === "changes" && !this.typing && !this.fileView.path) {
+          this.changes.selectAllCurrent(cx);
+          cx.stop_propagation();
+          return;
+        }
         if (e.key !== "escape") return;
         const dialog = dialogId();
         // A text field has the keyboard: Esc leaves it. In a dialog, an empty field closes the dialog.
@@ -256,6 +262,8 @@ export class Client {
           cx.notify();
         } else if (this.fileView.path) {
           this.fileView.close(); cx.notify();
+        } else if (this.tab === "changes" && this.changes.escape(cx)) {
+          // cleared multi-file selection
         } else if (this.tab === "stash" && this.stash.sel) {
           this.stash.clear(); cx.notify();
         } else if (this.tab === "history" && this.history.escape(cx)) {

@@ -5,7 +5,8 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, exec, theme } from "herdr";
 import { dialogFor, initialValues, validate } from "./git.js";
-import { perform } from "./act.js";
+import { describeError } from "./errors.js";
+import { perform, openErrorDialog, openWorktree } from "./act.js";
 import { listSubmoduleBranches } from "./execute.js";
 import { icon } from "./menu.js";
 
@@ -42,7 +43,7 @@ export class Dialog {
           this.action = { ...action, ...remoteBranches };
           this.spec = dialogFor(this.action, ctx);
         } catch (e) {
-          this.error = String(e?.message ?? e);
+          this.error = describeError(action, String(e?.message ?? e));
         } finally {
           this.loading = false;
           cx.notify();
@@ -56,13 +57,13 @@ export class Dialog {
     const { ctx, overlay } = props();
     const action = this.action;
     const problem = validate(action, this.values, ctx);
-    if (problem) { this.error = problem; cx.notify(); return; }
+    if (problem) { this.error = { title: "Check the fields", summary: problem, hint: null, detail: "", worktree: null }; cx.notify(); return; }
     this.busy = true; this.error = null;
     cx.spawn(async (cx) => {
       const result = await perform(action, this.values, ctx, { toast: false });
       this.busy = false;
       if (result.ok) closeOverlay(overlay);
-      else { this.error = result.message; cx.notify(); }
+      else { this.error = result.error ?? describeError(action, result.message, this.values); cx.notify(); }
     });
     cx.notify();
   }
@@ -86,42 +87,53 @@ export class Dialog {
         else return;
         cx.stop_propagation();
       })
-      .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(s.title)).child(div().text_size(11).text_color(t.dim).child("Esc")))
-      .when(Boolean(s.detail), (el) => el.child(div().pt(8).text_color(t.muted).child(s.detail)))
-      .children(this.inputs.map(({ field, state }, i) => v_flex()
-        .child(label(field.label))
-        .child(Input.new(state).h(36).px(10).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))))
-      .when(Boolean(s.choice), (el) => {
-        const rows = s.choice.options.map((o) => {
-          const on = this.values[s.choice.id] === o.value;
-          return h_flex().id(`gd-choice-${o.value}`).h(38).flex_none().mb(4).px(10).gap(10).items_center().rounded(8).border_1().cursor_pointer()
-            .border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.border).when(on, (e) => e.bg(t.selected)).hover((st) => st.bg(t.hover))
-            .on_click((_e, cx) => {
-              if (this.busy) return;
-              this.values[s.choice.id] = o.value; this.error = null; cx.notify();
-            })
-            .child(div().size(14).flex_none().rounded(7).border_1().border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.input).flex().items_center().justify_center()
-              .when(on, (e) => e.child(div().size(6).rounded(3).bg(o.danger ? t.ansi1 : t.accent))))
-            .child(div().min_w(0).truncate().font_medium().child(o.label))
-            .when(Boolean(o.detail), (e) => e.child(div().text_size(11.5).text_color(o.danger ? t.ansi1 : t.dim).child(o.detail)));
-        });
-        el = el.child(label(s.choice.label));
-        if (!s.choice.scrollHeight) return el.children(rows);
-        return el.child(v_flex().id("gd-choice-list").h(s.choice.scrollHeight).w_full().flex_none().overflow_y_scrollbar()
-          .when(this.loading, (list) => list.child(div().p(10).text_color(t.dim).child("Loading remote branches…")))
-          .children(rows));
-      })
-      .children((s.checks ?? []).map((c) => {
-        const on = Boolean(this.values[c.id]);
-        return h_flex().id(`gd-check-${c.id}`).pt(12).gap(9).items_center().cursor_pointer()
-          .on_click((_e, cx) => { this.values[c.id] = !on; cx.notify(); })
-          .child(div().size(15).flex_none().rounded(4).border_1().border_color(on ? t.accent : t.input).when(on, (e) => e.bg(t.accent)).flex().items_center().justify_center()
-            .when(on, (e) => e.child(svg(icon("check")).size(11).text_color(t.accent_foreground))))
-          .child(div().text_color(t.foreground).child(c.label));
-      }))
-      .when(Boolean(this.error), (el) => el.child(div().pt(12).text_size(12).text_color(t.ansi1).child(this.error)))
-      .child(div().flex_1())
-      .child(h_flex().pt(16).gap(8).justify_end()
+      .child(h_flex().flex_none().items_center().child(div().flex_1().text_size(15).font_semibold().child(s.title)).child(div().text_size(11).text_color(t.dim).child("Esc")))
+      .child(v_flex().id("gd-body").flex_1().min_h(0).overflow_y_scrollbar()
+        .when(Boolean(s.detail), (el) => el.child(div().pt(8).text_color(t.muted).child(s.detail)))
+        .children(this.inputs.map(({ field, state }, i) => v_flex()
+          .child(label(field.label))
+          .child(Input.new(state).h(36).px(10).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))))
+        .when(Boolean(s.choice), (el) => {
+          const rows = s.choice.options.map((o) => {
+            const on = this.values[s.choice.id] === o.value;
+            return h_flex().id(`gd-choice-${o.value}`).h(38).flex_none().mb(4).px(10).gap(10).items_center().rounded(8).border_1().cursor_pointer()
+              .border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.border).when(on, (e) => e.bg(t.selected)).hover((st) => st.bg(t.hover))
+              .on_click((_e, cx) => {
+                if (this.busy) return;
+                this.values[s.choice.id] = o.value; this.error = null; cx.notify();
+              })
+              .child(div().size(14).flex_none().rounded(7).border_1().border_color(on ? (o.danger ? t.ansi1 : t.accent) : t.input).flex().items_center().justify_center()
+                .when(on, (e) => e.child(div().size(6).rounded(3).bg(o.danger ? t.ansi1 : t.accent))))
+              .child(div().min_w(0).truncate().font_medium().child(o.label))
+              .when(Boolean(o.detail), (e) => e.child(div().text_size(11.5).text_color(o.danger ? t.ansi1 : t.dim).child(o.detail)));
+          });
+          el = el.child(label(s.choice.label));
+          if (!s.choice.scrollHeight) return el.children(rows);
+          return el.child(v_flex().id("gd-choice-list").h(s.choice.scrollHeight).w_full().flex_none().overflow_y_scrollbar()
+            .when(this.loading, (list) => list.child(div().p(10).text_color(t.dim).child("Loading remote branches…")))
+            .children(rows));
+        })
+        .children((s.checks ?? []).map((c) => {
+          const on = Boolean(this.values[c.id]);
+          return h_flex().id(`gd-check-${c.id}`).pt(12).gap(9).items_center().cursor_pointer()
+            .on_click((_e, cx) => { this.values[c.id] = !on; cx.notify(); })
+            .child(div().size(15).flex_none().rounded(4).border_1().border_color(on ? t.accent : t.input).when(on, (e) => e.bg(t.accent)).flex().items_center().justify_center()
+              .when(on, (e) => e.child(svg(icon("check")).size(11).text_color(t.accent_foreground))))
+            .child(div().text_color(t.foreground).child(c.label));
+        }))
+        .when(Boolean(this.error), (el) => {
+          const err = this.error;
+          return el.child(v_flex().id("gd-error").w_full().min_w(0).mt(12).p(10).gap(4).rounded(8)
+            .bg(t.ansi1 + "14").border_1().border_color(t.ansi1 + "44")
+            .child(div().w_full().min_w(0).text_size(12).text_color(t.ansi1).child(err.summary))
+            .when(Boolean(err.hint), (box) => box.child(div().w_full().min_w(0).text_size(11.5).text_color(t.muted).child(err.hint)))
+            .when(Boolean(err.detail || err.worktree), (box) => box.child(h_flex().pt(4).gap(12).items_center()
+              .when(Boolean(err.detail), (row) => row.child(div().id("gd-error-more").text_size(11.5).font_medium().text_color(t.accent).cursor_pointer()
+                .hover((st) => st.opacity(0.85)).on_click(() => openErrorDialog(err, props().ctx)).child("Full output…")))
+              .when(Boolean(err.worktree), (row) => row.child(div().id("gd-error-wt").text_size(11.5).font_medium().text_color(t.accent).cursor_pointer()
+                .hover((st) => st.opacity(0.85)).on_click(() => { openWorktree(err.worktree, props().ctx?.on); closeOverlay(props().overlay); }).child("Open worktree"))))));
+        }))
+      .child(h_flex().flex_none().pt(16).gap(8).justify_end()
         .child(button("gd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
         .when(s.choice?.options.length !== 0, (el) => el.child(button("gd-ok", this.busy ? "Working…" : s.confirm, true, (_e, cx) => this.confirm(cx)))));
   }

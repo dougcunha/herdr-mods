@@ -4,11 +4,13 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { exec, readTextFile, theme, notify, openOverlay, setShared } from "herdr";
 import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError, isImagePath, isSvgPath } from "./git.js";
-import { perform, openDialog, atEvent } from "./act.js";
+import { perform, openDialog, openErrorDialog, atEvent } from "./act.js";
+import { describeError } from "./errors.js";
 import { icon } from "./menu.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { ImageDiffView, sweepStagedImages } from "./imageview.js";
 import { generateMessage } from "./ai.js";
+import { emptySelection, isPicked, clickRow, clickCheckbox, selectAll, pruneSelection, selectedFiles } from "./selection.js";
 
 const ROW = 26, TITLE = 28;
 // Rows shown in one list: the lists are plain rows, not a virtual list.
@@ -32,7 +34,7 @@ export class Changes {
 
   init(cx) {
     this.staged = new Map(); this.unstaged = new Map(); this.op = null;
-    this.sel = null; this.closed = false; this.patch = null; this.diffNote = null;
+    this.sel = null; this.picked = emptySelection(); this.closed = false; this.patch = null; this.diffNote = null;
     this.diff = new DiffView(`gc-diff-${Math.random().toString(36).slice(2)}`);
     this.image = new ImageDiffView(`gc-img-${Math.random().toString(36).slice(2)}`);
     this.imageAsText = false;
@@ -56,10 +58,11 @@ export class Changes {
   conflicts() { return this.files().filter((f) => f.conflict); }
   stagedFiles() { return this.files().filter((f) => f.staged); }
   unstagedFiles() { return this.files().filter((f) => f.unstaged); }
+  listsBySide() { return { conflict: this.conflicts(), staged: this.stagedFiles(), unstaged: this.unstagedFiles() }; }
 
   // A new folder: nothing of the old one stays.
   resetFolder() {
-    this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.sel = null; this.closed = false;
+    this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.sel = null; this.picked = emptySelection(); this.closed = false;
     this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null; this.amend = false; this.all = false;
     this.message = ""; this.input.set_value("");
   }
@@ -95,6 +98,7 @@ export class Changes {
         }
         if (stale()) return;
         this.op = opOf(found);
+        this.picked = pruneSelection(this.picked, this.listsBySide());
         const files = this.files();
         if (this.sel && !files.some((f) => f.path === this.sel.path && this.sideOf(f, this.sel.side))) { this.sel = null; this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; }
         // The first file shows until you pick another, as in Herdr's Changes panel.
@@ -141,13 +145,50 @@ export class Changes {
     this.patch = patch; this.diff.setRows(rows); this.diffNote = note;
   }
 
-  pick(f, side, cx) {
-    const same = this.sel?.path === f.path && this.sel?.side === side;
-    this.sel = same ? null : { path: f.path, side }; this.closed = same;
-    this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null;
-    if (this.sel) { const seq = this.seq; cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); }); }
+  pick(f, side, e, cx) {
+    const next = clickRow(this.picked, {
+      path: f.path,
+      side,
+      list: this.listsBySide()[side],
+      currentSel: this.sel,
+      modifiers: e?.modifiers,
+    });
+    this.picked = next.state;
+    this.closed = next.closed;
+    const changed = next.open?.path !== this.sel?.path || next.open?.side !== this.sel?.side;
+    if (changed) {
+      this.sel = next.open;
+      this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null;
+      if (this.sel) { const seq = this.seq; cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); }); }
+    }
     cx.notify();
   }
+
+  toggleCheck(f, side, e, cx) {
+    this.picked = clickCheckbox(this.picked, { path: f.path, side, list: this.listsBySide()[side], modifiers: e?.modifiers });
+    cx.notify();
+  }
+
+  selectAllIn(side, cx) {
+    if (!side) return;
+    this.picked = selectAll(this.listsBySide()[side], side);
+    cx.notify();
+  }
+
+  selectAllCurrent(cx) {
+    const side = this.picked.side ?? this.sel?.side
+      ?? (this.unstagedFiles().length ? "unstaged" : this.stagedFiles().length ? "staged" : this.conflicts().length ? "conflict" : null);
+    this.selectAllIn(side, cx);
+  }
+
+  clearSelection(cx) {
+    if (!this.picked.paths.size) return false;
+    this.picked = emptySelection();
+    cx.notify();
+    return true;
+  }
+
+  escape(cx) { return this.clearSelection(cx); }
 
   setImageAsText(asText, cx) {
     if (this.imageAsText === asText || !this.sel) return;
@@ -182,6 +223,19 @@ export class Changes {
   fileMenu(f, side, e) {
     const ctx = this.ctx();
     if (!ctx) return;
+    const lists = this.listsBySide();
+    this.picked = pruneSelection(this.picked, lists);
+    const selected = selectedFiles(this.picked, lists);
+    if (isPicked(this.picked, side, f.path) && selected.length > 1) {
+      const target = {
+        kind: "files",
+        side,
+        files: selected.map((x) => ({ path: x.path, untracked: x.untracked, status: x.status, x: x.x })),
+      };
+      const items = menuFor(target, ctx);
+      openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 250, height: menuHeight(items), props: { role: "menu", target, ctx } });
+      return;
+    }
     const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status, x: f.x } }, items = menuFor(target, ctx);
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx } });
   }
@@ -274,7 +328,7 @@ export class Changes {
         const message = await generateMessage({ root: h.root, on: h.on, all: this.all });
         this.message = message; this.input.set_value(message);
       } catch (e) {
-        notify({ title: "No AI message", body: String(e?.message ?? e), level: "error" });
+        openErrorDialog(describeError({ type: "aiMessage" }, String(e?.message ?? e)), this.ctx());
       }
       this.generating = false; cx.notify();
     });
@@ -300,15 +354,24 @@ export class Changes {
 
   fileRow(f, side, t) {
     const parts = f.path.split("/"), name = parts.pop(), key = `${side}:${f.path}`, open = this.sel?.path === f.path && this.sel?.side === side;
+    const checked = isPicked(this.picked, side, f.path);
     const stat = side === "staged" ? this.staged.get(f.path) : side === "unstaged" ? this.unstaged.get(f.path) : null;
     const letter = side === "conflict" ? "U" : f.untracked ? "U" : side === "staged" ? f.x : f.y;
     const color = side === "conflict" ? t.ansi1 : f.untracked || letter === "A" ? t.ansi2 : letter === "D" ? t.ansi1 : t.blocked;
     const hovered = this.hover === key;
-    return h_flex().id(`gc-f-${key}`).h(ROW).flex_none().pl(10).pr(6).gap(8).items_center().rounded(6).cursor_pointer()
-      .when(open, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
+    return h_flex().id(`gc-f-${key}`).h(ROW).flex_none().pl(8).pr(6).gap(6).items_center().rounded(6).cursor_pointer()
+      .when(checked, (e) => e.bg(t.accent + "22"))
+      .when(!checked && open, (e) => e.bg(t.selected))
+      .hover((s) => s.bg(t.hover))
       .on_hover((h, cx) => { const next = h ? key : this.hover === key ? null : this.hover; if (next !== this.hover) { this.hover = next; cx.notify(); } })
-      .on_click((_e, cx) => this.pick(f, side, cx))
+      .on_click((e, cx) => this.pick(f, side, e, cx))
       .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); this.fileMenu(f, side, e); })
+      .child(h_flex().id(`gc-fc-${key}`).size(16).flex_none().items_center().justify_center().cursor_pointer()
+        .on_click((e, cx) => { cx.stop_propagation(); this.toggleCheck(f, side, e, cx); })
+        .child(div().size(13).rounded(3).border_1().border_color(checked ? t.accent : t.input)
+          .when(checked, (e) => e.bg(t.accent))
+          .flex().items_center().justify_center()
+          .when(checked, (e) => e.child(svg(icon("check")).size(9).text_color(t.accent_foreground)))))
       .child(div().w(12).flex_none().text_size(11).text_color(color).child(f.untracked && side !== "conflict" ? "?" : letter))
       .child(h_flex().flex_1().min_w(0).child(div().min_w(0).flex_none().max_w(220).truncate().child(name))
         .child(div().pl(6).flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(parts.join("/"))))
@@ -321,6 +384,38 @@ export class Changes {
           .child(this.smallButton(`gc-fs-${key}`, "plus", "Stage", (cx) => this.stage([f.path], cx), t)))
         .when(side === "staged", (el) => el.child(this.smallButton(`gc-fu-${key}`, "minus", "Unstage", (cx) => this.unstage([f.path], cx), t)))
         .when(side === "conflict", (el) => el.child(this.smallButton(`gc-fr-${key}`, "check", "Mark resolved (stage)", (cx) => this.stage([f.path], cx), t)))));
+  }
+
+  selectionBar(t, selected, side, total) {
+    const n = selected.length;
+    const sectionLabel = { unstaged: "changes", staged: "staged", conflict: "conflicts" }[side] ?? "";
+    const allUntracked = side === "unstaged" && selected.every((f) => f.untracked);
+    const chipBtn = (id, label, tone, onClick) => h_flex().id(id).h(22).px(8).flex_none().items_center().rounded(5).cursor_pointer()
+      .text_size(11).font_medium()
+      .bg(tone === "primary" ? t.solid : t.raised)
+      .border_1().border_color(tone === "primary" ? t.solid : tone === "danger" ? t.ansi1 + "55" : t.border)
+      .text_color(tone === "primary" ? t.solid_foreground : tone === "danger" ? t.ansi1 : t.foreground)
+      .hover((s) => s.opacity(0.88))
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+      .child(label);
+    const linkBtn = (id, label, onClick) => div().id(id).px(5).py(2).rounded(4).cursor_pointer()
+      .text_size(11).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+      .child(label);
+    return h_flex().id("gc-sel-bar").h(32).flex_none().px(10).gap(6).items_center()
+      .bg(t.accent + "14").border_b(1).border_color(t.border)
+      .child(div().flex_none().text_size(11.5).font_semibold().text_color(t.foreground).child(`${n} selected`))
+      .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(sectionLabel))
+      .when(n < total, (el) => el.child(linkBtn("gc-sel-all", "All", (cx) => this.selectAllIn(side, cx))))
+      .child(linkBtn("gc-sel-clear", "Clear", (cx) => this.clearSelection(cx)))
+      .child(div().flex_1())
+      .when(side === "unstaged", (el) => el
+        .child(chipBtn("gc-sel-discard", allUntracked ? "Delete" : "Discard", "danger", (cx) => this.discard(selected, cx)))
+        .child(chipBtn("gc-sel-stage", "Stage", "primary", (cx) => this.stage(selected.map((f) => f.path), cx))))
+      .when(side === "staged", (el) => el
+        .child(chipBtn("gc-sel-unstage", "Unstage", "default", (cx) => this.unstage(selected.map((f) => f.path), cx))))
+      .when(side === "conflict", (el) => el
+        .child(chipBtn("gc-sel-resolve", "Mark resolved", "primary", (cx) => this.stage(selected.map((f) => f.path), cx))));
   }
 
   section(id, title, files, side, t, actions) {
@@ -399,6 +494,10 @@ export class Changes {
 
   render(t) {
     const conflicts = this.conflicts(), staged = this.stagedFiles(), unstaged = this.unstagedFiles(), h = this.host.history;
+    const lists = { conflict: conflicts, staged, unstaged };
+    const selected = selectedFiles(this.picked, lists);
+    const selSide = selected.length ? this.picked.side : null;
+    const totalInSide = selSide ? (lists[selSide]?.length ?? 0) : 0;
     const ready = Boolean(h.root);
     const shown = (n) => Math.min(n, SHOWN + 1);
     const lines = (conflicts.length ? shown(conflicts.length) + 1 : 0) + shown(staged.length) + shown(unstaged.length) + 2;
@@ -410,6 +509,7 @@ export class Changes {
       .when(Boolean(this.op), (e) => e.child(this.opBanner(t)))
       .when(!ready, (e) => e.child(div().p(12).text_color(t.dim).child(h.state === "norepo" ? "Not a git repository" : h.state === "nofolder" ? "No folder" : h.state === "error" ? h.error : "Loading changes…")))
       .when(ready && !this.files().length, (e) => e.child(div().p(12).text_color(t.dim).child("No uncommitted changes")))
+      .when(ready && this.files().length > 0 && selected.length > 0, (e) => e.child(this.selectionBar(t, selected, selSide, totalInSide)))
       .when(ready && this.files().length > 0, (e) => e
         .child(v_flex().id("gc-lists").flex_none().h(listHeight).overflow_y_scrollbar().px(4).py(4)
           .when(conflicts.length > 0, (el) => el.child(this.section("conflicts", "Conflicts", conflicts, "conflict", t, [])))

@@ -319,6 +319,19 @@ export function menuFor(target, ctx) {
       section(!ctx.on && f.status !== "D" && item("Open file", "file", { type: "openFile", path: f.path }),
         item("Copy path", "copy", { type: "copy", text: f.path })),
     ];
+  } else if (target.kind === "files") {
+    const files = target.files ?? [], n = files.length, paths = files.map((f) => f.path);
+    const tracked = files.filter((f) => !f.untracked).map((f) => f.path);
+    const untracked = files.filter((f) => f.untracked).map((f) => f.path);
+    sections = [
+      section(target.side === "unstaged" && n > 0 && item(`Stage ${n} files`, "plus", { type: "stage", paths }),
+        target.side === "staged" && n > 0 && item(`Unstage ${n} files`, "minus", { type: "unstage", paths, unborn: !ctx.head }),
+        target.side === "conflict" && n > 0 && item(`Mark ${n} files resolved (stage)`, "check", { type: "stage", paths }),
+        target.side === "unstaged" && n > 0 && item(`${untracked.length === n ? "Delete" : "Discard"} ${n} files…`, "trash", { type: "discard", paths: tracked, untracked })),
+      section(untracked.length === n && n > 0 && item(`Ignore ${n} files…`, "eye-off", { type: "ignoreMany", paths }),
+        tracked.length === n && n > 0 && target.side !== "conflict" && files.every((f) => f.status !== "D") && item(`Stop tracking ${n} files…`, "eye-off", { type: "untrackMany", paths })),
+      section(n > 0 && item(`Copy ${n} paths`, "copy", { type: "copy", text: paths.join("\n") })),
+    ];
   } else if (target.kind === "hunk") {
     const a = (type, label, icon, danger) => item(label, icon, { type, patch: target.patch, path: target.path, hunk: target.hunk });
     sections = [section(target.side === "staged" ? a("unstageHunk", "Unstage hunk", "minus") : a("stageHunk", "Stage hunk", "plus"),
@@ -471,15 +484,24 @@ export function dialogFor(action, ctx) {
   const cur = currentName(ctx), a = action;
   switch (a.type) {
     case "discard": {
-      const all = [...(a.paths ?? []), ...(a.untracked ?? [])];
-      return { title: a.untracked?.length && !a.paths?.length ? "Delete file" : "Discard changes",
-        detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}. Selected submodules return to the commit staged in this repository, overwriting local changes to tracked files inside them.` : ""}${a.untracked?.length ? ` Delete ${a.untracked.length === 1 ? "the untracked file" : `${a.untracked.length} untracked files`} ${a.untracked.length === 1 ? a.untracked[0] : ""}.` : ""} This cannot be undone.`.trim(),
-        confirm: all.length === 1 && a.untracked?.length ? "Delete" : "Discard", danger: true };
+      const untrackedN = a.untracked?.length ?? 0;
+      const untrackedDetail = untrackedN === 1 ? ` Delete the untracked file ${a.untracked[0]}.` : untrackedN > 1 ? ` Delete ${untrackedN} untracked files.` : "";
+      return { title: untrackedN && !a.paths?.length ? (untrackedN === 1 ? "Delete file" : "Delete files") : "Discard changes",
+        detail: `${a.paths?.length ? `Discard the unstaged changes of ${many(a.paths)}. Selected submodules return to the commit staged in this repository, overwriting local changes to tracked files inside them.` : ""}${untrackedDetail} This cannot be undone.`.trim(),
+        confirm: !a.paths?.length && untrackedN ? "Delete" : "Discard", danger: true };
     }
     case "ignore": return { title: "Ignore", detail: "Git stops showing what you pick. Files that Git tracks stay tracked.",
       choice: { id: "what", label: "What to ignore", value: "file", options: ignoreChoices(a.path).map(({ value, label, detail }) => ({ value, label, detail })) },
       checks: [{ id: "local", label: "Only on this machine (.git/info/exclude)", value: false }], confirm: "Ignore" };
+    case "ignoreMany": return { title: "Ignore files", detail: `Add ${a.paths.length} files to the ignore file. Files that Git tracks stay tracked.`,
+      choice: { id: "where", label: "Ignore file", value: "gitignore", options: [
+        { value: "gitignore", label: ".gitignore", detail: "Shared: you commit it" },
+        { value: "exclude", label: ".git/info/exclude", detail: "Only on this machine" }] }, confirm: "Ignore" };
     case "untrack": return { title: "Stop tracking", detail: `Remove ${a.path} from Git and keep the file on disk. The removal is staged: the next commit deletes the file from the repository.`,
+      choice: { id: "where", label: "Ignore file", value: "gitignore", options: [
+        { value: "gitignore", label: ".gitignore", detail: "Shared: you commit it" },
+        { value: "exclude", label: ".git/info/exclude", detail: "Only on this machine" }] }, confirm: "Stop tracking" };
+    case "untrackMany": return { title: "Stop tracking files", detail: `Remove ${a.paths.length} files from Git and keep them on disk. The removals are staged: the next commit deletes them from the repository.`,
       choice: { id: "where", label: "Ignore file", value: "gitignore", options: [
         { value: "gitignore", label: ".gitignore", detail: "Shared: you commit it" },
         { value: "exclude", label: ".git/info/exclude", detail: "Only on this machine" }] }, confirm: "Stop tracking" };
@@ -666,6 +688,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
     // Out of the index only: the file stays on disk. The line of the ignore file comes after (execute.js).
     // -f: without it git refuses a file whose staged content differs from HEAD and from the file on disk.
     case "untrack": return chunks(files([a.path]), ["rm", "--cached", "-f", "-q"]);
+    case "untrackMany": return chunks(files(a.paths), ["rm", "--cached", "-f", "-q"]);
     // "--" ends the arguments: a branch deleted since the graph was drawn fails
     // instead of naming a path to restore from the index.
     case "checkout": return [["checkout", a.name, "--"]];
@@ -745,7 +768,9 @@ export function doneText(a, v = {}) {
     case "unstage": return a.paths.length === 1 ? `Unstaged ${a.paths[0]}` : `Unstaged ${a.paths.length} files`;
     case "discard": return "Discarded the changes";
     case "ignore": return `Added ${ignoreChoices(a.path).find((c) => c.value === v.what)?.line ?? a.path} to ${ignoreFile(v.local ? "exclude" : "gitignore")}`;
+    case "ignoreMany": return `Ignored ${a.paths.length} files in ${ignoreFile(v.where)}`;
     case "untrack": return `Stopped tracking ${a.path}`;
+    case "untrackMany": return `Stopped tracking ${a.paths.length} files`;
     case "stageHunk": return "Staged the hunk";
     case "unstageHunk": return "Unstaged the hunk";
     case "discardHunk": return "Discarded the hunk";
@@ -759,8 +784,11 @@ export function doneText(a, v = {}) {
 
 // Git's own words, without its hints.
 export function gitError(result) {
-  const lines = (result.stderr || result.stdout || "").split("\n").map((l) => l.trimEnd()).filter((l) => l && !l.startsWith("hint:"));
-  return lines.slice(-6).join("\n") || `git exited with ${result.code}`;
+  const combined = [result.stderr, result.stdout].filter(Boolean).join("\n");
+  const lines = combined.split(/\r?\n/).map((l) => l.replace(/\r/g, "").trimEnd()).filter((l) => l && !l.startsWith("hint:"));
+  if (!lines.length) return `git exited with ${result.code}`;
+  if (lines.length <= 40) return lines.join("\n");
+  return `… (${lines.length - 40} earlier lines omitted)\n${lines.slice(-40).join("\n")}`;
 }
 
 // The files a commit changed against its first parent, joined from

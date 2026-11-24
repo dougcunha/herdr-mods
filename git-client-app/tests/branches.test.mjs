@@ -167,6 +167,17 @@ assert.throws(() => G.commandsFor({ type: "fetchBranch", name: "-x", remote: "or
   sh(repo, "branch", "-f", "lag", "HEAD");
   const r = await executeAction({ type: "fetchBranch", name: "lag", remote: "origin", branch: "lag" }, {}, ctx(), exec);
   assert.ok(!r.ok || git(repo, ["rev-parse", "lag"]).stdout.trim() === theirs, "never a non-fast-forward update");
+
+  // A branch checked out in another worktree: fetchBranch returns a structured error pointing at that worktree.
+  const wtLag = `${dir}/wt-lag`;
+  sh(repo, "worktree", "add", wtLag, "lag");
+  const wtErr = await executeAction({ type: "fetchBranch", name: "lag", remote: "origin", branch: "lag" }, {}, ctx(), exec);
+  assert.equal(wtErr.ok, false);
+  assert.equal(wtErr.error?.title, "Couldn't update lag");
+  assert.match(wtErr.error?.summary ?? "", /checked out in another worktree/i);
+  assert.doesNotMatch(wtErr.error?.summary ?? "", /^fatal:/i);
+  assert.ok(R.samePath(wtErr.error?.worktree, wtLag), "returns the blocking worktree path");
+  sh(repo, "worktree", "remove", "--force", wtLag);
 }
 
 // ---- merged badge: a branch whose tip is in another branch (not in its own copy on the remote)
