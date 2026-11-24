@@ -1,1 +1,8 @@
-{ "place": "none", "title": "PowerMods Core", "overlay": { "kind": "dialog", "width": 720, "height": 560 } }
+{
+  "place": "none",
+  "title": "PowerMods Core",
+  "overlay": { "kind": "dialog", "width": 720, "height": 560 },
+  "palette": [
+    { "title": "PowerMods Core Settings", "command": "mod.open", "args": { "name": "powermods-core" }, "group": "PowerMods", "words": "worktrees setup commands trust" }
+  ]
+}

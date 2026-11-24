@@ -1,1 +1,8 @@
-{ "place": "none", "title": "Kanban" }
+{
+  "place": "none",
+  "title": "Kanban",
+  "palette": [
+    { "title": "Kanban: Settings", "command": "kanban.gear", "group": "PowerMods", "words": "board columns preferences" },
+    { "title": "Kanban: Bar Buttons", "command": "kanban.buttons", "group": "PowerMods", "words": "dock panels toolbar" }
+  ]
+}

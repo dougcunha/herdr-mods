@@ -1,1 +1,8 @@
-{ "place": "none", "title": "Quick Actions", "overlay": { "kind": "dialog", "width": 820, "height": 640 } }
+{
+  "place": "none",
+  "title": "Quick Actions",
+  "overlay": { "kind": "dialog", "width": 820, "height": 640 },
+  "palette": [
+    { "title": "Quick Actions", "command": "mod.open", "args": { "name": "quick-actions" }, "group": "PowerMods", "words": "scripts commands macros run" }
+  ]
+}

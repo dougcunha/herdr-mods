@@ -1,1 +1,7 @@
-{ "place": "none", "title": "TokenHound" }
+{
+  "place": "none",
+  "title": "TokenHound",
+  "palette": [
+    { "title": "TokenHound: Usage & Limits", "command": "tokenhound.open", "group": "PowerMods", "words": "tokens quota usage billing" }
+  ]
+}

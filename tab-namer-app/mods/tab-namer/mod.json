@@ -1,1 +1,8 @@
-{ "place": "none", "title": "Tab Namer", "overlay": { "kind": "dialog", "width": 460 } }
+{
+  "place": "none",
+  "title": "Tab Namer",
+  "overlay": { "kind": "dialog", "width": 460 },
+  "palette": [
+    { "title": "Tab Namer: Rename Tab", "command": "mod.open", "args": { "name": "tab-namer" }, "group": "PowerMods", "words": "rename ai title tab" }
+  ]
+}

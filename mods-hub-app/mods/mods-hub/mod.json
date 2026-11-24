@@ -1,1 +1,11 @@
-{ "place": "none", "title": "PowerMods", "overlay": { "kind": "dialog", "width": 640 } }
+{
+  "place": "none",
+  "title": "PowerMods",
+  "overlay": { "kind": "dialog", "width": 640 },
+  "palette": [
+    { "title": "PowerMods: Hub", "command": "mod.open", "args": { "name": "mods-hub" }, "group": "PowerMods", "words": "mods hub updates" },
+    { "title": "PowerMods: Settings", "command": "mods-hub.open-settings", "group": "PowerMods", "words": "preferences config options" },
+    { "title": "PowerMods: Worktrees", "command": "mods-hub.open-worktrees", "group": "PowerMods", "words": "git jobs" },
+    { "title": "PowerMods: What's New", "command": "mods-hub.open-news", "group": "PowerMods", "words": "changelog release notes" }
+  ]
+}

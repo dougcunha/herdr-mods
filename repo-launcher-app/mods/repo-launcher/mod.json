@@ -1,1 +1,8 @@
-{ "place": "none", "title": "Repo Launcher", "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 760, "height": 0.78 } }
+{
+  "place": "none",
+  "title": "Repo Launcher",
+  "overlay": { "kind": "popup", "at": "top", "offset": 56, "width": 760, "height": 0.78 },
+  "palette": [
+    { "title": "Repo Launcher", "command": "mod.open", "args": { "name": "repo-launcher" }, "group": "PowerMods", "words": "projects repositories open space worktree" }
+  ]
+}

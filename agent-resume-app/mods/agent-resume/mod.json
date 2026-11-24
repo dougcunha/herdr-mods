@@ -1,1 +1,7 @@
-{ "place": "none", "title": "Agent Resume" }
+{
+  "place": "none",
+  "title": "Agent Resume",
+  "palette": [
+    { "title": "Agent Resume", "command": "agent-resume.panel", "group": "PowerMods", "words": "sessions resume claude codex opencode" }
+  ]
+}

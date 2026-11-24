@@ -5,5 +5,8 @@
   "overlay": {
     "width": 1240,
     "height": 820
-  }
+  },
+  "palette": [
+    { "title": "Visual Review", "command": "mod.open", "args": { "name": "visual-review" }, "group": "PowerMods", "words": "graph diff architecture code review" }
+  ]
 }

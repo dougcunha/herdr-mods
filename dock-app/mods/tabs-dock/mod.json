@@ -1,4 +1,7 @@
 {
   "place": "none",
-  "title": "Dock tabs"
+  "title": "Dock tabs",
+  "palette": [
+    { "title": "Toggle Agent Cards", "command": "tabs-dock.agent-cards", "group": "PowerMods", "words": "agents sidebar cards" }
+  ]
 }

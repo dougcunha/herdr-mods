@@ -1,1 +1,8 @@
-{ "place": "none", "title": "Pull Requests", "overlay": { "kind": "window", "key": "prs", "width": 0.8, "height": 0.8 } }
+{
+  "place": "none",
+  "title": "Pull Requests",
+  "overlay": { "kind": "window", "key": "prs", "width": 0.8, "height": 0.8 },
+  "palette": [
+    { "title": "Pull Requests", "command": "mod.open", "args": { "name": "prs" }, "group": "PowerMods", "words": "pr github reviews code" }
+  ]
+}

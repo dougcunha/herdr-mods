@@ -1,1 +1,8 @@
-{ "place": "none", "title": "GitHub Clone", "overlay": { "kind": "dialog", "width": 840, "height": 660 } }
+{
+  "place": "none",
+  "title": "GitHub Clone",
+  "overlay": { "kind": "dialog", "width": 840, "height": 660 },
+  "palette": [
+    { "title": "GitHub Clone", "command": "mod.open", "args": { "name": "github-clone" }, "group": "PowerMods", "words": "clone repository git github" }
+  ]
+}

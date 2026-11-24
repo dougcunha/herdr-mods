@@ -1,5 +1,8 @@
 {
   "place": "none",
   "title": "Image Viewer",
-  "overlay": { "kind": "dialog", "width": 920, "height": 0.85 }
+  "overlay": { "kind": "dialog", "width": 920, "height": 0.85 },
+  "palette": [
+    { "title": "Image Viewer", "command": "mod.open", "args": { "name": "image-viewer" }, "group": "PowerMods", "words": "picture png svg preview" }
+  ]
 }
