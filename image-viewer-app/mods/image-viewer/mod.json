@@ -2,6 +2,9 @@
   "place": "none",
   "title": "Image Viewer",
   "overlay": { "kind": "dialog", "width": 920, "height": 0.85 },
+  "link_handlers": [
+    { "kind": "file", "pattern": "(?i)\\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$" }
+  ],
   "palette": [
     { "title": "Image Viewer", "command": "mod.open", "args": { "name": "image-viewer" }, "group": "PowerMods", "words": "picture png svg preview" }
   ]

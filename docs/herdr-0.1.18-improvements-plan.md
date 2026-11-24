@@ -102,7 +102,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
     - `git-client-app/mods/git-client/client.js` (handled history/branches/changes inputs)
   - Verification: `herdr-app check` + test `Esc` in both docked sidebar panels and overlay dialogs.
 
-- [ ] **Phase 9 — Terminal Link Handlers (`link_handlers` + `link.js` with `line`/`column`)**
+- [x] **Phase 9 — Terminal Link Handlers (`link_handlers` + `link.js` with `line`/`column`)**
   - `image-viewer-app/mods/image-viewer/`: add `link_handlers` in `mod.json` and `link.js` exporting `handleLink(click)`
   - `dock-app/mods/files-md/`: add `link_handlers` in `mod.json` and `link.js` exporting `handleLink(click)` with `link.line` / `link.column` support
   - `dock-app/layouts/main-dock.json` & `kanban-app/layouts/kanban.json`: add `"link_handlers": ["image-viewer", "files-md"]`

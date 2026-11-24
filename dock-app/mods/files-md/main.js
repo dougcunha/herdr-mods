@@ -29,6 +29,22 @@ const machineChip = (t, machine) => {
 const isMarkdown = name => /\.(md|markdown|mdown|mkd|mdx)$/i.test(name);
 const isImage = name => /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i.test(name);
 
+function lineRangeOf(text, line) {
+  if (!text || !Number.isInteger(line) || line < 1) return null;
+  let cur = 1, start = 0;
+  while (cur < line && start < text.length) {
+    const nl = text.indexOf("\n", start);
+    if (nl < 0) return null;
+    start = nl + 1;
+    cur++;
+  }
+  if (cur !== line || start >= text.length) return null;
+  const nl = text.indexOf("\n", start);
+  const rawEnd = nl < 0 ? text.length : nl;
+  const end = rawEnd > start && text[rawEnd - 1] === "\r" ? rawEnd - 1 : rawEnd;
+  return end > start ? { start, end } : null;
+}
+
 function location() {
   const space = spaces().find(s => s.active), f = focused();
   const all = panes();
@@ -213,6 +229,20 @@ export default class Files extends View {
     });
     this.filter.on("submit", (_e, cx) => this.openResult(this.results?.[this.pick], cx));
     this.query = ""; this.index = null; this.indexStale = true; this.results = null; this.pick = 0;
+    const p = props() ?? {};
+    if (p.openFile) {
+      this.direct = {
+        path: String(p.openFile),
+        on: p.openOn ?? null,
+        line: typeof p.line === "number" ? p.line : null,
+        column: typeof p.column === "number" ? p.column : null,
+      };
+      this.showDirect(this.direct, cx);
+      this.handle.focus();
+      cx.timer.after(40, cx => { this.handle.focus(); cx.notify(); });
+      sweepImages();
+      return;
+    }
     this.refresh(cx);
     // The panel opens with the keyboard in the filter. The field is on the screen only after
     // the first frame, so focus it again a moment later.
@@ -531,7 +561,28 @@ export default class Files extends View {
     });
   }
 
-  // An image opens in the preview: copied into the app folder, then drawn with image().
+  showDirect(direct, cx) {
+    this.code?.release(); this.code = null;
+    this.file = direct.path.split(/[\\/]/).pop() || direct.path;
+    this.on = direct.on ?? null;
+    this.fileError = null; this.text = null; this.rendered = false; this.lineRange = null;
+    this.unstage(); this.picture = null;
+    cx.spawn(async cx => {
+      try {
+        const text = await readTextFile(direct.path, { on: direct.on ?? null });
+        if (text === null) { this.fileError = "This file is no longer available"; return; }
+        if (text.includes("\0")) { this.fileError = "Binary file · no text preview"; return; }
+        this.text = text.length > 400000 ? text.slice(0, 400000) + "\n… (file truncated)" : text;
+        this.rendered = isMarkdown(direct.path);
+        this.lineRange = lineRangeOf(this.text, direct.line);
+        if (!this.rendered) this.code = this.highlight(direct.path);
+      } catch {
+        this.fileError = "Cannot preview this file (binary, too large, or unreadable)";
+      } finally {
+        cx.notify();
+      }
+    });
+  }
   // this.picture: { staged, bytes, w, h } once it is ready; this.zoom: "fit" or a scale (1 = 100%).
   showImage(path, context, cx) {
     if (context.on) { this.fileError = "Images on another machine have no preview. Use Copy path, or open the folder on this computer."; return; }
@@ -647,7 +698,7 @@ export default class Files extends View {
 
   toggleSource(cx) {
     this.rendered = !this.rendered;
-    if (!this.rendered && !this.code) this.code = this.highlight(this.file);
+    if (!this.rendered && !this.code) this.code = this.highlight(this.direct?.path ?? this.file);
     cx.notify();
   }
 
@@ -672,12 +723,12 @@ export default class Files extends View {
 
   render(cx) {
     if (kitOff()) return offView();
-    if (key() !== this.context?.key || (this.resumeDue && window()?.visible !== false)) { this.resumeDue = false; this.refresh(cx); }
+    if (!this.direct && (key() !== this.context?.key || (this.resumeDue && window()?.visible !== false))) { this.resumeDue = false; this.refresh(cx); }
     const t = theme();
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)
       .on_mouse_down("back", (_e, cx) => {
-        if (!this.file) return;
+        if (this.direct || !this.file) return;
         this.back(cx);
         cx.stop_propagation();
       })
@@ -707,24 +758,32 @@ export default class Files extends View {
           return;
         }
         if (e.key !== "escape") return;
-        if (this.file) this.back(cx);
+        if (this.direct && this.dialog()) closeOverlay(this.dialog());
+        else if (this.file && !this.direct) this.back(cx);
         else if (this.dialog()) closeOverlay(this.dialog());
         else return;
         cx.stop_propagation();
       })
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => this.back(cx)).child("←")))
+        .when(Boolean(this.file) && !this.direct, el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => this.back(cx)).child("←")))
         .child(div().font_semibold().child("Files"))
         .when(Boolean(this.on), el => el.child(machineChip(t, this.on)))
-        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.file
-          ? [this.file, this.picture?.w ? `${this.picture.w}×${this.picture.h}` : null, this.picture ? kb(this.picture.bytes) : null].filter(Boolean).join(" · ")
-          : this.root?.split(/[\\/]/).pop() ?? ""))
+        .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.direct
+          ? `${this.direct.path}${this.direct.line ? `:${this.direct.line}${this.direct.column ? `:${this.direct.column}` : ""}` : ""}`
+          : this.file
+            ? [this.file, this.picture?.w ? `${this.picture.w}×${this.picture.h}` : null, this.picture ? kb(this.picture.bytes) : null].filter(Boolean).join(" · ")
+            : this.root?.split(/[\\/]/).pop() ?? ""))
         .when(Boolean(this.picture), el => el.child(this.zoomBar(t)))
         .when(Boolean(this.file) && Boolean(this.code) && !this.rendered && !this.picture, el => el.child(div().id("files-wrap").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
           .text_color(this.softWrap ? t.accent : t.muted).bg(this.softWrap ? t.raised : t.background)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleWrap(cx); }).child("Wrap")))
-        .when(Boolean(this.file) && this.text !== null && isMarkdown(this.file), el => el.child(div().id("files-source").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12).text_color(t.muted)
-          .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleSource(cx); }).child(this.rendered ? "Source" : "Rendered"))))
+        .when(Boolean(this.file) && this.text !== null && isMarkdown(this.direct?.path ?? this.file), el => el.child(div().id("files-source").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12).text_color(t.muted)
+          .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleSource(cx); }).child(this.rendered ? "Source" : "Rendered")))
+        .when(Boolean(this.direct) && Boolean(this.dialog()), el => el.child(div().id("files-direct-close").size(26).flex_none().flex().items_center().justify_center().rounded(8)
+          .cursor_pointer().hover(s => s.bg(t.hover)).tooltip("Close")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(this.dialog()); })
+          .child(svg("mods/files-md/x.svg").size(13).text_color(t.muted)))))
       .when(!this.file && Boolean(this.root), el => el.child(this.filterBar(t)))
       .when(!this.file && this.results !== null, el => el.child(v_flex().id("files-found").flex_1().min_h(0).overflow_y_scrollbar().p(6)
         .children(this.resultRows(t))
@@ -739,8 +798,13 @@ export default class Files extends View {
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(this.file), el => el.child(this.rendered && this.text !== null
         // The id changes with the file, so the rendered text and its scroll start over for each one.
-        ? div().id(`files-doc-${this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(14)
-          .child(TextView.markdown(`files-md-${this.file}`, this.text || "*This file is empty.*").raw_html(false).w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false))
+        ? (() => {
+            const hi = /^#[0-9a-f]{6}$/i.test(t.accent || "") ? t.accent + "33" : t.selection;
+            let md = TextView.markdown(`files-md-${this.direct?.path ?? this.file}`, this.text || "*This file is empty.*")
+              .raw_html(false).w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false);
+            if (this.lineRange) md = md.highlight_range(this.lineRange.start, this.lineRange.end, hi);
+            return div().id(`files-doc-${this.direct?.path ?? this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(14).child(md);
+          })()
         : this.picture ? this.imageView(t)
         : this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || (isImage(this.file) ? "Loading image…" : "Loading file…"))));
   }
