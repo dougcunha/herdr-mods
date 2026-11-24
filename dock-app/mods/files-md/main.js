@@ -6,7 +6,7 @@
 // The field at the top filters every file and folder of the root with a fuzzy match (fuzzy.js).
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, openOverlay, closeOverlay, appHome, shared, props } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, openOverlay, closeOverlay, appHome, shared, props, hc, notify } from "herdr";
 import { tokens, matchEntry, segments } from "./fuzzy.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -43,6 +43,32 @@ function lineRangeOf(text, line) {
   const rawEnd = nl < 0 ? text.length : nl;
   const end = rawEnd > start && text[rawEnd - 1] === "\r" ? rawEnd - 1 : rawEnd;
   return end > start ? { start, end } : null;
+}
+
+function findDocMatches(text, query, max = 200) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!text || !q) return [];
+  const hay = text.toLowerCase();
+  const out = [];
+  let at = 0;
+  while (out.length < max) {
+    const i = hay.indexOf(q, at);
+    if (i < 0) break;
+    out.push({ start: i, end: i + q.length });
+    at = i + q.length;
+  }
+  return out;
+}
+
+function targetTerminal() {
+  const f = focused();
+  if (f?.terminal) return f.terminal;
+  const all = panes();
+  const active = spaces().find(s => s.active);
+  const tabs = new Set((active?.tabs ?? []).map(t => t.id));
+  return all.find(p => p.terminal && p.focused)?.terminal
+    ?? all.find(p => p.terminal && tabs.has(p.tab))?.terminal
+    ?? null;
 }
 
 function location() {
@@ -229,6 +255,10 @@ export default class Files extends View {
     });
     this.filter.on("submit", (_e, cx) => this.openResult(this.results?.[this.pick], cx));
     this.query = ""; this.index = null; this.indexStale = true; this.results = null; this.pick = 0;
+    this.docSearch = InputState.new({ placeholder: "Find in document…" });
+    this.docSearch.on("change", (_e, cx) => { this.docQuery = this.docSearch.value(); this.docMatchIdx = 0; cx.notify(); });
+    this.docSearch.on("submit", (_e, cx) => this.stepDocMatch(1, cx));
+    this.docSearchOpen = false; this.docQuery = ""; this.docMatchIdx = 0; this.docSelection = null;
     const p = props() ?? {};
     if (p.openFile) {
       this.direct = {
@@ -541,6 +571,8 @@ export default class Files extends View {
 
   show(path, cx) {
     if (path && path !== this.forwardFile) this.forwardFile = null;
+    this.docSearchOpen = false; this.docQuery = ""; this.docMatchIdx = 0; this.docSelection = null;
+    try { this.docSearch?.set_value(""); } catch {}
     this.code?.release(); this.code = null; this.file = path; this.fileError = null; this.text = null; this.rendered = false;
     this.unstage(); this.picture = null;
     if (!path || !cx) return;
@@ -562,6 +594,8 @@ export default class Files extends View {
   }
 
   showDirect(direct, cx) {
+    this.docSearchOpen = false; this.docQuery = ""; this.docMatchIdx = 0; this.docSelection = null;
+    try { this.docSearch?.set_value(""); } catch {}
     this.code?.release(); this.code = null;
     this.file = direct.path.split(/[\\/]/).pop() || direct.path;
     this.on = direct.on ?? null;
@@ -702,6 +736,46 @@ export default class Files extends View {
     cx.notify();
   }
 
+  openDocSearch(cx) {
+    this.docSearchOpen = true;
+    cx.notify();
+    cx.timer.after(40, () => this.docSearch.focus());
+  }
+
+  closeDocSearch(cx) {
+    this.docSearchOpen = false;
+    this.docQuery = "";
+    this.docMatchIdx = 0;
+    this.docSearch.set_value("");
+    this.docSearch.blur();
+    this.keepKeys();
+    cx.notify();
+  }
+
+  stepDocMatch(delta, cx) {
+    const n = findDocMatches(this.text, this.docQuery).length;
+    if (!n) return;
+    this.docMatchIdx = (this.docMatchIdx + delta + n) % n;
+    cx.notify();
+  }
+
+  sendSelection(text, cx) {
+    const term = targetTerminal();
+    if (!term) {
+      notify({ title: "Files", body: "No active terminal found.", level: "warning", timeout: 3000 });
+      return;
+    }
+    cx.spawn(async () => {
+      try {
+        const r = await hc(["send", term, text]);
+        if (r.code !== 0) throw new Error(r.stderr || "hc send failed");
+        notify({ title: "Files", body: `Sent selection to ${term}`, level: "success", timeout: 2500 });
+      } catch (e) {
+        notify({ title: "Files", body: String(e?.message ?? e), level: "error", timeout: 5000 });
+      }
+    });
+  }
+
   rows(prefix, depth, out, t) {
     if (out.length >= TOTAL || depth > 40) return out;
     for (const entry of this.entries.get(prefix) ?? []) {
@@ -757,7 +831,13 @@ export default class Files extends View {
           cx.stop_propagation();
           return;
         }
+        if (e.key === "f" && (e.modifiers?.control || e.modifiers?.platform) && Boolean(this.file) && this.rendered && this.text !== null) {
+          this.openDocSearch(cx);
+          cx.stop_propagation();
+          return;
+        }
         if (e.key !== "escape") return;
+        if (this.docSearchOpen) { this.closeDocSearch(cx); cx.stop_propagation(); return; }
         if (this.direct && this.dialog()) closeOverlay(this.dialog());
         else if (this.file && !this.direct) this.back(cx);
         else if (this.dialog()) closeOverlay(this.dialog());
@@ -777,6 +857,10 @@ export default class Files extends View {
         .when(Boolean(this.file) && Boolean(this.code) && !this.rendered && !this.picture, el => el.child(div().id("files-wrap").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
           .text_color(this.softWrap ? t.accent : t.muted).bg(this.softWrap ? t.raised : t.background)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleWrap(cx); }).child("Wrap")))
+        .when(Boolean(this.file) && this.rendered && this.text !== null, el => el.child(div().id("files-doc-find").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .bg(this.docSearchOpen ? t.raised : t.background).hover(s => s.bg(t.hover)).tooltip("Find in document (Ctrl+F)")
+          .on_click((_e, cx) => { this.keepKeys(); this.docSearchOpen ? this.closeDocSearch(cx) : this.openDocSearch(cx); })
+          .child(svg("mods/files-md/search.svg").size(13).text_color(this.docSearchOpen ? t.accent : t.muted))))
         .when(Boolean(this.file) && this.text !== null && isMarkdown(this.direct?.path ?? this.file), el => el.child(div().id("files-source").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12).text_color(t.muted)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleSource(cx); }).child(this.rendered ? "Source" : "Rendered")))
         .when(Boolean(this.direct) && Boolean(this.dialog()), el => el.child(div().id("files-direct-close").size(26).flex_none().flex().items_center().justify_center().rounded(8)
@@ -784,6 +868,37 @@ export default class Files extends View {
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click((_e, cx) => { cx.stop_propagation(); closeOverlay(this.dialog()); })
           .child(svg("mods/files-md/x.svg").size(13).text_color(t.muted)))))
+      .when(Boolean(this.file) && this.rendered && this.text !== null && this.docSearchOpen, el => {
+        const matches = findDocMatches(this.text, this.docQuery);
+        const countText = matches.length ? `${(this.docMatchIdx % matches.length) + 1} / ${matches.length}` : this.docQuery.trim() ? "0 matches" : "";
+        return h_flex().id("files-doc-findbar").h(36).flex_none().px(10).gap(6).items_center().bg(t.surface).border_b(1).border_color(t.border)
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_key_down((e, cx) => { if (e.key === "escape") { this.closeDocSearch(cx); cx.stop_propagation(); } })
+          .child(svg("mods/files-md/search.svg").size(13).flex_none().text_color(t.dim))
+          .child(div().flex_1().min_w(0).child(Input.new(this.docSearch).w_full().text_size(12).text_color(t.foreground)))
+          .when(Boolean(countText), e => e.child(div().flex_none().text_size(11).text_color(t.dim).child(countText)))
+          .when(matches.length > 1, e => e
+            .child(div().id("files-find-prev").px(5).py(2).rounded(5).cursor_pointer().text_size(12).text_color(t.muted).hover(s => s.bg(t.hover)).on_click((_e, cx) => this.stepDocMatch(-1, cx)).child("↑"))
+            .child(div().id("files-find-next").px(5).py(2).rounded(5).cursor_pointer().text_size(12).text_color(t.muted).hover(s => s.bg(t.hover)).on_click((_e, cx) => this.stepDocMatch(1, cx)).child("↓")))
+          .child(div().id("files-find-close").p(4).rounded(5).cursor_pointer().hover(s => s.bg(t.hover)).on_click((_e, cx) => this.closeDocSearch(cx))
+            .child(svg("mods/files-md/x.svg").size(12).text_color(t.dim)));
+      })
+      .when(Boolean(this.file) && this.rendered && this.text !== null && Boolean(this.docSelection), el => {
+        const sel = this.docSelection;
+        const rawMd = sel.range ? this.text.slice(sel.range.start, sel.range.end) : sel.text;
+        return h_flex().id("files-doc-selbar").h(32).flex_none().px(10).gap(6).items_center().bg(t.raised).border_b(1).border_color(t.border)
+          .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(sel.text.replace(/\s+/g, " ").trim()))
+          .child(div().id("files-sel-copy").px(8).py(2).rounded(5).cursor_pointer().text_size(11.5).bg(t.background).border_1().border_color(t.border)
+            .text_color(t.foreground).hover(s => s.bg(t.hover))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { cx.write_to_clipboard(rawMd); notify({ title: "Files", body: "Copied Markdown", level: "info", timeout: 2500 }); })
+            .child("Copy Markdown"))
+          .child(div().id("files-sel-send").px(8).py(2).rounded(5).cursor_pointer().text_size(11.5).bg(t.accent).text_color(t.accent_foreground)
+            .hover(s => s.opacity(0.9))
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => this.sendSelection(rawMd, cx))
+            .child("Send to terminal"));
+      })
       .when(!this.file && Boolean(this.root), el => el.child(this.filterBar(t)))
       .when(!this.file && this.results !== null, el => el.child(v_flex().id("files-found").flex_1().min_h(0).overflow_y_scrollbar().p(6)
         .children(this.resultRows(t))
@@ -800,9 +915,17 @@ export default class Files extends View {
         // The id changes with the file, so the rendered text and its scroll start over for each one.
         ? (() => {
             const hi = /^#[0-9a-f]{6}$/i.test(t.accent || "") ? t.accent + "33" : t.selection;
+            const matchHi = /^#[0-9a-f]{6}$/i.test(t.accent || "") ? t.accent + "30" : t.selection;
+            const activeHi = /^#[0-9a-f]{6}$/i.test(t.ansi3 || "") ? t.ansi3 + "55" : t.selection;
             let md = TextView.markdown(`files-md-${this.direct?.path ?? this.file}`, this.text || "*This file is empty.*")
-              .raw_html(false).w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false);
+              .raw_html(false).w_full().text_size(13).text_color(t.foreground).selectable(true).scrollable(false)
+              .on_selection_change((s, cx) => { this.docSelection = s; cx.notify(); });
             if (this.lineRange) md = md.highlight_range(this.lineRange.start, this.lineRange.end, hi);
+            if (this.docSearchOpen && this.docQuery) {
+              const matches = findDocMatches(this.text, this.docQuery);
+              const cur = matches.length ? this.docMatchIdx % matches.length : -1;
+              matches.forEach((m, i) => { md = md.highlight_range(m.start, m.end, i === cur ? activeHi : matchHi); });
+            }
             return div().id(`files-doc-${this.direct?.path ?? this.file}`).flex_1().min_h(0).overflow_y_scrollbar().p(14).child(md);
           })()
         : this.picture ? this.imageView(t)

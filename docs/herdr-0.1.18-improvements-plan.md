@@ -109,7 +109,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - Verification: `herdr-app check` on installed mods + Ctrl/Cmd-click image and `README.md:10` links in a terminal.
 
 - [ ] **Phase 10 — Advanced `TextView` & `ScrollHandle` features**
-  - **10A — Markdown selection popup & in-document search:**
+  - [x] **10A — Markdown selection popup & in-document search:**
     - Selection popup (`on_selection_change` + `s.position` + `s.range`: Send to focused terminal / Copy Markdown) in `files-md`, `spec-board`, `issues`, `prs`
     - In-document Markdown search with `.highlight_range(...)` in `files-md` and `spec-board`
   - **10B — `ScrollHandle` metrics (`offset()`, `content_size()`, `viewport_size()`):**

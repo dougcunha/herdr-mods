@@ -8,7 +8,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, EditorState, Editor, TextView } from "gpui-base";
 import {
   theme, settings, props, shared, setShared, spaces, panes, focused, run, notify, nextCommand,
-  watchFolder, closeOverlay, exec, window,
+  watchFolder, closeOverlay, exec, window, hc,
 } from "herdr";
 import { findRepo, scan, sortSpecs, rowsOf, PHASES, phaseIndex, hilText, reviewStatus, groupOf, join, native, isWin, useMachine, machine, readText, git as gitIn } from "./data.js";
 import { machineInfo, writeFileOn } from "./remote.js";
@@ -58,6 +58,8 @@ const STR = {
     sent: "Prompt sent", sentBody: "{skill} for {name} in {where}",
     del: "Delete", openFolder: "Open folder", edit: "Edit", save: "Save", cancel: "Cancel", reload: "Reload",
     back: "Back", saved: "Saved", conflict: "The file changed on disk. Reload it or copy your text first.", wrap: "Wrap",
+    findInDoc: "Find in document…", copyMd: "Copy Markdown", sendTerm: "Send to terminal",
+    copiedMd: "Copied Markdown", sentTerm: "Sent to terminal", noTerm: "No active terminal found.",
     level: "Level", mode: "Mode", review: "Review", next: "Next",
     newTitle: "New spec", newHint: "Describe the request. The agent runs {skill} with it, then the SDD flow.",
     newPlaceholder: "What do you want to build or change?", startHere: "Start here", startInWt: "Start in a worktree…",
@@ -97,6 +99,8 @@ const STR = {
     sent: "Prompt enviado", sentBody: "{skill} para {name} em {where}",
     del: "Apagar", openFolder: "Abrir pasta", edit: "Editar", save: "Salvar", cancel: "Cancelar", reload: "Recarregar",
     back: "Voltar", saved: "Salvo", conflict: "O arquivo mudou no disco. Recarregue ou copie o seu texto antes.", wrap: "Quebra",
+    findInDoc: "Buscar no documento…", copyMd: "Copiar Markdown", sendTerm: "Enviar ao terminal",
+    copiedMd: "Markdown copiado", sentTerm: "Enviado ao terminal", noTerm: "Nenhum terminal ativo encontrado.",
     level: "Nível", mode: "Modo", review: "Revisão", next: "Próximo",
     newTitle: "Nova spec", newHint: "Descreva o pedido. O agente executa {skill} com ele e depois o fluxo SDD.",
     newPlaceholder: "O que você quer construir ou mudar?", startHere: "Iniciar aqui", startInWt: "Iniciar em worktree…",
@@ -165,6 +169,20 @@ export default class SpecBoard extends View {
     this.demo = null;
     this.search = InputState.new({ placeholder: this.s("search") });
     this.search.on("change", (_e, cx) => cx.notify());
+    this.docSearch = InputState.new({ placeholder: this.s("findInDoc") });
+    this.docSearch.on("change", (_e, cx) => { this.docQuery = this.docSearch.value(); this.docMatchIdx = 0; cx.notify(); });
+    this.docSearch.on("submit", (_e, cx) => {
+      const sp = this.selected;
+      const rel = this.doc ?? (sp ? this.tabsOf(sp).find((x) => x.id === this.tab)?.file : null);
+      const raw = sp && rel ? this.texts.get(join(sp.path, rel)) : null;
+      const txt = typeof raw === "string" ? (rel.endsWith(".json") ? "```json\n" + raw + "\n```" : raw) : "";
+      this.stepDocMatch(1, txt, cx);
+    });
+    this.docSearchOpen = false;
+    this.docQuery = "";
+    this.docMatchIdx = 0;
+    this.docSelection = null;
+    this.docSelectionPath = null;
     cx.timer.every(1500, (cx) => {
       if (kitOff()) return;
       if (window()?.visible === false) { this.followDue = true; return; }
@@ -575,7 +593,13 @@ export default class SpecBoard extends View {
   }
 
   onKey(e, cx) {
+    if (e.key === "f" && (e.modifiers?.control || e.modifiers?.platform) && !this.edit && !this.sheet && this.selected) {
+      this.openDocSearch(cx);
+      cx.stop_propagation();
+      return;
+    }
     if (e.key === "escape") {
+      if (this.docSearchOpen) { this.closeDocSearch(cx); cx.stop_propagation(); return; }
       if (this.sheet) { this.sheet = null; cx.stop_propagation(); cx.notify(); return; }
       if (this.menu || this.sortOpen) { this.menu = null; this.sortOpen = false; cx.stop_propagation(); cx.notify(); return; }
       if (!this.edit && this.closeDialog()) cx.stop_propagation();
@@ -584,6 +608,62 @@ export default class SpecBoard extends View {
     if ((e.key === "backspace" || e.key === "left") && !this.edit && !this.sheet) {
       if (this.doc) { this.doc = null; cx.notify(); } else if (this.sel && this.width < WIDE) this.select(null, cx);
     }
+  }
+
+  findDocMatches(text, query, max = 200) {
+    const q = String(query ?? "").trim().toLowerCase();
+    if (!text || !q) return [];
+    const hay = text.toLowerCase();
+    const out = [];
+    let at = 0;
+    while (out.length < max) {
+      const i = hay.indexOf(q, at);
+      if (i < 0) break;
+      out.push({ start: i, end: i + q.length });
+      at = i + q.length;
+    }
+    return out;
+  }
+
+  openDocSearch(cx) {
+    this.docSearchOpen = true;
+    cx.notify();
+    cx.timer.after(40, () => this.docSearch.focus());
+  }
+
+  closeDocSearch(cx) {
+    this.docSearchOpen = false;
+    this.docQuery = "";
+    this.docMatchIdx = 0;
+    this.docSearch.set_value("");
+    this.docSearch.blur();
+    this.keys.focus();
+    cx.notify();
+  }
+
+  stepDocMatch(delta, text, cx) {
+    const n = this.findDocMatches(text, this.docQuery).length;
+    if (!n) return;
+    this.docMatchIdx = (this.docMatchIdx + delta + n) % n;
+    cx.notify();
+  }
+
+  sendSelection(text, cx) {
+    const f = focused();
+    const all = panes();
+    const active = spaces().find((s) => s.active);
+    const tabs = new Set((active?.tabs ?? []).map((t) => t.id));
+    const term = f?.terminal ?? all.find((p) => p.terminal && p.focused)?.terminal ?? all.find((p) => p.terminal && tabs.has(p.tab))?.terminal ?? null;
+    if (!term) { this.toast(this.s("failed"), this.s("noTerm"), "warning"); return; }
+    cx.spawn(async () => {
+      try {
+        const r = await hc(["send", term, text]);
+        if (r.code !== 0) throw new Error(r.stderr || "hc send failed");
+        this.toast(this.s("sentTerm"), term, "success");
+      } catch (e) {
+        this.toast(this.s("failed"), String(e?.message ?? e), "error");
+      }
+    });
   }
 
   /** on_key_down for a text field: Esc closes the sheet, else the dialog. */
@@ -953,7 +1033,9 @@ export default class SpecBoard extends View {
       .when(sub, (e) => e.child(this.iconBtn(t, "sb-doc-back", "chevron-left", this.s("back"), (cx) => { this.doc = null; this.edit = null; cx.notify(); })))
       .child(svg(icon("file-text")).size(13).flex_none().text_color(t.dim))
       .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(rel))
-      .when(!editing && typeof text === "string", (e) => e.child(this.btn(t, "sb-edit", this.s("edit"), (cx) => this.startEdit(path, cx), { compact: true, symbol: "pencil" })))
+      .when(!editing && typeof text === "string", (e) => e
+        .child(this.iconBtn(t, "sb-doc-find", "search", this.s("findInDoc"), (cx) => (this.docSearchOpen ? this.closeDocSearch(cx) : this.openDocSearch(cx)), { active: this.docSearchOpen }))
+        .child(this.btn(t, "sb-edit", this.s("edit"), (cx) => this.startEdit(path, cx), { compact: true, symbol: "pencil" })))
       .when(editing, (e) => e
         .child(h_flex().id("sb-wrap").h(26).px(9).flex_none().items_center().rounded(8).text_size(12).font_semibold()
           .bg(t.raised).border_1().border_color(this.softWrap !== false ? t.accent : t.border)
@@ -963,18 +1045,50 @@ export default class SpecBoard extends View {
         .child(this.btn(t, "sb-cancel", this.s("cancel"), (cx) => { this.edit = null; cx.notify(); }, { compact: true }))
         .when(Boolean(this.edit?.error), (x) => x.child(this.btn(t, "sb-reload", this.s("reload"), (cx) => this.reloadEdit(cx), { compact: true })))
         .child(this.btn(t, "sb-save", this.s("save"), (cx) => this.saveEdit(cx), { compact: true, tone: "primary", symbol: "save" })));
+    const renderedText = typeof text === "string" ? (rel.endsWith(".json") ? "```json\n" + text + "\n```" : text) : "";
+    const matches = !editing && typeof text === "string" && this.docSearchOpen && this.docQuery ? this.findDocMatches(renderedText, this.docQuery) : [];
+    const findBar = !editing && typeof text === "string" && this.docSearchOpen ? h_flex().id("sb-doc-findbar").h(36).flex_none().px(10).gap(6).items_center().bg(t.surface).border_b_1().border_color(t.border)
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_key_down((e, cx) => { if (e.key === "escape") { this.closeDocSearch(cx); cx.stop_propagation(); } })
+      .child(svg(icon("search")).size(13).flex_none().text_color(t.dim))
+      .child(div().flex_1().min_w(0).child(Input.new(this.docSearch).w_full().text_size(12).text_color(t.foreground)))
+      .when(Boolean(this.docQuery.trim()), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim)
+        .child(matches.length ? `${(this.docMatchIdx % matches.length) + 1} / ${matches.length}` : "0")))
+      .when(matches.length > 1, (e) => e
+        .child(div().id("sb-find-prev").px(5).py(2).rounded(5).cursor_pointer().text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.stepDocMatch(-1, renderedText, cx)).child("↑"))
+        .child(div().id("sb-find-next").px(5).py(2).rounded(5).cursor_pointer().text_size(12).text_color(t.muted).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.stepDocMatch(1, renderedText, cx)).child("↓")))
+      .child(this.iconBtn(t, "sb-find-close", "close", this.s("cancel"), (cx) => this.closeDocSearch(cx))) : null;
+    const sel = !editing && typeof text === "string" && this.docSelection && this.docSelectionPath === path ? this.docSelection : null;
+    const rawMd = sel ? (sel.range ? renderedText.slice(sel.range.start, sel.range.end) : sel.text) : "";
+    const selBar = sel ? h_flex().id("sb-doc-selbar").h(32).flex_none().px(10).gap(6).items_center().bg(t.raised).border_b_1().border_color(t.border)
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(sel.text.replace(/\s+/g, " ").trim()))
+      .child(div().id("sb-sel-copy").px(8).py(2).rounded(5).cursor_pointer().text_size(11.5).bg(t.background).border_1().border_color(t.border)
+        .text_color(t.foreground).hover((s) => s.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.write_to_clipboard(rawMd); this.toast(this.s("copiedMd"), rel, "info"); })
+        .child(this.s("copyMd")))
+      .child(div().id("sb-sel-send").px(8).py(2).rounded(5).cursor_pointer().text_size(11.5).bg(t.accent).text_color(t.accent_foreground)
+        .hover((s) => s.opacity(0.9))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => this.sendSelection(rawMd, cx))
+        .child(this.s("sendTerm"))) : null;
     let body;
     if (editing) {
       body = v_flex().flex_1().min_h(0)
         .when(Boolean(this.edit.error), (e) => e.child(div().px(12).py(6).text_size(12).text_color(t.ansi1).bg(tint(t.ansi1, "14")).child(this.edit.error)))
         .child(div().flex_1().min_h(0).p(4).child(Editor.new(this.edit.state).size_full()));
     } else if (typeof text === "string") {
-      body = div().id(`sb-doc-${path}`).flex_1().min_h(0).overflow_y_scrollbar().px(18).py(12)
-        .child(TextView.markdown(`sb-md-${path}`, rel.endsWith(".json") ? "```json\n" + text + "\n```" : text).raw_html(false).selectable(true).scrollable(false).text_size(13));
+      const matchHi = tint(t.accent, "30") || t.selection;
+      const activeHi = tint(t.ansi3, "55") || t.selection;
+      const cur = matches.length ? this.docMatchIdx % matches.length : -1;
+      let md = TextView.markdown(`sb-md-${path}`, renderedText).raw_html(false).selectable(true).scrollable(false).text_size(13)
+        .on_selection_change((s, cx) => { this.docSelection = s; this.docSelectionPath = s ? path : null; cx.notify(); });
+      matches.forEach((m, i) => { md = md.highlight_range(m.start, m.end, i === cur ? activeHi : matchHi); });
+      body = div().id(`sb-doc-${path}`).flex_1().min_h(0).overflow_y_scrollbar().px(18).py(12).child(md);
     } else {
       body = this.message(t, text === null ? this.s("noFile", { name: rel }) : this.s("loading"));
     }
-    return v_flex().flex_1().min_h(0).child(bar).child(body);
+    return v_flex().flex_1().min_h(0).child(bar).when(Boolean(findBar), (e) => e.child(findBar)).when(Boolean(selBar), (e) => e.child(selBar)).child(body);
   }
 
   // ---- sheets -------------------------------------------------------------------

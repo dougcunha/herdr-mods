@@ -12,7 +12,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
-import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window } from "herdr";
+import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window, hc, focused, panes } from "herdr";
 import { search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
 import { TOKEN_PAGE, STORE, platform } from "./jira-client.js";
@@ -444,12 +444,13 @@ export default class SpaceIssues extends View {
   // The list shows where it was; fresh data loads behind it.
   back(cx) {
     if (this.open) this.forwardIssue = this.open;
-    this.open = null; this.page = null; this.pageError = null;
+    this.open = null; this.page = null; this.pageError = null; this.docSelection = null;
     this.handle.focus(); this.refresh(cx); cx.notify(this.pageView); cx.notify();
   }
 
   // A page from the cache shows at once and is fetched again behind it.
   load(i, cx) {
+    if (this.open?.key !== i.key) this.docSelection = null;
     // Another issue: the comment box starts empty.
     if (this.commentFor !== i.key) { this.commentFor = i.key; this.commentError = ""; this.atUser = null; this.named = new Map(); this.reply = null; try { this.commentBox?.set_value(""); } catch { /* not made yet */ } }
     this.open = i; this.shown = i; this.page = this.pages.get(pageKey(i)) ?? null; this.pageError = null;
@@ -845,7 +846,12 @@ export default class SpaceIssues extends View {
         .child(`${this.only.at + 1} of ${this.only.list.length}`)
       : full ? k.button("issue-back", "← Back", () => run("issues.back")) : null;
     const m = p?.meta ?? {};
-    const md = (id, body) => TextView.markdown(id, body).raw_html(false).selectable(true).on_link_click((url) => openUrl(url));
+    const md = (id, body) => TextView.markdown(id, body).raw_html(false).selectable(true)
+      .on_link_click((url) => openUrl(url))
+      .on_selection_change((s, cx) => {
+        this.docSelection = s ? { key: i.key, text: s.text, markdown: s.range ? body.slice(s.range.start, s.range.end) : s.text } : null;
+        cx.notify(this.pageView);
+      });
     // A text block (the description, a refinement): the start, then Show full text for a long one. The
     // choice is kept for each issue and field while the page stays open (the same in the list, the dialog).
     const fullPanel = (id, lt, fallback) => {
@@ -948,6 +954,41 @@ export default class SpaceIssues extends View {
     ];
     const keys = [...(this.only || split() ? [[["↑", "↓"], "previous / next"]] : []), ...(lead ? [[["⌘", "↵"], "go to agent"]] : this.repo && p ? [[["⌘", "↵"], "Start agent"]] : []),
       [["O"], `open in ${home(i)}`], [["C"], "copy key"], [["R"], "refresh"], [["Esc"], this.only ? "close" : "back"]];
+    const sel = this.docSelection?.key === i.key ? this.docSelection : null;
+    const sendSel = (text, cx) => {
+      const f = focused(), all = panes(), active = spaces().find((s) => s.active), tabs = new Set((active?.tabs ?? []).map((tb) => tb.id));
+      const term = f?.terminal ?? all.find((pn) => pn.terminal && pn.focused)?.terminal ?? all.find((pn) => pn.terminal && tabs.has(pn.tab))?.terminal ?? null;
+      if (!term) { notify({ title: "Issues", body: "No active terminal found.", level: "warning", timeout: 3000 }); return; }
+      cx.spawn(async () => {
+        try {
+          const r = await hc(["send", term, text]);
+          if (r.code !== 0) throw new Error(r.stderr || "hc send failed");
+          notify({ title: "Issues", body: `Sent selection to ${term}`, level: "success", timeout: 2500 });
+        } catch (e) { notify({ title: "Issues", body: String(e?.message ?? e), level: "error", timeout: 5000 }); }
+      });
+    };
+    const selBar = sel ? h_flex().id("issue-selbar").px(10).py(6).gap(6).items_center().rounded(8).bg(t.raised).border_1().border_color(t.border)
+      .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(sel.text.replace(/\s+/g, " ").trim()))
+      .child(div().id("issue-sel-copy").px(8).py(2).rounded(5).cursor_pointer().text_size(fs.meta).bg(t.background).border_1().border_color(t.border)
+        .text_color(t.foreground).hover((s) => s.bg(t.hover))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => { cx.write_to_clipboard(sel.markdown); notify({ title: "Issues", body: "Copied Markdown", level: "info", timeout: 2500 }); })
+        .child("Copy Markdown"))
+      .child(div().id("issue-sel-send").px(8).py(2).rounded(5).cursor_pointer().text_size(fs.meta).bg(t.accent).text_color(t.accent_foreground)
+        .hover((s) => s.opacity(0.9))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => sendSel(sel.markdown, cx))
+        .child("Send to terminal")) : null;
+    const mainBody = !p ? [div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…")]
+      : tab === "activity" ? [
+        ...(timeline.length ? timeline : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments yet.")]),
+        ...(p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
+        // Jira only: a new comment, posted as the signed-in account.
+        ...(!gh ? [this.composer(t, i)] : []),
+      ]
+      : tab === "files" ? [this.attachments(t, i, files)]
+      : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => fullPanel(`extra-${i.key}-${x.ph}`, x.long, x.md))
+      : [fullPanel(`desc-${i.key}`, p.md.descLong, p.md.description || "_No description._")];
     return pageLayout({
       id: "issue-detail", t, wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, nav,
       actions: [
@@ -972,16 +1013,7 @@ export default class SpaceIssues extends View {
         .when(Boolean(reporter), (e) => e.child(div().pl(2).text_size(fs.meta).text_color(t.dim)
           .child(`${reporter} ${gh ? "opened" : "reported"} this${created ? ` ${ago(created)} ago` : ""}`))),
       tabs: k.tabs(tab, tabList, pickTab),
-      main: !p ? [div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…")]
-        : tab === "activity" ? [
-          ...(timeline.length ? timeline : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments yet.")]),
-          ...(p.md.count > COMMENTS ? [div().pl(38).text_size(fs.meta).text_color(t.dim).child(`Older comments are in ${home(i)}.`)] : []),
-          // Jira only: a new comment, posted as the signed-in account.
-          ...(!gh ? [this.composer(t, i)] : []),
-        ]
-        : tab === "files" ? [this.attachments(t, i, files)]
-        : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => fullPanel(`extra-${i.key}-${x.ph}`, x.long, x.md))
-        : [fullPanel(`desc-${i.key}`, p.md.descLong, p.md.description || "_No description._")],
+      main: p && selBar ? [selBar, ...mainBody] : mainBody,
       side,
       footer: k.footer(keys),
     });

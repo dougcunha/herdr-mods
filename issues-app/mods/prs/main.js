@@ -6,7 +6,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window } from "herdr";
+import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window, hc, focused, panes } from "herdr";
 import { me, list, mentioned, hasGhStack, TRANSIENT, view, haystack, words, matches, ago, hash, slug, GROUPS } from "./data.js";
 import { stacks, stackOf, stackAgent, agentMode } from "./stacks.js";
 import { detail, prepare } from "./detail.js";
@@ -337,7 +337,7 @@ export default class PullRequests extends View {
   // The list shows where it was; fresh data loads behind it.
   back(cx) {
     if (this.open != null) this.forwardPr = this.open;
-    this.open = null; this.page = null; this.pageError = null;
+    this.open = null; this.page = null; this.pageError = null; this.docSelection = null;
     this.handle.focus(); this.refresh(cx); cx.notify(this.pageView); cx.notify();
   }
 
@@ -510,6 +510,19 @@ export default class PullRequests extends View {
     } catch { this.seenAction = 0; }
   }
 
+  sendSelection(text, cx) {
+    const f = focused(), all = panes(), active = spaces().find((s) => s.active), tabs = new Set((active?.tabs ?? []).map((tb) => tb.id));
+    const term = f?.terminal ?? all.find((pn) => pn.terminal && pn.focused)?.terminal ?? all.find((pn) => pn.terminal && tabs.has(pn.tab))?.terminal ?? null;
+    if (!term) { notify({ title: "Pull requests", body: "No active terminal found.", level: "warning", timeout: 3000 }); return; }
+    cx.spawn(async () => {
+      try {
+        const r = await hc(["send", term, text]);
+        if (r.code !== 0) throw new Error(r.stderr || "hc send failed");
+        notify({ title: "Pull requests", body: `Sent selection to ${term}`, level: "success", timeout: 2500 });
+      } catch (e) { notify({ title: "Pull requests", body: String(e?.message ?? e), level: "error", timeout: 5000 }); }
+    });
+  }
+
   safeDetail(t, page = this.page) {
     try {
       const k = kit(t), full = !this.only && pageMode("prs") === "full";
@@ -525,6 +538,9 @@ export default class PullRequests extends View {
         wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, tab: this.tab ?? "description",
         pickTab: (tab, cx) => this.pickTab(tab, cx), copyBranch: (cx) => this.copyBranch(cx), openUrl: (url) => openUrl(url),
         copyNumber: (cx) => this.copyNumber(cx),
+        selection: this.docSelection,
+        onSelect: (sel, cx) => { this.docSelection = sel; cx.notify(this.pageView); },
+        onSendSelection: (text, cx) => this.sendSelection(text, cx),
         fold: { open: detailsOpen(), toggle: (cx) => { setShared("prs.detailsOpen", !detailsOpen()); cx.notify(this.pageView); } },
         open: () => openUrl((this.page ?? this.picked).url),
         review: this.where?.repo ? () => this.review(this.page) : null,

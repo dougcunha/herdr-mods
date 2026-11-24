@@ -3,6 +3,7 @@
 // (Description, Conversation, Checks, Files), the conversation as a timeline ending in the merge
 // box, and a Details card (people, branches, size, dates; it collapses) and Development in a sidebar.
 
+import { notify } from "herdr";
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { ago } from "./data.js";
@@ -84,13 +85,16 @@ export function detail(pr, t, a) {
     return v_flex().rounded(8).border_1().border_color(t.border).overflow_hidden().ml(38).children(rows);
   };
 
-  const descriptionTab = () => [k.panel(`pr-body-${pr.number}`, TextView.markdown(`body-${pr.number}`, pr.body || "_No description._").raw_html(false).selectable(true).on_link_click((url) => openUrl(url)))];
+  const md = (id, src) => TextView.markdown(id, src).raw_html(false).selectable(true)
+    .on_link_click((url) => openUrl(url))
+    .on_selection_change((s, cx) => a.onSelect?.(s ? { pr: pr.number, text: s.text, markdown: s.range ? src.slice(s.range.start, s.range.end) : s.text } : null, cx));
+  const descriptionTab = () => [k.panel(`pr-body-${pr.number}`, md(`body-${pr.number}`, pr.body || "_No description._"))];
   const conversationTab = () => [
     ...(pr.conversation.length ? [] : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments or reviews yet.")]),
     ...pr.conversation.map((c, i) => (c.text != null
       ? k.event(`ev-${pr.number}-${i}`, c.who, c.text, `${ago(c.at)} ago`, c.color && t[c.color])
       : k.card(`cv-${pr.number}-${i}`, c.who, c.verdict ? h_flex().gap(6).items_center().child("reviewed").child(k.pill(VERDICT[c.verdict]?.[0] ?? c.verdict.toLowerCase(), t[VERDICT[c.verdict]?.[2]] ?? t.muted)) : "commented",
-        c.at ? `${ago(c.at)} ago` : "", c.body ? TextView.markdown(`comment-${pr.number}-${i}`, c.body).raw_html(false).selectable(true).on_link_click((url) => openUrl(url)) : div().text_size(fs.meta).text_color(t.dim).child("No comment.")))),
+        c.at ? `${ago(c.at)} ago` : "", c.body ? md(`comment-${pr.number}-${i}`, c.body) : div().text_size(fs.meta).text_color(t.dim).child("No comment.")))),
     merge(),
   ];
   const checksTab = () => [checks.length
@@ -155,6 +159,21 @@ export function detail(pr, t, a) {
   const checkChip = !checks.length ? null : n.fail ? [`${n.fail} failing`, "x", t.ansi1, true] : n.pending ? [`${n.pending} running`, "pending", t.ansi3, false] : [`${n.pass} passed`, "check", t.ansi2, false];
   const mergeChip = ms === "DIRTY" ? ["Conflicts", "x", t.ansi1, true] : ms === "BEHIND" ? ["Behind base", "pending", t.ansi3, false] : ms === "CLEAN" ? ["Ready to merge", "merged", t.ansi2, true] : null;
 
+  const sel = !loading && a.selection?.pr === pr.number ? a.selection : null;
+  const selBar = sel ? h_flex().id("pr-selbar").px(10).py(6).gap(6).items_center().rounded(8).bg(t.raised).border_1().border_color(t.border)
+    .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(sel.text.replace(/\s+/g, " ").trim()))
+    .child(div().id("pr-sel-copy").px(8).py(2).rounded(5).cursor_pointer().text_size(fs.meta).bg(t.background).border_1().border_color(t.border)
+      .text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => { cx.write_to_clipboard(sel.markdown); notify({ title: "Pull requests", body: "Copied Markdown", level: "info", timeout: 2500 }); })
+      .child("Copy Markdown"))
+    .child(div().id("pr-sel-send").px(8).py(2).rounded(5).cursor_pointer().text_size(fs.meta).bg(t.accent).text_color(t.accent_foreground)
+      .hover((s) => s.opacity(0.9))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => a.onSendSelection?.(sel.markdown, cx))
+      .child("Send to terminal")) : null;
+  const mainBody = loading ? [div().p(10).text_color(a.error ? t.ansi1 : t.dim).child(a.error ?? "Loading the description, checks and conversation…")]
+    : tab === "checks" ? checksTab() : tab === "files" ? filesTab() : tab === "conversation" ? conversationTab() : descriptionTab();
   const commits = pr.commitCount ? `${pr.commitCount} commit${pr.commitCount > 1 ? "s" : ""}` : "";
   return pageLayout({
     id: "pr-detail", t, wide: a.wide, nav: a.nav,
@@ -180,8 +199,7 @@ export function detail(pr, t, a) {
         .child("from").child(k.code(pr.headRefName ?? ""))
         .child(iconButton(t, "copy-branch", "copy", (cx) => a.copyBranch(cx), { size: 24, tooltip: "Copy the branch name" }))),
     tabs: k.tabs(tab, [["description", "Description"], ["conversation", "Conversation", loading ? null : pr.commentCount], ["checks", "Checks", loading ? null : checks.length], ["files", "Files", loading ? null : pr.changedFiles ?? files.length]], a.pickTab),
-    main: loading ? [div().p(10).text_color(a.error ? t.ansi1 : t.dim).child(a.error ?? "Loading the description, checks and conversation…")]
-      : tab === "checks" ? checksTab() : tab === "files" ? filesTab() : tab === "conversation" ? conversationTab() : descriptionTab(),
+    main: selBar ? [selBar, ...mainBody] : mainBody,
     side,
     footer: k.footer(a.keys),
   });
