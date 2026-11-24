@@ -1,7 +1,7 @@
 // CI Dash for the Herdr app: GitHub Actions runs, dispatch and artifacts of the
 // focused repository. Port of the ci-dash TUI plugin.
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, TextView } from "gpui-base";
+import { v_flex, h_flex, InputState, TextView, ScrollHandle } from "gpui-base";
 import { spaces, panes, focused, exec, home, theme, notify, props, shared, setShared, closeOverlay, pickFolder, window } from "herdr";
 import { Gh, resolveRepo, errorHint, safeName } from "./gh.js";
 import { relTime, duration, bytes, stateOf, mapLimit, fileType, GLYPH } from "./format.js";
@@ -128,6 +128,8 @@ export default class CiDash extends View {
     this.runFilter = this.makeFilter("Filter runs…");
     this.artFilter = this.makeFilter("Filter artifacts…");
     this.runSort = loadSort();
+    this.runsScroll = ScrollHandle.new();
+    this.scrollCheckPending = false;
     this.reset();
     cx.timer.every(POLL_MS, (cx) => {
       if (kitOff()) return;
@@ -140,6 +142,12 @@ export default class CiDash extends View {
     const state = InputState.new({ placeholder });
     state.on("change", (_e, cx) => cx.notify());
     return state;
+  }
+
+  scheduleScrollCheck(cx) {
+    if (this.scrollCheckPending) return;
+    this.scrollCheckPending = true;
+    cx.timer.after(80, (cx) => { this.scrollCheckPending = false; cx.notify(); });
   }
 
   reset() {
@@ -621,6 +629,8 @@ export default class CiDash extends View {
       for (const r of inGroup) rows.push(this.runRow(r, t));
     }
 
+    const showTop = shown.length > 0 && (this.runsScroll?.offset?.()?.y ?? 0) > 240;
+
     return v_flex().flex_1().min_h(0)
       .child(v_flex().flex_none().px(12).pt(10).pb(2).gap(8)
         .child(searchBox(t, "run-filter", this.runFilter, { right: filtering ? `${shown.length}/${this.runs.length}` : `${this.runs.length}`, onClear: (cx) => { this.runFilter.set_value(""); cx.notify(); } }))
@@ -635,10 +645,21 @@ export default class CiDash extends View {
             try { localStorage.setItem(SORT_KEY, v); } catch {}
             cx.notify();
           }))))
-      .child(v_flex().id("runs-scroll").flex_1().min_h(0).overflow_y_scrollbar().pb(8).children(rows)
-        .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
-          .child(div().text_size(12).text_color(t.dim).child("No run matches the filters."))
-          .child(this.button("clear-run-filters", "Clear filters", (cx) => this.clearRunFilters(cx), t)))));
+      .child(div().flex_1().min_h(0).relative()
+        .child(v_flex().id("runs-scroll").size_full().min_h(0).overflow_y_scrollbar().track_scroll(this.runsScroll).pb(8)
+          .on_scroll_wheel((_e, cx) => this.scheduleScrollCheck(cx))
+          .children(rows)
+          .when(!shown.length, (e) => e.child(v_flex().p(16).gap(8).items_start()
+            .child(div().text_size(12).text_color(t.dim).child("No run matches the filters."))
+            .child(this.button("clear-run-filters", "Clear filters", (cx) => this.clearRunFilters(cx), t)))))
+        .when(showTop, (e) => e.child(
+          h_flex().id("runs-scroll-top").absolute().right(14).bottom(10).h(24).px(8).gap(4).items_center().rounded(12)
+            .bg(t.raised).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer()
+            .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+            .tooltip("Back to top")
+            .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+            .on_click((_e, cx) => { cx.stop_propagation(); this.runsScroll.scroll_to_item(0); this.scheduleScrollCheck(cx); })
+            .child("↑ Top"))));
   }
 
   stepRow(s, t) {

@@ -819,6 +819,12 @@ export default class Tabs extends View {
   // mouse sends many small events per gesture: a short swipe or one smoothed notch (about
   // 25 px) switches one tab, a longer swipe keeps going a tab per 60 px, at most one every
   // 100 ms so each shows.
+  scheduleScrollCheck(cx) {
+    if (this.scrollCheckPending) return;
+    this.scrollCheckPending = true;
+    cx.timer.after(60, (cx) => { this.scrollCheckPending = false; cx.notify(); });
+  }
+
   wheel(e) {
     if (e.delta_lines) {
       if (e.delta_lines.y) run(e.delta_lines.y > 0 ? "tab.prev" : "tab.next");
@@ -1016,6 +1022,12 @@ export default class Tabs extends View {
         .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(wbtn("maximize", win ? svg(`mods/tabs-dock/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(wbtn("close-window", win ? svg("mods/tabs-dock/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
+    const scrollOff = this.scroll.offset();
+    const scrollContent = this.scroll.content_size();
+    const scrollViewport = this.scroll.viewport_size();
+    const overflowLeft = scrollViewport.width > 0 && scrollOff.x > 2;
+    const overflowRight = scrollViewport.width > 0 && scrollContent.width > scrollViewport.width + 2 && (scrollOff.x + scrollViewport.width) < scrollContent.width - 2;
+    const lastItem = shown.length - 1 + (space?.machine ? 1 : 0);
     return h_flex().id("tabs-dock-bar").size_full().min_w(0).pl(lightsPadding).pr(BAR_RIGHT).gap(6).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_size_change((size, cx) => {
         const width = Math.round(size.width);
@@ -1032,12 +1044,26 @@ export default class Tabs extends View {
           if (this.pressGen === gen && this.pressed !== null) this.pressed = null;
         });
       })
-      .on_scroll_wheel(e => this.wheel(e))
+      .on_scroll_wheel((e, cx) => { this.wheel(e); this.scheduleScrollCheck(cx); })
+      .when(overflowLeft, el => el.child(
+        div().id("tabs-overflow-left").w(18).h(24).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
+          .text_size(13).text_color(t.muted).bg(t.raised).border_1().border_color(t.border)
+          .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("More tabs to the left")
+          .on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); this.scroll.scroll_to_item(0); this.scheduleScrollCheck(cx); })
+          .child("‹")))
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().track_scroll(this.scroll)
-        .on_size_change((_size, cx) => { if (activeItem >= 0) { this.scroll.scroll_to_item(activeItem); cx.notify(); } })
+        .on_size_change((_size, cx) => { if (activeItem >= 0) this.scroll.scroll_to_item(activeItem); this.scheduleScrollCheck(cx); cx.notify(); })
         // A space on another machine: its tabs and panes run there. The same chip as in the Kanban bar.
         .when(Boolean(space?.machine), el => el.child(machineChip(t, space.machine)))
         .children(shown.map(item)))
+      .when(overflowRight && lastItem >= 0, el => el.child(
+        div().id("tabs-overflow-right").w(18).h(24).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
+          .text_size(13).text_color(t.muted).bg(t.raised).border_1().border_color(t.border)
+          .hover(s => s.bg(t.hover).text_color(t.foreground)).tooltip("More tabs to the right")
+          .on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); this.scroll.scroll_to_item(lastItem); this.scheduleScrollCheck(cx); })
+          .child("›")))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
       .child(buttonGroup(t, [densityButton, gearButton]))
       .child(right);

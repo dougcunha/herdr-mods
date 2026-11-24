@@ -108,11 +108,11 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - `dock-app/layouts/main-dock.json` & `kanban-app/layouts/kanban.json`: add `"link_handlers": ["image-viewer", "files-md"]`
   - Verification: `herdr-app check` on installed mods + Ctrl/Cmd-click image and `README.md:10` links in a terminal.
 
-- [ ] **Phase 10 — Advanced `TextView` & `ScrollHandle` features**
+- [x] **Phase 10 — Advanced `TextView` & `ScrollHandle` features**
   - [x] **10A — Markdown selection popup & in-document search:**
     - Selection popup (`on_selection_change` + `s.position` + `s.range`: Send to focused terminal / Copy Markdown) in `files-md`, `spec-board`, `issues`, `prs`
     - In-document Markdown search with `.highlight_range(...)` in `files-md` and `spec-board`
-  - **10B — `ScrollHandle` metrics (`offset()`, `content_size()`, `viewport_size()`):**
+  - [x] **10B — `ScrollHandle` metrics (`offset()`, `content_size()`, `viewport_size()`):**
     - Real tab overflow indicators in `dock-app/mods/tabs-dock/main.js`
     - "Top" button / auto-load more at bottom in `git-client-app/mods/git-client/history.js`, `issues-app/mods/issues/main.js`, `issues-app/mods/prs/main.js`, `ci-dash-app/mods/ci-dash/main.js`
   - Verification: `herdr-app check` + live interaction and `herdr-app shot` checks.

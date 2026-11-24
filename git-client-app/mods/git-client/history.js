@@ -5,7 +5,7 @@
 //
 // Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
 import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run, window as appWindow } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
@@ -116,6 +116,8 @@ export class History {
     this.listId = `gc-rows-${Math.random().toString(36).slice(2)}`;
     this.diffId = `${this.listId}-diff`;
     this.splitId = `${this.listId}-split`;
+    this.listScroll = VirtualListScrollHandle.new();
+    this.scrollCheckPending = false;
     this.splitGen = 0; this.detailsOpen = false; this.detailsHeight = savedDetailsHeight();
     this.all = true; this.remotes = true; this.wide = false; this.graphMax = 160; this.scale = null;
     this.filter = null; this.filterKey = "";
@@ -570,9 +572,17 @@ export class History {
       .children(this.trailing().flatMap((k) => [handle(k), head(titles[k], this.cols[k]).when(k === "date", (e) => e.text_right())]));
   }
 
+  scheduleScrollCheck(cx) {
+    if (this.scrollCheckPending) return;
+    this.scrollCheckPending = true;
+    cx.timer.after(80, (cx) => { this.scrollCheckPending = false; cx.notify(); });
+  }
+
   list(t, mono) {
     const colors = laneColors(t), width = this.graphWidth(), count = this.commits.length + (this.hasMore ? 1 : 0);
+    const showTop = (this.listScroll?.offset?.()?.y ?? 0) > 240;
     return div().size_full().min_h(0).relative()
+      .on_scroll_wheel((_e, cx) => this.scheduleScrollCheck(cx))
       .on_mouse_down("left", (e) => { this.press = { x: (e.local_position?.x ?? 0) / this.unit(), count: e.click_count }; })
       .child(v_virtual_list(this.listId, count, this.listRow(), (i) => this.commits[i]?.hash ?? "more",
         (range, cx) => {
@@ -586,11 +596,20 @@ export class History {
             : div().id("gc-more").h(this.rowH()).flex_none().px(14).flex().items_center().text_color(t.accent).hover((s) => s.bg(t.hover))
               .child(this.loading ? "Loading more commits…" : `Load ${PAGE} more commits`));
         })
+        .track_scroll(this.listScroll)
         // Rows of a virtual list can't hold their own handlers: the list reports the row's key.
         .on_item_click((key, cx) => this.clicked(key, cx))
         .on_item_secondary_click((key, e, cx) => this.contextMenu(key, e, cx))
         .size_full())
-      .child(Scrollbar.vertical(this.listId).viewport_from_layout().absolute().inset_0());
+      .child(Scrollbar.vertical(this.listId).viewport_from_layout().absolute().inset_0())
+      .when(showTop, (e) => e.child(
+        h_flex().id("gc-scroll-top").absolute().right(14).bottom(10).h(24).px(8).gap(4).items_center().rounded(12)
+          .bg(t.raised).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+          .tooltip("Back to top")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.listScroll.scroll_to_item(0, "top"); this.scheduleScrollCheck(cx); })
+          .child("↑ Top")));
   }
 
   detailsPane(t, mono) {

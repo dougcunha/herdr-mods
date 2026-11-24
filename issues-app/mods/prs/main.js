@@ -5,7 +5,7 @@
 // Based on herdr-ranch-prs of Herdr Ranch by Jelle Slowack (MIT, see ../../LICENSE).
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window, hc, focused, panes } from "herdr";
 import { me, list, mentioned, hasGhStack, TRANSIENT, view, haystack, words, matches, ago, hash, slug, GROUPS } from "./data.js";
 import { stacks, stackOf, stackAgent, agentMode } from "./stacks.js";
@@ -87,6 +87,8 @@ export default class PullRequests extends View {
     this.query = ""; this.filter = "open"; this.mentions = null; this.mentionsVersion = 0; this.open = null; this.page = null; this.pageError = null; this.width = lastWidth(); this.version = 0;
     this.gen = 0; this.data = new Map(); this.hay = new Map(); this.stacks = []; this.inStack = new Map(); this.collapsed = new Set(); this.saved = null; this.versions = 0; this.kept = new Map();
     this.handle = cx.focus_handle();
+    this.listScroll = ScrollHandle.new();
+    this.scrollCheckPending = false;
     cx.spawn(async (cx) => { await writeIcons(); cx.notify(); });
     // The open pull request's page is a view of its own: a live change redraws the list only,
     // and a page that loads redraws the page only (one long render was cut off).
@@ -99,6 +101,12 @@ export default class PullRequests extends View {
 
     // Key commands from keys.json ("prs.down"), also reachable with `herdr-app do`.
     cx.spawn(async (cx) => { try { for (;;) this.command(await nextCommand(), cx); } catch { /* the copy is closing */ } });
+  }
+
+  scheduleScrollCheck(cx) {
+    if (this.scrollCheckPending) return;
+    this.scrollCheckPending = true;
+    cx.timer.after(80, (cx) => { this.scrollCheckPending = false; cx.notify(); });
   }
 
   // Opened as a page dialog: one pull request of `p.prs` (the list's, in its order), stepped
@@ -666,8 +674,10 @@ export default class PullRequests extends View {
     // frame drawn (hovering included), which made hovering lag; this one runs no script
     // between renders.
     const [shownItems, windowed] = this.keyWindow(items, (i) => i.data?.number === this.cursor, s.two ? fs.row2 : fs.row);
-    const list = v_flex().w_full().flex_1().min_h(0)
-      .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "pr-list-keys" : "pr-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar()
+    const showTop = items.length > 0 && (this.listScroll?.offset?.()?.y ?? 0) > 240;
+    const list = v_flex().w_full().flex_1().min_h(0).relative()
+      .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "pr-list-keys" : "pr-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar().track_scroll(this.listScroll)
+        .on_scroll_wheel((_e, cx) => this.scheduleScrollCheck(cx))
         .children(shownItems.map((i) => (i.group ? heading(i.group) : i.stack ? this.stackRow(i, s) : this.row(i.data, s, i.level ? i : null).id(i.key)
           .on_click((_e, cx) => { this.handle.focus(); this.pick(i.data.number, cx); })
           // Right-click: Open on GitHub, Agent review, Copy number, Copy branch (row-menu.js).
@@ -677,6 +687,14 @@ export default class PullRequests extends View {
             if (!on) { if (this.hovered === n) this.hovered = null; return; }
             this.hovered = n; this.prefetch(n, cx);
           }))))))
+      .when(showTop, (e) => e.child(
+        h_flex().id("prs-scroll-top").absolute().right(14).bottom(10).h(24).px(8).gap(4).items_center().rounded(12)
+          .bg(t.raised).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+          .tooltip("Back to top")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.keys = false; this.listScroll.scroll_to_item(0); this.scheduleScrollCheck(cx); cx.notify(); })
+          .child("↑ Top")))
       .when(!items.length, (e) => e.child(v_flex().p(12).gap(8).items_start()
         .child(div().text_color(this.error ? t.ansi1 : t.dim).child(empty))
         .when(this.unlinked, (e) => e.child(toggle("link-empty", "Link this space", false, () => openLinkDialog("prs"))))));

@@ -11,7 +11,7 @@
 // Based on herdr-ranch-issues of Herdr Ranch by Jelle Slowack (MIT, see ../../LICENSE).
 
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextView, TextareaState, Textarea, ScrollHandle } from "gpui-base";
 import { theme, props, closeOverlay, openOverlay, exec, nextCommand, shared, setShared, spaces, notify, run, window, hc, focused, panes } from "herdr";
 import { search, issue, myself, watched, extraFields, addComment, mentionable, metaFields, sprintOf, myAccountId, assignToMe, editable, setNumberField } from "./jira.js";
 import { extraFieldNames, placeholderOf } from "./prompts.js";
@@ -188,6 +188,8 @@ export default class SpaceIssues extends View {
     // Loaded pages (the last PAGES), so opening one again is instant.
     this.pages = new Map();
     this.handle = cx.focus_handle();
+    this.listScroll = ScrollHandle.new();
+    this.scrollCheckPending = false;
     this.makeCommentBox();
     // The open issue's page is a view of its own: a live change redraws the list only,
     // and a page that loads redraws the page only (one long render was cut off).
@@ -218,6 +220,12 @@ export default class SpaceIssues extends View {
     });
     // Key commands from keys.json ("issues.down"), also reachable with `herdr-app do`.
     cx.spawn(async (cx) => { try { for (;;) this.command(await nextCommand(), cx); } catch { /* the copy is closing */ } });
+  }
+
+  scheduleScrollCheck(cx) {
+    if (this.scrollCheckPending) return;
+    this.scrollCheckPending = true;
+    cx.timer.after(80, (cx) => { this.scrollCheckPending = false; cx.notify(); });
   }
 
   // Opened as a page dialog: one issue of `p.list` (the list's issues in its order), stepped
@@ -1370,8 +1378,10 @@ export default class SpaceIssues extends View {
     // frame drawn (hovering included), which made hovering lag; this one runs no script
     // between renders. SHOWN caps what a render builds.
     const [shownItems, windowed] = this.keyWindow(items, (i) => i.data?.key === this.cursor, s.two ? fs.row2 : fs.row);
-    const list = v_flex().flex_1().min_w(0).min_h(0)
-      .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "issue-list-keys" : "issue-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar()
+    const showTop = items.length > 0 && (this.listScroll?.offset?.()?.y ?? 0) > 240;
+    const list = v_flex().flex_1().min_w(0).min_h(0).relative()
+      .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "issue-list-keys" : "issue-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar().track_scroll(this.listScroll)
+        .on_scroll_wheel((_e, cx) => this.scheduleScrollCheck(cx))
         .children(shownItems.map((i) => (i.group ? heading(i.group) : this.row(i, s).id(i.key)
           .on_click((_e, cx) => { const x = issue(i.data.key); if (x) { this.handle.focus(); this.pick(x, cx); } })
           // Right-click: Move, Open, Start agent, Copy key (row-menu.js).
@@ -1380,6 +1390,14 @@ export default class SpaceIssues extends View {
             if (!on) { if (this.hovered === i.data.key) this.hovered = null; return; }
             this.hovered = i.data.key; const x = issue(i.data.key); if (x) this.prefetch(x, cx);
           }))))))
+      .when(showTop, (e) => e.child(
+        h_flex().id("issues-scroll-top").absolute().right(14).bottom(10).h(24).px(8).gap(4).items_center().rounded(12)
+          .bg(t.raised).border_1().border_color(t.border).text_size(11).text_color(t.muted).cursor_pointer()
+          .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+          .tooltip("Back to top")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.keys = false; this.listScroll.scroll_to_item(0); this.scheduleScrollCheck(cx); cx.notify(); })
+          .child("↑ Top")))
       .when(total > SHOWN, (e) => e.child(div().px(10).py(4).text_size(fs.meta).text_color(t.dim).child(`Showing ${SHOWN} of ${total}: search to narrow`)))
       .when(this.capped && items.length > 0, (e) => e.child(div().px(10).py(4).text_size(fs.meta).text_color(t.dim).child(order() === "backlog" ? "Showing the first 500 issues of the backlog" : "Showing the 500 most recently updated issues")))
       .when(!items.length, (e) => e.child(v_flex().p(12).gap(8).items_start()
