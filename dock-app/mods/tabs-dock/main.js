@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify } from "herdr";
+import { spaces, panes, run, openOverlay, closeOverlay, theme, window, shared, setShared, layout, layouts, settings, props, appHome, readTextFile, watchFolder, nextCommand, notify, keys } from "herdr";
 import * as fs from "fs/promises";
 
 // The dock: the tab bar draws one button per entry of dock/panels.json, and adds
@@ -30,9 +30,9 @@ import * as fs from "fs/promises";
 // (the menu of a group button, a popup), props.part "gear-menu" (the menu of the gear button, a popup) and
 // props.part "buttons-menu" (the editor of the order and the visibility of the panel buttons, a popup).
 
-const LABELS_WIDE = 2250; // the same as in mods/kanban: from this bar width the buttons show their names
+const LABELS_WIDE = 1280; // the same as in mods/kanban: from this bar width the buttons show their names
 const BAR_RIGHT = 10; // padding after the window buttons, the same as in mods/kanban
-const RIGHT_GAP = 6; // between the panel group, the layout switch and the window buttons
+const RIGHT_GAP = 6; // between the panel group, Apps, gear, the layout switch and the window buttons
 
 // The density of the buttons, shared with the Kanban bar (the same key and the same button):
 // "normal" shows the names, "compact" only the icons, "auto" (or absent) the names from LABELS_WIDE px.
@@ -72,49 +72,130 @@ const GROUPS = { git: { label: "Git", icon: "mods/tabs-dock/git.svg" }, "quick-a
 const GIT_TABS = { changes: "git-changes", repos: "git-dashboard", prs: "git-pull-requests" };
 const isGitEntry = (e) => e.opens === "panel" && e.group === "git" && (e.id === "repos" || e.id === "prs");
 const isGitStack = (node) => node?.type === "stack" && node.children?.some((child) => child.id === GIT_TABS.changes);
-const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32, MENU_SEP = 9; // px: the menu of a group button
-const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+const MENU_W = 220, APPS_W = 340, MENU_PAD = 5, MENU_HEAD = 24, MENU_ROW = 32, QA_ROW = 28, MENU_SEP = 9; // px: popup menu dimensions
+const EDIT_W = 290, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+const POPUP_MAX_H = 560; // px: max popup height before scrolling
 
-// The order of the panel buttons and the buttons that the bar hides, shared with the Kanban bar (the same key and
-// the same rules as in mods/kanban): { order: [button id], hidden: [button id] }. A button id is the id of an entry,
-// or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json) come after
-// the others, in the order of the file. Absent: the order of the file, no button hidden.
+// The pinned panel buttons on the bar, shared with the Kanban bar (the same key and rules):
+// { pinned: [button id] }. Absent (or legacy { order, hidden } without `pinned`): DEFAULT_PINNED.
+// A button id is the id of a panel ("files"), or "group-<group>" for a group button ("group-git").
 const KEY_BUTTONS = "kanban.barButtons";
-// A group of 1 command is a plain button with the id of its group, so the saved order and eye follow it.
+const DEFAULT_PINNED = ["files", "group-git"];
+// A group of 1 command is a plain button with the id of its group.
 const buttonId = (it) => (it.members || (it.group && it.opens === "command") ? `group-${it.group}` : it.id === "changes" ? "group-git" : it.id);
 function barButtons() {
-  const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
-  return { order: list(v?.order), hidden: list(v?.hidden) };
+  const v = shared(KEY_BUTTONS);
+  if (Array.isArray(v?.pinned)) {
+    const seen = new Set();
+    return { pinned: v.pinned.filter((s) => typeof s === "string" && !seen.has(s) && seen.add(s)), custom: true };
+  }
+  return { pinned: [...DEFAULT_PINNED], custom: false };
 }
-// The items (anything with an `id`) in the order of `order`; the others after them, in their own order.
-function arrange(items, order) {
-  const rank = new Map(order.map((id, i) => [id, i]));
-  return items.map((it, i) => ({ it, i, r: rank.get(it.id) ?? order.length + i })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.it);
+function savePinned(list) {
+  const seen = new Set();
+  setShared(KEY_BUTTONS, { pinned: list.filter((s) => typeof s === "string" && !seen.has(s) && seen.add(s)) });
+}
+function pinPanel(id) {
+  const { pinned } = barButtons();
+  if (!pinned.includes(id)) savePinned([...pinned, id]);
+}
+function unpinPanel(id) {
+  const { pinned } = barButtons();
+  savePinned(pinned.filter((x) => x !== id));
+}
+function togglePin(id) {
+  const { pinned } = barButtons();
+  if (pinned.includes(id)) unpinPanel(id);
+  else pinPanel(id);
+}
+
+function prettyKeys(chord) {
+  if (!chord) return "";
+  const mac = window()?.platform === "macos";
+  const names = mac
+    ? { ctrl: "⌃", alt: "⌥", shift: "⇧", cmd: "⌘", fn: "fn" }
+    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", cmd: "Super", fn: "Fn" };
+  const alias = { secondary: mac ? "cmd" : "ctrl", super: "cmd", win: "cmd", platform: "cmd", control: "ctrl" };
+  return chord.trim().split(/\s+/).map((stroke) => {
+    const parts = stroke.split("-");
+    let key = parts.pop();
+    if (key === "") {
+      key = "-";
+      parts.pop();
+    }
+    const held = new Set(parts.map((m) => alias[m.toLowerCase()] ?? m.toLowerCase()));
+    const label = key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1);
+    return [...Object.keys(names).filter((m) => held.has(m)).map((m) => names[m]), label].join(mac ? "" : "+");
+  }).join(" ");
+}
+
+function shortcutFor(item, prefix) {
+  const id = item.entryId ?? item.id;
+  const actions = [];
+  if (id) actions.push(`${prefix}${id}`);
+  if (item.id === "changes" || item.pinId === "group-git") actions.push("tabs-dock.group-git");
+  if (item.run === "mod.open" && item.args?.name) {
+    actions.push(`mod.open:${item.args.name}`, `${item.args.name}.open`);
+  } else if (item.run) {
+    actions.push(item.run);
+  }
+  if (item.mod) actions.push(`mod.open:${item.mod}`, `${item.mod}.open`);
+
+  const all = keys();
+  const layoutSec = `layout:${shared("layout")}`;
+  const mac = window()?.platform === "macos";
+  const hasCmd = (ch) => ch.toLowerCase().split(/\s+/).some((s) => s.split("-").slice(0, -1).includes("cmd"));
+  const pick = (list) => {
+    if (!list.length) return null;
+    if (mac) return list.find((k) => hasCmd(k.keys)) ?? list[0];
+    return list.find((k) => !hasCmd(k.keys)) ?? null;
+  };
+  for (const act of actions) {
+    const secHit = pick(all.filter((k) => k.section === layoutSec && k.action === act));
+    if (secHit) return prettyKeys(secHit.keys);
+    const globHit = pick(all.filter((k) => k.section === "global" && k.action === act));
+    if (globHit) return prettyKeys(globHit.keys);
+  }
+  return null;
 }
 
 const STR = {
-  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
+  en: { gearTip: "Settings", gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods", gearDensity: "Density",
     newTab: "New tab", panelTip: "Show or hide {name}", switchTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout",
     density_auto: "Auto", density_compact: "Compact", density_normal: "Normal",
     densityNow: "{mode} (compact now)", densityNowNormal: "{mode} (normal now)",
     densityTip: "Density: {mode}. Click to switch to {next}.",
     opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
-    opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
+    mode_auto: "Auto", mode_side: "Side", mode_dialog: "Modal",
+    opensNowDialog: "{mode} (modal now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
+    appsLabel: "Apps", appsTip: "Apps & tools",
+    secPanels: "Panels (Side / Modal)", secViews: "Views", secTools: "Tools & Quick Actions",
+    tagOpen: "Open", tagPanel: "Panel", tagTab: "Tab", tagModal: "Modal", tagRun: "Run",
+    pinToBar: "Pin to bar", unpinFromBar: "Unpin from bar",
+    pinnedSection: "Pinned in bar", unpinnedSection: "In Apps menu", noPinned: "No panels pinned",
+    dynamicTip: "{name} (open — click to close, right-click to pin)",
     toSide: "Open in the side panel", toTab: "Open in a tab", toDialog: "Open in a dialog", closeDialog: "Close",
     gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
-    hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset" },
-  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
+    resetButtons: "Reset" },
+  pt: { gearTip: "Configurações", gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods", gearDensity: "Densidade",
     newTab: "Nova aba", panelTip: "Mostrar ou ocultar {name}", switchTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}",
     density_auto: "Auto", density_compact: "Compacta", density_normal: "Normal",
     densityNow: "{mode} (compacta agora)", densityNowNormal: "{mode} (normal agora)",
     densityTip: "Densidade: {mode}. Clique para mudar para {next}.",
-    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
-    opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
+    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Modal",
+    mode_auto: "Auto", mode_side: "Lateral", mode_dialog: "Modal",
+    opensNowDialog: "{mode} (modal agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
+    appsLabel: "Apps", appsTip: "Apps e ferramentas",
+    secPanels: "Painéis (Lateral / Modal)", secViews: "Visualizações", secTools: "Ferramentas e Ações",
+    tagOpen: "Aberto", tagPanel: "Painel", tagTab: "Aba", tagModal: "Modal", tagRun: "Executar",
+    pinToBar: "Fixar na barra", unpinFromBar: "Desafixar da barra",
+    pinnedSection: "Fixados na barra", unpinnedSection: "No menu Apps", noPinned: "Nenhum painel fixado",
+    dynamicTip: "{name} (aberto — clique para fechar, clique direito para fixar)",
     toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", toDialog: "Abrir num diálogo", closeDialog: "Fechar",
     gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
-    moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar" },
+    moveDown: "Mover para baixo", resetButtons: "Restaurar" },
 };
 
 // A translucent version of a theme color. Non-hex colors pass through. (The same as in mods/kanban/ui.js.)
@@ -132,22 +213,69 @@ const machineChip = (t, machine) => {
 // The name of a layout file as a button label: "main-dock" -> "Main dock".
 const layoutLabel = (name) => { const s = String(name).replace(/[-_]+/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); };
 
-// A button for a side panel, a tab, a command or a layout: an icon (`.svg` is tinted, anything else is a
-// picture) and a name. Lit while `on`. `iconOnly`: no name (the tooltip has it). `menu`: a small arrow after the
-// name, for a button that opens a menu. The same as panelButton in mods/kanban/ui.js: the two bars must draw these
-// buttons alike.
-function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "", iconOnly = false, menu = false) {
+// A soft surface container that holds dock controls (Panels dock, Layout switch). The same as softDock in mods/kanban/ui.js.
+const softDock = (t, children) => h_flex().h(30).flex_none().px(3).gap(2).items_center().rounded(9)
+  .bg(t.surface || tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "14")).children(children);
+
+// A button inside a softDock: elevated raised surface when active. The same as dockButton in mods/kanban/ui.js.
+function dockButton(t, id, symbolPath, label, on, onClick, { tooltip = "", iconOnly = false, menu = false, onRightClick = null } = {}) {
   const tip = tooltip || (iconOnly ? label : "");
-  const glyph = String(symbolPath).endsWith(".svg") ? svg(symbolPath).size(14).flex_none() : image(symbolPath).size(14).flex_none();
-  return h_flex().id(id).h(26).px(iconOnly ? 6 : 9).gap(6).flex_none().items_center().rounded(7).text_size(12).cursor_pointer()
+  const glyph = String(symbolPath).endsWith(".svg")
+    ? svg(symbolPath).size(14).flex_none().text_color(on ? t.accent : t.muted)
+    : image(symbolPath).size(14).flex_none();
+  return h_flex().id(id).h(24).px(iconOnly ? 6 : 8).gap(5).flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
     .when(Boolean(tip), (e) => e.tooltip(tip))
-    .when(on, (e) => e.bg(tint(t.accent, "26")).text_color(t.accent))
+    .when(on, (e) => e.bg(t.raised).text_color(t.foreground))
     .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
     .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .when(Boolean(onRightClick), (e) => e.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRightClick(cx); }))
     .on_click((_e, cx) => onClick(cx))
     .child(glyph)
     .when(!iconOnly, (e) => e.child(label))
-    .when(menu, (e) => e.gap(iconOnly ? 2 : 5).child(svg("mods/tabs-dock/chevron-down.svg").size(10).flex_none().text_color(on ? t.accent : t.dim)));
+    .when(menu, (e) => e.gap(iconOnly ? 2 : 4).child(svg("mods/tabs-dock/chevron-down.svg").size(10).flex_none().text_color(on ? t.accent : t.dim)));
+}
+
+// Temporary dashed chip for an open unpinned panel inside the Panels softDock. The same as dynamicChip in mods/kanban/ui.js.
+function dynamicChip(t, id, symbolPath, label, onClick, onRightClick, { tooltip = "", iconOnly = false } = {}) {
+  const color = t.done || t.accent;
+  const glyph = String(symbolPath).endsWith(".svg")
+    ? svg(symbolPath).size(13).flex_none().text_color(color)
+    : image(symbolPath).size(13).flex_none();
+  return h_flex().id(id).h(24).px(iconOnly ? 6 : 8).gap(5).flex_none().items_center().rounded(6).text_size(11.5).font_semibold().cursor_pointer()
+    .bg(tint(color, "22")).border_1().border_dashed().border_color(tint(color, "77")).text_color(color)
+    .hover((s) => s.bg(tint(color, "36")))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRightClick(cx); })
+    .on_click((_e, cx) => onClick(cx))
+    .child(glyph)
+    .when(!iconOnly, (e) => e.child(label));
+}
+
+// The mode button at the left of the Panels softDock: Auto / Side / Modal. The same as modeButton in mods/kanban/ui.js.
+function modeButton(t, id, label, dialogNow, onClick, { tooltip = "", iconOnly = false } = {}) {
+  return h_flex().id(id).h(22).px(iconOnly ? 5 : 7).gap(4).flex_none().items_center().rounded(6).text_size(11).font_semibold().cursor_pointer()
+    .bg(dialogNow ? tint(t.accent, "2b") : tint(t.foreground, "0f"))
+    .text_color(dialogNow ? t.accent : t.muted)
+    .hover((s) => s.bg(dialogNow ? tint(t.accent, "40") : t.hover))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+    .child(svg(`mods/tabs-dock/${dialogNow ? "dialog" : "panel"}.svg`).size(12).flex_none().text_color(dialogNow ? t.accent : t.muted))
+    .when(!iconOnly, (e) => e.child(label));
+}
+
+// The Apps launcher button right of the Panels softDock. The same as appsButton in mods/kanban/ui.js.
+function appsButton(t, id, label, onClick, { tooltip = "", iconOnly = false } = {}) {
+  return h_flex().id(id).h(30).px(iconOnly ? 7 : 9).gap(5).flex_none().items_center().rounded(9).text_size(12).cursor_pointer()
+    .bg(t.surface || tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "14")).text_color(t.foreground)
+    .hover((s) => s.bg(t.raised))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+    .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+    .child(svg("mods/tabs-dock/apps.svg").size(14).flex_none().text_color(t.ansi5 || t.accent))
+    .when(!iconOnly, (e) => e.child(label))
+    .child(svg("mods/tabs-dock/chevron-down.svg").size(10).flex_none().text_color(t.dim));
 }
 
 // An icon of a panel: `.svg` is tinted with `color`, anything else is a picture.
@@ -163,13 +291,8 @@ function foldGroups(items) {
     if (!g) { g = { group: it.group, members: [] }; seen.set(it.group, g); out.push(g); }
     g.members.push(it);
   }
-  // A group of 1 command (Quick Actions with no pinned action) is a plain button: no menu of 1 row.
-  return out.map((g) => (g.members?.length === 1 && g.members[0].opens === "command" ? g.members[0] : g));
+  return out;
 }
-
-// A rounded group that holds several buttons. The same as buttonGroup in mods/kanban/ui.js.
-const buttonGroup = (t, children) => h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
-  .bg(tint(t.foreground, "0f")).border_1().border_color(t.border).children(children);
 
 // A thin vertical line inside a group. The same as divider(t, true) in mods/kanban/ui.js.
 const innerDivider = (t) => div().w(1).h(14).mx(2).flex_none().bg(tint(t.foreground, "26"));
@@ -260,7 +383,7 @@ export default class Tabs extends View {
     // Read props once: props() in a later callback can answer for another copy.
     const p = (given && Object.keys(given).length ? given : props()) || {};
     this.props = p;
-    this.part = ["panel-title", "git-tabs", "panel-head", "group-menu", "gear-menu", "buttons-menu"].includes(p.part) ? p.part : "bar";
+    this.part = ["panel-title", "git-tabs", "panel-head", "group-menu", "gear-menu", "buttons-menu", "apps-menu", "pin-menu"].includes(p.part) ? p.part : "bar";
     if (this.part === "panel-head") {
       // The names and the icons of the panels, from dock/panels.json. A save of the file shows at once.
       this.info = new Map(BUILTIN.map(b => [b.id, b]));
@@ -400,6 +523,8 @@ export default class Tabs extends View {
     }
     // "tabs-dock.panel-open" steps where the panels open, as the first button of the panel group does.
     if (id === "panel-open") return this.stepPanelOpen();
+    // "tabs-dock.apps" opens the Apps & Tools launcher popover.
+    if (id === "apps") return this.openApps();
     // "tabs-dock.group-<id>" opens the menu of a group button, as a click on it does.
     if (String(id).startsWith("group-")) return this.openGroup(String(id).slice(6));
     // "tabs-dock.gear" does what the gear button does.
@@ -420,18 +545,19 @@ export default class Tabs extends View {
     const node = panel ? (body?.children ?? []).find(c => c.id === id && !c.hidden) : null;
     const tab = node ? null : live.find(e => e.id === id && e.opens === "tab");
     if (!node && !tab) return;
-    // A click on any panel button closes the open dialog first; a click on the button of that dialog only closes it.
+    // A click on any panel or view closes the open dialog first; a second click on the open dialog's panel closes it.
     const open = shared(KEY_PANEL_DIALOG);
     if (open?.id) {
       closeOverlay(open.id);
       setShared(KEY_PANEL_DIALOG, null);
-      if (!gitTab && open.panel === id && liveDialogs().has(open.id)) return;
+      if (!gitTab && !tab && open.panel === id && liveDialogs().has(open.id)) return;
     }
+    // Views (opens: "tab") always open in their tab, independent of the panel Side/Modal mode.
+    if (tab) return showTab(tab.mod, tab.name);
     // A panel that shows in the side panel now (also one moved there from a dialog) closes, in every mode.
     if (!gitTab && node && !panel.hidden && body.active === id) return run("layout.hide", { id: "panel" });
-    if (this.dialogNow()) return this.openDialog(id, tab ? { type: "block", content: { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } } : node, tab, gitTab);
+    if (this.dialogNow()) return this.openDialog(id, node, null, gitTab);
     if (gitTab && isGitStack(node)) run("layout.select", { stack: "changes", child: gitTab });
-    if (tab) return showTab(tab.mod, tab.name);
     run("layout.select", { stack: "panel-body", child: id });
     run("layout.show", { id: "panel" });
   }
@@ -557,6 +683,7 @@ export default class Tabs extends View {
   // come from the last render (lit = open now). A popup is as tall as its content, so the height is set here.
   openGroup(group) {
     if (group === "git" && !this.groups?.has(group)) return this.toggle("changes");
+    if (group === "quick-actions") return this.openApps();
     const members = this.groups.get(group);
     if (!members?.length) return;
     const info = this.groupInfo(group);
@@ -590,54 +717,212 @@ export default class Tabs extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  // The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
+  // The gear button opens a menu: Herdr's settings, Density, the editor of the bar buttons and, with the mods-hub
   // installed, the PowerMods dialog.
   openGear() {
-    const open = (hub) => openOverlay({ mod: "tabs-dock", kind: "popup", width: MENU_W,
-      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
+    const open = (hub) => openOverlay({ mod: "tabs-dock", kind: "popup", width: 245,
+      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 4 : 3) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
     readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => open(text != null), () => open(false));
   }
 
-  // Opens the editor of the bar buttons: one row per button of the panel group (a group button is one row), from
-  // the last render. A popup is as tall as its content, so the height is set here.
+  // Opens the categorized Apps & Tools launcher popover: unpinned Panels, Views (tabs), and Tools & Quick Actions.
+  openApps() {
+    const data = this.appsData ?? { panels: [], views: [], commands: [] };
+    const { panels, views, commands } = data;
+    const groupedPinned = new Map();
+    const topCommands = [];
+    for (const c of commands) {
+      if (c.section === "pinned" && c.group) {
+        if (!groupedPinned.has(c.group)) groupedPinned.set(c.group, []);
+        groupedPinned.get(c.group).push(c);
+      } else topCommands.push(c);
+    }
+    const usedPinnedGroups = new Set();
+    const cmdRows = [];
+    for (const c of topCommands) {
+      cmdRows.push({ ...c, nested: false });
+      if (c.group && groupedPinned.has(c.group)) {
+        usedPinnedGroups.add(c.group);
+        for (const sub of groupedPinned.get(c.group)) cmdRows.push({ ...sub, nested: true });
+      }
+    }
+    for (const [grp, subs] of groupedPinned) {
+      if (!usedPinnedGroups.has(grp)) for (const sub of subs) cmdRows.push({ ...sub, nested: false });
+    }
+    const sections = [panels.length > 0, views.length > 0, cmdRows.length > 0].filter(Boolean).length;
+    if (!sections) return;
+    let h = MENU_PAD * 2 + sections * MENU_HEAD + Math.max(0, sections - 1) * MENU_SEP;
+    h += panels.length * MENU_ROW + views.length * MENU_ROW;
+    for (const c of cmdRows) h += c.nested ? QA_ROW : MENU_ROW;
+    openOverlay({
+      mod: "tabs-dock", kind: "popup", width: APPS_W, height: Math.min(POPUP_MAX_H, h),
+      props: { part: "apps-menu", lang: this.lang, panels, views, commands: cmdRows },
+    });
+  }
+
+  appsMenu(t) {
+    const p = this.props;
+    const panels = Array.isArray(p.panels) ? p.panels : [];
+    const views = Array.isArray(p.views) ? p.views : [];
+    const commands = Array.isArray(p.commands) ? p.commands : [];
+    const pinnedSet = new Set(barButtons().pinned);
+    const root = layout(), panel = find(root, "panel"), body = find(root, "panel-body");
+    const openDlg = shared(KEY_PANEL_DIALOG);
+    const inDialog = openDlg?.id && liveDialogs().has(openDlg.id) ? openDlg.panel : null;
+    const isPanelOn = (id) => Boolean((panel && !panel.hidden && body?.active === id) || inDialog === id);
+    const secHead = (label) => h_flex().w_full().h(MENU_HEAD).px(9).flex_none().items_center()
+      .text_size(10.5).font_semibold().text_color(t.dim).child(label);
+    const sepRow = () => div().w_full().h(MENU_SEP).px(6).flex_none().flex().items_center().child(div().w_full().h(1).bg(t.border));
+    const tag = (label, fg, bg) => div().h(18).px(6).flex_none().flex().items_center().rounded(5).text_size(10).font_semibold()
+      .bg(bg).text_color(fg).child(label);
+    const monoFont = settings().font_family ?? "JetBrains Mono";
+    const kbd = (text) => div().h(18).px(5).flex_none().flex().items_center().rounded(4).text_size(10).font_family(monoFont)
+      .bg(tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "1a")).text_color(t.muted).child(text);
+    const amber = t.blocked || t.accent;
+    const purple = t.ansi5 || t.accent;
+
+    const panelRow = (it) => {
+      const on = isPanelOn(it.id);
+      const isPinned = pinnedSet.has(it.pinId);
+      const key = shortcutFor(it, "tabs-dock.");
+      return h_flex().id(`apps-p-${it.id}`).w_full().h(MENU_ROW).pl(9).pr(4).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(12.5).text_color(on ? t.accent : t.foreground)
+        .when(on, (e) => e.bg(tint(t.accent, "1c")))
+        .hover((s) => s.bg(on ? tint(t.accent, "30") : t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.entryId ?? it.id); })
+        .child(panelGlyph(it.icon, 15, on ? t.accent : t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .when(on, (e) => e.child(tag(this.s("tagOpen"), t.accent, tint(t.accent, "26"))))
+        .when(!on, (e) => e.child(tag(this.s("tagPanel"), t.accent, tint(t.accent, "1c"))))
+        .when(on, (e) => e.child(svg("mods/tabs-dock/tick.svg").size(12).flex_none().text_color(t.accent)))
+        .child(div().id(`apps-pin-${it.pinId}`).size(22).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .tooltip(this.s(isPinned ? "unpinFromBar" : "pinToBar"))
+          .when(isPinned, (e) => e.bg(tint(t.accent, "26")))
+          .hover((s) => s.bg(isPinned ? tint(t.accent, "40") : t.hover))
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); togglePin(it.pinId); })
+          .child(svg("mods/tabs-dock/pin.svg").size(12).text_color(isPinned ? t.accent : t.dim)));
+    };
+
+    const viewRow = (it) => {
+      const key = shortcutFor(it, "tabs-dock.");
+      return h_flex().id(`apps-v-${it.id}`).w_full().h(MENU_ROW).px(9).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(12.5).text_color(t.foreground).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+        .child(panelGlyph(it.icon, 15, t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .child(tag(this.s("tagTab"), amber, tint(amber, "22")));
+    };
+
+    const cmdRow = (it) => {
+      const isModal = it.run === "mod.open";
+      const h = it.nested ? QA_ROW : MENU_ROW;
+      const key = shortcutFor(it, "tabs-dock.");
+      return h_flex().id(`apps-c-${it.id}`).w_full().h(h).pl(it.nested ? 26 : 9).pr(9).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(it.nested ? 12 : 12.5).text_color(it.nested ? t.muted : t.foreground).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+        .child(panelGlyph(it.icon, it.nested ? 13 : 15, t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .child(isModal ? tag(this.s("tagModal"), purple, tint(purple, "24")) : tag(this.s("tagRun"), t.muted, tint(t.foreground, "12")));
+    };
+
+    const children = [];
+    if (panels.length) {
+      children.push(secHead(this.s("secPanels")), ...panels.map(panelRow));
+    }
+    if (views.length) {
+      if (children.length) children.push(sepRow());
+      children.push(secHead(this.s("secViews")), ...views.map(viewRow));
+    }
+    if (commands.length) {
+      if (children.length) children.push(sepRow());
+      children.push(secHead(this.s("secTools")), ...commands.map(cmdRow));
+    }
+    return v_flex().id("apps-root").w_full().max_h(POPUP_MAX_H).overflow_y_scrollbar().p(MENU_PAD).children(children);
+  }
+
+  // Right-click menu on a bar panel button or dynamic chip: Pin to bar / Unpin from bar.
+  openPinMenu(item, pinned) {
+    openOverlay({
+      mod: "tabs-dock", kind: "popup", width: 185, height: MENU_PAD * 2 + MENU_ROW,
+      props: { part: "pin-menu", lang: this.lang, id: item.id, pinned },
+    });
+  }
+
+  pinMenu(t) {
+    const { id, pinned } = this.props;
+    const row = h_flex().id("pin-menu-act").w_full().h(MENU_ROW).px(10).gap(9).flex_none().items_center().rounded(6)
+      .cursor_pointer().text_size(12.5).text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (pinned) unpinPanel(id);
+        else pinPanel(id);
+        if (this.overlay) closeOverlay(this.overlay);
+      })
+      .child(svg(`mods/tabs-dock/${pinned ? "pin-off" : "pin"}.svg`).size(14).flex_none().text_color(pinned ? t.muted : t.accent))
+      .child(div().flex_1().min_w(0).truncate().child(this.s(pinned ? "unpinFromBar" : "pinToBar")));
+    return v_flex().id("pin-menu-root").w_full().p(MENU_PAD).child(row);
+  }
+
+  // Opens the editor of the bar panels: Pinned in bar (reorder + unpin) and In Apps menu (pin).
   openButtons() {
     const items = this.buttonItems ?? [];
     if (!items.length) return;
-    openOverlay({ mod: "tabs-dock", kind: "popup", width: EDIT_W, height: MENU_PAD * 2 + MENU_HEAD + items.length * MENU_ROW + EDIT_FOOT,
+    const { pinned } = barButtons();
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const pinnedCount = Math.max(1, pinned.filter((id) => byId.has(id)).length);
+    const unpinnedCount = items.filter((it) => !pinned.includes(it.id)).length;
+    const sepH = unpinnedCount > 0 ? MENU_SEP + MENU_HEAD : 0;
+    const h = MENU_PAD * 2 + MENU_HEAD + MENU_HEAD + pinnedCount * MENU_ROW + sepH + unpinnedCount * MENU_ROW + EDIT_FOOT;
+    openOverlay({ mod: "tabs-dock", kind: "popup", width: EDIT_W, height: Math.min(540, h),
       props: { part: "buttons-menu", lang: this.lang, items } });
   }
 
-  // The editor of the bar buttons: one row per button (icon, name, up, down, show or hide) in the order of the bar,
-  // and a Reset row. It reads and writes the shared key, so both bars change at once and the popup stays open.
+  // The editor of the bar panels: Pinned in bar (up/down/unpin) and In Apps menu (pin), plus Reset.
   buttonsMenu(t) {
     const items = Array.isArray(this.props.items) ? this.props.items : [];
-    const prefs = barButtons(), rows = arrange(items, prefs.order), hidden = new Set(prefs.hidden);
-    const save = (next) => setShared(KEY_BUTTONS, { order: prefs.order, hidden: prefs.hidden, ...next });
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const prefs = barButtons();
+    const pinnedSet = new Set(prefs.pinned);
+    const pinnedRows = prefs.pinned.map((id) => byId.get(id)).filter(Boolean);
+    const extraIds = prefs.pinned.filter((id) => !byId.has(id));
+    const unpinnedRows = items.filter((it) => !pinnedSet.has(it.id));
     const move = (i, step) => {
-      const ids = rows.map((r) => r.id), j = i + step;
-      if (j < 0 || j >= ids.length) return;
-      [ids[i], ids[j]] = [ids[j], ids[i]];
-      save({ order: ids });
+      const list = pinnedRows.map((r) => r.id), j = i + step;
+      if (j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+      savePinned([...list, ...extraIds]);
     };
-    const flip = (id) => save({ hidden: hidden.has(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id] });
-    const tool = (id, name, tip, fn, enabled = true) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
+    const tool = (id, name, tip, fn, enabled = true, color = null) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
       .tooltip(tip)
       .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); fn(); }))
-      .child(svg(`mods/tabs-dock/${name}.svg`).size(14).text_color(enabled ? t.muted : t.border));
-    const row = (it, i) => {
-      const off = hidden.has(it.id);
-      return h_flex().id(`bm-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
-        .text_size(13).text_color(off ? t.dim : t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
-        .child(panelGlyph(it.icon, 15, off ? t.dim : t.muted))
-        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
-        .child(tool(`bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
-        .child(tool(`bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < rows.length - 1))
-        .child(tool(`bm-eye-${it.id}`, off ? "eye-off" : "eye", this.s(off ? "showButton" : "hideButton"), () => flip(it.id)));
-    };
-    const changed = prefs.order.length > 0 || prefs.hidden.length > 0;
-    return v_flex().id("bm-root").w_full().p(MENU_PAD)
+      .child(svg(`mods/tabs-dock/${name}.svg`).size(14).text_color(enabled ? (color || t.muted) : t.border));
+    const secHead = (label) => h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center()
+      .text_size(10.5).font_semibold().text_color(t.dim).child(label);
+    const pinnedRow = (it, i) => h_flex().id(`bm-p-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+      .text_size(13).text_color(t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
+      .child(panelGlyph(it.icon, 15, t.accent))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .child(tool(`bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
+      .child(tool(`bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < pinnedRows.length - 1))
+      .child(tool(`bm-pin-${it.id}`, "pin", this.s("unpinFromBar"), () => unpinPanel(it.id), true, t.accent));
+    const unpinnedRow = (it) => h_flex().id(`bm-u-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+      .text_size(13).text_color(t.muted).hover((s) => s.bg(tint(t.foreground, "0a")))
+      .child(panelGlyph(it.icon, 15, t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .child(tool(`bm-pin-${it.id}`, "pin", this.s("pinToBar"), () => pinPanel(it.id), true, t.dim));
+    const raw = shared(KEY_BUTTONS);
+    const changed = raw !== null && raw !== undefined;
+    const sepRow = () => div().w_full().h(MENU_SEP).px(6).flex_none().flex().items_center().child(div().w_full().h(1).bg(t.border));
+    return v_flex().id("bm-root").w_full().max_h(540).overflow_y_scrollbar().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("buttonsTitle")))
-      .children(rows.map(row))
+      .child(secHead(this.s("pinnedSection")))
+      .when(pinnedRows.length === 0, (e) => e.child(h_flex().w_full().h(MENU_ROW).px(10).items_center().text_size(12).text_color(t.dim).child(this.s("noPinned"))))
+      .children(pinnedRows.map(pinnedRow))
+      .when(unpinnedRows.length > 0, (e) => e.child(sepRow()).child(secHead(this.s("unpinnedSection"))).children(unpinnedRows.map(unpinnedRow)))
       .child(h_flex().w_full().h(EDIT_FOOT).px(6).pt(6).flex_none().items_center().justify_end().border_t(1).border_color(t.border)
         .child(h_flex().id("bm-reset").h(24).px(10).flex_none().items_center().rounded(6).text_size(12)
           .border_1().border_color(t.border).text_color(changed ? t.foreground : t.dim)
@@ -645,24 +930,28 @@ export default class Tabs extends View {
           .child(this.s("resetButtons"))));
   }
 
-  // The menu of the gear button. "PowerMods" opens the dialog on its Settings tab, on the section of this bar (the tab and
-  // the section that the mods-hub keeps in shared("mods-hub")). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
-  // for the editor ("tabs-dock.buttons"): the bar knows the buttons.
+  // The menu of the gear button. "Density" cycles Auto -> Compact -> Normal live. "PowerMods" opens the dialog on
+  // its Settings tab, on the section of this bar. "Bar buttons" asks the bar for the pin/order editor.
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
-    const row = (id, icon, label, fn) => h_flex().id(`gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
+    const density = DENSITIES.includes(shared(KEY_DENSITY)) ? shared(KEY_DENSITY) : "auto";
+    const nextDensity = DENSITIES[(DENSITIES.indexOf(density) + 1) % DENSITIES.length];
+    const row = (id, icon, label, fn, badge = null) => h_flex().id(`gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
       .cursor_pointer().text_size(13).text_color(t.foreground).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { cx.stop_propagation(); go(fn); })
+      .on_click((_e, cx) => { cx.stop_propagation(); fn(); })
       .child(svg(`mods/tabs-dock/${icon}.svg`).size(15).flex_none().text_color(t.muted))
-      .child(div().flex_1().min_w(0).truncate().child(label));
+      .child(div().flex_1().min_w(0).truncate().child(label))
+      .when(Boolean(badge), (e) => e.child(div().h(18).px(6).flex_none().flex().items_center().rounded(5).text_size(10.5).font_semibold()
+        .bg(tint(t.accent, "1f")).text_color(t.accent).child(String(badge))));
     return v_flex().id("gear-root").w_full().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
-      .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
-      .child(row("buttons", "buttons", this.s("gearButtons"), () => run("tabs-dock.buttons")))
-      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => {
+      .child(row("herdr", "settings", this.s("gearHerdr"), () => go(() => run("app.settings"))))
+      .child(row("density", "density", this.s("gearDensity"), () => setShared(KEY_DENSITY, nextDensity), this.s(`density_${density}`)))
+      .child(row("buttons", "buttons", this.s("gearButtons"), () => go(() => run("tabs-dock.buttons"))))
+      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => go(() => {
         setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings", section: "tabs-dock" });
         run("mod.open", { name: "mods-hub" });
-      })));
+      }))));
   }
 
   dialogToSide() {
@@ -879,6 +1168,8 @@ export default class Tabs extends View {
     if (this.part === "group-menu") return this.groupMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
+    if (this.part === "apps-menu") return this.appsMenu(t);
+    if (this.part === "pin-menu") return this.pinMenu(t);
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const active = shown.findIndex(tab => tab.active);
@@ -957,66 +1248,82 @@ export default class Tabs extends View {
 
     const density = DENSITIES.includes(shared(KEY_DENSITY)) ? shared(KEY_DENSITY) : "auto";
     const iconOnly = density === "normal" ? false : density === "compact" ? true : !(this.barW >= LABELS_WIDE);
-    // The density button, the same as in the Kanban bar: lit while the buttons are compact. It is left of
-    // the right end, so the right end keeps the same place as in the Kanban bar.
-    const nextDensity = DENSITIES[(DENSITIES.indexOf(density) + 1) % DENSITIES.length];
-    const densityName = (x) => this.s(`density_${x}`);
-    const densityMode = density === "auto" ? this.s(iconOnly ? "densityNow" : "densityNowNormal", { mode: densityName(density) }) : densityName(density);
-    const densityButton = div().id("density").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
-      .tooltip(this.s("densityTip", { mode: densityMode, next: densityName(nextDensity) }))
-      .when(iconOnly, el => el.bg(tint(t.accent, "26")))
-      .hover(s => s.bg(iconOnly ? tint(t.accent, "40") : t.hover))
-      .on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); setShared(KEY_DENSITY, nextDensity); })
-      .child(svg("mods/tabs-dock/density.svg").size(15).text_color(iconOnly ? t.accent : t.muted));
-    const gearButton = div().id("gear").size(26).flex_none().flex().items_center().justify_center().rounded(8).cursor_pointer()
-      .tooltip(this.s("gearTip"))
-      .hover(s => s.bg(t.hover))
-      .on_mouse_down("left", stop)
-      .on_click((_e, cx) => { cx.stop_propagation(); this.openGear(); })
-      .child(svg("mods/tabs-dock/settings.svg").size(15).text_color(t.muted));
+    const gearButton = iconButton(t, "gear", "settings", () => this.openGear(), { tooltip: this.s("gearTip"), size: 28, glyph: 15 });
     const inDialog = this.dialogPanel();
     const lit = (id) => Boolean(panel && !panel.hidden && body?.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
-    // Where the panels open: lit while they open a dialog. The same button as in the Kanban bar.
+    // Where the panels open: Auto / Side / Modal. Coupled exclusively to the Panels softDock.
     const opens = this.panelOpen(), dialogNow = this.dialogNow();
     const nextOpens = PANEL_OPENS[(PANEL_OPENS.indexOf(opens) + 1) % PANEL_OPENS.length];
     const opensName = (x) => this.s(`opens_${x}`);
     const opensMode = opens === "auto" ? this.s(dialogNow ? "opensNowDialog" : "opensNowSide", { mode: opensName(opens) }) : opensName(opens);
-    const opensButton = iconButton(t, "panel-open", "dialog", () => this.stepPanelOpen(),
-      { active: dialogNow, tooltip: this.s("opensTip", { mode: opensMode, next: opensName(nextOpens) }) });
-    // Buttons keep the order of the file; panel and tab entries mix as listed. Other commands come last.
-    // The layout.switch commands are in the layout switch.
-    // The entries of a group share one button, in the place of the first one; its menu lists them.
-    const dynamic = wanted.filter(e => e.opens === "tab" || present.has(e.id));
-    const items = [
-      ...builtins.map(b => ({ ...b, key: `panel-${b.id}`, on: lit(b.id), tip: tip(b.label) })),
-      ...dynamic.map(e => e.opens === "tab"
-        ? { ...e, key: `tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
-        : { ...e, key: `panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
-      ...commands.filter(e => e.run !== "layout.switch").map(e => ({ ...e, key: `cmd-${e.id}`, on: false, tip: "" })),
+    const modeBtn = modeButton(t, "panel-open", this.s(`mode_${opens}`), dialogNow, () => this.stepPanelOpen(),
+      { tooltip: this.s("opensTip", { mode: opensMode, next: opensName(nextOpens) }), iconOnly });
+
+    // Strict 3-category split: Panels (stateful Side/Modal toggles), Views (tab entries), Tools & Quick Actions (commands).
+    const rawPanels = [
+      ...builtins.map((b) => ({ ...b, key: `panel-${b.id}`, on: lit(b.id), tip: tip(b.label) })),
+      ...wanted.filter((e) => e.opens === "panel" && present.has(e.id)).map((e) => ({ ...e, key: `panel-${e.id}`, on: lit(e.id), tip: tip(e.label) })),
     ];
-    // The person's order and hidden buttons (KEY_BUTTONS) apply to the folded buttons: a group moves as one button.
-    // The group menus and the keys still reach a hidden button.
-    const prefs = barButtons(), off = new Set(prefs.hidden);
-    const folded = arrange(foldGroups(items).map(it => ({ ...it, id: buttonId(it), entryId: it.id })), prefs.order);
-    this.groups = new Map(folded.filter(it => it.members).map(g => [g.group, g.members]));
-    this.buttonItems = folded.map(it => it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon });
-    const panelItems = folded.filter(it => !off.has(it.id)).map(it => {
-      if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.toggle(it.entryId), it.tip, iconOnly);
+    const allPanels = foldGroups(rawPanels).map((it) => ({ ...it, id: buttonId(it), entryId: it.id }));
+    this.groups = new Map(allPanels.filter((it) => it.members).map((g) => [g.group, g.members]));
+    this.buttonItems = allPanels.map((it) => (it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon }));
+
+    const prefs = barButtons(), pinnedSet = new Set(prefs.pinned);
+    const byId = new Map(allPanels.map((it) => [it.id, it]));
+    const pinnedPanels = prefs.pinned.map((id) => byId.get(id)).filter(Boolean);
+    const unpinnedPanels = allPanels.filter((it) => !pinnedSet.has(it.id));
+    const isItemOn = (it) => (it.members ? it.members.some((m) => m.on) : Boolean(it.on));
+    const activeUnpinned = unpinnedPanels.find(isItemOn) ?? null;
+
+    const views = wanted.filter((e) => e.opens === "tab");
+    const appCommands = commands.filter((e) => e.run !== "layout.switch");
+    this.appsData = {
+      panels: unpinnedPanels.map((it) => {
+        const info = it.members ? this.groupInfo(it.group) : it;
+        const mod = it.mod ?? (it.id === "files" ? "files-md" : it.id === "group-git" ? "git-client" : undefined);
+        return { id: it.members ? (it.members[0]?.id ?? it.id) : it.entryId, pinId: it.id, entryId: it.entryId, label: info.label, icon: info.icon, mod };
+      }),
+      views: views.map((e) => ({ id: e.id, label: e.label, icon: e.icon, mod: e.mod })),
+      commands: appCommands.map((e) => ({ id: e.id, label: e.label, icon: e.icon, run: e.run, args: e.args, group: e.group, section: e.section })),
+    };
+
+    const withKey = (text, item) => {
+      const k = shortcutFor(item, "tabs-dock.");
+      return k ? (text ? `${text} (${k})` : k) : text;
+    };
+    const makePinnedBtn = (it) => {
+      if (!it.members) {
+        return dockButton(t, it.key, it.icon, it.label, it.on, () => this.toggle(it.entryId),
+          { tooltip: withKey(it.tip, { ...it, mod: it.mod ?? (it.id === "files" ? "files-md" : undefined) }), iconOnly, onRightClick: () => this.openPinMenu(it, true) });
+      }
       const info = this.groupInfo(it.group);
-      return panelButton(t, `group-${it.group}`, info.icon, info.label, it.members.some(m => m.on), () => this.openGroup(it.group),
-        `${info.label}: ${it.members.map(m => m.label).join(", ")}`, iconOnly, true);
-    });
+      return dockButton(t, `group-${it.group}`, info.icon, info.label, it.members.some((m) => m.on), () => this.openGroup(it.group),
+        { tooltip: withKey(`${info.label}: ${it.members.map((m) => m.label).join(", ")}`, { ...it, mod: "git-client" }), iconOnly, menu: true, onRightClick: () => this.openPinMenu({ id: it.id }, true) });
+    };
+    const shownPanelBtns = pinnedPanels.map(makePinnedBtn);
+    if (activeUnpinned) {
+      const info = activeUnpinned.members ? this.groupInfo(activeUnpinned.group) : activeUnpinned;
+      shownPanelBtns.push(dynamicChip(t, `dyn-${activeUnpinned.id}`, info.icon, info.label,
+        () => (activeUnpinned.members ? this.openGroup(activeUnpinned.group) : this.toggle(activeUnpinned.entryId)),
+        () => this.openPinMenu(activeUnpinned, false),
+        { tooltip: this.s("dynamicTip", { name: info.label }), iconOnly }));
+    }
+
+    const hasApps = unpinnedPanels.length > 0 || views.length > 0 || appCommands.length > 0;
+    const appsBtn = appsButton(t, "apps-btn", this.s("appsLabel"), () => this.openApps(), { tooltip: this.s("appsTip"), iconOnly });
+
     const here = shared("layout"), targets = this.layoutItems();
-    const layoutSwitch = targets.length < 2 ? [] : [buttonGroup(t, targets.map(it =>
-      panelButton(t, `layout-${it.name}`, it.symbol, it.label, it.name === here, () => this.runEntry(it.entry),
-        this.s(it.name === here ? "layoutHere" : "switchTip", { name: it.label }), iconOnly)))];
+    const layoutSwitch = targets.length < 2 ? [] : [softDock(t, targets.map((it) =>
+      dockButton(t, `layout-${it.name}`, it.symbol, it.label, it.name === here, () => this.runEntry(it.entry),
+        { tooltip: this.s(it.name === here ? "layoutHere" : "switchTip", { name: it.label }), iconOnly })))];
     const wbtn = (id, glyph, action) => div().id(id).size(28).flex_none().flex().items_center().justify_center().rounded(7)
       .text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground)).on_mouse_down("left", stop).on_click(action).child(glyph);
     const win = w?.platform === "windows";
     const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
-      .when(folded.length > 0, el => el.child(buttonGroup(t, [opensButton, ...(panelItems.length ? [innerDivider(t), ...panelItems] : [])])))
+      .when(allPanels.length > 0, (el) => el.child(softDock(t, [modeBtn, ...(shownPanelBtns.length ? [innerDivider(t), ...shownPanelBtns] : [])])))
+      .when(hasApps, (el) => el.child(appsBtn))
+      .child(gearButton)
       .children(layoutSwitch)
       .when(w?.buttons, el => el.child(h_flex().flex_none().gap(2).items_center()
         .child(wbtn("minimize", win ? svg("mods/tabs-dock/win-min.svg").size(16) : "−", () => run("window.minimize")))
@@ -1065,7 +1372,6 @@ export default class Tabs extends View {
           .on_click((_e, cx) => { cx.stop_propagation(); this.scroll.scroll_to_item(lastItem); this.scheduleScrollCheck(cx); })
           .child("›")))
       .child(button("tab-new", "+", () => openOverlay({ mod: "new-menu", kind: "popup", width: 250, height: 512 })).tooltip(this.s("newTab")))
-      .child(buttonGroup(t, [densityButton, gearButton]))
       .child(right);
   }
 }

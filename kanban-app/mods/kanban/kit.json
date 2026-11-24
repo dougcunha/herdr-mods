@@ -1,6 +1,6 @@
 {
   "app": "kanban-app",
-  "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout, including the tabbed Git panel. The gear menu sets the order of the panel buttons and hides the ones you do not use.",
+  "description": "A board of your agents in columns by status (needs you, working, waiting, done, idle), with the bar and the panels of the kanban layout, including the Soft Surface dock for pinned panels, categorized Apps launcher and tabbed Git panel. The gear menu manages Density and pinned bar buttons.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/kanban-app",
   "settings": [
     {
@@ -9,7 +9,7 @@
       "key": "kanban.density",
       "default": "auto",
       "label": "Button density",
-      "hint": "Auto shows the names of the bar buttons from 2250 px of bar width. Shared by the Kanban bar and the Dock bar.",
+      "hint": "Auto shows the names of the bar buttons from 1280 px of bar width. Shared by the Kanban bar and the Dock bar.",
       "options": [
         {
           "value": "auto",

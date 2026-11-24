@@ -1,6 +1,6 @@
 {
   "app": "dock-app",
-  "description": "The tab bar of the main-dock layout, with buttons that show or hide the side panels such as Git (Repository, Dashboard and Pull requests) and CI from dock/panels.json. The gear menu sets the order of the buttons and hides the ones you do not use.",
+  "description": "The tab bar of the main-dock layout, with a Soft Surface dock for pinned side panels (Files and Git by default) plus a Side/Modal toggle, a categorized Apps launcher for other panels, tab views and tools, and a dynamic chip for open unpinned panels. The gear menu sets Density and pinned bar buttons.",
   "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app",
   "settings": [
     {
@@ -9,7 +9,7 @@
       "key": "kanban.density",
       "default": "auto",
       "label": "Button density",
-      "hint": "Auto shows the names of the bar buttons from 2250 px of bar width. Shared by the Kanban bar and the Dock bar.",
+      "hint": "Auto shows the names of the bar buttons from 1280 px of bar width. Shared by the Kanban bar and the Dock bar.",
       "options": [
         {
           "value": "auto",

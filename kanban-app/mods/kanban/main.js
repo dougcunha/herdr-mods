@@ -13,9 +13,9 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState } from "gpui-base";
 import { agents, spaces, panes, focused, layout, layouts, window, theme, props, shared, setShared, run, openOverlay, closeOverlay,
-  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents, exec } from "herdr";
+  setAgentOrder, appHome, home, terminals, readTextFile, watchFolder, notify, nextCommand, hc, knownAgents, exec, keys } from "herdr";
 import * as fs from "fs/promises";
-import { icon, tint, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, divider, stop, machineChip, remoteColor } from "./ui.js";
+import { icon, tint, mono, iconButton, columnChip, segmented, searchBox, pill, button, panelButton, panelGlyph, buttonGroup, softDock, dockButton, dynamicChip, modeButton, appsButton, divider, stop, machineChip, remoteColor } from "./ui.js";
 
 /** The machine of an agent on another computer: its address is "<machine>/<terminal>". */
 const machineOf = (a) => (String(a?.address ?? "").includes("/") ? a.address.split("/")[0] : null);
@@ -72,11 +72,11 @@ const DENSITIES = ["auto", "compact", "normal"];
 // Card view. The button in the bar goes auto -> summary -> full -> auto.
 const CARD_VIEWS = ["auto", "summary", "full"];
 const BAR_WIDE = 1800;
-const LABELS_WIDE = 2250; // from this bar width the panel buttons show their names, not only icons
+const LABELS_WIDE = 1280; // from this bar width the panel buttons show their names, not only icons
 const COLUMN_WIDE = 220;
 // The right end of the bar: the same values as in tabs-dock, so it does not move when the layout changes.
 const BAR_RIGHT = 10; // padding after the window buttons
-const RIGHT_GAP = 6; // between the panel group, the layout switch and the window buttons
+const RIGHT_GAP = 6; // between the panel group, Apps, gear, the layout switch and the window buttons
 // In compact density the columns of a group share one place, one under the other, at the place of
 // the first of them in the column order. Waiting goes under Working, Idle under Done.
 const GROUPS = [["working", "waiting"], ["done", "idle"]];
@@ -102,25 +102,92 @@ const PANEL_GROUPS = { git: { label: "Git", icon: icon("git") }, "quick-actions"
 const GIT_TABS = { changes: "git-changes", repos: "git-dashboard", prs: "git-pull-requests" };
 const isGitEntry = (e) => e.opens === "panel" && e.group === "git" && (e.id === "repos" || e.id === "prs");
 const isGitStack = (node) => node?.type === "stack" && node.children?.some((child) => child.id === GIT_TABS.changes);
-const MENU_W = 220, MENU_PAD = 5, MENU_HEAD = 26, MENU_ROW = 32, MENU_SEP = 9; // px: the menu of a group button
+const MENU_W = 220, APPS_W = 340, MENU_PAD = 5, MENU_HEAD = 24, MENU_ROW = 32, QA_ROW = 28, MENU_SEP = 9; // px: popup menu dimensions
 const CLONE_W = 270; // px: the menu of the duplicate button of a card
-const EDIT_W = 280, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+const EDIT_W = 290, EDIT_FOOT = 38; // px: the editor of the bar buttons (its width and its Reset row)
+const POPUP_MAX_H = 560; // px: max popup height before scrolling
 
-// The order of the panel buttons and the buttons that the bar hides, shared with the Dock bar (the same key and the
-// same rules as in mods/tabs-dock): { order: [button id], hidden: [button id] }. A button id is the id of a panel or
-// an entry, or "group-<group>" for a group button. The buttons that are not in `order` (a new entry of panels.json)
-// come after the others, in the order of the file. Absent: the order of the file, no button hidden.
+// The pinned panel buttons on the bar, shared with the Dock bar (the same key and rules):
+// { pinned: [button id] }. Absent (or legacy { order, hidden } without `pinned`): DEFAULT_PINNED.
+// A button id is the id of a panel ("files"), or "group-<group>" for a group button ("group-git").
 const KEY_BUTTONS = "kanban.barButtons";
-// A group of 1 command is a plain button with the id of its group, so the saved order and eye follow it.
+const DEFAULT_PINNED = ["files", "group-git"];
+// A group of 1 command is a plain button with the id of its group.
 const buttonId = (it) => (it.members || (it.group && it.opens === "command") ? `group-${it.group}` : it.id === "changes" ? "group-git" : it.id);
 function barButtons() {
-  const v = shared(KEY_BUTTONS), list = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string") : []);
-  return { order: list(v?.order), hidden: list(v?.hidden) };
+  const v = shared(KEY_BUTTONS);
+  if (Array.isArray(v?.pinned)) {
+    const seen = new Set();
+    return { pinned: v.pinned.filter((s) => typeof s === "string" && !seen.has(s) && seen.add(s)), custom: true };
+  }
+  return { pinned: [...DEFAULT_PINNED], custom: false };
 }
-// The items (anything with an `id`) in the order of `order`; the others after them, in their own order.
-function arrange(items, order) {
-  const rank = new Map(order.map((id, i) => [id, i]));
-  return items.map((it, i) => ({ it, i, r: rank.get(it.id) ?? order.length + i })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.it);
+function savePinned(list) {
+  const seen = new Set();
+  setShared(KEY_BUTTONS, { pinned: list.filter((s) => typeof s === "string" && !seen.has(s) && seen.add(s)) });
+}
+function pinPanel(id) {
+  const { pinned } = barButtons();
+  if (!pinned.includes(id)) savePinned([...pinned, id]);
+}
+function unpinPanel(id) {
+  const { pinned } = barButtons();
+  savePinned(pinned.filter((x) => x !== id));
+}
+function togglePin(id) {
+  const { pinned } = barButtons();
+  if (pinned.includes(id)) unpinPanel(id);
+  else pinPanel(id);
+}
+
+function prettyKeys(chord) {
+  if (!chord) return "";
+  const mac = window()?.platform === "macos";
+  const names = mac
+    ? { ctrl: "⌃", alt: "⌥", shift: "⇧", cmd: "⌘", fn: "fn" }
+    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", cmd: "Super", fn: "Fn" };
+  const alias = { secondary: mac ? "cmd" : "ctrl", super: "cmd", win: "cmd", platform: "cmd", control: "ctrl" };
+  return chord.trim().split(/\s+/).map((stroke) => {
+    const parts = stroke.split("-");
+    let key = parts.pop();
+    if (key === "") {
+      key = "-";
+      parts.pop();
+    }
+    const held = new Set(parts.map((m) => alias[m.toLowerCase()] ?? m.toLowerCase()));
+    const label = key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1);
+    return [...Object.keys(names).filter((m) => held.has(m)).map((m) => names[m]), label].join(mac ? "" : "+");
+  }).join(" ");
+}
+
+function shortcutFor(item, prefix) {
+  const id = item.entryId ?? item.id;
+  const actions = [];
+  if (id) actions.push(`${prefix}${id}`);
+  if (item.id === "changes" || item.pinId === "group-git") actions.push("kanban.group-git");
+  if (item.run === "mod.open" && item.args?.name) {
+    actions.push(`mod.open:${item.args.name}`, `${item.args.name}.open`);
+  } else if (item.run) {
+    actions.push(item.run);
+  }
+  if (item.mod) actions.push(`mod.open:${item.mod}`, `${item.mod}.open`);
+
+  const all = keys();
+  const layoutSec = `layout:${shared("layout")}`;
+  const mac = window()?.platform === "macos";
+  const hasCmd = (ch) => ch.toLowerCase().split(/\s+/).some((s) => s.split("-").slice(0, -1).includes("cmd"));
+  const pick = (list) => {
+    if (!list.length) return null;
+    if (mac) return list.find((k) => hasCmd(k.keys)) ?? list[0];
+    return list.find((k) => !hasCmd(k.keys)) ?? null;
+  };
+  for (const act of actions) {
+    const secHit = pick(all.filter((k) => k.section === layoutSec && k.action === act));
+    if (secHit) return prettyKeys(secHit.keys);
+    const globHit = pick(all.filter((k) => k.section === "global" && k.action === act));
+    if (globHit) return prettyKeys(globHit.keys);
+  }
+  return null;
 }
 
 // The duplicate of an agent starts a new session: these flags continue an old one, so the clone drops them
@@ -194,10 +261,10 @@ const STR = {
     none: "No agents yet", noneHint: "Start an agent with the New agent button. It appears here as a card, and moves between columns when its status changes.",
     pin: "Pin to the top of its column", unpin: "Unpin", open: "Open in its tab",
     now: "just now", min: "{n} min ago", hour: "{n} h ago", day: "{n} d ago",
-    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods",
+    gearTitle: "Settings", gearHerdr: "Herdr settings", gearMods: "PowerMods", gearDensity: "Density",
     gearButtons: "Bar buttons", buttonsTitle: "Bar buttons (top of the list = left)", moveUp: "Move up", moveDown: "Move down",
-    hideButton: "Hide in the bar", showButton: "Show in the bar", resetButtons: "Reset",
-    newTab: "New tab", settingsTip: "Open the settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
+    resetButtons: "Reset",
+    newTab: "New tab", settingsTip: "Settings", backTip: "Switch to the {name} layout", layoutHere: "Shown now: the {name} layout", panelTip: "Show or hide {name}",
     auto: "Auto", widthTip: "Column width: {w}. Use − and + to change it.",
     toAuto: "Set Auto: the columns share the whole board",
     widthAutoTip: "Click the value to go back to Auto.",
@@ -211,8 +278,15 @@ const STR = {
     cardsAuto: "Auto (summary in compact density)",
     cardsTip: "Cards: {mode}. Click to switch to {next}.",
     opens_auto: "Auto", opens_side: "Side panel", opens_dialog: "Dialog",
-    opensNowDialog: "{mode} (dialog now)", opensNowSide: "{mode} (side panel now)",
+    mode_auto: "Auto", mode_side: "Side", mode_dialog: "Modal",
+    opensNowDialog: "{mode} (modal now)", opensNowSide: "{mode} (side panel now)",
     opensTip: "Panels open in: {mode}. Click to switch to {next}.",
+    appsLabel: "Apps", appsTip: "Apps & tools",
+    secPanels: "Panels (Side / Modal)", secViews: "Views", secTools: "Tools & Quick Actions",
+    tagOpen: "Open", tagPanel: "Panel", tagTab: "Tab", tagModal: "Modal", tagRun: "Run",
+    pinToBar: "Pin to bar", unpinFromBar: "Unpin from bar",
+    pinnedSection: "Pinned in bar", unpinnedSection: "In Apps menu", noPinned: "No panels pinned",
+    dynamicTip: "{name} (open — click to close, right-click to pin)",
     toSide: "Open in the side panel", toTab: "Open in a tab", toDialog: "Open in a dialog", closeDialog: "Close",
     rename: "Rename the tab", duplicate: "Duplicate this agent", cloneHere: "Duplicate in this space", cloneWorktree: "Duplicate in a new worktree…",
     cloneTitle: "Duplicate {name}", cloneFail: "Kanban: duplicate", noCommand: "The command of this agent is not known.",
@@ -237,10 +311,10 @@ const STR = {
     none: "Nenhum agente ainda", noneHint: "Inicie um agente com o botão Novo agente. Ele aparece aqui como um cartão e muda de coluna quando o status muda.",
     pin: "Fixar no topo da coluna", unpin: "Desafixar", open: "Abrir na aba dele",
     now: "agora", min: "há {n} min", hour: "há {n} h", day: "há {n} d",
-    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods",
+    gearTitle: "Configurações", gearHerdr: "Configurações do Herdr", gearMods: "PowerMods", gearDensity: "Densidade",
     gearButtons: "Botões da barra", buttonsTitle: "Botões da barra (topo da lista = esquerda)", moveUp: "Mover para cima",
-    moveDown: "Mover para baixo", hideButton: "Ocultar na barra", showButton: "Mostrar na barra", resetButtons: "Restaurar",
-    newTab: "Nova aba", settingsTip: "Abrir as configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
+    moveDown: "Mover para baixo", resetButtons: "Restaurar",
+    newTab: "Nova aba", settingsTip: "Configurações", backTip: "Trocar para o layout {name}", layoutHere: "Layout atual: {name}", panelTip: "Mostrar ou ocultar {name}",
     auto: "Auto", widthTip: "Largura da coluna: {w}. Use − e + para mudar.",
     toAuto: "Voltar para Auto: as colunas dividem o quadro todo",
     widthAutoTip: "Clique no valor para voltar para Auto.",
@@ -253,9 +327,16 @@ const STR = {
     cards_auto: "Auto", cards_summary: "Resumido", cards_full: "Completo",
     cardsAuto: "Auto (resumido na densidade compacta)",
     cardsTip: "Cartões: {mode}. Clique para mudar para {next}.",
-    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Diálogo",
-    opensNowDialog: "{mode} (diálogo agora)", opensNowSide: "{mode} (painel lateral agora)",
+    opens_auto: "Auto", opens_side: "Painel lateral", opens_dialog: "Modal",
+    mode_auto: "Auto", mode_side: "Lateral", mode_dialog: "Modal",
+    opensNowDialog: "{mode} (modal agora)", opensNowSide: "{mode} (painel lateral agora)",
     opensTip: "Os painéis abrem em: {mode}. Clique para mudar para {next}.",
+    appsLabel: "Apps", appsTip: "Apps e ferramentas",
+    secPanels: "Painéis (Lateral / Modal)", secViews: "Visualizações", secTools: "Ferramentas e Ações",
+    tagOpen: "Aberto", tagPanel: "Painel", tagTab: "Aba", tagModal: "Modal", tagRun: "Executar",
+    pinToBar: "Fixar na barra", unpinFromBar: "Desafixar da barra",
+    pinnedSection: "Fixados na barra", unpinnedSection: "No menu Apps", noPinned: "Nenhum painel fixado",
+    dynamicTip: "{name} (aberto — clique para fechar, clique direito para fixar)",
     toSide: "Abrir no painel lateral", toTab: "Abrir numa aba", toDialog: "Abrir num diálogo", closeDialog: "Fechar",
     rename: "Renomear a tab", duplicate: "Duplicar este agente", cloneHere: "Duplicar neste espaço", cloneWorktree: "Duplicar num novo worktree…",
     cloneTitle: "Duplicar {name}", cloneFail: "Kanban: duplicar", noCommand: "O comando deste agente não é conhecido.",
@@ -331,7 +412,7 @@ export default class Kanban extends View {
   init(given, cx) {
     // Read props once and keep them: props() in a later callback can answer for another copy.
     this.props = (given && Object.keys(given).length ? given : props()) || {};
-    this.part = ["bar", "panel-title", "git-tabs", "panel-head", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.props.part) ? this.props.part : "board";
+    this.part = ["bar", "panel-title", "git-tabs", "panel-head", "group-menu", "clone-menu", "gear-menu", "buttons-menu", "apps-menu", "pin-menu"].includes(this.props.part) ? this.props.part : "board";
     if (this.part === "panel-head") {
       // The names and the icons of the panels, from dock/panels.json. A save of the file shows at once.
       this.info = new Map(PANELS.map((p) => [p.id, p]));
@@ -347,7 +428,7 @@ export default class Kanban extends View {
       });
       return;
     }
-    if (["panel-title", "git-tabs", "group-menu", "clone-menu", "gear-menu", "buttons-menu"].includes(this.part)) {
+    if (["panel-title", "git-tabs", "group-menu", "clone-menu", "gear-menu", "buttons-menu", "apps-menu", "pin-menu"].includes(this.part)) {
       this.overlay = this.props.overlay ?? props()?.overlay;
       if (this.part === "panel-title") this.takeKeys(cx);
       return;
@@ -398,6 +479,7 @@ export default class Kanban extends View {
         for (;;) {
           const cmd = String(await nextCommand());
           if (cmd === "panel-open") this.stepPanelOpen();
+          else if (cmd === "apps") this.openApps();
           else if (cmd === "gear") this.openGear();
           else if (cmd === "buttons") this.openButtons();
           else if (cmd.startsWith("group-")) this.openGroup(cmd.slice(6));
@@ -778,13 +860,14 @@ export default class Kanban extends View {
     if (open?.id) {
       closeOverlay(open.id);
       setShared(KEY_PANEL_DIALOG, null);
-      if (!gitTab && open.panel === id && liveDialogs().has(open.id)) return;
+      if (!gitTab && !tab && open.panel === id && liveDialogs().has(open.id)) return;
     }
+    // Views (opens: "tab") always open in their tab, independent of the panel Side/Modal mode.
+    if (tab) return this.runEntry(tab);
     // A panel that shows in the side panel now (also one moved there from a dialog) closes, in every mode.
     if (!gitTab && node && panel && !panel.hidden && body.active === id) return run("layout.hide", { id: panel.id });
-    if (this.dialogNow()) return this.openDialog(id, tab ? { type: "block", content: { mod: tab.mod, ...(tab.props ? { props: tab.props } : {}) } } : node, tab, gitTab);
+    if (this.dialogNow()) return this.openDialog(id, node, null, gitTab);
     if (gitTab && isGitStack(node)) run("layout.select", { stack: "changes", child: gitTab });
-    if (tab) return this.runEntry(tab);
     run("layout.select", { stack: "panel-body", child: id });
     run("layout.show", { id: panel.id });
   }
@@ -942,6 +1025,7 @@ export default class Kanban extends View {
    *  come from the last render (lit = open now). A popup is as tall as its content, so the height is set here. */
   openGroup(group) {
     if (group === "git" && !this.groups?.has(group)) return this.togglePanel("changes");
+    if (group === "quick-actions") return this.openApps();
     const members = this.groups?.get(group);
     if (!members?.length) return;
     const info = this.groupInfo(group);
@@ -975,55 +1059,212 @@ export default class Kanban extends View {
     if (this.overlay) closeOverlay(this.overlay);
   }
 
-  /** The gear button opens a menu: Herdr's settings, the editor of the bar buttons and, with the mods-hub
+  /** The gear button opens a menu: Herdr's settings, Density, the editor of the bar buttons and, with the mods-hub
    *  installed, the PowerMods dialog. */
   openGear() {
-    const open = (hub) => openOverlay({ mod: "kanban", kind: "popup", width: MENU_W,
-      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 3 : 2) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
+    const open = (hub) => openOverlay({ mod: "kanban", kind: "popup", width: 245,
+      height: MENU_PAD * 2 + MENU_HEAD + (hub ? 4 : 3) * MENU_ROW, props: { part: "gear-menu", lang: this.lang, hub } });
     readTextFile(`${appHome()}/mods/mods-hub/mod.json`).then((text) => open(text != null), () => open(false));
   }
 
-  /** Opens the editor of the bar buttons: one row per button of the panel group (a group button is one row), from
-   *  the last render. A popup is as tall as its content, so the height is set here. */
+  /** Opens the categorized Apps & Tools launcher popover: unpinned Panels, Views (tabs), and Tools & Quick Actions. */
+  openApps() {
+    const data = this.appsData ?? { panels: [], views: [], commands: [] };
+    const { panels, views, commands } = data;
+    const groupedPinned = new Map();
+    const topCommands = [];
+    for (const c of commands) {
+      if (c.section === "pinned" && c.group) {
+        if (!groupedPinned.has(c.group)) groupedPinned.set(c.group, []);
+        groupedPinned.get(c.group).push(c);
+      } else topCommands.push(c);
+    }
+    const usedPinnedGroups = new Set();
+    const cmdRows = [];
+    for (const c of topCommands) {
+      cmdRows.push({ ...c, nested: false });
+      if (c.group && groupedPinned.has(c.group)) {
+        usedPinnedGroups.add(c.group);
+        for (const sub of groupedPinned.get(c.group)) cmdRows.push({ ...sub, nested: true });
+      }
+    }
+    for (const [grp, subs] of groupedPinned) {
+      if (!usedPinnedGroups.has(grp)) for (const sub of subs) cmdRows.push({ ...sub, nested: false });
+    }
+    const sections = [panels.length > 0, views.length > 0, cmdRows.length > 0].filter(Boolean).length;
+    if (!sections) return;
+    let h = MENU_PAD * 2 + sections * MENU_HEAD + Math.max(0, sections - 1) * MENU_SEP;
+    h += panels.length * MENU_ROW + views.length * MENU_ROW;
+    for (const c of cmdRows) h += c.nested ? QA_ROW : MENU_ROW;
+    openOverlay({
+      mod: "kanban", kind: "popup", width: APPS_W, height: Math.min(POPUP_MAX_H, h),
+      props: { part: "apps-menu", lang: this.lang, panels, views, commands: cmdRows },
+    });
+  }
+
+  appsMenu(t) {
+    const p = this.props;
+    const panels = Array.isArray(p.panels) ? p.panels : [];
+    const views = Array.isArray(p.views) ? p.views : [];
+    const commands = Array.isArray(p.commands) ? p.commands : [];
+    const pinnedSet = new Set(barButtons().pinned);
+    const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
+    const openDlg = shared(KEY_PANEL_DIALOG);
+    const inDialog = openDlg?.id && liveDialogs().has(openDlg.id) ? openDlg.panel : null;
+    const isPanelOn = (id) => Boolean((panel && !panel.hidden && body?.active === id) || inDialog === id);
+    const secHead = (label) => h_flex().w_full().h(MENU_HEAD).px(9).flex_none().items_center()
+      .text_size(10.5).font_semibold().text_color(t.dim).child(label);
+    const sepRow = () => div().w_full().h(MENU_SEP).px(6).flex_none().flex().items_center().child(div().w_full().h(1).bg(t.border));
+    const tag = (label, fg, bg) => div().h(18).px(6).flex_none().flex().items_center().rounded(5).text_size(10).font_semibold()
+      .bg(bg).text_color(fg).child(label);
+    const monoFont = mono();
+    const kbd = (text) => div().h(18).px(5).flex_none().flex().items_center().rounded(4).text_size(10).font_family(monoFont)
+      .bg(tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "1a")).text_color(t.muted).child(text);
+    const amber = t.blocked || t.accent;
+    const purple = t.ansi5 || t.accent;
+
+    const panelRow = (it) => {
+      const on = isPanelOn(it.id);
+      const isPinned = pinnedSet.has(it.pinId);
+      const key = shortcutFor(it, "kanban.panel-");
+      return h_flex().id(`kb-apps-p-${it.id}`).w_full().h(MENU_ROW).pl(9).pr(4).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(12.5).text_color(on ? t.accent : t.foreground)
+        .when(on, (e) => e.bg(tint(t.accent, "1c")))
+        .hover((s) => s.bg(on ? tint(t.accent, "30") : t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.entryId ?? it.id); })
+        .child(panelGlyph(it.icon, 15, on ? t.accent : t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .when(on, (e) => e.child(tag(this.s("tagOpen"), t.accent, tint(t.accent, "26"))))
+        .when(!on, (e) => e.child(tag(this.s("tagPanel"), t.accent, tint(t.accent, "1c"))))
+        .when(on, (e) => e.child(svg(icon("tick")).size(12).flex_none().text_color(t.accent)))
+        .child(div().id(`kb-apps-pin-${it.pinId}`).size(22).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
+          .tooltip(this.s(isPinned ? "unpinFromBar" : "pinToBar"))
+          .when(isPinned, (e) => e.bg(tint(t.accent, "26")))
+          .hover((s) => s.bg(isPinned ? tint(t.accent, "40") : t.hover))
+          .on_mouse_down("left", stop)
+          .on_click((_e, cx) => { cx.stop_propagation(); togglePin(it.pinId); })
+          .child(svg(icon("pin")).size(12).text_color(isPinned ? t.accent : t.dim)));
+    };
+
+    const viewRow = (it) => {
+      const key = shortcutFor(it, "kanban.panel-");
+      return h_flex().id(`kb-apps-v-${it.id}`).w_full().h(MENU_ROW).px(9).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(12.5).text_color(t.foreground).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+        .child(panelGlyph(it.icon, 15, t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .child(tag(this.s("tagTab"), amber, tint(amber, "22")));
+    };
+
+    const cmdRow = (it) => {
+      const isModal = it.run === "mod.open";
+      const h = it.nested ? QA_ROW : MENU_ROW;
+      const key = shortcutFor(it, "kanban.panel-");
+      return h_flex().id(`kb-apps-c-${it.id}`).w_full().h(h).pl(it.nested ? 26 : 9).pr(9).gap(7).flex_none().items_center().rounded(7).cursor_pointer()
+        .text_size(it.nested ? 12 : 12.5).text_color(it.nested ? t.muted : t.foreground).hover((s) => s.bg(t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.pick(it.id); })
+        .child(panelGlyph(it.icon, it.nested ? 13 : 15, t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+        .when(Boolean(key), (e) => e.child(kbd(key)))
+        .child(isModal ? tag(this.s("tagModal"), purple, tint(purple, "24")) : tag(this.s("tagRun"), t.muted, tint(t.foreground, "12")));
+    };
+
+    const children = [];
+    if (panels.length) {
+      children.push(secHead(this.s("secPanels")), ...panels.map(panelRow));
+    }
+    if (views.length) {
+      if (children.length) children.push(sepRow());
+      children.push(secHead(this.s("secViews")), ...views.map(viewRow));
+    }
+    if (commands.length) {
+      if (children.length) children.push(sepRow());
+      children.push(secHead(this.s("secTools")), ...commands.map(cmdRow));
+    }
+    return v_flex().id("kb-apps-root").w_full().max_h(POPUP_MAX_H).overflow_y_scrollbar().p(MENU_PAD).children(children);
+  }
+
+  /** Right-click menu on a bar panel button or dynamic chip: Pin to bar / Unpin from bar. */
+  openPinMenu(item, pinned) {
+    openOverlay({
+      mod: "kanban", kind: "popup", width: 185, height: MENU_PAD * 2 + MENU_ROW,
+      props: { part: "pin-menu", lang: this.lang, id: item.id, pinned },
+    });
+  }
+
+  pinMenu(t) {
+    const { id, pinned } = this.props;
+    const row = h_flex().id("kb-pin-menu-act").w_full().h(MENU_ROW).px(10).gap(9).flex_none().items_center().rounded(6)
+      .cursor_pointer().text_size(12.5).text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_click((_e, cx) => {
+        cx.stop_propagation();
+        if (pinned) unpinPanel(id);
+        else pinPanel(id);
+        if (this.overlay) closeOverlay(this.overlay);
+      })
+      .child(svg(icon(pinned ? "pin-off" : "pin")).size(14).flex_none().text_color(pinned ? t.muted : t.accent))
+      .child(div().flex_1().min_w(0).truncate().child(this.s(pinned ? "unpinFromBar" : "pinToBar")));
+    return v_flex().id("kb-pin-menu-root").w_full().p(MENU_PAD).child(row);
+  }
+
+  /** Opens the editor of the bar panels: Pinned in bar (reorder + unpin) and In Apps menu (pin). */
   openButtons() {
     const items = this.buttonItems ?? [];
     if (!items.length) return;
-    openOverlay({ mod: "kanban", kind: "popup", width: EDIT_W, height: MENU_PAD * 2 + MENU_HEAD + items.length * MENU_ROW + EDIT_FOOT,
+    const { pinned } = barButtons();
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const pinnedCount = Math.max(1, pinned.filter((id) => byId.has(id)).length);
+    const unpinnedCount = items.filter((it) => !pinned.includes(it.id)).length;
+    const sepH = unpinnedCount > 0 ? MENU_SEP + MENU_HEAD : 0;
+    const h = MENU_PAD * 2 + MENU_HEAD + MENU_HEAD + pinnedCount * MENU_ROW + sepH + unpinnedCount * MENU_ROW + EDIT_FOOT;
+    openOverlay({ mod: "kanban", kind: "popup", width: EDIT_W, height: Math.min(540, h),
       props: { part: "buttons-menu", lang: this.lang, items } });
   }
 
-  /** The editor of the bar buttons: one row per button (icon, name, up, down, show or hide) in the order of the bar,
-   *  and a Reset row. It reads and writes the shared key, so both bars change at once and the popup stays open.
-   *  The same as buttonsMenu in mods/tabs-dock. */
+  /** The editor of the bar panels: Pinned in bar (up/down/unpin) and In Apps menu (pin), plus Reset. */
   buttonsMenu(t) {
     const items = Array.isArray(this.props.items) ? this.props.items : [];
-    const prefs = barButtons(), rows = arrange(items, prefs.order), hidden = new Set(prefs.hidden);
-    const save = (next) => setShared(KEY_BUTTONS, { order: prefs.order, hidden: prefs.hidden, ...next });
+    const byId = new Map(items.map((it) => [it.id, it]));
+    const prefs = barButtons();
+    const pinnedSet = new Set(prefs.pinned);
+    const pinnedRows = prefs.pinned.map((id) => byId.get(id)).filter(Boolean);
+    const extraIds = prefs.pinned.filter((id) => !byId.has(id));
+    const unpinnedRows = items.filter((it) => !pinnedSet.has(it.id));
     const move = (i, step) => {
-      const list = rows.map((r) => r.id), j = i + step;
+      const list = pinnedRows.map((r) => r.id), j = i + step;
       if (j < 0 || j >= list.length) return;
       [list[i], list[j]] = [list[j], list[i]];
-      save({ order: list });
+      savePinned([...list, ...extraIds]);
     };
-    const flip = (id) => save({ hidden: hidden.has(id) ? prefs.hidden.filter((x) => x !== id) : [...prefs.hidden, id] });
-    const tool = (id, name, tip, fn, enabled = true) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
+    const tool = (id, name, tip, fn, enabled = true, color = null) => div().id(id).size(24).flex_none().flex().items_center().justify_center().rounded(6)
       .tooltip(tip)
       .when(enabled, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); fn(); }))
-      .child(svg(icon(name)).size(14).text_color(enabled ? t.muted : t.border));
-    const row = (it, i) => {
-      const off = hidden.has(it.id);
-      return h_flex().id(`kb-bm-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
-        .text_size(13).text_color(off ? t.dim : t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
-        .child(panelGlyph(it.icon, 15, off ? t.dim : t.muted))
-        .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
-        .child(tool(`kb-bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
-        .child(tool(`kb-bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < rows.length - 1))
-        .child(tool(`kb-bm-eye-${it.id}`, off ? "eye-off" : "eye", this.s(off ? "showButton" : "hideButton"), () => flip(it.id)));
-    };
-    const changed = prefs.order.length > 0 || prefs.hidden.length > 0;
-    return v_flex().id("kb-bm-root").w_full().p(MENU_PAD)
+      .child(svg(icon(name)).size(14).text_color(enabled ? (color || t.muted) : t.border));
+    const secHead = (label) => h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center()
+      .text_size(10.5).font_semibold().text_color(t.dim).child(label);
+    const pinnedRow = (it, i) => h_flex().id(`kb-bm-p-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+      .text_size(13).text_color(t.foreground).hover((s) => s.bg(tint(t.foreground, "0a")))
+      .child(panelGlyph(it.icon, 15, t.accent))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .child(tool(`kb-bm-up-${it.id}`, "chevron-up", this.s("moveUp"), () => move(i, -1), i > 0))
+      .child(tool(`kb-bm-down-${it.id}`, "chevron-down", this.s("moveDown"), () => move(i, 1), i < pinnedRows.length - 1))
+      .child(tool(`kb-bm-pin-${it.id}`, "pin", this.s("unpinFromBar"), () => unpinPanel(it.id), true, t.accent));
+    const unpinnedRow = (it) => h_flex().id(`kb-bm-u-${it.id}`).w_full().h(MENU_ROW).pl(10).pr(2).gap(8).flex_none().items_center().rounded(6)
+      .text_size(13).text_color(t.muted).hover((s) => s.bg(tint(t.foreground, "0a")))
+      .child(panelGlyph(it.icon, 15, t.muted))
+      .child(div().flex_1().min_w(0).truncate().child(String(it.label ?? it.id)))
+      .child(tool(`kb-bm-pin-${it.id}`, "pin", this.s("pinToBar"), () => pinPanel(it.id), true, t.dim));
+    const raw = shared(KEY_BUTTONS);
+    const changed = raw !== null && raw !== undefined;
+    const sepRow = () => div().w_full().h(MENU_SEP).px(6).flex_none().flex().items_center().child(div().w_full().h(1).bg(t.border));
+    return v_flex().id("kb-bm-root").w_full().max_h(540).overflow_y_scrollbar().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("buttonsTitle")))
-      .children(rows.map(row))
+      .child(secHead(this.s("pinnedSection")))
+      .when(pinnedRows.length === 0, (e) => e.child(h_flex().w_full().h(MENU_ROW).px(10).items_center().text_size(12).text_color(t.dim).child(this.s("noPinned"))))
+      .children(pinnedRows.map(pinnedRow))
+      .when(unpinnedRows.length > 0, (e) => e.child(sepRow()).child(secHead(this.s("unpinnedSection"))).children(unpinnedRows.map(unpinnedRow)))
       .child(h_flex().w_full().h(EDIT_FOOT).px(6).pt(6).flex_none().items_center().justify_end().border_t(1).border_color(t.border)
         .child(h_flex().id("kb-bm-reset").h(24).px(10).flex_none().items_center().rounded(6).text_size(12)
           .border_1().border_color(t.border).text_color(changed ? t.foreground : t.dim)
@@ -1031,24 +1272,28 @@ export default class Kanban extends View {
           .child(this.s("resetButtons"))));
   }
 
-  /** The menu of the gear button. "PowerMods" opens the dialog on its Settings tab, on the section of this bar (the tab and
-   *  the section that the mods-hub keeps in shared("mods-hub")). mod.open toggles: an open dialog closes. "Bar buttons" asks the bar
-   *  for the editor ("kanban.buttons"): the bar knows the buttons. */
+  /** The menu of the gear button. "Density" cycles Auto -> Compact -> Normal live. "PowerMods" opens the dialog
+   *  on its Settings tab, on the section of this bar. "Bar buttons" asks the bar for the pin/order editor. */
   gearMenu(t) {
     const go = (fn) => { fn(); if (this.overlay) closeOverlay(this.overlay); };
-    const row = (id, symbol, label, fn) => h_flex().id(`kb-gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
+    const density = this.density();
+    const nextDensity = DENSITIES[(DENSITIES.indexOf(density) + 1) % DENSITIES.length];
+    const row = (id, symbol, label, fn, badge = null) => h_flex().id(`kb-gear-${id}`).w_full().h(MENU_ROW).px(10).gap(10).flex_none().items_center().rounded(6)
       .cursor_pointer().text_size(13).text_color(t.foreground).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { cx.stop_propagation(); go(fn); })
+      .on_click((_e, cx) => { cx.stop_propagation(); fn(); })
       .child(svg(icon(symbol)).size(15).flex_none().text_color(t.muted))
-      .child(div().flex_1().min_w(0).truncate().child(label));
+      .child(div().flex_1().min_w(0).truncate().child(label))
+      .when(Boolean(badge), (e) => e.child(div().h(18).px(6).flex_none().flex().items_center().rounded(5).text_size(10.5).font_semibold()
+        .bg(tint(t.accent, "1f")).text_color(t.accent).child(String(badge))));
     return v_flex().id("kb-gear-root").w_full().p(MENU_PAD)
       .child(h_flex().w_full().h(MENU_HEAD).px(10).flex_none().items_center().text_size(11).font_semibold().text_color(t.dim).child(this.s("gearTitle")))
-      .child(row("herdr", "settings", this.s("gearHerdr"), () => run("app.settings")))
-      .child(row("buttons", "buttons", this.s("gearButtons"), () => run("kanban.buttons")))
-      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => {
+      .child(row("herdr", "settings", this.s("gearHerdr"), () => go(() => run("app.settings"))))
+      .child(row("density", "density", this.s("gearDensity"), () => setShared(KEY_DENSITY, nextDensity), this.s(`density_${density}`)))
+      .child(row("buttons", "buttons", this.s("gearButtons"), () => go(() => run("kanban.buttons"))))
+      .when(this.props.hub !== false, (e) => e.child(row("mods", "mods", this.s("gearMods"), () => go(() => {
         setShared("mods-hub", { ...(shared("mods-hub") ?? {}), tab: "settings", section: "kanban" });
         run("mod.open", { name: "mods-hub" });
-      })));
+      }))));
   }
 
   /** Opens the menu of the duplicate button of a card at the pointer: duplicate in the same space, or in a new worktree. */
@@ -1161,8 +1406,8 @@ export default class Kanban extends View {
   layoutSwitch(t, iconOnly) {
     const items = this.layoutItems(), here = shared("layout");
     if (items.length < 2) return [];
-    return [buttonGroup(t, items.map((it) => panelButton(t, `kb-layout-${it.name}`, it.symbol, it.label, it.name === here,
-      () => this.switchLayout(it.name), this.s(it.name === here ? "layoutHere" : "backTip", { name: it.label }), iconOnly)))];
+    return [softDock(t, items.map((it) => dockButton(t, `kb-layout-${it.name}`, it.symbol, it.label, it.name === here,
+      () => this.switchLayout(it.name), { tooltip: this.s(it.name === here ? "layoutHere" : "backTip", { name: it.label }), iconOnly })))];
   }
 
   // ---- the shell under the board ----------------------------------------------
@@ -1495,13 +1740,11 @@ export default class Kanban extends View {
       .child(iconButton(t, "kb-tab-new", "plus", () => run("tab.new"), { tooltip: this.s("newTab"), size: 26, glyph: 13 }));
   }
 
-  /** The buttons of the side panel and of dock/panels.json: Files and Changes, then the entries of the file
-   *  in the order listed (side panels and tabs), then its commands. The layout.switch commands are not here:
-   *  they are in the layout switch. Empty when the layout has no `panel-body`. `iconOnly`: the names go to
-   *  the tooltips. Call it once per render: it also adds the blocks of the file to the layout. */
+  /** Builds the Panels softDock (mode button + pinned panels + optional dynamic chip) and populates `this.appsData`
+   *  for the Apps launcher popover. Also syncs dock/panels.json blocks into the layout. */
   panelItems(t, iconOnly = false) {
     const root = layout(), panel = sidePanel(root), body = find(root, "panel-body");
-    if (!panel || !body) return [];
+    if (!panel || !body) { this.appsData = null; return { panelDock: [], hasApps: false }; }
     // The entries that may use the panel stack: not the id of any other node of the layout.
     const taken = ids(root);
     for (const c of body.children ?? []) taken.delete(c.id);
@@ -1525,31 +1768,61 @@ export default class Kanban extends View {
     const inDialog = this.dialogPanel();
     const lit = (id) => (!panel.hidden && body.active === id) || inDialog === id;
     const tip = (name) => this.s("panelTip", { name });
-    // The panels of a group share one button, in the place of the first one; its menu lists them.
-    const items = [
+
+    const rawPanels = [
       ...PANELS.filter((p) => present.has(p.id)).map((p) => ({ ...p, key: `kb-panel-${p.id}`, on: lit(p.id), tip: tip(p.label) })),
-      ...usable.filter((e) => e.opens === "tab" || present.has(e.id)).map((e) => e.opens === "tab"
-        ? { ...e, key: `kb-tab-open-${e.id}`, on: inDialog === e.id, tip: "" }
-        : { ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) }),
-      ...live.filter((e) => e.opens === "command" && e.run !== "layout.switch" && !hiddenEntries().has(e.id)).map((e) => ({ ...e, key: `kb-cmd-${e.id}`, on: false, tip: "" })),
+      ...usable.filter((e) => e.opens === "panel" && present.has(e.id)).map((e) => ({ ...e, key: `kb-panel-${e.id}`, on: lit(e.id), tip: tip(e.label) })),
     ];
-    // The person's order and hidden buttons (KEY_BUTTONS) apply to the folded buttons: a group moves as one button.
-    // The group menus and the keys still reach a hidden button.
-    const prefs = barButtons(), off = new Set(prefs.hidden);
-    const folded = arrange(foldGroups(items).map((it) => ({ ...it, id: buttonId(it), entryId: it.id })), prefs.order);
-    this.groups = new Map(folded.filter((it) => it.members).map((g) => [g.group, g.members]));
-    this.buttonItems = folded.map((it) => (it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon }));
-    const shownItems = folded.filter((it) => !off.has(it.id));
-    if (!folded.length) return [];
-    return [
-      this.panelOpenButton(t), ...(shownItems.length ? [divider(t, true)] : []),
-      ...shownItems.map((it) => {
-        if (!it.members) return panelButton(t, it.key, it.icon, it.label, it.on, () => this.togglePanel(it.entryId), it.tip, iconOnly);
-        const info = this.groupInfo(it.group);
-        return panelButton(t, `kb-group-${it.group}`, info.icon, info.label, it.members.some((m) => m.on), () => this.openGroup(it.group),
-          `${info.label}: ${it.members.map((m) => m.label).join(", ")}`, iconOnly, false, true);
+    const allPanels = foldGroups(rawPanels).map((it) => ({ ...it, id: buttonId(it), entryId: it.id }));
+    this.groups = new Map(allPanels.filter((it) => it.members).map((g) => [g.group, g.members]));
+    this.buttonItems = allPanels.map((it) => (it.members ? { id: it.id, ...this.groupInfo(it.group) } : { id: it.id, label: it.label, icon: it.icon }));
+
+    const prefs = barButtons(), pinnedSet = new Set(prefs.pinned);
+    const byId = new Map(allPanels.map((it) => [it.id, it]));
+    const pinnedPanels = prefs.pinned.map((id) => byId.get(id)).filter(Boolean);
+    const unpinnedPanels = allPanels.filter((it) => !pinnedSet.has(it.id));
+    const isItemOn = (it) => (it.members ? it.members.some((m) => m.on) : Boolean(it.on));
+    const activeUnpinned = unpinnedPanels.find(isItemOn) ?? null;
+
+    const views = usable.filter((e) => e.opens === "tab");
+    const appCommands = live.filter((e) => e.opens === "command" && e.run !== "layout.switch" && !hiddenEntries().has(e.id));
+    this.appsData = {
+      panels: unpinnedPanels.map((it) => {
+        const info = it.members ? this.groupInfo(it.group) : it;
+        const mod = it.mod ?? (it.id === "files" ? "files" : it.id === "group-git" ? "git-client" : undefined);
+        return { id: it.members ? (it.members[0]?.id ?? it.id) : it.entryId, pinId: it.id, entryId: it.entryId, label: info.label, icon: info.icon, mod };
       }),
-    ];
+      views: views.map((e) => ({ id: e.id, label: e.label, icon: e.icon, mod: e.mod })),
+      commands: appCommands.map((e) => ({ id: e.id, label: e.label, icon: e.icon, run: e.run, args: e.args, group: e.group, section: e.section })),
+    };
+
+    const withKey = (text, item) => {
+      const k = shortcutFor(item, "kanban.panel-");
+      return k ? (text ? `${text} (${k})` : k) : text;
+    };
+    const makePinnedBtn = (it) => {
+      if (!it.members) {
+        return dockButton(t, it.key, it.icon, it.label, it.on, () => this.togglePanel(it.entryId),
+          { tooltip: withKey(it.tip, { ...it, mod: it.mod ?? (it.id === "files" ? "files" : undefined) }), iconOnly, onRightClick: () => this.openPinMenu(it, true) });
+      }
+      const info = this.groupInfo(it.group);
+      return dockButton(t, `kb-group-${it.group}`, info.icon, info.label, it.members.some((m) => m.on), () => this.openGroup(it.group),
+        { tooltip: withKey(`${info.label}: ${it.members.map((m) => m.label).join(", ")}`, { ...it, mod: "git-client" }), iconOnly, menu: true, onRightClick: () => this.openPinMenu({ id: it.id }, true) });
+    };
+    const shownPanelBtns = pinnedPanels.map(makePinnedBtn);
+    if (activeUnpinned) {
+      const info = activeUnpinned.members ? this.groupInfo(activeUnpinned.group) : activeUnpinned;
+      shownPanelBtns.push(dynamicChip(t, `kb-dyn-${activeUnpinned.id}`, info.icon, info.label,
+        () => (activeUnpinned.members ? this.openGroup(activeUnpinned.group) : this.togglePanel(activeUnpinned.entryId)),
+        () => this.openPinMenu(activeUnpinned, false),
+        { tooltip: this.s("dynamicTip", { name: info.label }), iconOnly }));
+    }
+
+    const panelDock = allPanels.length > 0
+      ? [softDock(t, [this.panelOpenButton(t, iconOnly), ...(shownPanelBtns.length ? [divider(t, true), ...shownPanelBtns] : [])])]
+      : [];
+    const hasApps = unpinnedPanels.length > 0 || views.length > 0 || appCommands.length > 0;
+    return { panelDock, hasApps };
   }
 
   /** The two blocks of the board view: the terminal of the selected agent (right) and the shell (under the board). */
@@ -1602,14 +1875,14 @@ export default class Kanban extends View {
       { active: compactNow, size: 26, tooltip: this.s("densityTip", { mode, next: name(next) }) });
   }
 
-  /** Where the panel buttons open their panel: lit while they open a dialog. The tooltip names the mode and the next one. */
-  panelOpenButton(t) {
+  /** Where the panel buttons open their panel: Auto / Side / Modal. Coupled exclusively to the Panels softDock. */
+  panelOpenButton(t, iconOnly = false) {
     const v = this.panelOpen(), now = this.dialogNow();
     const next = PANEL_OPENS[(PANEL_OPENS.indexOf(v) + 1) % PANEL_OPENS.length];
     const name = (x) => this.s(`opens_${x}`);
     const mode = v === "auto" ? this.s(now ? "opensNowDialog" : "opensNowSide", { mode: name(v) }) : name(v);
-    return iconButton(t, "kb-panel-open", "dialog", () => this.stepPanelOpen(),
-      { active: now, size: 26, glyph: 14, tooltip: this.s("opensTip", { mode, next: name(next) }) });
+    return modeButton(t, "kb-panel-open", this.s(`mode_${v}`), now, () => this.stepPanelOpen(),
+      { tooltip: this.s("opensTip", { mode, next: name(next) }), iconOnly });
   }
 
   /** The card view button: lit while the cards are set to summary. */
@@ -1644,19 +1917,21 @@ export default class Kanban extends View {
     // from LABELS_WIDE px. tabs-dock reads the same density with the same rule, so the right ends match.
     const d = this.density();
     const iconOnly = d === "normal" ? false : d === "compact" ? true : !(this.barW >= LABELS_WIDE);
-    const panels = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
+    const { panelDock, hasApps } = this.panelItems(t, iconOnly); // once per render: it also adds the file's blocks to the layout
     const regions = onBoard ? this.regionButtons(t, iconOnly) : [];
     const regionGroup = regions.length ? [buttonGroup(t, regions)] : [];
-    const panelGroup = panels.length ? [buttonGroup(t, panels)] : [];
+    const appsBtn = appsButton(t, "kb-apps", this.s("appsLabel"), () => this.openApps(), { tooltip: this.s("appsTip"), iconOnly });
+    const settingsButton = iconButton(t, "kb-settings", "settings", () => this.openGear(),
+      { size: 28, glyph: 15, tooltip: this.s("settingsTip") });
     const right = h_flex().flex_none().gap(RIGHT_GAP).items_center()
-      .children(panelGroup)
+      .children(panelDock)
+      .when(hasApps, (e) => e.child(appsBtn))
+      .child(settingsButton)
       .children(this.layoutSwitch(t, iconOnly))
       .when(w?.buttons, (e) => e.child(h_flex().flex_none().gap(2).items_center()
         .child(wbtn("kb-min", win ? svg(icon("win-min")).size(16) : "−", () => run("window.minimize")))
         .child(wbtn("kb-max", win ? svg(icon(w.maximized ? "win-restore" : "win-max")).size(16) : "□", () => run("window.maximize")))
         .child(wbtn("kb-close", win ? svg(icon("win-close")).size(16) : svg(icon("close")).size(13), () => run("window.close")))));
-    const settingsButton = iconButton(t, "kb-settings", "settings", () => this.openGear(),
-      { size: 28, tooltip: this.s("settingsTip") });
     const newAgent = button(t, "kb-new", this.s("newAgent"), () => this.newAgent(), { primary: true, symbol: "bot", iconOnly: compact });
     const chips = this.columns().map((c) => {
       const on = !hidden.has(c.id), name = this.s(c.id);
@@ -1705,8 +1980,6 @@ export default class Kanban extends View {
       .child(divider(t))
       .when(onBoard, (e) => e.child(scroller([search, ...columnTools, this.displayGroup(t, compact), ...regionGroup])))
       .when(!onBoard, (e) => e.child(this.tabStrip(t)))
-      .child(settingsButton)
-      .child(divider(t))
       .child(newAgent)
       .child(right);
   }
@@ -1720,6 +1993,8 @@ export default class Kanban extends View {
     if (this.part === "clone-menu") return this.cloneMenu(t);
     if (this.part === "gear-menu") return this.gearMenu(t);
     if (this.part === "buttons-menu") return this.buttonsMenu(t);
+    if (this.part === "apps-menu") return this.appsMenu(t);
+    if (this.part === "pin-menu") return this.pinMenu(t);
     const waitForce = Boolean(this.waitDue && window()?.visible !== false && this.waitingOn() && this.tracker.waits.size);
     if (waitForce) this.waitDue = false;
     this.syncWaiting(cx, waitForce);

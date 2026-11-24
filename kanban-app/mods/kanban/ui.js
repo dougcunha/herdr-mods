@@ -115,6 +115,74 @@ export function panelButton(t, id, symbolPath, label, on, onClick, tooltip = "",
 export const panelGlyph = (path, size, color) => String(path).endsWith(".svg")
   ? svg(path).size(size).flex_none().text_color(color) : image(path).size(size).flex_none();
 
+/** A soft surface container that holds dock controls (Panels dock, Layout switch). */
+export function softDock(t, children) {
+  return h_flex().h(30).flex_none().px(3).gap(2).items_center().rounded(9)
+    .bg(t.surface || tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "14"))
+    .children(children);
+}
+
+/** A button inside a softDock: elevated raised surface when active. */
+export function dockButton(t, id, symbolPath, label, on, onClick, { tooltip = "", iconOnly = false, menu = false, onRightClick = null } = {}) {
+  const tip = tooltip || (iconOnly ? label : "");
+  const glyph = String(symbolPath).endsWith(".svg")
+    ? svg(symbolPath).size(14).flex_none().text_color(on ? t.accent : t.muted)
+    : image(symbolPath).size(14).flex_none();
+  return h_flex().id(id).h(24).px(iconOnly ? 6 : 8).gap(5).flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
+    .when(Boolean(tip), (e) => e.tooltip(tip))
+    .when(on, (e) => e.bg(t.raised).text_color(t.foreground))
+    .when(!on, (e) => e.text_color(t.muted).hover((s) => s.bg(t.hover)))
+    .on_mouse_down("left", stop)
+    .when(Boolean(onRightClick), (e) => e.on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRightClick(cx); }))
+    .on_click((_e, cx) => onClick(cx))
+    .child(glyph)
+    .when(!iconOnly, (e) => e.child(label))
+    .when(menu, (e) => e.gap(iconOnly ? 2 : 4).child(svg(icon("chevron-down")).size(10).flex_none().text_color(on ? t.accent : t.dim)));
+}
+
+/** Temporary dashed chip for an open unpinned panel inside the Panels softDock. */
+export function dynamicChip(t, id, symbolPath, label, onClick, onRightClick, { tooltip = "", iconOnly = false } = {}) {
+  const color = t.done || t.accent;
+  const glyph = String(symbolPath).endsWith(".svg")
+    ? svg(symbolPath).size(13).flex_none().text_color(color)
+    : image(symbolPath).size(13).flex_none();
+  return h_flex().id(id).h(24).px(iconOnly ? 6 : 8).gap(5).flex_none().items_center().rounded(6).text_size(11.5).font_semibold().cursor_pointer()
+    .bg(tint(color, "22")).border_1().border_dashed().border_color(tint(color, "77")).text_color(color)
+    .hover((s) => s.bg(tint(color, "36")))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", stop)
+    .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); onRightClick(cx); })
+    .on_click((_e, cx) => onClick(cx))
+    .child(glyph)
+    .when(!iconOnly, (e) => e.child(label));
+}
+
+/** The mode button at the left of the Panels softDock: Auto / Side / Modal. */
+export function modeButton(t, id, label, dialogNow, onClick, { tooltip = "", iconOnly = false } = {}) {
+  return h_flex().id(id).h(22).px(iconOnly ? 5 : 7).gap(4).flex_none().items_center().rounded(6).text_size(11).font_semibold().cursor_pointer()
+    .bg(dialogNow ? tint(t.accent, "2b") : tint(t.foreground, "0f"))
+    .text_color(dialogNow ? t.accent : t.muted)
+    .hover((s) => s.bg(dialogNow ? tint(t.accent, "40") : t.hover))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+    .child(svg(icon(dialogNow ? "dialog" : "panel")).size(12).flex_none().text_color(dialogNow ? t.accent : t.muted))
+    .when(!iconOnly, (e) => e.child(label));
+}
+
+/** The Apps launcher button right of the Panels softDock. */
+export function appsButton(t, id, label, onClick, { tooltip = "", iconOnly = false } = {}) {
+  return h_flex().id(id).h(30).px(iconOnly ? 7 : 9).gap(5).flex_none().items_center().rounded(9).text_size(12).cursor_pointer()
+    .bg(t.surface || tint(t.foreground, "0d")).border_1().border_color(tint(t.foreground, "14")).text_color(t.foreground)
+    .hover((s) => s.bg(t.raised))
+    .when(Boolean(tooltip), (e) => e.tooltip(tooltip))
+    .on_mouse_down("left", stop)
+    .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+    .child(svg(icon("apps")).size(14).flex_none().text_color(t.ansi5 || t.accent))
+    .when(!iconOnly, (e) => e.child(label))
+    .child(svg(icon("chevron-down")).size(10).flex_none().text_color(t.dim));
+}
+
 /** A rounded group that holds several buttons. */
 export function buttonGroup(t, children) {
   return h_flex().h(32).flex_none().px(3).gap(2).items_center().rounded(10)
