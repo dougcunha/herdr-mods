@@ -1099,6 +1099,8 @@ export default class VisualReview extends View {
           if (this.model?.tables?.length) allIds.add("c:__tables__");
           allIds.delete(cid);
           this.collapsedContainers = allIds;
+          this.lastContainer = cid;
+          this.fromOverview = true;
           this.mode = "diagram";
           cx.spawn(async (cx) => { await this.relayout(cx, true); });
         },
@@ -1265,6 +1267,43 @@ export default class VisualReview extends View {
       .bg(t.background)
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.handleKeyDown(e, cx))
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.splitDiff) { this.splitDiff = null; cx.stop_propagation(); cx.notify(); return; }
+        if (this.focusKey) {
+          this.forwardFocus = this.focusKey;
+          this.focusKey = null;
+          cx.stop_propagation();
+          cx.spawn(async (cx) => { await this.relayout(cx, true); });
+          return;
+        }
+        if (this.mode === "diagram" && this.fromOverview) {
+          this.mode = "overview";
+          this.fromOverview = false;
+          cx.stop_propagation();
+          cx.spawn(async (cx) => { await this.relayout(cx, true); });
+          return;
+        }
+        if (this.selected) { this.selected = null; this.selectedId = null; cx.stop_propagation(); cx.notify(); }
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (this.mode === "overview" && this.lastContainer) {
+          const allIds = new Set((this.model?.units || []).map((u) => `c:${u.container}`));
+          if (this.model?.tables?.length) allIds.add("c:__tables__");
+          allIds.delete(this.lastContainer);
+          this.collapsedContainers = allIds;
+          this.mode = "diagram";
+          this.fromOverview = true;
+          cx.stop_propagation();
+          cx.spawn(async (cx) => { await this.relayout(cx, true); });
+          return;
+        }
+        if (!this.focusKey && this.forwardFocus) {
+          this.focusKey = this.forwardFocus;
+          this.forwardFocus = null;
+          cx.stop_propagation();
+          cx.spawn(async (cx) => { await this.relayout(cx, true); });
+        }
+      })
       .on_window_mouse_move((e, cx) => this.moveResize(e, cx))
       .on_window_mouse_up("left", () => this.endResize())
       .on_size_change((size, cx) => {

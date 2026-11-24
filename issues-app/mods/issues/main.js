@@ -443,6 +443,7 @@ export default class SpaceIssues extends View {
   }
   // The list shows where it was; fresh data loads behind it.
   back(cx) {
+    if (this.open) this.forwardIssue = this.open;
     this.open = null; this.page = null; this.pageError = null;
     this.handle.focus(); this.refresh(cx); cx.notify(this.pageView); cx.notify();
   }
@@ -1389,6 +1390,21 @@ export default class SpaceIssues extends View {
         else if (e.key === "enter") this.enter(cx);
         else if (e.key === "escape" && overlay) closeOverlay(overlay);
         else return;
+        cx.stop_propagation();
+      })
+      .on_mouse_down("back", (_e, cx) => {
+        if (!this.open) return;
+        this.back(cx);
+        cx.stop_propagation();
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (this.open || !this.forwardIssue) return;
+        const i = this.forwardIssue;
+        this.forwardIssue = null;
+        this.open = i;
+        this.load(i, cx);
+        cx.notify(this.pageView);
+        cx.notify();
         cx.stop_propagation();
       })
       .when(Boolean(this.open) && full, (e) => e.child(this.pageView))

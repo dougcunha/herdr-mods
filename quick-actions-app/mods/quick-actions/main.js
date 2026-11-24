@@ -656,6 +656,10 @@ export default class QuickActions extends View {
     }
     return v_flex().id("quick-actions").size_full().min_h(0).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle)
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.view === "output") { this.closeOutput(cx); cx.stop_propagation(); return; }
+        if (this.view === "edit" || (this.view === "confirm" && !this.props.confirm)) { this.back(cx); cx.stop_propagation(); }
+      })
       .on_key_down((e, cx) => this.key(e, cx))
       .child(body);
   }

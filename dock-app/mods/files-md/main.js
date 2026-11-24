@@ -374,6 +374,7 @@ export default class Files extends View {
 
   // Back from the preview to the tree or the results (← or Esc), with the keyboard in the filter.
   back(cx) {
+    if (this.file) this.forwardFile = this.file;
     this.show(null);
     cx.notify();
     cx.timer.after(40, cx => { this.filter.focus(); cx.notify(); });
@@ -510,6 +511,7 @@ export default class Files extends View {
   }
 
   show(path, cx) {
+    if (path && path !== this.forwardFile) this.forwardFile = null;
     this.code?.release(); this.code = null; this.file = path; this.fileError = null; this.text = null; this.rendered = false;
     this.unstage(); this.picture = null;
     if (!path || !cx) return;
@@ -675,6 +677,18 @@ export default class Files extends View {
     const t = theme();
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)
+      .on_mouse_down("back", (_e, cx) => {
+        if (!this.file) return;
+        this.back(cx);
+        cx.stop_propagation();
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (this.file || !this.forwardFile) return;
+        const p = this.forwardFile;
+        this.forwardFile = null;
+        this.show(p, cx);
+        cx.stop_propagation();
+      })
       // The space for an image: the panel minus the 42 px header, the 10 px padding and the border.
       // on_size_change reports px with the app zoom applied, while w() and h() are unzoomed: divide.
       .on_size_change((size, cx) => {

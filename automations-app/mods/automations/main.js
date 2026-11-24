@@ -364,6 +364,14 @@ export default class Automations extends View {
     return v_flex().id("automations").size_full().min_h(0).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle)
       .on_mouse_down("left", () => { if (dialogId()) this.handle.focus(); })
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.view === "list") return;
+        this.view = "list";
+        this.openRun = null;
+        this.draft = null;
+        cx.stop_propagation();
+        cx.notify();
+      })
       .on_key_down((e, cx) => this.key(e, cx))
       .child(body);
   }

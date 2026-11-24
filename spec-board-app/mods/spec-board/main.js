@@ -1077,6 +1077,27 @@ export default class SpecBoard extends View {
     return v_flex().id("spec-board").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .track_focus(this.keys)
       .on_mouse_down("left", () => { if (this.props?.overlay ?? shared("kanban.panelDialog")?.id) this.keys.focus(); })
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.sheet) { this.sheet = null; cx.stop_propagation(); cx.notify(); return; }
+        if (this.edit) return;
+        if (this.doc) { this.forwardDoc = this.doc; this.doc = null; cx.stop_propagation(); cx.notify(); return; }
+        if (this.sel && this.width < WIDE) { this.forwardSel = this.sel; this.select(null, cx); cx.stop_propagation(); }
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (this.edit || this.sheet) return;
+        if (!this.doc && this.sel && this.forwardDoc) {
+          this.doc = this.forwardDoc;
+          this.forwardDoc = null;
+          cx.stop_propagation();
+          cx.notify();
+          return;
+        }
+        if (!this.sel && this.forwardSel) {
+          const hit = this.specs.find((s) => s.slug.toLowerCase() === this.forwardSel);
+          this.forwardSel = null;
+          if (hit) { this.select(hit, cx); cx.stop_propagation(); }
+        }
+      })
       .on_key_down((e, cx) => this.onKey(e, cx))
       .on_size_change((size, cx) => {
         const w = Math.round(size.width / (settings().zoom || 1));

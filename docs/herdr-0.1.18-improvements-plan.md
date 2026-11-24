@@ -72,7 +72,7 @@ Overview of Herdr 0.1.18 capabilities targeted across PowerMods:
   - `issues-app/mods/issues/main.js` & `issues-app/mods/prs/detail.js`: `.raw_html(false)` on `TextView.markdown`
   - Verification: `herdr-app check` + test light/dark themes and HTML-like text (`<Component>`, `List<T>`) with `herdr-app shot`.
 
-- [ ] **Phase 6 — Mouse side buttons (`"back"` / `"forward"`)**
+- [x] **Phase 6 — Mouse side buttons (`"back"` / `"forward"`)**
   - Add `.on_mouse_down("back", ...)` / `"forward"` navigation in:
     - `dock-app/mods/files-md/main.js`
     - `spec-board-app/mods/spec-board/main.js`

@@ -512,6 +512,11 @@ export function panelView(t, m, keys, s) {
   const line = catalogLine(t, m);
   const foot = footer(t, m, s);
   return dialogKeys(v_flex().id("skill-bundles").size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13), keys)
+    .on_mouse_down("back", (_e, cx) => {
+      if (m.mode === "list") return;
+      m.a.mode("list", cx);
+      cx.stop_propagation();
+    })
     .child(header(t, m))
     .when(Boolean(line), (e) => e.child(line))
     .child(body(t, m, s))

@@ -144,7 +144,7 @@ export default class CiDash extends View {
 
   reset() {
     this.runs = []; this.runsLoading = false; this.runsError = null; this.runsLoaded = false;
-    this.detail = null; this.file = null;
+    this.detail = null; this.file = null; this.forwardFile = null; this.forwardDetail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
     this.dl = {}; this.lastDir = ""; this.note = "";
     this.runStatus = "all"; this.runWorkflow = "all"; this.artStatus = "all"; this.artType = "all";
@@ -798,6 +798,14 @@ export default class CiDash extends View {
     else body = this.detail ? this.detailView(t) : this.runsView(t);
 
     return dialogKeys(v_flex().id("ci-dash").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13), this.keys)
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.file) { this.forwardFile = this.file; this.file = null; cx.stop_propagation(); cx.notify(); return; }
+        if (this.detail) { this.forwardDetail = this.detail; this.detail = null; cx.stop_propagation(); cx.notify(); }
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (!this.file && this.forwardFile) { this.file = this.forwardFile; this.forwardFile = null; cx.stop_propagation(); cx.notify(); return; }
+        if (!this.detail && this.tab === "runs" && this.forwardDetail) { this.detail = this.forwardDetail; this.forwardDetail = null; cx.stop_propagation(); cx.notify(); }
+      })
       .child(this.header(t, cx))
       .child(body)
       .when(Boolean(this.note), (e) => e.child(div().flex_none().px(12).py(6).border_t(1).border_color(t.border).text_size(11).text_color(t.blocked).truncate().child(this.note)));

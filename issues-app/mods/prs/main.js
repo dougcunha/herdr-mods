@@ -336,6 +336,7 @@ export default class PullRequests extends View {
   }
   // The list shows where it was; fresh data loads behind it.
   back(cx) {
+    if (this.open != null) this.forwardPr = this.open;
     this.open = null; this.page = null; this.pageError = null;
     this.handle.focus(); this.refresh(cx); cx.notify(this.pageView); cx.notify();
   }
@@ -680,6 +681,18 @@ export default class PullRequests extends View {
         else if (e.key === "enter") this.enter(cx);
         else if (e.key === "escape" && overlay) closeOverlay(overlay);
         else return;
+        cx.stop_propagation();
+      })
+      .on_mouse_down("back", (_e, cx) => {
+        if (this.open == null) return;
+        this.back(cx);
+        cx.stop_propagation();
+      })
+      .on_mouse_down("forward", (_e, cx) => {
+        if (this.open != null || this.forwardPr == null) return;
+        const n = this.forwardPr;
+        this.forwardPr = null;
+        this.pick(n, cx);
         cx.stop_propagation();
       })
       .when(this.open != null && full, (e) => e.child(this.pageView))
