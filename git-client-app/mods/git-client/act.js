@@ -62,13 +62,18 @@ async function viaCore(action, values, ctx, { quiet }) {
     return { ok: true };
   }
   const name = String(values.name ?? "").trim();
-  const r = await wt.create({ repo: ctx.root, branch: name, on: ctx.on ?? null, path: String(values.path ?? "").trim() || undefined, select: values.open !== false, name });
+  const base = String(values.base ?? "").trim() || undefined;
+  const r = await wt.create({ repo: ctx.root, branch: name, base, on: ctx.on ?? null, path: String(values.path ?? "").trim() || undefined, select: values.open !== false, name });
   if (!quiet) notify({ title: r.setup === "running" ? `Setting up the worktree of ${name}` : doneText(action, values), body: r.path, level: "success", timeout: 3000 });
   return { ok: true };
 }
 
 // Opens the action's dialog; false when it has none and should run at once.
 export function openDialog(action, ctx) {
+  if (action.type === "addWorktree") {
+    openOverlay({ mod: "git-client", kind: "dialog", width: 480, height: 540, props: { role: "worktree", action, ctx } });
+    return true;
+  }
   const spec = dialogFor(action, ctx);
   if (!spec) return false;
   openOverlay({ mod: "git-client", kind: "dialog", width: 420, height: dialogHeight(spec), props: { role: "dialog", action, ctx } });

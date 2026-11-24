@@ -180,6 +180,47 @@ assert.throws(() => G.commandsFor({ type: "fetchBranch", name: "-x", remote: "or
   sh(repo, "worktree", "remove", "--force", wtLag);
 }
 
+// ---- bulk branch deletion: local (partial failure + force retry), multiple remote, and mixed local + remote
+{
+  // Create two merged branches and one unmerged branch
+  sh(repo, "checkout", "-q", "main");
+  sh(repo, "branch", "bulk-m1");
+  sh(repo, "branch", "bulk-m2");
+  sh(repo, "checkout", "-q", "-b", "bulk-unmerged");
+  writeFileSync(join(repo, "unm.txt"), "u\n"); sh(repo, "add", "-A"); sh(repo, "commit", "-qm", "unmerged work");
+  sh(repo, "checkout", "-q", "main");
+
+  // Deleting merged + unmerged without force fails on the unmerged branch, while deleting the merged ones
+  const partial = await executeAction({ type: "deleteBranches", local: ["bulk-m1", "bulk-m2", "bulk-unmerged"], remote: [] }, { force: false }, ctx(), exec);
+  assert.equal(partial.ok, false);
+  assert.equal(partial.error?.title, "Branch is not fully merged");
+  assert.match(partial.error?.summary ?? "", /have not been merged/i);
+
+  // Retrying the exact same action with force: true skips already-deleted branches and deletes bulk-unmerged cleanly
+  await run({ type: "deleteBranches", local: ["bulk-m1", "bulk-m2", "bulk-unmerged"], remote: [] }, { force: true });
+  assert.ok(!refs().local.some((b) => b.name.startsWith("bulk-")));
+
+  // Push two remote branches and delete both in one action
+  sh(repo, "branch", "rem-1"); sh(repo, "branch", "rem-2");
+  sh(repo, "push", "-q", "origin", "rem-1", "rem-2");
+  await run({
+    type: "deleteBranches",
+    local: [],
+    remote: [{ name: "origin/rem-1", remote: "origin", branch: "rem-1" }, { name: "origin/rem-2", remote: "origin", branch: "rem-2" }],
+  });
+  assert.ok(!refs().remote.some((b) => b.branch === "rem-1" || b.branch === "rem-2"));
+
+  // Delete remaining local branches + a remote branch together in one action
+  sh(repo, "branch", "mix-remote"); sh(repo, "push", "-q", "origin", "mix-remote");
+  await run({
+    type: "deleteBranches",
+    local: ["rem-1", "rem-2", "mix-remote"],
+    remote: [{ name: "origin/mix-remote", remote: "origin", branch: "mix-remote" }],
+  });
+  assert.ok(!refs().local.some((b) => ["rem-1", "rem-2", "mix-remote"].includes(b.name)));
+  assert.ok(!refs().remote.some((b) => b.branch === "mix-remote"));
+}
+
 // ---- merged badge: a branch whose tip is in another branch (not in its own copy on the remote)
 {
   const tip = (b) => git(repo, ["rev-parse", b]).stdout.trim();

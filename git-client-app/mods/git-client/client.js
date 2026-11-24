@@ -239,10 +239,17 @@ export class Client {
       })
       .on_key_down((e, cx) => {
         if ((e.key === "a" || e.key === "A") && (e.modifiers?.control || e.modifiers?.platform) && !e.modifiers?.shift && !e.modifiers?.alt
-            && this.tab === "changes" && !this.typing && !this.fileView.path) {
-          this.changes.selectAllCurrent(cx);
-          cx.stop_propagation();
-          return;
+            && !this.fileView.path) {
+          if (this.tab === "changes" && !this.typing) {
+            this.changes.selectAllCurrent(cx);
+            cx.stop_propagation();
+            return;
+          }
+          if (this.tab === "branches" && !this.branches.typing) {
+            this.branches.selectAllCurrent(cx);
+            cx.stop_propagation();
+            return;
+          }
         }
         if (e.key !== "escape") return;
         const dialog = dialogId();
@@ -264,6 +271,8 @@ export class Client {
           this.fileView.close(); cx.notify();
         } else if (this.tab === "changes" && this.changes.escape(cx)) {
           // cleared multi-file selection
+        } else if (this.tab === "branches" && this.branches.escape(cx)) {
+          // cleared multi-branch selection
         } else if (this.tab === "stash" && this.stash.sel) {
           this.stash.clear(); cx.notify();
         } else if (this.tab === "history" && this.history.escape(cx)) {

@@ -1,5 +1,5 @@
-// The Branches tab: sections Local, Remote, Tags, Remotes and Worktrees. A click (or a right-click)
-// on a row opens its menu; the "+" of a section makes a new one.
+// The Branches tab: sections Local, Remote, Tags, Remotes and Worktrees. Right-click on a row
+// opens its menu; left-clicking a selectable branch (or its checkbox) toggles its selection.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, openOverlay } from "herdr";
@@ -7,6 +7,14 @@ import { READ, menuFor, menuHeight } from "./git.js";
 import { refsArgs, containArgs, mergedInto, parseRefs, parseRemotes, parseWorktrees, samePath, ago } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
+import {
+  emptyBranchSelection,
+  isBranchPicked,
+  toggleBranch,
+  selectBranches,
+  pruneBranchSelection,
+  selectedBranches,
+} from "./selection.js";
 
 const ROW = 26, TITLE = 30, SHOWN = 200;
 const SECTIONS = [
@@ -18,7 +26,7 @@ export class Branches {
   constructor(host) { this.host = host; }
 
   init() {
-    this.data = null; this.error = null; this.dirty = true;
+    this.data = null; this.error = null; this.dirty = true; this.picked = emptyBranchSelection();
     this.open = { local: true, remote: false, tags: false, remotes: true, worktrees: true };
     this.search = InputState.new({ placeholder: "Filter branches and tags" });
     this.search.on("change", (_e, cx) => { this.text = this.search.value().trim().toLowerCase(); cx.notify(); });
@@ -30,7 +38,7 @@ export class Branches {
   // After a read of the repository: read now when the tab shows, else when it shows next.
   reload(cx, force = false) {
     const h = this.host.history;
-    if (h.context !== this.context) { this.context = h.context; this.data = null; this.error = null; }
+    if (h.context !== this.context) { this.context = h.context; this.data = null; this.error = null; this.picked = emptyBranchSelection(); }
     if (!force && this.host.tab !== "branches") { this.dirty = true; return; }
     if (!h.root) return;
     this.dirty = false;
@@ -58,6 +66,7 @@ export class Branches {
         }
         if (this.seq !== seq) return;
         this.data = data; this.error = null;
+        this.picked = pruneBranchSelection(this.picked, data);
       } catch (e) { if (this.seq === seq) this.error = String(e?.message ?? e); }
       cx.notify();
     });
@@ -65,11 +74,73 @@ export class Branches {
 
   ctx() { return this.host.ctx(); }
 
+  visible(kind) {
+    const match = (s) => !this.text || s.toLowerCase().includes(this.text);
+    if (kind === "local") return (this.data?.local ?? []).filter((b) => !b.current && match(b.name));
+    if (kind === "remote") return (this.data?.remote ?? []).filter((b) => match(b.name));
+    return [];
+  }
+
+  toggleCheck(kind, name, e, cx) {
+    this.picked = toggleBranch(this.picked, { kind, name, list: this.visible(kind), modifiers: e?.modifiers });
+    cx.notify();
+  }
+
+  selectAllKind(kind, cx) {
+    if (kind !== "local" && kind !== "remote") return;
+    this.picked = selectBranches(this.picked, kind, this.visible(kind));
+    cx.notify();
+  }
+
+  selectAllCurrent(cx) {
+    const hasL = this.picked.local.size > 0, hasR = this.picked.remote.size > 0;
+    const visL = this.visible("local"), visR = this.visible("remote");
+    const kind = hasL && !hasR ? "local"
+      : hasR && !hasL ? "remote"
+      : this.open.local && visL.length ? "local"
+      : this.open.remote && visR.length ? "remote"
+      : visL.length ? "local" : visR.length ? "remote" : null;
+    if (kind) this.selectAllKind(kind, cx);
+  }
+
+  clearSelection(cx) {
+    if (this.picked.local.size + this.picked.remote.size === 0) return false;
+    this.picked = emptyBranchSelection();
+    cx.notify();
+    return true;
+  }
+
+  escape(cx) { return this.clearSelection(cx); }
+
+  deleteSelected() {
+    if (!this.data) return;
+    const sel = selectedBranches(this.picked, this.data);
+    if (sel.local.length + sel.remote.length === 0) return;
+    this.dialog({
+      type: "deleteBranches",
+      local: sel.local.map((b) => b.name),
+      remote: sel.remote.map((b) => ({ name: b.name, remote: b.remote, branch: b.branch })),
+    });
+  }
+
   menu(target, e) {
     const ctx = this.ctx();
     if (!ctx) return;
-    const items = menuFor(target, ctx);
-    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target, ctx } });
+    let menuTarget = target;
+    if ((target.kind === "branch" || target.kind === "remote") && this.data) {
+      this.picked = pruneBranchSelection(this.picked, this.data);
+      const sel = selectedBranches(this.picked, this.data);
+      const kind = target.kind === "branch" ? "local" : "remote";
+      if (sel.local.length + sel.remote.length > 1 && isBranchPicked(this.picked, kind, target.name)) {
+        menuTarget = {
+          kind: "branches",
+          local: sel.local.map((b) => b.name),
+          remote: sel.remote.map((b) => ({ name: b.name, remote: b.remote, branch: b.branch })),
+        };
+      }
+    }
+    const items = menuFor(menuTarget, ctx);
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target: menuTarget, ctx } });
   }
 
   dialog(action) { const ctx = this.ctx(); if (ctx) openDialog(action, ctx); }
@@ -99,18 +170,53 @@ export class Branches {
       .children(actions);
   }
 
-  row(id, glyph, glyphColor, name, detail, right, target, t, extra = null) {
-    return h_flex().id(id).h(ROW).flex_none().pl(24).pr(10).gap(8).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-      // A click event has no position: the menu opens at the spot of the press.
-      .on_mouse_down("left", (e) => { this.press = e; })
-      .on_click(() => this.menu(target, this.press))
+  row(id, glyph, glyphColor, name, detail, right, target, t, extra = null, pick = null) {
+    const checked = Boolean(pick?.selectable && isBranchPicked(this.picked, pick.kind, pick.name));
+    return h_flex().id(id).h(ROW).flex_none().pl(pick ? 10 : 24).pr(10).gap(pick ? 6 : 8).items_center().rounded(6).cursor_pointer()
+      .when(checked, (e) => e.bg(t.accent + "22"))
+      .hover((s) => s.bg(t.hover))
+      .on_click((e, cx) => {
+        if (pick?.selectable) this.toggleCheck(pick.kind, pick.name, e, cx);
+      })
       .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); this.menu(target, e); })
+      .when(Boolean(pick), (e) => pick.selectable
+        ? e.child(h_flex().id(`gb-c-${pick.kind}-${pick.name}`).size(16).flex_none().items_center().justify_center().cursor_pointer()
+          .on_click((ev, cx) => { cx.stop_propagation(); this.toggleCheck(pick.kind, pick.name, ev, cx); })
+          .child(div().size(13).rounded(3).border_1().border_color(checked ? t.accent : t.input)
+            .when(checked, (el) => el.bg(t.accent))
+            .flex().items_center().justify_center()
+            .when(checked, (el) => el.child(svg(icon("check")).size(9).text_color(t.accent_foreground)))))
+        : e.child(div().size(16).flex_none()))
       .child(svg(icon(glyph)).size(12).flex_none().text_color(glyphColor))
       .child(h_flex().flex_1().min_w(0).gap(6).items_center()
         .child(div().min_w(0).truncate().when(!detail, (e) => e.flex_1()).child(name))
         .when(Boolean(detail), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(detail))))
       .when(Boolean(extra), (e) => e.child(extra))
       .when(Boolean(right), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child(right)));
+  }
+
+  selectionBar(t, sel, visLocal, visRemote) {
+    const l = sel.local.length, r = sel.remote.length, n = l + r;
+    const onlyL = l > 0 && r === 0, onlyR = r > 0 && l === 0;
+    const scope = onlyL ? "local" : onlyR ? "remote" : `${l} local · ${r} remote`;
+    const canAll = (onlyL && l < visLocal.length) || (onlyR && r < visRemote.length);
+    const linkBtn = (id, label, onClick) => div().id(id).px(5).py(2).rounded(4).cursor_pointer()
+      .text_size(11).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+      .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
+      .child(label);
+    return h_flex().id("gb-sel-bar").h(32).flex_none().px(10).gap(6).items_center()
+      .bg(t.accent + "14").border_b(1).border_color(t.border)
+      .child(div().flex_none().text_size(11.5).font_semibold().text_color(t.foreground).child(`${n} selected`))
+      .child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(scope))
+      .when(canAll, (el) => el.child(linkBtn("gb-sel-all", "All", (cx) => this.selectAllKind(onlyL ? "local" : "remote", cx))))
+      .child(linkBtn("gb-sel-clear", "Clear", (cx) => this.clearSelection(cx)))
+      .child(div().flex_1())
+      .child(h_flex().id("gb-sel-delete").h(22).px(8).gap(4).flex_none().items_center().rounded(5).cursor_pointer()
+        .text_size(11).font_medium().bg(t.raised).border_1().border_color(t.ansi1 + "55").text_color(t.ansi1)
+        .hover((s) => s.opacity(0.88))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.deleteSelected(); })
+        .child(svg(icon("trash")).size(11).flex_none())
+        .child("Delete"));
   }
 
   // The ahead/behind count and, for a branch that another branch already holds, a "merged" badge:
@@ -135,6 +241,8 @@ export class Branches {
     const match = (s) => !this.text || s.toLowerCase().includes(this.text);
     const local = (d?.local ?? []).filter((b) => match(b.name)), remote = (d?.remote ?? []).filter((b) => match(b.name)), tags = (d?.tags ?? []).filter((b) => match(b.name));
     const remotes = d?.remotes ?? [], worktrees = d?.worktrees ?? [], open = this.open;
+    const sel = d ? selectedBranches(this.picked, d) : { local: [], remote: [] };
+    const visLocal = local.filter((b) => !b.current);
     const track = (b) => [b.ahead ? `↑${b.ahead}` : "", b.behind ? `↓${b.behind}` : "", b.gone ? "gone" : ""].filter(Boolean).join(" ");
     let lastRemote = null;
     return v_flex().id("gc-branches").flex_1().min_h(0).w_full()
@@ -146,19 +254,20 @@ export class Branches {
           .child(Input.new(this.search).flex_1().min_w(0).h_full().text_size(12).text_color(t.foreground))))
       .when(Boolean(this.error), (e) => e.child(div().p(10).text_size(12).text_color(t.ansi1).child(this.error)))
       .when(!d && !this.error, (e) => e.child(div().p(12).text_color(t.dim).child("Loading branches…")))
+      .when(Boolean(d) && sel.local.length + sel.remote.length > 0, (e) => e.child(this.selectionBar(t, sel, visLocal, remote)))
       .when(Boolean(d), (e) => e.child(v_flex().id("gb-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
         // Local
         .child(this.header(SECTIONS[0], local.length, t, [this.smallButton("gb-new-branch", "plus", "New branch from HEAD", () => this.dialog({ type: "newBranch", base: "HEAD", what: h.current ?? "HEAD" }), t)]))
         .when(open.local, (el) => el.children(local.slice(0, SHOWN).map((b, i) => this.row(`gb-l-${i}`, b.current ? "check" : "branch", b.current ? t.accent : t.muted,
           b.name, b.upstream ? `→ ${b.upstream}` : "", ago(b.time), { kind: "branch", name: b.name, upstream: b.upstream, gone: b.gone }, t,
-          this.badges(b, i, track(b), t))
+          this.badges(b, i, track(b), t), { kind: "local", name: b.name, selectable: !b.current })
           .when(b.current, (r) => r.font_semibold()))).children(this.more(local.length, t)))
         // Remote, grouped by remote
         .child(this.header(SECTIONS[1], remote.length, t))
         .when(open.remote, (el) => el.children(remote.slice(0, SHOWN).flatMap((b, i) => {
           const rows = [];
           if (b.remote !== lastRemote) { lastRemote = b.remote; rows.push(div().h(22).flex_none().pl(24).flex().items_center().text_size(10.5).text_color(t.dim).child(b.remote)); }
-          rows.push(this.row(`gb-r-${i}`, "cloud", t.muted, b.branch, "", ago(b.time), { kind: "remote", name: b.name }, t));
+          rows.push(this.row(`gb-r-${i}`, "cloud", t.muted, b.branch, "", ago(b.time), { kind: "remote", name: b.name }, t, null, { kind: "remote", name: b.name, selectable: true }));
           return rows;
         })).children(this.more(remote.length, t)))
         // Tags
@@ -171,7 +280,12 @@ export class Branches {
         // Worktrees
         .child(this.header(SECTIONS[4], worktrees.length, t, [
           this.smallButton("gb-prune", "x", "Prune: forget the worktrees whose folder is gone", (cx) => this.prune(cx), t),
-          this.smallButton("gb-add-worktree", "plus", "New worktree", () => this.dialog({ type: "addWorktree" }), t)]))
+          this.smallButton("gb-add-worktree", "plus", "New worktree", () => this.dialog({
+            type: "addWorktree",
+            local: d?.local ?? null,
+            remote: d?.remote ?? null,
+            worktrees: d?.worktrees ?? null,
+          }), t)]))
         .when(open.worktrees, (el) => el.children(worktrees.map((w, i) => {
           const here = samePath(w.path, h.root);
           const badges = h_flex().flex_none().gap(4).items_center().text_size(10.5)

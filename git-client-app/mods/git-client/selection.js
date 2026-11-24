@@ -79,3 +79,57 @@ export function selectedFiles(state, listsBySide) {
   if (!state?.side || !state.paths?.size) return [];
   return (listsBySide[state.side] ?? []).filter((f) => state.paths.has(f.path));
 }
+
+// ---- Branches tab multi-selection (local + remote branches, for bulk deletion)
+
+export const emptyBranchSelection = () => ({ local: new Set(), remote: new Set(), anchor: null });
+
+export const branchPickedCount = (state) => (state?.local?.size ?? 0) + (state?.remote?.size ?? 0);
+
+export const isBranchPicked = (state, kind, name) => Boolean(state?.[kind]?.has(name));
+
+export function toggleBranch(state, { kind, name, list = [], modifiers = null }) {
+  const ordered = list.map((b) => b.name);
+  if (!ordered.includes(name)) return state ?? emptyBranchSelection();
+  const next = {
+    local: new Set(state?.local ?? []),
+    remote: new Set(state?.remote ?? []),
+  };
+  if (modifiers?.shift && state?.anchor?.kind === kind && ordered.includes(state.anchor.name)) {
+    const a = ordered.indexOf(state.anchor.name), b = ordered.indexOf(name);
+    for (const item of ordered.slice(Math.min(a, b), Math.max(a, b) + 1)) next[kind].add(item);
+    return { ...next, anchor: { kind, name } };
+  }
+  if (next[kind].has(name)) next[kind].delete(name);
+  else next[kind].add(name);
+  if (next.local.size + next.remote.size === 0) return emptyBranchSelection();
+  return { ...next, anchor: { kind, name } };
+}
+
+export function selectBranches(state, kind, list = []) {
+  const next = {
+    local: new Set(state?.local ?? []),
+    remote: new Set(state?.remote ?? []),
+  };
+  next[kind] = new Set(list.map((b) => b.name));
+  if (next.local.size + next.remote.size === 0) return emptyBranchSelection();
+  return { ...next, anchor: list.length ? { kind, name: list[0].name } : state?.anchor ?? null };
+}
+
+export function pruneBranchSelection(state, data) {
+  if (!branchPickedCount(state)) return emptyBranchSelection();
+  const validLocal = new Set((data?.local ?? []).filter((b) => !b.current).map((b) => b.name));
+  const validRemote = new Set((data?.remote ?? []).map((b) => b.name));
+  const local = new Set([...(state.local ?? [])].filter((n) => validLocal.has(n)));
+  const remote = new Set([...(state.remote ?? [])].filter((n) => validRemote.has(n)));
+  if (local.size + remote.size === 0) return emptyBranchSelection();
+  const anchor = state.anchor && (state.anchor.kind === "local" ? local : remote).has(state.anchor.name) ? state.anchor : null;
+  return { local, remote, anchor };
+}
+
+export function selectedBranches(state, data) {
+  return {
+    local: (data?.local ?? []).filter((b) => !b.current && state?.local?.has(b.name)),
+    remote: (data?.remote ?? []).filter((b) => state?.remote?.has(b.name)),
+  };
+}

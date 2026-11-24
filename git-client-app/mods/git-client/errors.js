@@ -24,6 +24,7 @@ export function failTitle(action, values = {}) {
     case "resetUncommitted": return "Couldn't reset";
     case "deleteBranch":
     case "deleteRemoteBranch": return `Couldn't delete ${action.name ?? action.branch ?? "branch"}`;
+    case "deleteBranches": return "Couldn't delete branches";
     case "renameBranch": return `Couldn't rename ${action.name ?? "branch"}`;
     case "newBranch":
     case "createBranch": return "Couldn't create branch";
@@ -106,7 +107,7 @@ export function describeError(action, raw, values = {}) {
         path,
       );
     }
-    if (action?.type === "deleteBranch") {
+    if (action?.type === "deleteBranch" || action?.type === "deleteBranches") {
       return make(
         `Couldn't delete ${branch}`,
         `Branch ${branch} is checked out in another worktree (${path}).`,

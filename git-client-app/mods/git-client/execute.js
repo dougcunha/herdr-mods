@@ -39,7 +39,16 @@ export async function executeAction(action, values, ctx, exec, io = null) {
     return { ok: true };
   }
   if ((action.type === "untrack" || action.type === "untrackMany") && !["gitignore", "exclude"].includes(values.where)) return { ok: false, message: "Invalid ignore file" };
-  const commands = commandsFor(action, values, ctx);
+  let effectiveAction = action;
+  if (action.type === "deleteBranches" && Array.isArray(action.local) && action.local.length > 0) {
+    const existing = await git([...READ, "for-each-ref", "--format=%(refname:short)", "refs/heads"]);
+    if (existing.code === 0) {
+      const live = new Set(existing.stdout.split(/\r?\n/).filter(Boolean));
+      effectiveAction = { ...action, local: action.local.filter((n) => live.has(n)) };
+      if (effectiveAction.local.length === 0 && !(effectiveAction.remote?.length > 0)) return { ok: true };
+    }
+  }
+  const commands = commandsFor(effectiveAction, values, ctx);
   // A dialog/menu describes this snapshot, not whatever HEAD happens to be
   // when the user confirms it. Fetch does not operate on the current branch.
   if (action.type !== "fetch" && !STAGING.has(action.type)) {

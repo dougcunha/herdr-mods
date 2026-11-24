@@ -13,6 +13,13 @@ import {
   selectAll,
   pruneSelection,
   selectedFiles,
+  emptyBranchSelection,
+  branchPickedCount,
+  isBranchPicked,
+  toggleBranch,
+  selectBranches,
+  pruneBranchSelection,
+  selectedBranches,
 } from "../mods/git-client/selection.js";
 
 // ---- Selection state machine
@@ -207,6 +214,83 @@ const lists = { conflict: [], unstaged, staged };
   assert.equal(git(repo, ["ls-files", "--", "a.txt", "c.txt"]).stdout, "");
 
   rmSync(dir, { recursive: true, force: true });
+}
+
+// ---- Branch multi-selection state machine, menus, dialogs, and commands
+{
+  const localAll = [{ name: "main", current: true }, { name: "feat/a", current: false }, { name: "feat/b", current: false }, { name: "feat/c", current: false }];
+  const localSelectable = localAll.filter((b) => !b.current);
+  const remote = [
+    { name: "origin/feat/a", remote: "origin", branch: "feat/a" },
+    { name: "origin/feat/b", remote: "origin", branch: "feat/b" },
+    { name: "upstream/old", remote: "upstream", branch: "old" },
+  ];
+
+  // Current branch cannot be selected
+  let bst = toggleBranch(emptyBranchSelection(), { kind: "local", name: "main", list: localSelectable });
+  assert.equal(branchPickedCount(bst), 0);
+
+  // Toggle local, Shift+Click range, and simultaneous remote selection
+  bst = toggleBranch(bst, { kind: "local", name: "feat/a", list: localSelectable });
+  bst = toggleBranch(bst, { kind: "local", name: "feat/c", list: localSelectable, modifiers: { shift: true } });
+  assert.deepEqual([...bst.local].sort(), ["feat/a", "feat/b", "feat/c"]);
+
+  bst = toggleBranch(bst, { kind: "remote", name: "origin/feat/a", list: remote });
+  bst = toggleBranch(bst, { kind: "remote", name: "upstream/old", list: remote, modifiers: { shift: true } });
+  assert.equal(bst.local.size, 3);
+  assert.equal(bst.remote.size, 3);
+  assert.equal(isBranchPicked(bst, "remote", "origin/feat/b"), true);
+
+  // Prune drops missing branches & current branch
+  const pruned = pruneBranchSelection(bst, {
+    local: [{ name: "feat/a", current: true }, { name: "feat/b", current: false }],
+    remote: [{ name: "upstream/old", remote: "upstream", branch: "old" }],
+  });
+  assert.deepEqual([...pruned.local], ["feat/b"]);
+  assert.deepEqual([...pruned.remote], ["upstream/old"]);
+
+  const sel = selectedBranches(pruned, {
+    local: [{ name: "feat/a", current: true }, { name: "feat/b", current: false }],
+    remote: [{ name: "upstream/old", remote: "upstream", branch: "old" }],
+  });
+  assert.deepEqual(sel.local.map((b) => b.name), ["feat/b"]);
+  assert.deepEqual(sel.remote.map((b) => b.name), ["upstream/old"]);
+
+  // selectBranches replaces only its kind
+  const allRem = selectBranches(pruned, "remote", remote);
+  assert.deepEqual([...allRem.local], ["feat/b"]);
+  assert.equal(allRem.remote.size, 3);
+
+  // Menus, dialogs, commands
+  const c = { current: "main", branches: ["main", "feat/b"], remotes: ["origin", "upstream"] };
+  assert.deepEqual(
+    G.menuFor({ kind: "branches", local: ["main", "feat/b", "feat/c"], remote: [] }, c).filter((i) => !i.separator).map((i) => i.label),
+    ["Delete 2 branches…", "Copy 2 branch names"],
+  );
+  assert.deepEqual(
+    G.menuFor({ kind: "branches", local: [], remote }, c).filter((i) => !i.separator).map((i) => i.label),
+    ["Delete 3 remote branches…", "Copy 3 branch names"],
+  );
+  assert.deepEqual(
+    G.menuFor({ kind: "branches", local: ["feat/b"], remote }, c).filter((i) => !i.separator).map((i) => i.label),
+    ["Delete 4 branches (1 local, 3 remote)…", "Copy 4 branch names"],
+  );
+
+  const dBoth = G.dialogFor({ type: "deleteBranches", local: ["feat/b"], remote }, c);
+  assert.equal(dBoth.title, "Delete branches");
+  assert.equal(dBoth.checks.length, 1);
+  assert.equal(G.dialogFor({ type: "deleteBranches", local: [], remote }, c).checks, undefined);
+
+  assert.deepEqual(
+    G.commandsFor({ type: "deleteBranches", local: ["feat/b", "feat/c"], remote }, { force: true }, c),
+    [
+      ["branch", "-D", "feat/b", "feat/c"],
+      ["push", "origin", "--delete", "feat/a", "feat/b"],
+      ["push", "upstream", "--delete", "old"],
+    ],
+  );
+  assert.throws(() => G.commandsFor({ type: "deleteBranches", local: [], remote: [] }, {}, c), /No branches selected/);
+  assert.throws(() => G.commandsFor({ type: "deleteBranches", local: ["-bad"], remote: [] }, {}, c), /Invalid ref/);
 }
 
 console.log("selection ok");

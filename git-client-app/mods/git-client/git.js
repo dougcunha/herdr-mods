@@ -411,6 +411,19 @@ export function menuFor(target, ctx) {
       section(item("Delete remote branch…", "trash", { type: "deleteRemoteBranch", name, remote, branch })),
       section(item("Copy branch name", "copy", { type: "copy", text: name })),
     ];
+  } else if (target.kind === "branches") {
+    const local = (target.local ?? []).filter((n) => n !== ctx.current);
+    const remote = target.remote ?? [];
+    const n = local.length + remote.length;
+    const label = local.length && !remote.length
+      ? `Delete ${n} branches…`
+      : remote.length && !local.length
+        ? `Delete ${n} remote branches…`
+        : `Delete ${n} branches (${local.length} local, ${remote.length} remote)…`;
+    sections = [
+      section(n > 0 && item(label, "trash", { type: "deleteBranches", local, remote })),
+      section(n > 0 && item(`Copy ${n} branch names`, "copy", { type: "copy", text: [...local, ...remote.map((r) => r.name)].join("\n") })),
+    ];
   } else if (target.kind === "tag") {
     const name = target.name;
     sections = [
@@ -547,6 +560,25 @@ export function dialogFor(action, ctx) {
     case "deleteBranch": return { title: "Delete branch", detail: `Delete the local branch ${a.name}?`,
       checks: [{ id: "force", label: "Force delete, even if it isn't merged", value: false }], confirm: "Delete", danger: true };
     case "deleteRemoteBranch": return { title: "Delete remote branch", detail: `Delete ${a.branch} on ${a.remote}? This changes the remote for everyone who uses it.`, confirm: "Delete", danger: true };
+    case "deleteBranches": {
+      const local = a.local ?? [], remote = a.remote ?? [], l = local.length, r = remote.length;
+      const pluralB = (n, w) => `${n} ${w}${n === 1 ? "" : "es"}`;
+      const names = [...local, ...remote.map((x) => x.name)];
+      const preview = names.slice(0, 5).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+      const title = l && !r ? (l === 1 ? "Delete branch" : "Delete branches") : r && !l ? (r === 1 ? "Delete remote branch" : "Delete remote branches") : "Delete branches";
+      const detail = l && !r
+        ? `Delete ${pluralB(l, "local branch")} (${preview})?`
+        : r && !l
+          ? `Delete ${pluralB(r, "remote branch")} (${preview})? This changes the remote for everyone who uses it.`
+          : `Delete ${pluralB(l, "local branch")} and ${pluralB(r, "remote branch")} (${preview})? Deleting remote branches changes the remote for everyone who uses it.`;
+      return {
+        title,
+        detail,
+        checks: l > 0 ? [{ id: "force", label: r > 0 ? "Force delete local branches, even if they aren't merged" : "Force delete, even if they aren't merged", value: false }] : undefined,
+        confirm: "Delete",
+        danger: true,
+      };
+    }
     case "deleteTag": return { title: "Delete tag", detail: `Delete the local tag ${a.name}?`, confirm: "Delete", danger: true };
     case "merge": return { title: "Merge", detail: `Merge ${a.what} into ${cur}?`,
       checks: [{ id: "noff", label: "Create a merge commit even if it could fast-forward", value: false }], confirm: "Merge" };
@@ -699,6 +731,24 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "renameBranch": return [["branch", "-m", a.name, name]];
     case "deleteBranch": return [["branch", v.force ? "-D" : "-d", a.name]];
     case "deleteRemoteBranch": return [["push", a.remote, "--delete", a.branch]];
+    case "deleteBranches": {
+      const local = Array.isArray(a.local) ? a.local : [];
+      const remote = Array.isArray(a.remote) ? a.remote : [];
+      if (local.some((n) => !refName(n))) throw new Error("Invalid ref name");
+      if (remote.some((r) => !refName(r?.remote) || !refName(r?.branch))) throw new Error("Invalid remote branch");
+      if (local.length + remote.length === 0) throw new Error("No branches selected");
+      const out = [];
+      for (let i = 0; i < local.length; i += 50) out.push(["branch", v.force ? "-D" : "-d", ...local.slice(i, i + 50)]);
+      const byRemote = new Map();
+      for (const r of remote) {
+        if (!byRemote.has(r.remote)) byRemote.set(r.remote, []);
+        byRemote.get(r.remote).push(r.branch);
+      }
+      for (const [rem, list] of byRemote) {
+        for (let i = 0; i < list.length; i += 50) out.push(["push", rem, "--delete", ...list.slice(i, i + 50)]);
+      }
+      return out;
+    }
     case "deleteTag": return [["tag", "-d", a.name]];
     case "merge": return [["merge", "--no-edit", ...(v.noff ? ["--no-ff"] : []), a.ref]];
     case "rebase": return [["rebase", a.ref]];
@@ -729,6 +779,12 @@ export function doneText(a, v = {}) {
     case "renameBranch": return `Renamed ${a.name} to ${name}`;
     case "deleteBranch": return `Deleted branch ${a.name}`;
     case "deleteRemoteBranch": return `Deleted ${a.name}`;
+    case "deleteBranches": {
+      const l = a.local?.length ?? 0, r = a.remote?.length ?? 0;
+      if (l && !r) return l === 1 ? `Deleted branch ${a.local[0]}` : `Deleted ${l} branches`;
+      if (r && !l) return r === 1 ? `Deleted ${a.remote[0].name}` : `Deleted ${r} remote branches`;
+      return `Deleted ${l} local and ${r} remote branches`;
+    }
     case "deleteTag": return `Deleted tag ${a.name}`;
     case "merge": return `Merged ${a.what}`;
     case "rebase": return `Rebased on ${a.what}`;
