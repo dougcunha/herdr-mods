@@ -1,0 +1,10 @@
+{
+  "global": {
+    "ctrl-?": "mod.open:keybinds",
+    "ctrl-shift-/": "mod.open:keybinds",
+    "ctrl-shift-?": "mod.open:keybinds",
+    "cmd-?": "mod.open:keybinds",
+    "cmd-shift-/": "mod.open:keybinds",
+    "cmd-shift-?": "mod.open:keybinds"
+  }
+}

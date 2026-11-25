@@ -7,7 +7,7 @@
 // data/quick-actions/run-log.json  the steps of the last KEEP_LOG runs, with their times and errors: it
 //                               tells why a run did nothing.
 
-import { appHome, readTextFile, writeTextFile, shared, setShared } from "herdr";
+import { appHome, readTextFile, writeTextFile, shared, setShared, keys, window } from "herdr";
 import * as fs from "fs/promises";
 
 export const MOD = "quick-actions";
@@ -184,6 +184,44 @@ export async function updateList(change) {
 
 /** The mods-hub turned this mod off. */
 export const kitOff = () => { const v = shared(KEY.disabled); return Array.isArray(v) && v.includes(MOD); };
+
+/** True when the Keybinds mod is not turned off in PowerMods. */
+export const keybindsEnabled = () => {
+  const v = shared(KEY.disabled);
+  return !(Array.isArray(v) && v.includes("keybinds"));
+};
+
+/** Formats a chord like "ctrl-shift-1" for the current OS. */
+export function prettyKeyChord(chord) {
+  const mac = window()?.platform === "macos";
+  const modNames = mac
+    ? { ctrl: "⌃", alt: "⌥", shift: "⇧", cmd: "⌘", command: "⌘", platform: "⌘", super: "⌘", win: "⌘" }
+    : { ctrl: "Ctrl", alt: "Alt", shift: "Shift", cmd: "Super", command: "Super", platform: "Super", super: "Super", win: "Super" };
+  return String(chord ?? "").trim().split(/\s+/).map((stroke) => {
+    const parts = stroke.split("-");
+    let key = parts.pop();
+    if (key === "") { key = "-"; parts.pop(); }
+    const mods = parts.map((m) => modNames[m.toLowerCase()] ?? m);
+    const k = key && key.length === 1 ? key.toUpperCase() : key ? key[0].toUpperCase() + key.slice(1) : "";
+    return [...mods, k].filter(Boolean).join(mac ? "" : "+");
+  }).join(" ");
+}
+
+/** Bound shortcuts for a Quick Action (`quick-actions.run-<id>`), respecting Keybinds' macOS filter. */
+export function actionShortcuts(actionId) {
+  const target = `quick-actions.run-${actionId}`;
+  const mac = window()?.platform === "macos";
+  const showMac = shared("keybinds.showMac") === true;
+  return (keys() ?? [])
+    .filter((k) => k.action === target)
+    .map((k) => String(k.keys ?? "").trim())
+    .filter((c) => {
+      if (!c) return false;
+      if (!mac && !showMac && /(^|[- ])(cmd|command|platform|super|win)-/i.test(c)) return false;
+      return true;
+    })
+    .map((c) => ({ raw: c, label: prettyKeyChord(c) }));
+}
 
 /** Adds the entry of a run to the run log, which keeps the last KEEP_LOG runs. A fault of the log stops nothing. */
 export async function logRun(entry) {

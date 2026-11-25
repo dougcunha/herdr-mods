@@ -4,7 +4,7 @@
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
 import { filterMatches, filterParts, asksOf } from "./vars.js";
-import { SHELL_LABEL } from "./store.js";
+import { SHELL_LABEL, actionShortcuts } from "./store.js";
 import { jobOf, isRunning } from "./jobs.js";
 import { jobState } from "./output.js";
 import * as U from "./ui.js";
@@ -57,11 +57,15 @@ function row(v, t, a, i, selected) {
   const color = ok ? t.accent : t.dim;
   const tile = div().size(36).flex_none().rounded(10).flex().items_center().justify_center().bg(U.tint(color, "1f"))
     .child(svg(U.icon(a.icon)).size(17).text_color(color));
+  const shortcuts = v.demo ? [] : actionShortcuts(a.id);
   const metas = h_flex().gap(6).flex_wrap()
     .child(meta(t, a.source === "file" ? "file" : "code", sourceText(a)))
     .child(meta(t, ...(WHERE[a.where] ?? WHERE.terminal)))
     .when(a.confirm || (a.source === "inline" && asksOf(a.script).length > 0), (el) => el.child(meta(t, "check", "asks first")))
     .when(Boolean(a.filter.trim()), (el) => el.child(meta(t, "filter", filterParts(a.filter).join(", "), ok ? "Runs only here" : "Not for this terminal")))
+    .children(shortcuts.map((s) => div().h(20).px(7).flex().items_center().rounded(5)
+      .bg(t.raised).border_1().border_color(t.input).font_family(U.mono()).text_size(10.5).font_semibold().text_color(t.foreground)
+      .child(s.label)))
     .children([jobChip(v, t, a, i, "run"), jobChip(v, t, a, i, "write")].filter(Boolean));
   // While the action runs in the background, the button shows its output (Stop is there).
   const bg = !v.demo && isRunning(jobOf("run", a.id));

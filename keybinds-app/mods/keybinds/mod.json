@@ -1,0 +1,8 @@
+{
+  "place": "none",
+  "title": "Keybinds",
+  "overlay": { "kind": "dialog", "width": 880, "height": 600 },
+  "palette": [
+    { "title": "Keybinds", "command": "mod.open", "args": { "name": "keybinds" }, "group": "PowerMods", "words": "shortcuts keys hotkeys help remap" }
+  ]
+}

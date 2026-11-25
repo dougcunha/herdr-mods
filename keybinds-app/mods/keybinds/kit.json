@@ -1,0 +1,31 @@
+{
+  "app": "keybinds-app",
+  "description": "Modern keyboard shortcuts manager for Herdr: press-to-record key capture, same-section and cross-section conflict detection, custom command/send/mod bindings, Quick Actions shortcuts, search by key, and session undo.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/keybinds-app",
+  "settings": [
+    {
+      "id": "open",
+      "type": "action",
+      "command": "mod.open",
+      "args": { "name": "keybinds" },
+      "button": "Open Keybinds…",
+      "label": "Keyboard shortcuts",
+      "hint": "View, search, record and resolve conflicts across all sections of keys.json."
+    },
+    {
+      "id": "open-key",
+      "type": "key",
+      "action": "mod.open:keybinds",
+      "label": "Shortcut of Keybinds",
+      "hint": "Saved in keys.json. Replaces Herdr's default Ctrl+Shift+? / Ctrl+Shift+/ help dialog."
+    },
+    {
+      "id": "show-mac",
+      "type": "bool",
+      "key": "keybinds.showMac",
+      "default": false,
+      "label": "Show macOS bindings",
+      "hint": "Show cmd-* shortcuts on Windows and Linux. Hidden macOS bindings are never deleted when editing other keys."
+    }
+  ]
+}

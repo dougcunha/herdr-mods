@@ -4,7 +4,7 @@
 
 import { div, svg } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { ICONS, SHELLS, SHELL_LABEL } from "./store.js";
+import { ICONS, SHELLS, SHELL_LABEL, actionShortcuts, keybindsEnabled } from "./store.js";
 import { VARIABLES } from "./vars.js";
 import { howText } from "./run.js";
 import { writerPath, shortPath, headlessOf } from "./writer.js";
@@ -135,8 +135,7 @@ export function editView(v, t) {
       U.toggle(t, "qa-pinned", d.pinned ? "On" : "Off", d.pinned, (cx) => v.set(cx, (x) => { x.pinned = !x.pinned; }))))
     .child(U.formRow(t, "Only in", "Folders (and the folders in them) or repository names, separated by commas. * works. Empty: everywhere.",
       fld(v.f.filter)))
-    .child(U.formRow(t, "Key", "Add this action to keys.json, for example:",
-      div().text_size(11.5).font_family(U.mono()).text_color(t.muted).child(`"ctrl-shift-1": "quick-actions.run-${d.id}"`), { last: true }));
+    .child(keyRow(v, t, d));
 
   const back = U.iconButton(t, "qa-back", "back", "Back (Backspace)", (cx) => v.back(cx));
   return v_flex().size_full().min_h(0)
@@ -154,6 +153,26 @@ export function editView(v, t) {
           .child(div().min_w(0).truncate().text_size(12).text_color(t.blocked).child(firstError))))
       .child(U.button(t, "qa-cancel", "Cancel", (cx) => v.back(cx)))
       .child(U.button(t, "qa-save", v.isNew ? "Create" : "Save", (cx) => v.save(cx), { kind: "primary", iconName: "check" })));
+}
+
+function keyRow(v, t, d) {
+  if (!v.hasKeybinds || !keybindsEnabled()) {
+    return U.formRow(t, "Key", "Add this action to keys.json, for example:",
+      div().text_size(11.5).font_family(U.mono()).text_color(t.muted).child(`"ctrl-shift-1": "quick-actions.run-${d.id}"`), { last: true });
+  }
+  if (v.isNew) {
+    return U.formRow(t, "Key", "Shortcuts run quick-actions.run-<id> in keys.json.",
+      div().text_size(12).text_color(t.dim).child("Save the action first to assign a shortcut in Keybinds."), { last: true });
+  }
+  const bound = actionShortcuts(d.id);
+  const control = h_flex().gap(8).items_center().flex_wrap()
+    .children(bound.map((s) => div().h(24).px(8).flex().items_center().rounded(6)
+      .bg(t.raised).border_1().border_color(t.input).font_family(U.mono()).text_size(11.5).font_semibold().text_color(t.foreground)
+      .child(s.label)))
+    .when(!bound.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No shortcut")))
+    .child(U.button(t, "qa-edit-key", bound.length ? "Edit in Keybinds…" : "Set shortcut…",
+      () => v.openKeybinds(d.id, !bound.length), { iconName: "gear" }));
+  return U.formRow(t, "Key", "Managed in Keybinds (keys.json).", control, { last: true });
 }
 
 /** The question before a run (an action with "Ask before run"). */

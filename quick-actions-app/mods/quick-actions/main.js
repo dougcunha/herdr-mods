@@ -11,7 +11,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
-import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents, pickFiles } from "herdr";
+import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents, pickFiles, appHome, readTextFile } from "herdr";
 import { startWriter, startWriterBackground, headlessOf, writerPath, shortPath } from "./writer.js";
 import * as S from "./store.js";
 import { currentTarget, context, filterMatches, filterNeedsRepo, asksOf } from "./vars.js";
@@ -196,6 +196,7 @@ export default class QuickActions extends View {
     this.outputKey = null; // the job of the output view
     this.outputText = null;
     this.agentList = []; // knownAgents(), for "with an agent" in the form
+    this.hasKeybinds = false;
     // The cx of a callback (init, a click, a key, a timer) is not valid after an await: async work goes
     // through cx.spawn, whose cx stays valid.
     cx.spawn(async (cx) => { try { this.agentList = (await knownAgents()) ?? []; cx.notify(); } catch { /* no agents */ } });
@@ -208,6 +209,11 @@ export default class QuickActions extends View {
       cx.spawn(async (cx) => { try { this.ctx = await context(target, new Set(["repo_name"])); cx.notify(); } catch { /* no context */ } });
     }
     if (checking()) return;
+    cx.spawn(async (cx) => {
+      const text = await readTextFile(`${appHome().replace(/\\/g, "/").replace(/\/+$/, "")}/mods/keybinds/mod.json`).catch(() => null);
+      this.hasKeybinds = text != null;
+      cx.notify();
+    });
     cx.timer.every(1000, (cx) => {
       if (kitOff()) return;
       this.track(cx); // the background jobs, when no runner copy checks them
@@ -315,6 +321,17 @@ export default class QuickActions extends View {
   close_() {
     const id = this.props.overlay ?? shared("kanban.panelDialog")?.id ?? null;
     if (id) closeOverlay(id);
+  }
+
+  /** Opens Keybinds focused on this action (when installed and enabled). */
+  openKeybinds(actionId, autoRecord = false) {
+    openOverlay({
+      mod: "keybinds",
+      kind: "dialog",
+      width: 880,
+      height: 600,
+      props: { focusAction: `quick-actions.run-${actionId}`, autoRecord },
+    });
   }
 
   // ---- the dialog: runs -------------------------------------------------------------------
