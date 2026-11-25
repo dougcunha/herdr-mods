@@ -96,7 +96,8 @@ its `panels.json`.
   and its count. GitHub's list has only names and sizes, so the type is the
   known extension at the end of the name; anything else is `other`. Click a row
   to download it to
-  `<repo>/.ci-dash/artifacts/<run-id>/<name>`. `↗` opens that folder.
+  `<repo>/.ci-dash/artifacts/<run-id>/<name>`, or click **Copy link** to copy
+  its GitHub artifact URL to the clipboard. `↗` opens that folder.
   **Folder…** picks another download folder (the artifacts then go to
   `<folder>/<run-id>/<name>`). The **Settings** tab of PowerMods has the same
   **Download folder** field, and **Open the folder after a download** opens

@@ -154,7 +154,7 @@ export default class CiDash extends View {
     this.runs = []; this.runsLoading = false; this.runsError = null; this.runsLoaded = false;
     this.detail = null; this.file = null; this.forwardFile = null; this.forwardDetail = null;
     this.art = { groups: [], failed: 0, loaded: false, loading: false, error: null };
-    this.dl = {}; this.lastDir = ""; this.note = "";
+    this.dl = {}; this.copiedKey = null; this.lastDir = ""; this.note = "";
     this.runStatus = "all"; this.runWorkflow = "all"; this.artStatus = "all"; this.artType = "all";
     this.runFilter.set_value(""); this.artFilter.set_value("");
     this.dsp.reset();
@@ -447,6 +447,26 @@ export default class CiDash extends View {
     cx.notify();
   }
 
+  /** Returns the GitHub web URL for an artifact in a workflow run. */
+  artifactUrl(runId, artifact) {
+    if (!this.repo || runId == null || artifact?.id == null) return "";
+    return `https://${this.repo.host}/${this.repo.slug}/actions/runs/${runId}/artifacts/${artifact.id}`;
+  }
+
+  /** Copies the artifact's GitHub URL to the clipboard and shows brief confirmation feedback. */
+  copyArtifactUrl(runId, artifact, cx) {
+    const url = this.artifactUrl(runId, artifact);
+    if (!url) return;
+    cx.write_to_clipboard(url);
+    const key = `${runId}:${artifact.id}`;
+    this.copiedKey = key;
+    notify({ title: "Copied artifact link", body: artifact.name, level: "info", timeout: 2000 });
+    cx.notify();
+    cx.timer.after(1500, (cx) => {
+      if (this.copiedKey === key) { this.copiedKey = null; cx.notify(); }
+    });
+  }
+
   /**
    * The folder that gets the artifacts: the folder of the setting, else `<repo>/.ci-dash/artifacts`.
    * The setting is a folder of this computer, so a repository on another machine always uses its own folder.
@@ -689,13 +709,23 @@ export default class CiDash extends View {
   artifactRow(runId, a, t) {
     const key = `${runId}:${a.id}`, dl = this.dl[key];
     const busy = dl?.state === "busy";
+    const copied = this.copiedKey === key;
     const action = a.expired ? "" : busy ? "Downloading…" : dl?.state === "error" ? "Retry" : dl?.state === "done" ? "Again" : "Download";
     return v_flex().id(`art-${key}`).w_full().flex_none().px(14).py(8).gap(6)
       .when(!a.expired, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.download(runId, a, cx)))
-      .child(h_flex().gap(10).items_center()
+      .child(h_flex().gap(8).items_center()
         .child(svg(icon("package")).size(15).flex_none().text_color(a.expired ? t.dim : t.accent))
         .child(div().flex_1().min_w(0).truncate().text_size(14).text_color(a.expired ? t.dim : t.foreground).child(a.name))
-        .child(div().flex_none().text_size(11).text_color(t.accent).child(action)))
+        .when(!a.expired && Boolean(this.repo), (e) => e.child(
+          h_flex().id(`art-copy-${key}`).h(22).px(7).gap(4).flex_none().items_center().rounded(6).text_size(11)
+            .border_1().border_color(copied ? t.ansi2 : t.border)
+            .text_color(copied ? t.ansi2 : t.muted)
+            .cursor_pointer().hover((s) => s.bg(t.raised).border_color(copied ? t.ansi2 : t.accent).text_color(copied ? t.ansi2 : t.foreground))
+            .tooltip("Copy GitHub artifact link")
+            .on_click((_e, cx) => { cx.stop_propagation(); this.copyArtifactUrl(runId, a, cx); })
+            .when(!copied, (x) => x.child(svg(icon("link")).size(11).flex_none()))
+            .child(copied ? "✓ Copied" : "Copy link")))
+        .when(Boolean(action), (e) => e.child(div().flex_none().text_size(11).text_color(t.accent).child(action))))
       .child(h_flex().pl(25).flex_wrap().gap(6).items_center()
         .when(Boolean(fileType(a.name)), (e) => e.child(pill(t, { label: `.${fileType(a.name)}`, color: t.accent, code: true })))
         .when(Number.isFinite(a.size_in_bytes), (e) => e.child(pill(t, { label: bytes(a.size_in_bytes) })))
