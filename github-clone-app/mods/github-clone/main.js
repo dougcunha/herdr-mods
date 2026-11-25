@@ -50,6 +50,7 @@ export default class GitHubClone extends View {
     this.scrollTop = 0;
     this.follow = true;
     this.size = null;
+    this.listBoxH = null;
     this.handle = cx.focus_handle();
     // A copy of the dialog stops its tasks when it closes, so a read that
     // was in progress is no longer in progress.
@@ -437,6 +438,20 @@ export default class GitHubClone extends View {
     return this.size ? this.size.height / zoom : 640;
   }
 
+  /** Measures the actual remaining height of the list area so wrapped chips or banners never clip the bottom row. */
+  listArea(content) {
+    return div().id("gc-list-box").mt(8).mb(4).flex_1().min_h(0).overflow_hidden()
+      .on_size_change((size, cx) => {
+        const zoom = Number(appSettings().zoom) || 1;
+        const h = Math.floor(size.height / zoom);
+        if (h > 0 && h !== this.listBoxH) {
+          this.listBoxH = h;
+          cx.notify();
+        }
+      })
+      .child(content);
+  }
+
   header(t, title, subtitle, { leading, trailing = [] }) {
     return h_flex().h(HEAD_H).flex_none().px(16).gap(12).items_center().border_b(1).border_color(t.border)
       .child(leading)
@@ -532,7 +547,7 @@ export default class GitHubClone extends View {
         error.kind === "login" ? button(t, "gc-login-banner", "Log in…", (cx) => this.login(this.machine, cx), { symbol: "login" }) : null)) : null;
 
     // The list fills what the other parts leave.
-    const listH = Math.max(120, this.height() - HEAD_H - FOOT_H - 52 - 34 - (banner ? 40 : 0) - 14);
+    const listH = this.listBoxH ?? Math.max(120, this.height() - HEAD_H - FOOT_H - 52 - 34 - (banner ? 40 : 0) - 18);
     let content;
     if (!c && loading) content = this.emptyState(t, null, `Reading your repositories on ${where}…`, "gh lists every repository that the account owns, works on or sees in its organizations.", null, listH);
     else if (error && !c?.repos?.length) content = this.errorState(t, error, listH);
@@ -562,7 +577,7 @@ export default class GitHubClone extends View {
       .child(search)
       .child(chips)
       .when(Boolean(banner), (e) => e.child(banner))
-      .child(div().mt(8).flex_1().min_h(0).overflow_hidden().child(content))
+      .child(this.listArea(content))
       .child(footer);
   }
 

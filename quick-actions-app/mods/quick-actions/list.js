@@ -149,7 +149,7 @@ export function listView(v, t, notice) {
     .when(all.length > 0, (e) => e
       .child(search)
       .child(list.length
-        ? v_flex().id("qa-list").flex_1().min_h(0).overflow_y_scrollbar().p(16).gap(6)
+        ? v_flex().id("qa-list").flex_1().min_h(0).overflow_y_scrollbar().track_scroll(v.listScroll).p(16).gap(6)
           .children(list.map((a, i) => row(v, t, a, i, i === v.selected)))
         : v_flex().flex_1().items_center().justify_center().text_size(12.5).text_color(t.dim).child("No action has this name."))
       .child(h_flex().w_full().h(34).px(16).gap(14).items_center().flex_none().border_t(1).border_color(t.border)

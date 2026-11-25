@@ -840,10 +840,10 @@ export default class RepoLauncher extends View {
       const selRow = rows.findIndex((r) => r.kind !== "head" && r.repo === sel);
       // Show the section title above the first row of a section too.
       const focusRow = selRow > 0 && rows[selRow - 1].kind === "head" ? [selRow - 1, selRow] : [selRow, selRow];
-      content = this.scrollList(t, "list", rows, sizes, LIST_MAX, focusRow, (r) => (r.kind === "head"
+      content = div().mb(4).w_full().flex_none().child(this.scrollList(t, "list", rows, sizes, LIST_MAX, focusRow, (r) => (r.kind === "head"
         ? sectionTitle(t, r.title, { symbol: r.symbol, color: r.color, count: r.count })
         : r.kind === "free" ? this.freeRow(t, r, r.repo === sel)
-        : this.repoRow(t, r, r.repo === sel)));
+        : this.repoRow(t, r, r.repo === sel))));
     }
 
     const footer = h_flex().h(38).flex_none().px(16).gap(14).items_center().border_t(1).border_color(t.border).bg(t.chrome ?? t.popover)

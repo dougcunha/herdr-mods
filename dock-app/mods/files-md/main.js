@@ -5,8 +5,8 @@
 // cut, copy, paste, duplicate, rename, delete, copy the path. A right-click below the rows acts on the root folder.
 // The field at the top filters every file and folder of the root with a fuzzy match (fuzzy.js).
 import { View, div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, openOverlay, closeOverlay, appHome, shared, props, hc, notify } from "herdr";
+import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input, ScrollHandle } from "gpui-base";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, run, openOverlay, closeOverlay, appHome, shared, props, hc, notify, checking } from "herdr";
 import { tokens, matchEntry, segments } from "./fuzzy.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
@@ -28,6 +28,7 @@ const machineChip = (t, machine) => {
 
 const isMarkdown = name => /\.(md|markdown|mdown|mkd|mdx)$/i.test(name);
 const isImage = name => /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?)$/i.test(name);
+const isNonText = name => isImage(name) || /\.(zip|tar|gz|tgz|bz2|xz|7z|rar|nupkg|jar|pdf|exe|dll|so|dylib|bin|woff2?|ttf|otf|mp3|mp4|mov|avi|mkv|sqlite|db)$/i.test(name);
 
 function lineRangeOf(text, line) {
   if (!text || !Number.isInteger(line) || line < 1) return null;
@@ -168,6 +169,40 @@ async function directory(path, on) {
   return out;
 }
 
+// Remote terminal editors: probed once per remote machine and cached in memory.
+// On remote Windows with Git Bash on PATH, `sh` would return MSYS paths like /usr/bin/vim
+// that PowerShell cannot run, so `uname -s` redirects Windows remotes to PowerShell Get-Command.
+const REMOTE_EDITORS = ["micro", "nvim", "hx", "vim", "nano", "vi"];
+const REMOTE_EDITOR_TTL = 5 * 60 * 1000;
+const REMOTE_EDITOR_RETRY = 30 * 1000;
+const remoteEditorsCache = new Map(); // machine -> { windows, editors: [{ name, cmd }], at }
+const remoteEditorsPending = new Set();
+
+async function probeRemoteEditors(on) {
+  const shScript = 'case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) printf "__WIN__\\n"; exit 0;; esac; PATH="$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"; for e in ' + REMOTE_EDITORS.join(" ") + '; do p=$(command -v "$e" 2>/dev/null) && [ -n "$p" ] && printf "%s\\t%s\\n" "$e" "$p"; done; exit 0';
+  let isWin = false;
+  let r = null;
+  try {
+    r = await exec("sh", ["-c", shScript], { on, timeout: 8000 });
+    if (r.stdout.trim() === "__WIN__") isWin = true;
+  } catch (e) {
+    if (String(e).includes("cannot start sh: program not found")) isWin = true;
+    else throw e;
+  }
+  if (isWin) {
+    const psList = REMOTE_EDITORS.map(e => `'${e}'`).join(",");
+    const pr = await exec("powershell", ["-NoProfile", "-Command", `foreach ($e in ${psList}) { if (Get-Command $e -ErrorAction SilentlyContinue) { $e } }`], { on, timeout: 8000 });
+    const editors = pr.stdout.split(/\r?\n/).map(s => s.trim()).filter(s => REMOTE_EDITORS.includes(s)).map(name => ({ name, cmd: name }));
+    return { windows: true, editors, at: Date.now() };
+  }
+  const editors = [];
+  for (const line of (r?.stdout ?? "").split(/\r?\n/)) {
+    const [name, cmd] = line.split("\t");
+    if (name && cmd && REMOTE_EDITORS.includes(name.trim())) editors.push({ name: name.trim(), cmd: cmd.trim() });
+  }
+  return { windows: false, editors, at: Date.now() };
+}
+
 // Image preview. image() only loads paths inside the app folder, so the file is copied to
 // data/files-md/ first (as the image-viewer mod does). The copy is deleted when another file
 // opens or the panel closes; copies older than 1 day (after a crash) are deleted at start.
@@ -251,10 +286,11 @@ export default class Files extends View {
     // Wait for a short pause in the typing, so a fast typist does not search on every key.
     this.filter.on("change", (_e, cx) => {
       const seq = this.typed = (this.typed ?? 0) + 1;
-      cx.timer.after(70, cx => { if (this.typed === seq) { this.pick = 0; this.search(cx); } });
+      cx.timer.after(70, cx => { if (this.typed === seq) { this.pick = 0; this.resultsScroll.scroll_to_item(0); this.search(cx); } });
     });
     this.filter.on("submit", (_e, cx) => this.openResult(this.results?.[this.pick], cx));
     this.query = ""; this.index = null; this.indexStale = true; this.results = null; this.pick = 0;
+    this.resultsScroll = ScrollHandle.new();
     this.docSearch = InputState.new({ placeholder: "Find in document…" });
     this.docSearch.on("change", (_e, cx) => { this.docQuery = this.docSearch.value(); this.docMatchIdx = 0; cx.notify(); });
     this.docSearch.on("submit", (_e, cx) => this.stepDocMatch(1, cx));
@@ -325,6 +361,7 @@ export default class Files extends View {
     }
     // A folder on another machine has no folder watch: build its index again on the timer.
     else if (on && this.query) { this.indexStale = true; this.search(cx); }
+    if (on) this.ensureRemoteEditors(on, cx);
     if (!cwd || this.loading) return;
     const context = this.context;
     this.loading = true;
@@ -445,8 +482,8 @@ export default class Files extends View {
     return h_flex().id("files-filter").h(34).flex_none().mx(6).mt(6).px(9).gap(7).items_center().rounded(8).border_1().border_color(t.border).bg(t.background)
       .on_key_down((e, cx) => {
         const n = this.results?.length ?? 0;
-        if (e.key === "down" && n) this.pick = (this.pick + 1) % n;
-        else if (e.key === "up" && n) this.pick = (this.pick + n - 1) % n;
+        if (e.key === "down" && n) { this.pick = (this.pick + 1) % n; this.resultsScroll.scroll_to_item(this.pick); }
+        else if (e.key === "up" && n) { this.pick = (this.pick + n - 1) % n; this.resultsScroll.scroll_to_item(this.pick); }
         else if (e.key === "escape") {
           // Esc clears the text first; with an empty field it closes the dialog, or blurs when docked.
           if (this.query || this.filter.value()) this.clearFilter(cx);
@@ -553,6 +590,10 @@ export default class Files extends View {
         items.push({ label: "Open in new space", icon: "square-plus", cmds: [["space.new", { folder: abs, machine: "" }]] });
       }
     }
+    if (this.on && !entry.dir && !isNonText(entry.name)) {
+      const editor = this.preferredRemoteEditor();
+      if (editor) items.push({ label: `Edit in ${editor.name}`, icon: "pencil", cmds: this.editPlan(editor, abs), closeDialog: this.dialog() });
+    }
     items.push(...this.editItems(entry, path, native));
     items.push({ label: "Copy path", icon: "copy", copy: native, sep: items.length > 0 });
     items.push({ label: "Copy relative path", icon: "link", copy: path || "." });
@@ -593,12 +634,73 @@ export default class Files extends View {
     });
   }
 
+  ensureRemoteEditors(on, cx) {
+    if (!on || checking() || remoteEditorsPending.has(on)) return;
+    const cached = remoteEditorsCache.get(on);
+    if (cached && Date.now() - cached.at < (cached.editors.length ? REMOTE_EDITOR_TTL : REMOTE_EDITOR_RETRY)) return;
+    remoteEditorsPending.add(on);
+    cx.spawn(async cx => {
+      try {
+        const info = await probeRemoteEditors(on);
+        remoteEditorsCache.set(on, info);
+      } catch {
+        remoteEditorsCache.set(on, { windows: false, editors: [], at: Date.now() });
+      } finally {
+        remoteEditorsPending.delete(on);
+        cx.notify();
+      }
+    });
+  }
+
+  remoteEditorInfo(on = this.on) {
+    return on ? remoteEditorsCache.get(on) ?? null : null;
+  }
+
+  preferredRemoteEditor(on = this.on) {
+    const info = this.remoteEditorInfo(on);
+    if (!info?.editors?.length) return null;
+    const pref = shared("files-md.remoteEditor");
+    if (typeof pref === "string" && pref && pref !== "auto") {
+      const match = info.editors.find(e => e.name === pref);
+      if (match) return match;
+    }
+    return info.editors[0];
+  }
+
+  editPlan(editor, fullPath) {
+    const info = this.remoteEditorInfo();
+    const norm = String(fullPath || "").replaceAll("\\", "/");
+    const slash = norm.lastIndexOf("/");
+    const dir = slash > 0 ? norm.slice(0, slash) : (this.root || "");
+    const filePath = info?.windows ? norm.replaceAll("/", "\\") : norm;
+    const folder = dir ? (info?.windows ? dir.replaceAll("/", "\\") : dir) : "";
+    const base = norm.split("/").pop() || norm;
+    const prefPlace = shared("files-md.remoteEditPlace");
+    const place = ["right", "down", "tab"].includes(prefPlace) ? prefPlace : "right";
+    const argv = [editor.cmd, filePath];
+    if (place === "tab" || !focused()?.pane) {
+      return [["tab.new", { ...(this.context?.space ? { space: this.context.space } : {}), name: base, ...(folder ? { folder } : {}), argv }]];
+    }
+    return [["terminal.open", { argv, ...(folder ? { folder } : {}), place, name: base }]];
+  }
+
+  openInRemoteEditor(editor) {
+    if (!editor || !this.on) return;
+    const fullPath = this.direct ? this.direct.path : (this.root && this.file ? `${this.root}/${this.file}` : null);
+    if (!fullPath) return;
+    const plan = this.editPlan(editor, fullPath);
+    const dlg = this.dialog();
+    if (dlg) closeOverlay(dlg);
+    for (const [name, args] of plan) run(name, args ?? {});
+  }
+
   showDirect(direct, cx) {
     this.docSearchOpen = false; this.docQuery = ""; this.docMatchIdx = 0; this.docSelection = null;
     try { this.docSearch?.set_value(""); } catch {}
     this.code?.release(); this.code = null;
     this.file = direct.path.split(/[\\/]/).pop() || direct.path;
     this.on = direct.on ?? null;
+    if (this.on) this.ensureRemoteEditors(this.on, cx);
     this.fileError = null; this.text = null; this.rendered = false; this.lineRange = null;
     this.unstage(); this.picture = null;
     cx.spawn(async cx => {
@@ -799,6 +901,8 @@ export default class Files extends View {
     if (kitOff()) return offView();
     if (!this.direct && (key() !== this.context?.key || (this.resumeDue && window()?.visible !== false))) { this.resumeDue = false; this.refresh(cx); }
     const t = theme();
+    const remoteEditor = this.file && this.on && !this.picture && !String(this.fileError ?? "").startsWith("Binary file")
+      ? this.preferredRemoteEditor() : null;
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .track_focus(this.handle)
       .on_mouse_down("back", (_e, cx) => {
@@ -857,6 +961,13 @@ export default class Files extends View {
         .when(Boolean(this.file) && Boolean(this.code) && !this.rendered && !this.picture, el => el.child(div().id("files-wrap").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
           .text_color(this.softWrap ? t.accent : t.muted).bg(this.softWrap ? t.raised : t.background)
           .hover(s => s.bg(t.hover)).on_click((_e, cx) => { this.keepKeys(); this.toggleWrap(cx); }).child("Wrap")))
+        .when(Boolean(remoteEditor), el => el.child(div().id("files-edit-remote").flex_none().px(8).py(3).rounded(6).cursor_pointer().text_size(12)
+          .text_color(t.accent).bg(t.raised)
+          .hover(s => s.bg(t.hover))
+          .tooltip(`Edit in ${remoteEditor.name} on ${this.on}`)
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click((_e, cx) => { cx.stop_propagation(); this.openInRemoteEditor(remoteEditor); })
+          .child("Edit")))
         .when(Boolean(this.file) && this.rendered && this.text !== null, el => el.child(div().id("files-doc-find").size(24).flex_none().flex().items_center().justify_center().rounded(6).cursor_pointer()
           .bg(this.docSearchOpen ? t.raised : t.background).hover(s => s.bg(t.hover)).tooltip("Find in document (Ctrl+F)")
           .on_click((_e, cx) => { this.keepKeys(); this.docSearchOpen ? this.closeDocSearch(cx) : this.openDocSearch(cx); })
@@ -900,7 +1011,7 @@ export default class Files extends View {
             .child("Send to terminal"));
       })
       .when(!this.file && Boolean(this.root), el => el.child(this.filterBar(t)))
-      .when(!this.file && this.results !== null, el => el.child(v_flex().id("files-found").flex_1().min_h(0).overflow_y_scrollbar().p(6)
+      .when(!this.file && this.results !== null, el => el.child(v_flex().id("files-found").flex_1().min_h(0).overflow_y_scrollbar().track_scroll(this.resultsScroll).p(6)
         .children(this.resultRows(t))
         .when(!this.results.length || this.total > this.results.length || Boolean(this.indexError), el => el.child(div().p(8).text_size(12).text_color(t.dim)
           .child(this.indexError || (!this.results.length ? (this.indexing || !this.index ? "Indexing files…" : "No match")

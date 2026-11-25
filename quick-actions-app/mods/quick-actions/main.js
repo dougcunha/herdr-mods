@@ -10,7 +10,7 @@
 // See docs/quick-actions-plan.md in the herdr-mods repository.
 
 import { View, div, svg } from "gpui-kit";
-import { h_flex, v_flex, InputState, TextareaState } from "gpui-base";
+import { h_flex, v_flex, InputState, TextareaState, ScrollHandle } from "gpui-base";
 import { theme, props, shared, setShared, closeOverlay, openOverlay, nextCommand, run, notify, focused, panes, checking, window, knownAgents, pickFiles, appHome, readTextFile } from "herdr";
 import { startWriter, startWriterBackground, headlessOf, writerPath, shortPath } from "./writer.js";
 import * as S from "./store.js";
@@ -181,6 +181,7 @@ export default class QuickActions extends View {
     this.loadedRev = undefined;
     this.demo = false;
     this.selected = 0;
+    this.listScroll = ScrollHandle.new();
     this.running = null; // the id of the action that runs from this dialog
     this.confirmDelete = null;
     this.draft = null;
@@ -201,7 +202,7 @@ export default class QuickActions extends View {
     // through cx.spawn, whose cx stays valid.
     cx.spawn(async (cx) => { try { this.agentList = (await knownAgents()) ?? []; cx.notify(); } catch { /* no agents */ } });
     this.search = InputState.new({ placeholder: "Search the actions" });
-    this.search.on("change", (_e, cx) => { this.selected = 0; cx.notify(); });
+    this.search.on("change", (_e, cx) => { this.selected = 0; this.listScroll.scroll_to_item(0); cx.notify(); });
     this.view = this.props.confirm ? "confirm" : "list";
     this.refresh(cx);
     if (this.target) {
@@ -236,7 +237,7 @@ export default class QuickActions extends View {
         else if (c.startsWith("edit-") && a(c.slice(5))) this.edit(cx, a(c.slice(5)));
         else if (c === "list") this.back(cx);
         else if (c === "save" && this.view === "edit") this.save(cx);
-        else if (c === "demo") { this.demo = !this.demo; this.selected = 0; cx.notify(); }
+        else if (c === "demo") { this.demo = !this.demo; this.selected = 0; this.listScroll.scroll_to_item(0); cx.notify(); }
         else if (c.startsWith("pin-") && a(c.slice(4))) this.pin(cx, a(c.slice(4)));
         else if (c === "down" || c === "up") this.move(cx, c === "down" ? 1 : -1);
         else if (c === "enter") { if (this.view === "list") this.runSelected(cx); else if (this.view === "confirm") this.confirmRun(cx); }
@@ -460,6 +461,7 @@ export default class QuickActions extends View {
     const n = visible(this).length;
     if (!n) return;
     this.selected = (this.selected + by + n) % n;
+    this.listScroll.scroll_to_item(this.selected);
     cx.notify();
   }
 

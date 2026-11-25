@@ -1,5 +1,37 @@
 {
   "app": "dock-app",
-  "description": "A Files panel that previews Markdown rendered, code with syntax colors and images, with an icon for each file type and a fuzzy filter for all files. Right-click to make, rename, move or delete files.",
-  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app"
+  "description": "A Files panel that previews Markdown rendered, code with syntax colors and images, with an icon for each file type and a fuzzy filter for all files. Right-click to make, rename, move, delete, or edit remote files in a terminal editor.",
+  "readme": "https://github.com/dougcunha/herdr-mods/tree/main/dock-app",
+  "settings": [
+    {
+      "id": "remoteEditor",
+      "type": "enum",
+      "label": "Remote terminal editor",
+      "hint": "Editor used to edit files on remote machines when available (falls back to the first detected editor).",
+      "key": "files-md.remoteEditor",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "Auto (micro → nvim → hx → vim → nano → vi)" },
+        { "value": "micro", "label": "micro" },
+        { "value": "nvim", "label": "Neovim (nvim)" },
+        { "value": "hx", "label": "Helix (hx)" },
+        { "value": "vim", "label": "Vim" },
+        { "value": "nano", "label": "nano" },
+        { "value": "vi", "label": "vi" }
+      ]
+    },
+    {
+      "id": "remoteEditPlace",
+      "type": "enum",
+      "label": "Open remote editor in",
+      "hint": "Where to open the terminal editor when editing a remote file.",
+      "key": "files-md.remoteEditPlace",
+      "default": "right",
+      "options": [
+        { "value": "right", "label": "Split right" },
+        { "value": "down", "label": "Split down" },
+        { "value": "tab", "label": "New tab" }
+      ]
+    }
+  ]
 }

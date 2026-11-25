@@ -5,6 +5,7 @@
 //   share: ["key", value]            writes a shared value (setShared)
 //   exec: ["program", ["arg", ...]]  runs a program on this computer, or on `on` when set
 //   cmds: [["command", {args}], ...] runs Herdr app commands in order
+//   closeDialog: "<overlay id>"      optional dialog overlay id to close before running cmds
 // Two items show a second step in the popup before the actions run:
 //   ask: { title, value, select: [start, end] }  a text field; Enter runs the actions with the text.
 //        In exec, "{{value}}" in an argument becomes the text, "{{value:ps}}" the text as a PowerShell string.
@@ -84,6 +85,7 @@ export default class FilesMenu extends View {
         .catch(e => notify({ title: it.label, body: String(e?.message ?? e).slice(0, 300), level: "error" }));
     }
     closeOverlay(props()?.overlay);
+    if (it.closeDialog) closeOverlay(it.closeDialog);
     for (const [name, args] of it.cmds ?? []) run(name, args ?? {});
   }
 

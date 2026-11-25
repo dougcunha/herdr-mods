@@ -231,7 +231,7 @@ export const searchMethods = {
         .children(QUALIFIERS.map((q) => chip(t, `gc-q-${q.id}`, q.text, false, (cx) => this.addQualifier(q, cx), { tooltip: q.tooltip }))))
       .child(segmented(t, "gc-sort", SORTS, s.sort, (v, cx) => this.setSort(v, cx)));
 
-    const listH = Math.max(120, this.height() - HEAD_H - FOOT_H - 52 - 34 - 14);
+    const listH = this.listBoxH ?? Math.max(120, this.height() - HEAD_H - FOOT_H - 52 - 34 - 18);
     let content;
     if (!text) {
       content = this.emptyState(t, "globe", "Search all public repositories of GitHub",
@@ -269,7 +269,7 @@ export const searchMethods = {
       .child(head)
       .child(search)
       .child(chips)
-      .child(div().mt(8).flex_1().min_h(0).overflow_hidden().child(content))
+      .child(this.listArea(content))
       .child(footer);
   },
 

@@ -694,12 +694,15 @@ export default class SpaceIssues extends View {
   }
 
   move(step, cx) {
-    const flat = this.items().flat;
+    const { items, flat } = this.items();
     if (!flat.length) return;
     const at = flat.findIndex((i) => i.key === this.cursor);
     // The keys move the highlight and Enter opens the page.
     const next = flat[Math.max(0, Math.min(flat.length - 1, at < 0 ? 0 : at + step))];
     this.cursor = next.key; this.keys = true; this.prefetch(next, cx);
+    const idx = items.findIndex((i) => i.data?.key === this.cursor);
+    if (idx >= 0) this.listScroll.scroll_to_item(idx === 1 && items[0]?.group && step < 0 ? 0 : idx);
+    this.scheduleScrollCheck(cx);
     cx.notify();
   }
 
@@ -1397,12 +1400,11 @@ export default class SpaceIssues extends View {
     // A plain list, built once per render. A virtual list calls its row builder for every
     // frame drawn (hovering included), which made hovering lag; this one runs no script
     // between renders. SHOWN caps what a render builds.
-    const [shownItems, windowed] = this.keyWindow(items, (i) => i.data?.key === this.cursor, s.two ? fs.row2 : fs.row);
     const showTop = items.length > 0 && (this.listScroll?.offset?.()?.y ?? 0) > 240;
     const list = v_flex().flex_1().min_w(0).min_h(0).relative()
-      .when(items.length > 0, (e) => e.child(v_flex().id(windowed ? "issue-list-keys" : "issue-list").w_full().flex_1().min_h(0).px(6).overflow_y_scrollbar().track_scroll(this.listScroll)
+      .when(items.length > 0, (e) => e.child(v_flex().id("issue-list").w_full().flex_1().min_h(0).px(6).pb(6).overflow_y_scrollbar().track_scroll(this.listScroll)
         .on_scroll_wheel((_e, cx) => this.scheduleScrollCheck(cx))
-        .children(shownItems.map((i) => (i.group ? heading(i.group) : this.row(i, s).id(i.key)
+        .children(items.map((i) => (i.group ? heading(i.group) : this.row(i, s).id(i.key)
           .on_click((_e, cx) => { const x = issue(i.data.key); if (x) { this.handle.focus(); this.pick(x, cx); } })
           // Right-click: Move, Open, Start agent, Copy key (row-menu.js).
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); this.rowMenu(i.data.key); })
@@ -1462,7 +1464,7 @@ export default class SpaceIssues extends View {
       .child(Input.new(this.search));
     const close = iconButton(t, "close", "x", () => closeOverlay(overlay), { tooltip: "Close" });
     return v_flex().id("issues").relative().overflow_hidden().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(fs.body)
-      .on_size_change((size, cx) => { this.height = size.height; this.resized(Math.round(size.width), cx); })
+      .on_size_change((size, cx) => { this.resized(Math.round(size.width), cx); })
       .track_focus(this.handle)
       .on_mouse_down("left", () => { try { this.handle.focus(); } catch { /* best effort */ } })
       .on_key_down((e, cx) => {
@@ -1518,21 +1520,6 @@ export default class SpaceIssues extends View {
   // A new width counts once it has held for 200 ms: a panel that opens or a divider that
   // moves reports every width on the way, and each switch between the narrow and the wide
   // layout made the list jump.
-  // While the keys move the highlight, the list shows the rows from just above it (a plain
-  // list can't be scrolled from script, and a virtual list made hovering lag). With the mouse,
-  // or when the highlight is near the top, the whole list shows and scrolls as usual.
-  keyWindow(items, isCursor, rowH) {
-    if (!this.keys) { this.winStart = 0; return [items, false]; }
-    const at = items.findIndex(isCursor);
-    if (at < 0) return [items, false];
-    const visible = Math.max(4, Math.floor(((this.height ?? 600) - 150) / rowH));
-    let start = this.winStart ?? 0;
-    if (at < start + 1) start = Math.max(0, at - 1);
-    if (at > start + visible - 2) start = at - visible + 2;
-    this.winStart = start;
-    return [start > 0 ? items.slice(start) : items, start > 0];
-  }
-
   resized(w, cx) {
     this.nextWidth = w;
     if (this.settling) return;
