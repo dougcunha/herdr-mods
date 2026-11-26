@@ -207,6 +207,21 @@ export function openPromptsDialog(mod) {
   openOverlay({ mod, kind: "dialog", width: 680, height: 620, props: { dialog: "prompts", mod, kind: mod === "prs" ? "pr" : "issue", space: space?.id ?? null } });
 }
 
+// Issue Actions popup menu for a single issue (issues only).
+export function openActionsMenu(mod, p) {
+  openOverlay({ mod, kind: "popup", width: 340, props: { dialog: "actions", mod, ...p } });
+}
+
+// Cog → Issue actions… or PowerMods Settings: manage actions, sequences, defaults and repo trust.
+export function openActionsConfigDialog(mod, space = activeSpace(), tab = "actions") {
+  openOverlay({ mod, kind: "dialog", width: 720, height: 660, props: { dialog: "actions-config", space: space?.id ?? null, mod, tab } });
+}
+
+// Background Issue Action log & interactive recovery dialog.
+export function openActionLogDialog(mod, p) {
+  openOverlay({ mod, kind: "dialog", width: 720, height: 580, props: { dialog: "action-log", mod, ...p } });
+}
+
 // A list's own choices, set in the Settings tab of mods-hub (kit.json) and kept in 1 shared key
 // each: "issues.order", "issues.page", "prs.page". Read on every render, so a change shows at once.
 // The Start agent templates (Prompts… in the cog) use the same scheme: "issues.prompts", "prs.prompts".
@@ -315,7 +330,10 @@ export function settingsMenu(mod, settings, space = true) {
     .child(div().flex_1().min_w(0).truncate().child(label));
   const sep = (id) => div().id(id).mx(7).my(4).h(1).bg(t.border);
   const items = space ? [item("link-space", "link", "Link space…", () => openLinkDialog(mod)),
-    ...(mod === "issues" ? [item("components", "component", "Repository components…", () => openComponentsDialog(mod))] : []),
+    ...(mod === "issues" ? [
+      item("components", "component", "Repository components…", () => openComponentsDialog(mod)),
+      item("actions-cfg", "zap", "Issue actions…", () => openActionsConfigDialog(mod)),
+    ] : []),
     item("prompts", "prompt", "Prompts…", () => openPromptsDialog(mod))] : [];
   // A divider only between two parts, never above the first one.
   const parts = [settings.map(row), items].filter((p) => p.length);
@@ -377,6 +395,9 @@ const LUCIDE = {
   stack: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
 };
 const ICONS = "data/issues-app/icons";
 let iconsWritten = null;

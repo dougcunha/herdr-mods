@@ -25,12 +25,16 @@ import { ComponentsDialog } from "./components-dialog.js";
 import { projects, isGithub } from "./sources.js";
 import { fileComponents, wantedFor, resolveComponents } from "./components.js";
 import { AgentDialog, PromptsDialog } from "./agent-dialog.js";
+import { ActionsMenu } from "./actions-menu.js";
+import { ActionsConfigDialog, ActionLogDialog } from "./actions-dialog.js";
+import { ACTIONS_REV, TRUST_ACTIONS, allRuns, dismissRun, getRun, issueRunKey, loadPersonalConfig, loadRepoConfig, matchesCheapGuards, mergeConfigs, setActionModeOrOverride } from "./actions-store.js";
+import { cancelActionRun, retryCurrentStepInteractively, tickIssueActionRuns } from "./actions-runner.js";
 import { TransitionMenu, CHANGED } from "./transition.js";
 import { FieldMenu } from "./field-menu.js";
 import { saveAttachments, fileNames, isArchive, sizeText, shownPath, openFolder } from "./attachments.js";
 import { RowMenu, rowAction } from "./row-menu.js";
 const ROW_ACTION = rowAction("issues");
-import { context, activeSpace, knownSites, defaultJira, openLinkDialog, openComponentsDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
+import { context, activeSpace, knownSites, defaultJira, openLinkDialog, openComponentsDialog, openActionsMenu, openActionsConfigDialog, openActionLogDialog, pref, openSettings, settingsMenu, PAGE, asSplit, pageMode, openPageDialog, pageDialog, splitView, drawn, openAgentDialog, writeIcons, icon, issueKind, kindColor, avatar, segmented, fs, readSizes, openUrl, agentSpaces, agentChip, mostUrgent, liveAgent, AGENT_STATUS, goToSpace, migrateSettings, imagesAsLinks, inDockDialog, iconButton, button, chip, loadPeople, tint } from "./links.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -178,7 +182,20 @@ export default class SpaceIssues extends View {
     // Opened as one of its dialogs (Link space, Start agent): only that dialog.
     const dialog = props()?.dialog;
     if (dialog === "page") return this.pageOnly(props(), cx);
-    if (dialog) { this.dialog = cx.new(dialog === "link" ? LinkDialog : dialog === "components" ? ComponentsDialog : dialog === "prompts" ? PromptsDialog : dialog === "transition" ? TransitionMenu : dialog === "field" ? FieldMenu : dialog === "row" ? RowMenu : AgentDialog, props()); return; }
+    if (dialog) {
+      const Cmp = dialog === "link" ? LinkDialog
+        : dialog === "components" ? ComponentsDialog
+        : dialog === "prompts" ? PromptsDialog
+        : dialog === "actions" ? ActionsMenu
+        : dialog === "actions-config" ? ActionsConfigDialog
+        : dialog === "action-log" ? ActionLogDialog
+        : dialog === "transition" ? TransitionMenu
+        : dialog === "field" ? FieldMenu
+        : dialog === "row" ? RowMenu
+        : AgentDialog;
+      this.dialog = cx.new(Cmp, props());
+      return;
+    }
     // This copy's id: Start agent of a row's menu (row-menu.js) comes back only to the list that opened it.
     this.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.seenAction = shared(ROW_ACTION)?.at ?? 0;
@@ -212,7 +229,15 @@ export default class SpaceIssues extends View {
       cx.notify();
     });
     this.refresh(cx);
+    this.actionsSummary = { actions: [], sequences: [], repoUntrusted: false };
+    this.actionsSig = "";
+    this.runSig = "";
+    this.syncActionsSummary(cx);
     cx.spawn(async (cx) => { await writeIcons(); cx.notify(); });
+    cx.timer.every(2000, (cx) => {
+      if (kitOff()) return;
+      tickIssueActionRuns(cx);
+    });
     cx.timer.every(120000, (cx) => {
       if (kitOff() || !this.visible()) return;
       if (window()?.visible === false) { this.stale = true; return; }
@@ -239,8 +264,14 @@ export default class SpaceIssues extends View {
     this.seenChange = shared(CHANGED)?.at ?? 0;
     this.only ={ list: p.list ?? [], at: Math.max(0, (p.list ?? []).findIndex((i) => i.key === p.key)) };
     this.repo = p.repo ?? null; this.github = p.github ?? null; this.kidsMap = p.kids ?? {}; this.pageW = 900; this.pages = new Map(); this.open = null; this.page = null; this.pageError = null;
+    this.actionsSummary = { actions: [], sequences: [], repoUntrusted: false };
+    this.actionsSig = "";
+    this.runSig = "";
     this.handle = cx.focus_handle();
     this.makeCommentBox();
+    cx.timer.every(2000, (cx) => {
+      if (!kitOff()) tickIssueActionRuns(cx);
+    });
     // Focus can't move inside a render, so right after: Up/Down then reach the dialog.
     cx.timer.after(0, () => { try { this.handle.focus(); } catch { /* the pointer still works */ } });
     this.pageView = drawn(cx, () => (this.open ? this.detail(theme()) : div()));
@@ -270,6 +301,8 @@ export default class SpaceIssues extends View {
     else if (name === "back") this.back(cx);
     // The Repository components dialog (Settings tab of PowerMods → Issues, or the cog).
     else if (name === "components") openComponentsDialog("issues");
+    // The Issue Actions config dialog (Settings tab of PowerMods → Issues, or the cog).
+    else if (name === "actions") openActionsConfigDialog("issues");
     // Saves every attachment of the open or the highlighted issue (Jira), for a key or `herdr-app do issues.download`.
     else if (name === "download") this.downloadCursor(cx);
     else if (this.open) return; // the rest act on the list, which a page covers
@@ -732,6 +765,7 @@ export default class SpaceIssues extends View {
         pointsField: page.pointsField ?? null,
         components: page.meta?.components ?? [],
         versions: (page.meta?.versions ?? []).map((v) => v.name),
+        actionContext: { repo: this.repo, space: this.fileSpace(), issue: i, page },
       },
       vars: {
         key: isGithub(i) ? `${i.repo}${i.key}` : i.key, title, url: browse(i), type: f.issuetype?.name ?? "", status: f.status?.name ?? "",
@@ -782,14 +816,21 @@ export default class SpaceIssues extends View {
     const title = div().flex_1().min_w(0).truncate().child(d.title);
     const age = div().w(30).flex_none().text_right().text_size(fs.meta).text_color(t.dim).child(d.age);
     const agent = (e) => { const c = s.agents?.has(d.key) && agentChip(`agent-${depth}-${d.key}`, s.agents.get(d.key), t); return c ? e.child(c) : e; };
+    const actRun = s.actionRuns?.[issueRunKey(issue.site, issue.repo, d.key)];
+    const actPill = (e) => (actRun && (actRun.status === "running" || actRun.status === "awaiting_verification")
+      ? e.child(h_flex().id(`act-pill-${depth}-${d.key}`).flex_none().gap(3).items_center().px(5).py(1).rounded(4)
+          .border_1().border_color(tint(t.accent, "66")).bg(tint(t.accent, "14")).text_size(fs.tiny).text_color(t.accent)
+          .tooltip(`Running ${actRun.steps?.[actRun.stepIndex]?.name ?? actRun.label ?? "action"}`)
+          .child(svg(SPINNER).size(10).flex_none().text_color(t.accent).spin(900)).child("action"))
+      : e);
     const base = (e) => e.flex_none().pl(10 + depth * 18).pr(10).rounded(6).cursor_pointer().hover((x) => x.bg(t.hover))
       .when(s.keys && s.cursor === d.key, (e) => e.bg(t.selected));
     // Narrow (the side panel): two lines, so the summary keeps the whole width.
     if (s.two) return base(v_flex()).h(fs.row2).justify_center().gap(3)
       .child(h_flex().gap(8).items_center().child(kind).child(key).child(title).child(age))
-      .child(sp(count(agent(reopened(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
-        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned"))))))).child(status));
-    return sp(count(agent(reopened(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title)))))).child(status)
+      .child(sp(count(actPill(agent(reopened(blocked(h_flex().pl(s.keyW + 30 + (s.tree ? 20 : 0)).gap(6).items_center().child(avatar(d.assignee, t, 16))
+        .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).text_color(t.muted).child(d.assignee ?? "Unassigned")))))))).child(status));
+    return sp(count(actPill(agent(reopened(blocked(base(h_flex()).h(fs.row).gap(8).items_center().child(kind).child(key).child(title))))))).child(status)
       .child(avatar(d.assignee, t))
       .child(age);
   }
@@ -837,6 +878,13 @@ export default class SpaceIssues extends View {
     openOverlay({ mod: "issues", kind: "popup", width: 220, props: {
       dialog: "row", mod: "issues", to: this.uid, key: i.key, site: i.site, status: i.fields.status?.name ?? "", url: browse(i),
       open: `Open in ${home(i)}`, copy: keyText(i), copyLabel: "Copy key", jira: !isGithub(i), agent: this.repo ? "Start agent" : null,
+      actions: this.hasActionsFor(i),
+      actionProps: {
+        key: i.key, site: i.site, repo: i.repo ?? "", isGh: isGithub(i), issue: i,
+        page: this.pages.get(pageKey(i)) ?? null,
+        spaceId: this.fileSpace()?.id ?? null,
+        repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
+      },
     } });
   }
   // Start agent from a row's menu: the shared ROW_ACTION names this copy (`to`). The page is
@@ -1009,6 +1057,25 @@ export default class SpaceIssues extends View {
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => sendSel(sel.markdown, cx))
         .child("Send to terminal")) : null;
+    const runKey = issueRunKey(i.site, i.repo, i.key), actRun = getRun(runKey);
+    const actRunning = actRun?.status === "running" || actRun?.status === "awaiting_verification";
+    const actBtn = () => {
+      if (!this.hasActionsFor(i) && !actRun) return null;
+      const openAct = () => openActionsMenu("issues", {
+        key: i.key, site: i.site, repo: i.repo ?? "", isGh: gh, issue: i, page: p,
+        spaceId: this.fileSpace()?.id ?? null, repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
+      });
+      if (!actRunning) return k.button("issue-actions", "Actions", openAct, { icon: "zap" });
+      const label = (actRun.steps?.length ?? 0) > 1 ? `Actions · ${actRun.stepIndex + 1}/${actRun.steps.length}` : "Actions…";
+      return h_flex().id("issue-actions").h(30).px(12).gap(6).flex_none().items_center().rounded(8)
+        .text_size(12).font_semibold().text_color(t.accent).border_1().border_color(t.accent).bg(tint(t.accent, "18"))
+        .cursor_pointer().hover((s) => s.bg(tint(t.accent, "2e")))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click(() => openAct())
+        .child(svg(SPINNER).size(13).flex_none().text_color(t.accent).spin(900))
+        .child(label);
+    };
+    const actBanner = this.actionBanner(t, i, runKey, actRun);
     const mainBody = !p ? [div().p(10).text_color(this.pageError ? t.ansi1 : t.dim).child(this.pageError ?? "Loading the description and comments…")]
       : tab === "activity" ? [
         ...(timeline.length ? timeline : [div().py(6).text_size(fs.meta).text_color(t.dim).child("No comments yet.")]),
@@ -1019,6 +1086,7 @@ export default class SpaceIssues extends View {
       : tab === "files" ? [this.attachments(t, i, files)]
       : tab.startsWith("x-") ? long.filter((x) => `x-${x.ph}` === tab).map((x) => fullPanel(`extra-${i.key}-${x.ph}`, x.long, x.md))
       : [fullPanel(`desc-${i.key}`, p.md.descLong, p.md.description || "_No description._")];
+    const actButton = actBtn();
     return pageLayout({
       id: "issue-detail", t, wide: (this.only ? this.pageW : this.width) >= PAGE_WIDE, nav,
       actions: [
@@ -1026,6 +1094,7 @@ export default class SpaceIssues extends View {
         iconButton(t, "issue-refresh", "refresh", (cx) => this.load(i, cx), { spin: Boolean(this.pageLoading), tooltip: "Refresh this issue" }),
         // Jira only: the moves of its workflow (the one write of this mod).
         ...(!gh ? [k.button("issue-move", `Move · ${f.status?.name ?? "?"}`, () => this.openMove(i, f.status?.name ?? ""), { icon: "pending" })] : []),
+        ...(actButton ? [actButton] : []),
         k.button("issue-open", `Open in ${home(i)}`, () => openUrl(browse(i))),
         ...(lead ? [
           ...(this.repo && p ? [k.button("issue-agent", "Start another", () => this.dispatch(i, p))] : []),
@@ -1044,7 +1113,7 @@ export default class SpaceIssues extends View {
         .when(Boolean(reporter), (e) => e.child(div().pl(2).text_size(fs.meta).text_color(t.dim)
           .child(`${reporter} ${gh ? "opened" : "reported"} this${created ? ` ${ago(created)} ago` : ""}`))),
       tabs: k.tabs(tab, tabList, pickTab),
-      main: p && selBar ? [selBar, ...mainBody] : mainBody,
+      main: [...(actBanner ? [actBanner] : []), ...(p && selBar ? [selBar] : []), ...mainBody],
       side,
       footer: k.footer(keys),
     });
@@ -1057,6 +1126,92 @@ export default class SpaceIssues extends View {
     if (sig === this.agentSig) return;
     this.agentSig = sig;
     try { cx.timer.after(0, (cx) => cx.notify(this.pageView)); } catch { /* shown on the next page change */ }
+  }
+
+  syncActionsSummary(cx) {
+    const rev = shared(ACTIONS_REV) ?? 0;
+    const trustLen = shared(TRUST_ACTIONS)?.[this.repo?.main]?.text?.length ?? 0;
+    const sig = `${rev}|${trustLen}|${this.repo?.main ?? ""}`;
+    if (sig === this.actionsSig) return;
+    this.actionsSig = sig;
+    const repo = this.repo;
+    cx.spawn(async (cx) => {
+      const [personal, repoCfg] = await Promise.all([loadPersonalConfig(), loadRepoConfig(repo)]);
+      const merged = mergeConfigs(personal, repoCfg);
+      this.actionsSummary = {
+        actions: merged.actions,
+        sequences: merged.sequences,
+        repoUntrusted: Boolean(repoCfg?.exists && !repoCfg.trusted),
+      };
+      cx.notify();
+      if (this.open) cx.notify(this.pageView);
+    });
+  }
+
+  hasActionsFor(issue) {
+    if (!issue) return false;
+    if (this.actionsSummary?.repoUntrusted) return true;
+    if (getRun(issueRunKey(issue.site, issue.repo, issue.key))) return true;
+    const isGh = isGithub(issue);
+    return (this.actionsSummary?.actions ?? []).some((a) => matchesCheapGuards(a, issue, isGh));
+  }
+
+  watchActionRuns(cx) {
+    const sig = this.open ? JSON.stringify(getRun(issueRunKey(this.open.site, this.open.repo, this.open.key)) ?? null) : "";
+    if (sig === this.runSig) return;
+    this.runSig = sig;
+    try { cx.timer.after(0, (cx) => cx.notify(this.pageView)); } catch { /* shown on next change */ }
+  }
+
+  actionBanner(t, i, runKey, r) {
+    if (!r) return null;
+    if (r.status === "ok") return null;
+    const step = r.steps?.[r.stepIndex];
+    const stepInfo = (r.steps?.length ?? 0) > 1 ? ` (${r.stepIndex + 1}/${r.steps.length})` : "";
+    if (r.status === "running" || r.status === "awaiting_verification") {
+      return h_flex().id(`act-banner-${i.key}`).gap(8).items_center().px(12).py(8).rounded(8)
+        .border_1().border_color(tint(t.accent, "66")).bg(tint(t.accent, "12"))
+        .child(svg(SPINNER).size(14).flex_none().text_color(t.accent).spin(900))
+        .child(div().flex_1().min_w(0).text_size(fs.meta).font_semibold()
+          .child(r.status === "awaiting_verification" ? `Verifying ${step?.name ?? r.label}${stepInfo}…` : `Running ${step?.name ?? r.label}${stepInfo} in background…`))
+        .when(Boolean(r.outputPath), (e) => e.child(button(t, "banner-log", "Log", () => openActionLogDialog("issues", {
+          runKey, spaceId: this.fileSpace()?.id ?? null, repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
+        }), { small: true })))
+        .when(r.status === "running", (e) => e.child(button(t, "banner-cancel", "Cancel", (cx) => {
+          cx.spawn(async (cx) => { await cancelActionRun(runKey); cx.notify(this.pageView); });
+        }, { small: true })));
+    }
+    const col = r.status === "needs_input" ? t.ansi3 : t.ansi1;
+    const heading = r.status === "needs_input" ? `${step?.name ?? r.label}: needs input`
+      : r.status === "timed_out" ? `${step?.name ?? r.label}: timed out`
+      : `${step?.name ?? r.label}: failed`;
+    return v_flex().id(`act-banner-${i.key}`).gap(6).px(12).py(9).rounded(8)
+      .border_1().border_color(tint(col, "66")).bg(tint(col, "12"))
+      .child(h_flex().gap(6).items_center()
+        .child(icon("alert", col, 14))
+        .child(div().flex_1().min_w(0).font_semibold().text_size(fs.meta).text_color(col).child(heading))
+        .child(button(t, "banner-dismiss", "Dismiss", (cx) => { dismissRun(runKey); cx.notify(this.pageView); }, { kind: "link", small: true })))
+      .when(Boolean(r.reason), (e) => e.child(div().text_size(fs.meta).text_color(t.foreground).child(r.reason)))
+      .child(h_flex().gap(6).flex_wrap()
+        .when(Boolean(r.outputPath), (e) => e.child(button(t, "banner-log", "View log", () => openActionLogDialog("issues", {
+          runKey, spaceId: this.fileSpace()?.id ?? null, repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
+        }), { small: true })))
+        .child(button(t, "banner-retry-int", "Run interactively", (cx) => {
+          cx.spawn(async (cx) => {
+            try { await retryCurrentStepInteractively(runKey, { space: this.fileSpace(), repo: this.repo }); }
+            catch (e) { notify({ title: "Interactive retry failed", body: String(e?.message ?? e), level: "error" }); }
+            cx.notify(this.pageView);
+          });
+        }, { kind: "primary", small: true }))
+        .child(button(t, "banner-switch-int", "Switch to interactive", (cx) => {
+          cx.spawn(async (cx) => {
+            try {
+              if (step) await setActionModeOrOverride({ id: step.actionId, _source: step.source ?? "personal" }, { mode: "interactive" });
+              await retryCurrentStepInteractively(runKey, { space: this.fileSpace(), repo: this.repo });
+            } catch (e) { notify({ title: "Switch failed", body: String(e?.message ?? e), level: "error" }); }
+            cx.notify(this.pageView);
+          });
+        }, { small: true })));
   }
 
   // After a move (shared CHANGED, set by the Move menu): that issue's pages are fetched again, an open
@@ -1359,6 +1514,8 @@ export default class SpaceIssues extends View {
     if (this.stale && this.visible() && window()?.visible !== false) this.refresh(cx);
     this.followChanges(cx);
     this.followRowAction(cx);
+    this.syncActionsSummary(cx);
+    this.watchActionRuns(cx);
     readSizes();
     if (this.open) this.watchAgents(cx, agentSpaces(this.repo?.main).issues.get(this.open.key));
     if (this.only) {
@@ -1395,7 +1552,7 @@ export default class SpaceIssues extends View {
       + (this.from === "guess" ? " (guessed)" : this.from === "file" ? " (.herdr/jira.toml)" : this.from === "default" ? " (default)" : "");
     const heading = (g) => h_flex().h(fs.head).flex_none().px(10).gap(6).items_end().text_size(fs.meta).text_color(t.dim)
       .child(div().font_semibold().child(g.label)).child(div().child(g.count));
-    const s = { t, keyW, activeBg: t.accent + "30", two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, tree, agents: agentSpaces(this.repo?.main).issues };
+    const s = { t, keyW, activeBg: t.accent + "30", two: this.width < ROOMY, keys: this.keys, cursor: this.cursor, tree, agents: agentSpaces(this.repo?.main).issues, actionRuns: allRuns() };
     const issue = (key) => this.issues.find((x) => x.key === key);
     // A plain list, built once per render. A virtual list calls its row builder for every
     // frame drawn (hovering included), which made hovering lag; this one runs no script

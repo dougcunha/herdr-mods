@@ -5,6 +5,7 @@
 // Every copy of the core puts the API again in init: a reload replaces the old functions.
 
 import { create, remove, list, locate, pathFor, preview, alive, MISSING } from "./worktree.js";
+import { issueActionsAlive } from "./issue-actions.js";
 
 export const VERSION = 1;
 
@@ -14,5 +15,6 @@ export function register() {
     alive,
     missing: MISSING,
     worktree: { create, remove, list, locate, pathFor, preview },
+    issueActions: { alive: issueActionsAlive },
   };
 }

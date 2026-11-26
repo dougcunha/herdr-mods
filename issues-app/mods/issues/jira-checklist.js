@@ -15,6 +15,10 @@ import { adfToMarkdown } from "./adf.js";
 import { fs, icon, button as kitButton, iconButton, openUrl, tint } from "./links.js";
 import { chooseList, scrolled, SHOWN } from "./choose.js";
 import { CHANGED } from "./transition.js";
+import {
+  evaluateAction, getRun, issueRunKey, loadPersonalConfig, loadRepoConfig, mergeConfigs, scanSkills,
+} from "./actions-store.js";
+import { startActionRun, resolveCwd } from "./actions-runner.js";
 
 const POINTS_RE = /^story ?points?( estimate)?$|^story point estimate$/i;
 const REFINEMENT_EXACT = /^refinement$/i;
@@ -65,6 +69,9 @@ export class JiraChecklist {
     this.refinementText = "";
     this.transitions = [];
     this.inProgressTr = null;
+    this.actionContext = jira.actionContext ?? null;
+    this.mergedConfig = null;
+    this.refinementAction = null;
 
     this.loading = true;
     this.loadError = "";
@@ -130,6 +137,37 @@ export class JiraChecklist {
         this.versions = (f.fixVersions ?? []).map((v) => ({ id: String(v.id), name: String(v.name ?? v.id), released: Boolean(v.released) }));
         if (this.pointsField) this.points = typeof f[this.pointsField] === "number" ? f[this.pointsField] : null;
         if (this.refinementField) this.refinementText = fieldText(f[this.refinementField.id]);
+
+        if (this.refinementField && this.actionContext?.issue) {
+          try {
+            const repo = this.actionContext.repo ?? null;
+            const sp = this.actionContext.space ?? null;
+            const on = repo?.on ?? sp?.machine ?? null;
+            const cwd = resolveCwd(sp, repo);
+            const [personal, repoCfg, skills] = await Promise.all([
+              loadPersonalConfig(),
+              loadRepoConfig(repo),
+              scanSkills({ repoMain: repo?.main ?? "", cwd, on }),
+            ]);
+            if (seq === this.seq) {
+              const merged = mergeConfigs(personal, repoCfg);
+              this.mergedConfig = merged;
+              const rn = this.refinementField.name.toLowerCase();
+              const ri = this.refinementField.id.toLowerCase();
+              this.refinementAction = merged.actions.find((a) => {
+                const targets = (a.guards?.targetFields ?? []).map((x) => x.toLowerCase());
+                if (!targets.includes(rn) && !targets.includes(ri)) return false;
+                return evaluateAction(a, {
+                  issue: this.actionContext.issue,
+                  isGh: false,
+                  skills,
+                  editMeta: meta,
+                  fieldValues: f,
+                }).visible;
+              }) ?? null;
+            }
+          } catch { /* non-blocking */ }
+        }
 
         this.expanded = this.missingCount() > 0;
       } catch (e) {
@@ -531,6 +569,31 @@ export class JiraChecklist {
       } else if (item.id === "versions" && this.canVersions) {
         actions.push(btn("chk-ver", this.openEditor === "versions" ? "Close" : "Pick…", (cx) => this.openPicker("versions", cx)));
       } else if (item.id === "refinement" && this.refinementField) {
+        if (this.refinementAction && this.actionContext) {
+          const r = getRun(issueRunKey(this.site, "", this.key));
+          const running = r?.status === "running" || r?.status === "awaiting_verification";
+          actions.push(btn("chk-ref-action", running ? "Running…" : `Run ${this.refinementAction.name}`, (cx) => {
+            if (running) return;
+            cx.spawn(async (cx) => {
+              try {
+                await startActionRun({
+                  issue: this.actionContext.issue,
+                  page: this.actionContext.page,
+                  isGh: false,
+                  space: this.actionContext.space,
+                  repo: this.actionContext.repo,
+                  config: this.mergedConfig,
+                  steps: [this.refinementAction],
+                  label: this.refinementAction.name,
+                });
+                cx.notify();
+              } catch (e) {
+                this.error = String(e?.message ?? e);
+                cx.notify();
+              }
+            });
+          }, { disabled: busy || running }));
+        }
         actions.push(btn("chk-ref-edit", this.openEditor === "refinement" ? "Close" : "Edit", (cx) => this.openRefinement(cx)));
         actions.push(btn("chk-ref-open", "Jira ↗", () => openUrl(this.url), { kind: "link", disabled: false }));
       } else if (item.id === "status") {

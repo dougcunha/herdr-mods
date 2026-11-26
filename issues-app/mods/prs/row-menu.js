@@ -42,6 +42,10 @@ export class RowMenu extends View {
         close();
         openOverlay({ mod: p.mod, kind: "popup", width: 300, props: { dialog: "field", field: "components", site: p.site, key: p.key } });
       } },
+      p.actions && { id: "actions", label: "Actions…", icon: "zap", run: () => {
+        close();
+        openOverlay({ mod: p.mod, kind: "popup", width: 340, props: { dialog: "actions", mod: p.mod, ...(p.actionProps ?? {}) } });
+      } },
       { id: "open", label: p.open ?? "Open", icon: "external", run: () => { close(); openUrl(p.url); } },
       p.agent && { id: "agent", label: p.agent, icon: "bot", run: () => { close(); setShared(rowAction(p.mod), { to: p.to, key: p.key, at: Date.now() }); } },
       { id: "copy", label: p.copyLabel ?? "Copy key", icon: "copy", run: copy(p.copy) },

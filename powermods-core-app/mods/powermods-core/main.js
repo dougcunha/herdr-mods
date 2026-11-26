@@ -14,6 +14,7 @@ import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { theme, props, shared, setShared, closeOverlay, run, nextCommand } from "herdr";
 import { register } from "./api.js";
 import { STATE, pump, leave, jobs } from "./worktree.js";
+import { pumpIssueActions, activeIssueActionCount } from "./issue-actions.js";
 import { KEY, rootSetting, filesSetting, globalCommands, migrateSettings } from "./paths.js";
 
 const MOD = "powermods-core";
@@ -48,7 +49,8 @@ export default class PowerModsCore extends View {
       this.copy = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       migrateSettings();
       pump(cx, this.copy);
-      cx.timer.every(500, (cx) => pump(cx, this.copy));
+      pumpIssueActions(cx, this.copy);
+      cx.timer.every(500, (cx) => { pump(cx, this.copy); pumpIssueActions(cx, this.copy); });
       // `herdr-app do powermods-core.open` opens the dialog of the setup commands, `.worktrees` the
       // Worktrees tab of PowerMods (for tests from the shell).
       cx.spawn(async () => {
@@ -104,12 +106,17 @@ export default class PowerModsCore extends View {
 
   statusView(t) {
     const running = jobs().filter((j) => RUNNING.has(j.state));
+    const actRunning = activeIssueActionCount();
+    const totalRunning = running.length + actRunning;
     const failed = jobs().find((j) => j.state === "failed" && Date.now() - (j.ended ?? j.at) < 10 * 60000);
-    const color = running.length ? t.working : failed ? t.blocked : t.dim;
-    // "ModsCore", with the number of running setups after it.
-    const tip = running.length ? `PowerMods Core: ${running.map((j) => `${j.branch ?? "?"} (${STATE_TEXT[j.state]})`).join(", ")}. Click to see the worktrees.`
+    const color = totalRunning ? t.working : failed ? t.blocked : t.dim;
+    // "ModsCore", with the number of running setups / issue actions after it.
+    const parts = [];
+    if (running.length) parts.push(`${running.map((j) => `${j.branch ?? "?"} (${STATE_TEXT[j.state]})`).join(", ")}`);
+    if (actRunning) parts.push(`${actRunning} issue ${actRunning === 1 ? "action" : "actions"} running`);
+    const tip = totalRunning ? `PowerMods Core: ${parts.join(" · ")}. Click to see the worktrees.`
       : failed ? `PowerMods Core: the setup of ${failed.branch ?? "a worktree"} failed. Click to see the worktrees.`
-      : "PowerMods Core: the worktrees of the kit. Click to see them.";
+      : "PowerMods Core: the worktrees and background issue actions of the kit. Click to see worktrees.";
     return h_flex().id("pmc-status").size_full().pr(8).items_center().justify_end()
       .bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8)
       .child(h_flex().id("pmc-open").h(20).px(6).gap(5).items_center().rounded(5).cursor_pointer()
@@ -119,7 +126,7 @@ export default class PowerModsCore extends View {
         .on_click(() => openWorktrees())
         .child(svg(ICON).size(12))
         .child(div().child("ModsCore"))
-        .when(running.length > 0, (e) => e.child(div().font_semibold().child(String(running.length)))));
+        .when(totalRunning > 0, (e) => e.child(div().font_semibold().child(String(totalRunning)))));
   }
 
   trustView(t) {

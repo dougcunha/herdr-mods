@@ -108,6 +108,16 @@ A Jira custom field (for example **Refinement**, with the full text of the task)
 2. In **Extra Jira fields**, type the name or the id of each field, split by commas: `Refinement` or `customfield_10545`.
 
 Each field is a placeholder of its own in **Prompts…**: its name in lower case, with `_` for spaces and signs (`Refinement` → `{refinement}`). `{fields}` holds all of them, one `## <name>` section each, and the default prompts include it under the description. On the issue page, a long field (more than 80 characters or more than 1 line) gets a tab of its own; a short one is a row of the Details card.
+
+## Issue Actions
+
+Configurable **Issue Actions** let you run custom agent skills or prompts (such as populating Jira `Refinement` or `Release Notes` fields) on an issue in the current space without creating a git worktree:
+
+- **Personal & repository config:** Personal actions, sequences, and agent defaults live in `~/.config/herdr-app/data/issues-app/actions.json` (editable via cog → **Issue actions…** or **PowerMods** → **Settings** → **Issues** → **Issue actions**). Repositories can optionally commit `.herdr/issue-actions.json`, which requires explicit approval before running and supports local per-`id` overrides without changing git.
+- **Environment & skill guards:** Actions can filter by tracker, Jira site/project, issue type, status, required local skill (`SKILL.md`), and target Jira fields (`editmeta`). Actions whose fields or skills do not exist in the current environment are hidden automatically.
+- **Background or interactive execution:** Background runs (`hc run --bg`, local spaces only) capture output, detect `NEEDS_INPUT:` or missing target fields after completion, and offer **View log**, **Run interactively**, and **Switch to interactive** recovery. Filled target fields display `✓` and are skipped by **Run all**.
+- **Sequences:** Chain multiple actions serially (for example Refinement → Release Notes); Jira fields reload between steps so later steps see earlier updates.
+
 - On Windows, **Connect** in **Link space** stored the token but showed "The credential store refused it". Fixed.
 - The **Mods** tab of PowerMods can turn each mod off.
 - The `herdr-ranch-reviews` mod is not part of the kit: it runs Unix programs only.
