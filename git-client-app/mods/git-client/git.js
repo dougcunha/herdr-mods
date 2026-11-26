@@ -31,12 +31,14 @@ function checkCommit(commit) {
   }
 }
 
-export function logArgs({ all, remotes, limit, filter = null }) {
+export function logArgs({ all, remotes, limit, filter = null, branch = null }) {
   // All branches walks local branches, tags, remote branches (with Remotes) and HEAD, as other Git tools do.
   // Not `--all`: it also walks the private refs of other tools, such as the per-turn checkpoints of
   // T3 Code (refs/t3/checkpoints/*), which have no label and show up as orphan commits.
   // `--ignore-missing` keeps a repository with no commits (no HEAD yet) an empty log.
-  const scope = all ? ["--branches", "--tags", ...(remotes ? ["--remotes"] : []), "--ignore-missing", "HEAD"] : ["HEAD"];
+  const scope = branch && (refName(branch) || objectId(branch))
+    ? [branch]
+    : all ? ["--branches", "--tags", ...(remotes ? ["--remotes"] : []), "--ignore-missing", "HEAD"] : ["HEAD"];
   // A search: git filters the whole history. Each value is one argument after its option, and the path
   // comes after "--", so nothing typed becomes an option.
   const search = filter ? ["-i", ...(filter.text ? [`--grep=${filter.text}`] : []), ...(filter.author ? [`--author=${filter.author}`] : [])] : [];
@@ -366,9 +368,10 @@ export function menuFor(target, ctx) {
     sections = [
       section(ready && item("Open in the client", "folder", { type: "openSubmodule", path: s.path }),
         ready && item("Open in a space", "folder", { type: "openWorktree", path: `${ctx.root}/${s.path}` })),
-      section(item(ready ? "Update to the recorded commit" : "Initialize and update", "fetch", { type: "submoduleUpdate", ...one }),
+      section(ready && s.state !== "conflict" && item("Pull / update current branch", "pull", { type: "submodulePull", ...one, branch: s.currentBranch ?? null, upstream: s.upstream ?? null }),
+        ready && s.state !== "conflict" && item("Switch branch…", "branch", { type: "submoduleChooseBranch", ...one, currentBranch: s.currentBranch ?? null, configuredBranch: s.branch ?? null, nested: Boolean(s.nested) }),
+        item(ready ? "Update to the recorded commit" : "Initialize and update", "fetch", { type: "submoduleUpdate", ...one }),
         item("Update from the configured branch", "cloud-down", { type: "submoduleUpdateRemote", ...one }),
-        ready && s.state !== "conflict" && item("Update to a remote branch…", "cloud-down", { type: "submoduleChooseBranch", ...one }),
         item("Sync the URL", "refresh", { type: "submoduleSync", ...one })),
       section(!s.nested && item("Remove submodule…", "trash", { type: "submoduleRemove", path: s.path })),
       section(item("Copy path", "copy", { type: "copy", text: s.path }),
@@ -811,7 +814,8 @@ export function doneText(a, v = {}) {
     case "pruneWorktrees": return "Pruned the worktrees";
     case "submoduleUpdate": return a.path ? `Updated ${a.path}` : "Updated the submodules";
     case "submoduleUpdateRemote": return a.path ? `Updated ${a.path} from its remote branch` : "Updated the submodules from their remote branches";
-    case "submoduleChooseBranch": return `Updated ${a.path} to ${a.remote}/${v.branch}`;
+    case "submoduleChooseBranch": return `Switched ${a.path} to ${v.branch}`;
+    case "submodulePull": return `Updated ${a.path}`;
     case "submoduleSync": return a.path ? `Synced the URL of ${a.path}` : "Synced the submodule URLs";
     case "submoduleAdd": return "Added the submodule";
     case "submoduleRemove": return `Removed ${a.path}`;

@@ -8,8 +8,11 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 
 ## What it shows
 
-- **Tabs:** **Changes** (with the number of changed files), **History**, **Branches**, **Stash** (with the number of stashes) and **Submodules**. In a panel narrower than 420 px the tabs show only their icons.
-- **Branch bar:** the branch, how far it is ahead (↑) and behind (↓) its upstream, and 3 buttons: **Fetch** (all remotes, with `--prune` unless you turn it off), **Pull** (as the Pull setting says) and **Push** (sets the upstream on the first push). Right-click **Push** to force push with `--force-with-lease`; it asks first.
+- **Tabs (narrow side panel) / Two-pane desktop client (modal or wide view >= 820 px):**
+  - In a narrow side panel (`< 820 px`), shows **Changes**, **History**, **Branches**, **Stash** and **Submodules** as tabs.
+  - In the Dock/Kanban panel modal (`90% × 90%`) or any wide container (`>= 820 px`), switches to a full desktop Git workspace: a resizable left accordion sidebar (**Changes**, **Local**, **Remote**, **Stash**, **Submodules**, plus collapsible **Tags**, **Remotes** and **Worktrees**), the **History** commit graph on the top right, and a resizable two-column **Bottom Inspector** on the bottom right (for **Changes**, **Commit Details** or **Stash**).
+  - In modal mode, background folder watching, periodic polling and background warming are turned off so the UI stays fast; press **F5** (or **Refresh**) for a full local refresh and **Shift+F5** (or **Fetch**) to fetch and refresh. Internal actions automatically refresh only the affected section.
+- **Branch bar / Wide top bar:** the repository (and clickable submodule breadcrumb when inside a submodule), current branch, how far it is ahead (↑) and behind (↓) its upstream, and **Fetch**, **Pull**, **Push** and **Refresh** buttons. Right-click **Push** to force push with `--force-with-lease`; it asks first.
 
 ### Changes
 
@@ -45,9 +48,11 @@ The stashes, newest first, with their branch and age. **New stash…** stashes t
 
 ### Submodules
 
-Each submodule with its folder, its commit, its description and branch, the number of changed files, and its state: `ok`, `modified`, `out of sync` (another commit than the recorded one), `uninitialized` or `conflict`. **Update all** initializes and updates every submodule (`--recursive`), **Sync** copies the URLs of `.gitmodules`, **Add…** clones a repository into a folder (the name of the repository unless you type one, and a branch if you want). A click (or a right-click) on a submodule opens its menu: **Open in the client** (the panel shows the submodule; **Back** in the branch bar goes to the repository that holds it), **Open in a space**, **Update to the recorded commit**, **Update from the configured branch**, **Sync the URL**, **Remove submodule…** (asks; commit the change after), Copy path, Copy URL.
+Each submodule with its folder, its commit, its current branch (or `detached`), `↑`/`↓` counts, the number of changed files, and its state: `ok`, `modified`, `out of sync` (another commit than the recorded one), `uninitialized` or `conflict`. **Update all** initializes and updates every submodule (`--recursive`), **Sync** copies the URLs of `.gitmodules`, **Add…** clones a repository into a folder (the name of the repository unless you type one, and a branch if you want).
 
-**Update to a remote branch…** lists the branches of an initialized submodule's remote (`origin` when present). Choose a branch and click **Fetch and update**. The new submodule pointer appears in **Changes**, where you can stage and commit it when ready.
+In the wide/modal sidebar, a click on a submodule opens it in the client with a clickable breadcrumb (`Parent › lib`) — returning to the parent highlights the changed submodule pointer in **Changes** — while inline row buttons and the right-click menu offer **Pull / update current branch**, **Switch branch…**, **Open in the client**, **Open in a space**, **Update to the recorded commit**, **Update from the configured branch**, **Sync the URL**, **Remove submodule…**, Copy path and Copy URL.
+
+**Switch branch…** lists local and cached remote branches immediately (with an on-demand **Fetch** button inside the picker). Existing local branches are checked out safely and fast-forwarded (preserving unpushed local commits), remote-only branches create a real local tracking branch, and an optional checkbox updates the tracked branch in `.gitmodules`.
 
 ## Settings
 

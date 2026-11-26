@@ -1,7 +1,7 @@
 // The Git panel: the tabs, the branch bar (fetch, pull, push) and the tab that shows. The History
 // tab reads the repository (one watcher, one timer) and tells the Changes tab after every read.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
+import { v_flex, h_flex, h_resizable, v_resizable, resizable_panel } from "gpui-base";
 import { spaces, panes, focused, exec, theme, settings, props, shared, setShared, closeOverlay, nextCommand, notify } from "herdr";
 import { READ } from "./git.js";
 import { perform, openDialog } from "./act.js";
@@ -12,6 +12,7 @@ import { Branches } from "./branches.js";
 import { Stash } from "./stash.js";
 import { FileView } from "./fileview.js";
 import { Submodules } from "./submodules.js";
+import { Sidebar } from "./sidebar.js";
 
 // The mods-hub can turn this mod off (shared "herdr-mods.disabled", a list of mod names). Then the mod draws
 // nothing, closes its dialog and skips its timed work. The bars hide its blocks and buttons.
@@ -44,27 +45,91 @@ const TABS = [
 // Preferences of the Settings tab of PowerMods.
 const pullMode = () => (["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config");
 const prune = () => shared("git-client.prune") !== false;
-const NARROW = 420;
+const NARROW = 420, WIDE = 820;
+const KEY_SIDEBAR_W = "git-client.sidebarWidth";
+const KEY_CHANGES_H = "git-client.changesHeight";
+const KEY_INSP_LEFT_W = "git-client.inspectorLeftWidth";
 
 export class Client {
   init(cx) {
     this.folder = props()?.folder ?? null;
     this.tab = TABS.some((t) => t.id === props()?.tab) ? props().tab : "changes";
+    this.isModal = Boolean(props()?.modal || props()?.overlay || shared("kanban.panelDialog")?.panel === "changes");
     this.typing = false; this.width = 400; this.height = 600;
+    this.refreshing = false;
+    this.inspector = null; this.inspectorGen = 0; this.inspectorAutoSet = false; this.pendingSubFocus = null;
+    const uid = Math.random().toString(36).slice(2);
+    this.wideSplitId = `gc-wide-${uid}`;
+    this.inspectorSplitId = `gc-insp-${uid}`;
+    this.changesSplitId = `gc-chg-${uid}`;
+    this.stashSplitId = `gc-sta-${uid}`;
     this.handle = cx.focus_handle();
     // The Unified / Split choice of changes-split, once, so the Settings tab shows the same.
     const old = shared("changes-split.view");
     if (shared("git-client.view") == null && (old === "split" || old === "unified")) setShared("git-client.view", old);
     this.seenShow = shared("git-client.show")?.at;
     this.history = new History(this); this.changes = new Changes(this);
-    this.branches = new Branches(this); this.stash = new Stash(this); this.fileView = new FileView(this); this.submodules = new Submodules(this);
+    this.branches = new Branches(this); this.stash = new Stash(this); this.fileView = new FileView(this);
+    this.submodules = new Submodules(this); this.sidebar = new Sidebar(this);
     // Submodules opened in the client, the last one shown; Back goes to the one before.
     this.subs = [];
-    this.changes.init(cx); this.branches.init(cx); this.stash.init(cx); this.submodules.init(cx); this.history.init(cx);
+    this.changes.init(cx); this.branches.init(cx); this.stash.init(cx); this.submodules.init(cx); this.sidebar.init(cx); this.history.init(cx);
+    if (this.isModal) {
+      cx.timer.after(50, () => { if (!this.isTyping()) this.handle.focus(); });
+    }
     // git-client.<tab>, .commit, .fetch, .pull, .push, .refresh, .split, .unified, .toggle.
     cx.spawn(async (cx) => {
       for (;;) { const c = String(await nextCommand()); if (!kitOff()) this.command(c, cx); cx.notify(); }
     });
+  }
+
+  isWide() { return this.width >= WIDE; }
+  isTyping() { return Boolean(this.typing || this.history.typing || this.branches.typing || this.sidebar.typing); }
+
+  sidebarWidth() {
+    const w = Number(shared(KEY_SIDEBAR_W));
+    return Number.isFinite(w) && w >= 200 ? Math.min(440, Math.round(w)) : 268;
+  }
+  saveSidebarWidth(px) {
+    if (Number.isFinite(px) && px >= 200) setShared(KEY_SIDEBAR_W, Math.min(440, Math.round(px)));
+  }
+
+  inspectorLeftWidth() {
+    const w = Number(shared(KEY_INSP_LEFT_W));
+    return Number.isFinite(w) && w >= 220 ? Math.min(580, Math.round(w)) : 330;
+  }
+  saveInspectorLeftWidth(px) {
+    if (Number.isFinite(px) && px >= 220) setShared(KEY_INSP_LEFT_W, Math.min(580, Math.round(px)));
+  }
+
+  inspectorHeight() {
+    const avail = Math.max(240, this.height - 40);
+    if (this.inspector === "changes") {
+      const h = Number(shared(KEY_CHANGES_H));
+      return Number.isFinite(h) && h >= 180 ? Math.min(avail - 120, Math.round(h)) : Math.max(200, Math.round(avail * 0.52));
+    }
+    const h = Number(shared("git-client.detailsHeight"));
+    return Number.isFinite(h) && h >= 150 ? Math.min(avail - 120, Math.round(h)) : Math.max(160, Math.round(avail * 0.42));
+  }
+  saveInspectorHeight(px) {
+    if (!this.inspector || !Number.isFinite(px) || px < 150) return;
+    if (this.inspector === "changes") setShared(KEY_CHANGES_H, Math.round(px));
+    else setShared("git-client.detailsHeight", Math.round(px));
+  }
+
+  openInspector(kind, cx) {
+    const wasOpen = Boolean(this.inspector), wasChanges = this.inspector === "changes", nextChanges = kind === "changes";
+    this.inspector = kind;
+    this.inspectorAutoSet = true;
+    if (!wasOpen || wasChanges !== nextChanges) this.inspectorGen++;
+    cx.notify();
+  }
+
+  closeInspector(cx) {
+    if (!this.inspector) return;
+    this.inspector = null;
+    if (this.history.selected) { this.history.selected = null; this.history.details = null; this.history.diff = null; }
+    cx.notify();
   }
 
   off() { return kitOff(); }
@@ -82,13 +147,80 @@ export class Client {
   }
 
   ctx() { return this.history.ctx; }
-  onRead(cx) { this.changes.reload(cx); this.branches.reload(cx); this.stash.reload(cx); this.submodules.reload(cx); }
+  onRead(cx, target = "full") {
+    this.changes.reload(cx);
+    if (target === "full" || target === "stash") this.stash.reload(cx);
+    if (target === "full") this.branches.reload(cx, this.isWide());
+    if (target === "full" || target === "submodules") this.submodules.reload(cx, this.isWide());
+    if (this.history.context !== this.lastAutoContext) {
+      this.lastAutoContext = this.history.context;
+      this.inspectorAutoSet = false;
+    }
+    const repoReady = this.history.state === "ready" || this.history.state === "empty";
+    if (this.isWide() && repoReady) {
+      if (this.pendingSubFocus && this.history.files.some((f) => f.path === this.pendingSubFocus)) {
+        const path = this.pendingSubFocus;
+        this.pendingSubFocus = null;
+        this.inspectorAutoSet = true;
+        this.openInspector("changes", cx);
+        this.changes.focusPath(path, cx);
+      } else if (!this.inspectorAutoSet) {
+        this.inspectorAutoSet = true;
+        if (this.history.files.length > 0) this.openInspector("changes", cx);
+        else if (this.inspector === "changes") this.inspector = null;
+      }
+    }
+  }
+
+  enterSubmodule(sub, cx) {
+    const h = this.history;
+    if (!h.root) return;
+    const parentLabel = this.subs.length
+      ? this.subs[this.subs.length - 1].name
+      : (h.root.replace(/\\/g, "/").split("/").pop() || "repo");
+    this.subs.push({ cwd: `${h.root}/${sub.path}`, on: h.on ?? null, name: sub.path, parentRoot: h.root, parentLabel });
+    this.inspector = null; this.inspectorAutoSet = false; this.fileView.close();
+    this.history.refresh(cx, true, { target: "full" });
+    cx.notify();
+  }
+
+  backTo(index, cx) {
+    if (!this.subs.length) return;
+    const popped = index < 0 ? this.subs[0] : this.subs[index + 1];
+    this.subs = index < 0 ? [] : this.subs.slice(0, index + 1);
+    this.pendingSubFocus = popped?.name ?? null;
+    this.inspector = null; this.inspectorAutoSet = false; this.fileView.close();
+    this.history.refresh(cx, true, { target: "full" });
+    cx.notify();
+  }
 
   // Back from a submodule to the repository that holds it.
-  back(cx) { this.subs.pop(); this.fileView.close(); cx.notify(); }
+  back(cx) { this.backTo(this.subs.length - 2, cx); }
+
+  refreshAll(cx) {
+    this.history.refresh(cx, true, { target: "full" });
+    if (this.isWide()) {
+      this.branches.reload(cx, true, { loadWorktrees: this.sidebar.open.worktrees });
+      this.stash.reload(cx);
+      this.submodules.reload(cx, true);
+    }
+    cx.notify();
+  }
+
+  fetchAndRefresh(cx) { this.fetch(cx); }
+
   setTab(tab, cx) {
     if (!TABS.some((t) => t.id === tab)) return;
     this.tab = tab; this.fileView.close();
+    if (this.isWide()) {
+      if (tab === "changes") this.openInspector("changes", cx);
+      else if (tab === "history") this.closeInspector(cx);
+      else if (tab === "branches") { this.sidebar.open = { ...this.sidebar.open, local: true }; }
+      else if (tab === "stash") { this.sidebar.open = { ...this.sidebar.open, stash: true }; }
+      else if (tab === "submodules") { this.sidebar.open = { ...this.sidebar.open, submodules: true }; }
+      cx.notify();
+      return;
+    }
     if (tab === "branches" && this.branches.dirty) this.branches.reload(cx, true);
     if (tab === "stash") this.stash.reload(cx);
     if (tab === "submodules" && this.submodules.dirty) this.submodules.reload(cx, true);
@@ -100,7 +232,7 @@ export class Client {
     else if (c === "fetch") this.fetch(cx);
     else if (c === "pull") this.pull(cx);
     else if (c === "push") this.push(cx);
-    else if (c === "refresh") this.history.refresh(cx);
+    else if (c === "refresh") this.refreshAll(cx);
     else if (c === "commit") { this.setTab("changes", cx); this.changes.command(c, cx); }
     else this.changes.command(c, cx);
   }
@@ -213,20 +345,100 @@ export class Client {
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (canPush && !busy) this.forcePush(); })));
   }
 
+  // Unified top toolbar for the wide/modal workspace: breadcrumb, machine chip, current branch, and git actions.
+  wideBar(t) {
+    const h = this.history, info = h.branchInfo ?? {}, ctx = this.ctx(), remotes = ctx?.remotes ?? [];
+    const where = h.current ?? (h.head ? `detached at ${h.head.slice(0, 8)}` : info.branch ?? "no commits");
+    const busy = this.busy, canPull = Boolean(info.upstream) && !info.gone, canPush = remotes.length > 0 && Boolean(h.current);
+    const rootName = this.subs.length
+      ? this.subs[0].parentLabel
+      : (h.root ? h.root.replace(/\\/g, "/").split("/").pop() : "Repository");
+
+    const crumb = (id, label, onClick, isLast) => h_flex().id(id).h(24).px(7).gap(4).flex_none().items_center().rounded(6)
+      .text_size(12).when(isLast, (e) => e.font_semibold().text_color(t.foreground))
+      .when(!isLast, (e) => e.text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick))
+      .child(div().max_w(180).truncate().child(label));
+
+    return h_flex().id("gc-wide-bar").h(40).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).bg(t.chrome)
+      .when(this.subs.length > 0, (e) => e.child(this.iconButton("gc-sub-back", "back", "Back", "Back to parent repository", true, (cx) => this.back(cx), t)))
+      .child(crumb("gc-bc-root", rootName, (_e, cx) => this.backTo(-1, cx), this.subs.length === 0))
+      .children(this.subs.flatMap((s, i) => [
+        div().flex_none().text_size(11).text_color(t.dim).child("›"),
+        crumb(`gc-bc-${i}`, s.name, (_e, cx) => this.backTo(i, cx), i === this.subs.length - 1),
+      ]))
+      .when(Boolean(h.on), (e) => e.child(machineChip(t, h.on)))
+      .when(Boolean(h.root), (e) => e
+        .child(h_flex().h(22).px(7).gap(5).min_w(0).items_center().rounded(6).bg(t.accent + "26").text_color(t.accent)
+          .tooltip(info.upstream ? `${where} → ${info.upstream}${info.gone ? " (gone)" : ""}` : `${where} (no upstream)`)
+          .child(svg(icon(h.current ? "branch" : "commit")).size(12).flex_none())
+          .child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(where)))
+        .when(info.ahead > 0, (el) => el.child(div().flex_none().text_size(11.5).text_color(t.ansi2).child(`↑${info.ahead}`)))
+        .when(info.behind > 0, (el) => el.child(div().flex_none().text_size(11.5).text_color(t.ansi1).child(`↓${info.behind}`)))
+        .when(info.gone, (el) => el.child(div().flex_none().text_size(11).text_color(t.ansi1).child("gone"))))
+      .child(div().flex_1())
+      .when(remotes.length > 0, (e) => e
+        .child(this.iconButton("gc-fetch", "cloud-down", busy === "fetch" ? "…" : "Fetch", "Fetch all remotes (Shift+F5)", !busy, (cx) => this.fetchAndRefresh(cx), t))
+        .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? `Pull ${info.behind}` : "Pull", canPull ? `Pull ${info.upstream}` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t))
+        .child(this.iconButton("gc-push", "push-line", busy === "push" ? "…" : info.ahead ? `Push ${info.ahead}` : "Push", `${info.upstream && !info.gone ? `Push to ${info.upstream}` : "Push and set the upstream"}. Right-click: force push (with lease)`, canPush && !busy, (cx) => this.push(cx), t)
+          .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (canPush && !busy) this.forcePush(); })))
+      .child(this.iconButton("gc-refresh", "refresh", this.refreshing ? "…" : "Refresh", "Refresh repository (F5)", h.state !== "nofolder", (cx) => this.refreshAll(cx), t))
+      .when(Boolean(ownDialog()), (e) => e.child(this.iconButton("gc-close", "x", null, "Close", true, () => closeOverlay(ownDialog()), t)));
+  }
+
+  inspectorHeader(t) {
+    const map = {
+      changes: { icon: "changes", title: "Working Tree Changes" },
+      commit: { icon: "commit", title: this.history.selected ? `Commit ${this.history.selected.slice(0, 8)}` : "Commit Details" },
+      stash: { icon: "stash", title: this.stash.sel ? `Stash ${this.stash.sel.ref}` : "Stash Details" },
+    };
+    const info = map[this.inspector] ?? { icon: "changes", title: "Inspector" };
+    return h_flex().h(28).flex_none().px(10).gap(6).items_center().bg(t.chrome).border_t(1).border_b(1).border_color(t.border)
+      .child(svg(icon(info.icon)).size(12).flex_none().text_color(t.accent))
+      .child(div().flex_1().min_w(0).truncate().text_size(11.5).font_semibold().text_color(t.foreground).child(info.title))
+      .child(this.iconButton("gc-insp-close", "x", null, "Close bottom panel", true, (cx) => this.closeInspector(cx), t));
+  }
+
+  renderWide(t, cx) {
+    const mono = settings().font_family ?? "JetBrains Mono";
+    const open = Boolean(this.inspector);
+    const body = this.inspector === "changes" ? this.changes.renderWide(t)
+      : this.inspector === "commit" ? this.history.detailsPaneWide(t, mono)
+      : this.inspector === "stash" ? this.stash.renderWide(t)
+      : div();
+    return div().id("gc-wide-body").flex_1().min_h(0).w_full().child(
+      h_resizable(this.wideSplitId).size_full()
+        .on_resize((sizes) => this.saveSidebarWidth(sizes?.[0]))
+        .child(resizable_panel().size(this.sidebarWidth()).size_range(200, 440).child(this.sidebar.render(t, cx)))
+        .child(resizable_panel().size_range(400).child(
+          div().size_full().min_h(0).child(
+            v_resizable(`${this.inspectorSplitId}-${this.inspectorGen}`).size_full()
+              .on_resize((sizes) => this.saveInspectorHeight(sizes?.[1]))
+              .child(resizable_panel().size_range(120).child(this.history.renderGraph(cx)))
+              .child(resizable_panel().visible(open).size(this.inspectorHeight()).size_range(150)
+                .child(open ? v_flex().size_full().min_h(0).child(this.inspectorHeader(t)).child(body) : div()))))));
+  }
+
   render(cx) {
     if (kitOff()) return offView();
     // The signal first: a submodule changes the location, and sync() then reads it.
     const show = shared("git-client.show");
     if (show?.at && show.at !== this.seenShow) {
       this.seenShow = show.at;
-      if (show.sub?.cwd) { this.subs.push(show.sub); this.tab = "changes"; this.fileView.close(); }
+      if (show.sub?.cwd) {
+        const parentLabel = this.subs.length ? this.subs[this.subs.length - 1].name : (this.history.root?.replace(/\\/g, "/").split("/").pop() || "repo");
+        this.subs.push({ ...show.sub, parentLabel });
+        this.inspector = null; this.inspectorAutoSet = false; this.tab = "changes"; this.fileView.close();
+      }
       else if (show.file && this.history.root) { this.fileView.open(show.file, show.mode, cx); this.fileView.context = this.history.context; }
-      else if (TABS.some((t) => t.id === show.tab)) { this.tab = show.tab; this.fileView.close(); }
+      else if (TABS.some((t) => t.id === show.tab)) {
+        if (this.isWide()) this.setTab(show.tab, cx);
+        else { this.tab = show.tab; this.fileView.close(); }
+      }
     }
     this.history.sync(cx);
     // Another repository: the file of the view is not there.
     if (this.fileView.path && this.fileView.context !== this.history.context) this.fileView.close();
-    const t = theme();
+    const t = theme(), wide = this.isWide();
     return v_flex().id("git-client").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
       // In a dialog, a click in the panel gives it the keyboard (text fields stop their own mouse down):
@@ -235,17 +447,28 @@ export class Client {
       .on_size_change((size, cx) => {
         const zoom = Number(settings()?.zoom) > 0 ? Number(settings().zoom) : 1;
         const width = Math.round(size.width / zoom), height = Math.round(size.height / zoom);
-        if (width !== this.width || height !== this.height) { this.width = width; this.height = height; cx.notify(); }
+        if (width !== this.width || height !== this.height) {
+          const wasWide = this.isWide();
+          this.width = width; this.height = height;
+          if (!wasWide && this.isWide()) this.onRead(cx, "full");
+          cx.notify();
+        }
       })
       .on_key_down((e, cx) => {
+        if (String(e.key).toLowerCase() === "f5" && !e.modifiers?.control && !e.modifiers?.platform && !e.modifiers?.alt) {
+          if (e.modifiers?.shift) this.fetchAndRefresh(cx);
+          else this.refreshAll(cx);
+          cx.stop_propagation();
+          return;
+        }
         if ((e.key === "a" || e.key === "A") && (e.modifiers?.control || e.modifiers?.platform) && !e.modifiers?.shift && !e.modifiers?.alt
             && !this.fileView.path) {
-          if (this.tab === "changes" && !this.typing) {
+          if ((wide ? this.inspector === "changes" : this.tab === "changes") && !this.typing) {
             this.changes.selectAllCurrent(cx);
             cx.stop_propagation();
             return;
           }
-          if (this.tab === "branches" && !this.branches.typing) {
+          if (!wide && this.tab === "branches" && !this.branches.typing) {
             this.branches.selectAllCurrent(cx);
             cx.stop_propagation();
             return;
@@ -267,8 +490,21 @@ export class Client {
           else if (dialog) closeOverlay(dialog);
           else { this.branches.typing = false; this.branches.search.blur(); }
           cx.notify();
+        } else if (this.sidebar.typing) {
+          if (this.sidebar.search.value()) this.sidebar.clearSearch(cx);
+          else if (dialog) closeOverlay(dialog);
+          else { this.sidebar.typing = false; this.sidebar.search.blur(); }
+          cx.notify();
         } else if (this.fileView.path) {
           this.fileView.close(); cx.notify();
+        } else if (wide) {
+          if (this.history.filter) this.history.clearSearch(cx);
+          else if (this.history.branchFilter) this.history.setBranchFilter(null, cx);
+          else if (this.history.branchNotice) { this.history.branchNotice = null; cx.notify(); }
+          else if (this.changes.escape(cx)) { /* cleared multi-file selection */ }
+          else if (this.branches.escape(cx)) { /* cleared multi-branch selection */ }
+          else if (dialog) closeOverlay(dialog);
+          else return;
         } else if (this.tab === "changes" && this.changes.escape(cx)) {
           // cleared multi-file selection
         } else if (this.tab === "branches" && this.branches.escape(cx)) {
@@ -281,13 +517,15 @@ export class Client {
         else return;
         cx.stop_propagation();
       })
-      .child(this.tabBar(t))
-      .child(this.branchBar(t))
-      .when(Boolean(this.fileView.path), (e) => e.child(this.fileView.render(t, cx)))
-      .when(!this.fileView.path && this.tab === "changes", (e) => e.child(this.changes.render(t)))
-      .when(!this.fileView.path && this.tab === "history", (e) => e.child(this.history.render(cx)))
-      .when(!this.fileView.path && this.tab === "branches", (e) => e.child(this.branches.render(t)))
-      .when(!this.fileView.path && this.tab === "stash", (e) => e.child(this.stash.render(t)))
-      .when(!this.fileView.path && this.tab === "submodules", (e) => e.child(this.submodules.render(t)));
+      .when(wide, (e) => e.child(this.wideBar(t))
+        .when(Boolean(this.fileView.path), (el) => el.child(this.fileView.render(t, cx)))
+        .when(!this.fileView.path, (el) => el.child(this.renderWide(t, cx))))
+      .when(!wide, (e) => e.child(this.tabBar(t)).child(this.branchBar(t))
+        .when(Boolean(this.fileView.path), (el) => el.child(this.fileView.render(t, cx)))
+        .when(!this.fileView.path && this.tab === "changes", (el) => el.child(this.changes.render(t)))
+        .when(!this.fileView.path && this.tab === "history", (el) => el.child(this.history.render(cx)))
+        .when(!this.fileView.path && this.tab === "branches", (el) => el.child(this.branches.render(t)))
+        .when(!this.fileView.path && this.tab === "stash", (el) => el.child(this.stash.render(t)))
+        .when(!this.fileView.path && this.tab === "submodules", (el) => el.child(this.submodules.render(t))));
   }
 }

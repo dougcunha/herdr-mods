@@ -1,7 +1,7 @@
 // The Changes tab: the files in conflict, staged and not staged, the diff of one of them with its
 // hunks, and the commit box (amend, commit all, push after, AI message).
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
+import { v_flex, h_flex, TextareaState, Textarea, h_resizable, resizable_panel } from "gpui-base";
 import { exec, readTextFile, theme, notify, openOverlay, setShared } from "herdr";
 import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError, isImagePath, isSvgPath } from "./git.js";
 import { perform, openDialog, openErrorDialog, atEvent } from "./act.js";
@@ -189,6 +189,20 @@ export class Changes {
   }
 
   escape(cx) { return this.clearSelection(cx); }
+
+  focusPath(path, cx) {
+    const f = this.files().find((x) => x.path === path);
+    if (!f) return false;
+    const side = f.unstaged ? "unstaged" : f.staged ? "staged" : f.conflict ? "conflict" : null;
+    if (!side) return false;
+    this.sel = { path, side };
+    this.closed = false;
+    this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null;
+    const seq = this.seq;
+    cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); });
+    cx.notify();
+    return true;
+  }
 
   setImageAsText(asText, cx) {
     if (this.imageAsText === asText || !this.sel) return;
@@ -527,5 +541,54 @@ export class Changes {
         })))
       .when(ready && !this.files().length, (e) => e.child(div().flex_1()))
       .when(ready, (e) => e.child(this.commitBox(t)));
+  }
+
+  // Two-column layout for the wide Bottom Inspector: file lists + commit box on left, diff on right.
+  renderWide(t) {
+    const conflicts = this.conflicts(), staged = this.stagedFiles(), unstaged = this.unstagedFiles(), h = this.host.history;
+    const lists = { conflict: conflicts, staged, unstaged };
+    const selected = selectedFiles(this.picked, lists);
+    const selSide = selected.length ? this.picked.side : null;
+    const totalInSide = selSide ? (lists[selSide]?.length ?? 0) : 0;
+    const ready = Boolean(h.root);
+    const stageable = unstaged.map((f) => f.path);
+    const sideLabel = this.sel?.side === "staged" ? "Unstage" : "Stage";
+    const actionable = Boolean(this.patch) && this.sel?.side !== "conflict";
+
+    if (!ready) {
+      return v_flex().id("gc-changes-wide").flex_1().min_h(0).w_full()
+        .child(div().p(12).text_color(t.dim).child(h.state === "norepo" ? "Not a git repository" : h.state === "nofolder" ? "No folder" : h.state === "error" ? h.error : "Loading changes…"));
+    }
+
+    const left = v_flex().id("gc-changes-left").size_full().min_h(0).border_r(1).border_color(t.border)
+      .when(this.files().length > 0 && selected.length > 0, (e) => e.child(this.selectionBar(t, selected, selSide, totalInSide)))
+      .when(!this.files().length, (e) => e.child(v_flex().flex_1().min_h(0).items_center().justify_center().p(12)
+        .child(div().text_color(t.dim).child("No uncommitted changes"))))
+      .when(this.files().length > 0, (e) => e.child(v_flex().id("gcw-lists").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
+        .when(conflicts.length > 0, (el) => el.child(this.section("conflicts", "Conflicts", conflicts, "conflict", t, [])))
+        .child(this.section("staged", "Staged", staged, "staged", t,
+          staged.length ? [this.smallButton("gc-unstage-all", "minus", "Unstage all", (cx) => this.unstage(staged.map((f) => f.path), cx), t)] : []))
+        .child(this.section("unstaged", "Changes", unstaged, "unstaged", t,
+          unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
+            this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : []))))
+      .child(this.commitBox(t));
+
+    const right = v_flex().id("gc-changes-right").size_full().min_h(0)
+      .child(this.diffBar(t))
+      .when(!this.files().length, (e) => e.child(v_flex().flex_1().min_h(0).items_center().justify_center().text_color(t.dim).child("Working tree clean")))
+      .when(this.files().length > 0, (e) => e.child(this.showingImage() ? this.image.render() : this.diff.render({
+        empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
+        hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
+        onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
+        onMenu: (row, e) => this.hunkMenu(row, e),
+      })));
+
+    return v_flex().id("gc-changes-wide").flex_1().min_h(0).w_full()
+      .when(Boolean(this.op), (e) => e.child(this.opBanner(t)))
+      .child(div().flex_1().min_h(0).w_full().child(
+        h_resizable(this.host.changesSplitId).size_full()
+          .on_resize((sizes) => this.host.saveInspectorLeftWidth(sizes?.[0]))
+          .child(resizable_panel().size(this.host.inspectorLeftWidth()).size_range(240, 580).child(left))
+          .child(resizable_panel().size_range(280).child(right))));
   }
 }

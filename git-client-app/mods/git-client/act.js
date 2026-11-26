@@ -48,7 +48,7 @@ export async function perform(action, values, ctx, { toast = true, quiet = false
     if (toast) openErrorDialog(error, ctx);
     return { ok: false, message: error.summary, error };
   } finally {
-    setShared("git-client.changed", Date.now());
+    setShared("git-client.changed", { at: Date.now(), type: action.type, root: ctx?.root ?? null, on: ctx?.on ?? null });
   }
 }
 
@@ -72,6 +72,10 @@ async function viaCore(action, values, ctx, { quiet }) {
 export function openDialog(action, ctx) {
   if (action.type === "addWorktree") {
     openOverlay({ mod: "git-client", kind: "dialog", width: 480, height: 540, props: { role: "worktree", action, ctx } });
+    return true;
+  }
+  if (action.type === "submoduleChooseBranch") {
+    openOverlay({ mod: "git-client", kind: "dialog", width: 480, height: 500, props: { role: "submoduleBranch", action, ctx } });
     return true;
   }
   const spec = dialogFor(action, ctx);
@@ -101,8 +105,8 @@ export function showTab(tab) {
 }
 
 // Asks every copy to show a submodule (a path from the repository's top folder) in place of its repository.
-export function showSubmodule(root, path, on) {
-  setShared("git-client.show", { sub: { cwd: `${root}/${path}`, on: on ?? null, name: path }, at: Date.now() });
+export function showSubmodule(root, path, on, meta = {}) {
+  setShared("git-client.show", { sub: { cwd: `${root}/${path}`, on: on ?? null, name: path, parentRoot: root, ...meta }, at: Date.now() });
 }
 
 // Asks every copy to show the history or the blame of a file (a path from the repository's top folder).

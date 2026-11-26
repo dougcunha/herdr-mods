@@ -5,13 +5,15 @@
 //
 // Based on graph.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 import { div, svg, PathBuilder } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input, v_resizable, resizable_panel } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, v_virtual_list, VirtualListScrollHandle, InputState, Input, v_resizable, h_resizable, resizable_panel } from "gpui-base";
 import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run, window as appWindow } from "herdr";
 import { layoutLanes } from "./lanes.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
+import { classifyRefresh } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
+import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
 const DETAILS_DEFAULT = 320, DETAILS_MIN = 120, LIST_MIN = 80;
@@ -62,7 +64,7 @@ function stamp(seconds) {
 const brief = (c) => ({ hash: c.hash, subject: c.subject, parents: c.parents });
 const count = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const sameFiles = (a, b) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.x === b[i].x && f.y === b[i].y);
-const scopeOf = ({ all, remotes, filterKey }) => `${all} ${remotes} ${filterKey ?? ""}`;
+const scopeOf = ({ all, remotes, filterKey, branchFilter }) => `${all} ${remotes} ${filterKey ?? ""} ${branchFilter ?? ""}`;
 // Folders kept as they were last read, and commits' details (a commit never changes).
 const SEEN = 24, DETAILS = 200;
 const keep = (map, key, value, max) => { map.delete(key); map.set(key, value); if (map.size > max) map.delete(map.keys().next().value); };
@@ -80,11 +82,11 @@ const folderState = () => ({
 // status: false leaves the working tree unread. `git status` runs the clean
 // filters a repository's own config defines, so a folder is only read ahead
 // (warm) for its history and refs; its uncommitted row comes when it's shown.
-async function readFolder(cwd, on, { all, remotes, limit, filter = null, status: withStatus = true }) {
+async function readFolder(cwd, on, { all, remotes, limit, filter = null, branch = null, status: withStatus = true }) {
   const git = (args) => exec("git", [...READ, ...args], { cwd, on });
   const [top, log, head, current, branches, remoteNames, status, found] = await Promise.all([
     // One commit past the page says whether there are more, as Git Graph asks.
-    exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1, filter })),
+    exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1, filter, branch })),
     git(["rev-parse", "--verify", "-q", "HEAD"]), git(["symbolic-ref", "-q", "--short", "HEAD"]),
     git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null,
     // A hash typed in the search: that commit too, if it exists.
@@ -104,7 +106,8 @@ async function readFolder(cwd, on, { all, remotes, limit, filter = null, status:
     remoteNames: remoteNames.stdout.split("\n").filter(Boolean),
     files: status?.code === 0 ? parseStatus(status.stdout) : [],
     branchInfo: parseBranch(status?.code === 0 ? status.stdout : ""),
-    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout, found?.stdout ?? ""].join("\0"), scope: scopeOf({ all, remotes, filterKey: filter ? JSON.stringify(filter) : "" }),
+    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout, found?.stdout ?? ""].join("\0"),
+    scope: scopeOf({ all, remotes, filterKey: filter ? JSON.stringify(filter) : "", branchFilter: branch ?? "" }),
   };
 }
 
@@ -116,12 +119,17 @@ export class History {
     this.listId = `gc-rows-${Math.random().toString(36).slice(2)}`;
     this.diffId = `${this.listId}-diff`;
     this.splitId = `${this.listId}-split`;
+    this.detailsSplitId = `${this.listId}-wsplit`;
+    this.detailsDiffView = new DiffView(`${this.listId}-wdiff`);
     this.listScroll = VirtualListScrollHandle.new();
     this.scrollCheckPending = false;
     this.splitGen = 0; this.detailsOpen = false; this.detailsHeight = savedDetailsHeight();
     this.all = true; this.remotes = true; this.wide = false; this.graphMax = 160; this.scale = null;
     this.filter = null; this.filterKey = "";
-    this.watchToken = 0; this.seenChange = shared("git-client.changed");
+    this.branchFilter = null; this.highlightHash = null; this.branchNotice = null;
+    this.watchToken = 0;
+    const initChanged = shared("git-client.changed");
+    this.seenChange = initChanged && typeof initChanged === "object" ? initChanged.at : initChanged;
     this.cols = withDefaults(savedColumns() ?? undefined); this.drag = null;
     this.seen = new Map(); this.commitDetails = new Map();
     this.handle = cx.focus_handle();
@@ -132,14 +140,16 @@ export class History {
     this.search.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     this.reset();
     this.refresh(cx);
-    cx.timer.after(1500, (cx) => this.warm(cx));
-    // Remote spaces can't be watched: poll them gently. New folders get read ahead.
-    cx.timer.every(15000, (cx) => {
-      if (this.host.off()) return;
-      if (appWindow()?.visible === false) { this.resumeDue = true; return; }
-      if (!this.watching) this.refresh(cx, true);
-      this.warm(cx);
-    });
+    // Modals skip background warming, folder watching, and periodic polling for zero UI lag.
+    if (!this.host.isModal) {
+      cx.timer.after(1500, (cx) => this.warm(cx));
+      cx.timer.every(15000, (cx) => {
+        if (this.host.off()) return;
+        if (appWindow()?.visible === false) { this.resumeDue = true; return; }
+        if (!this.watching) this.refresh(cx, true);
+        this.warm(cx);
+      });
+    }
   }
 
   key() { return JSON.stringify(this.host.location()); }
@@ -155,6 +165,7 @@ export class History {
       keep(this.seen, this.context, Object.fromEntries(Object.keys(folderState()).map((k) => [k, this[k]])), SEEN);
     }
     this.context = context; this.reset(); this.loading = null;
+    this.branchFilter = null; this.highlightHash = null; this.branchNotice = null;
     const kept = this.seen.get(context);
     if (kept && (kept.state === "norepo" ? !kept.warmed : kept.scope === scopeOf(this))) {
       Object.assign(this, kept);
@@ -193,26 +204,31 @@ export class History {
   // A load belongs to its folder: a new folder starts at once, and a slower
   // load for the old one finds itself stale and drops its result.
   // full: the history and the refs too; else only the status.
-  refresh(cx, full = true) {
+  refresh(cx, full = true, { target = "full" } = {}) {
     const { cwd, on } = this.host.location(), context = this.key();
-    if (context !== this.context) { this.enter(context); full = true; this.host.onRead(cx); }
-    if (!cwd) { this.state = "nofolder"; return; }
-    const { all, remotes, limit, filter } = this;
-    if (this.loading?.key === context) { this.again = this.again === "full" || full ? "full" : "status"; return; }
+    if (context !== this.context) { this.enter(context); full = true; target = "full"; this.host.onRead(cx, "full"); }
+    if (!cwd) { this.state = "nofolder"; this.host.refreshing = false; return; }
+    const { all, remotes, limit, filter, branchFilter } = this;
+    if (this.loading?.key === context) {
+      this.again = this.again === "full" || full ? "full" : "status";
+      this.againTarget = this.againTarget === "full" || target === "full" ? "full" : target;
+      return;
+    }
     // Each load has its own id: an older one can't win over a newer one.
     const id = this.loadSeq = (this.loadSeq ?? 0) + 1;
-    this.loading = { key: context, id }; this.again = null;
+    this.loading = { key: context, id }; this.again = null; this.againTarget = null;
+    this.host.refreshing = true;
     const stale = () => this.loadSeq !== id || this.key() !== context;
     cx.spawn(async (cx) => {
       let read = false;
       try {
         if (full || !this.root) {
           // A search runs in the repository's top folder, so path: names a path from there.
-          const r = await readFolder(filter && this.root ? this.root : cwd, on, { all, remotes, limit, filter });
+          const r = await readFolder(filter && this.root ? this.root : cwd, on, { all, remotes, limit, filter, branch: branchFilter });
           if (stale()) return;
           read = true;
           if (r.state === "norepo") { this.reset(); Object.assign(this, { state: "norepo", cwd, on }); return; }
-          if (!on) this.watch(r.root, context, cx);
+          if (!on && !this.host.isModal) this.watch(r.root, context, cx);
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
           const same = shown && r.signature === this.signature && r.scope === this.scope && sameFiles(r.files, this.files);
@@ -236,10 +252,14 @@ export class History {
       } finally {
         if (this.loading?.id === id) {
           this.loading = null;
-          // Every read tells the Changes tab: an edit of a file that was already changed keeps the same status letters.
-          if (read || this.state === "error") this.host.onRead(cx);
+          this.host.refreshing = false;
+          // Every read tells the Changes tab and targeted sidebar slices.
+          if (read || this.state === "error") this.host.onRead(cx, target);
           cx.notify();
-          if (this.again) this.refresh(cx, this.again === "full");
+          if (this.again) {
+            const nextFull = this.again === "full", nextTarget = this.againTarget ?? (nextFull ? "full" : "status");
+            this.refresh(cx, nextFull, { target: nextTarget });
+          }
         }
       }
     });
@@ -369,8 +389,12 @@ export class History {
       if (hit) this.checkout(hit.part, cx);
       return;
     }
-    // The uncommitted row: its files are in the Changes tab.
-    if (commit.uncommitted) { this.host.setTab("changes", cx); return; }
+    // The uncommitted row: its files are in Changes (inspector in wide mode, tab in narrow mode).
+    if (commit.uncommitted) {
+      if (this.host.isWide()) this.host.openInspector("changes", cx);
+      else this.host.setTab("changes", cx);
+      return;
+    }
     this.pick(commit, cx);
   }
 
@@ -399,7 +423,38 @@ export class History {
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
   }
 
+  scrollToCommit(hash, branchName, cx) {
+    if (!hash) return;
+    const idx = this.index.get(hash);
+    if (idx !== undefined) {
+      this.highlightHash = hash;
+      this.branchNotice = null;
+      this.listScroll.scroll_to_item(idx, "center");
+    } else {
+      this.highlightHash = null;
+      this.branchNotice = { hash, branch: branchName };
+    }
+    cx.notify();
+  }
+
+  setBranchFilter(branch, cx) {
+    this.branchFilter = branch || null;
+    this.branchNotice = null;
+    this.limit = PAGE;
+    this.refresh(cx, true, { target: "graph" });
+    cx.notify();
+  }
+
   pick(commit, cx) {
+    if (this.host.isWide()) {
+      if (this.selected === commit.hash && this.host.inspector === "commit") return;
+      this.selected = commit.hash; this.details = null; this.diff = null; this.detailsDiffView.setRows([]);
+      this.loadDetails(commit, cx);
+      this.host.openInspector("commit", cx);
+      this.handle.focus();
+      cx.notify();
+      return;
+    }
     if (this.selected === commit.hash) { this.selected = null; this.details = null; this.diff = null; cx.notify(); return; }
     this.selected = commit.hash; this.details = null; this.diff = null;
     this.loadDetails(commit, cx);
@@ -410,7 +465,11 @@ export class History {
   loadDetails(commit, cx) {
     const hash = commit.hash, git = (args) => exec("git", [...READ, ...args], { cwd: this.root, on: this.on });
     const key = `${this.on}\0${this.root}\0${hash}`, known = !commit.uncommitted && this.commitDetails.get(key);
-    if (known) { this.details = known; return; }
+    if (known) {
+      this.details = known;
+      if (this.host.isWide() && known.files?.length && !this.diff) this.openDiff(commit, known.files[0], cx);
+      return;
+    }
     cx.spawn(async (cx) => {
       try {
         let details;
@@ -427,7 +486,10 @@ export class History {
           details = { author, email, committer, committed: Number(committed), message: (message ?? "").trim(), files: files.slice(0, 500), more: Math.max(0, files.length - 500) };
           keep(this.commitDetails, key, details, DETAILS);
         }
-        if (this.selected === hash) this.details = details;
+        if (this.selected === hash) {
+          this.details = details;
+          if (this.host.isWide() && details.files?.length && !this.diff) this.openDiff(commit, details.files[0], cx);
+        }
       } catch (e) { if (this.selected === hash) this.details = { error: String(e?.message ?? e) }; }
       cx.notify();
     });
@@ -435,6 +497,7 @@ export class History {
 
   openDiff(commit, file, cx) {
     this.diff = { path: file.path, rows: null, width: 300 };
+    this.detailsDiffView.setRows([]);
     const hash = commit.hash;
     cx.spawn(async (cx) => {
       let rows;
@@ -451,6 +514,7 @@ export class History {
       } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; }
       if (this.selected === hash && this.diff?.path === file.path) {
         this.diff = { path: file.path, rows, width: Math.max(300, ...rows.map((r) => r.text.length * 6.6 + 60)) };
+        this.detailsDiffView.setRows(rows);
       }
       cx.notify();
     });
@@ -509,8 +573,12 @@ export class History {
     const commit = this.commits[i], row = this.rows[i], color = colors[row.lane % colors.length];
     // Merge commits are muted, as Git Graph does by default.
     const fg = commit.uncommitted ? t.muted : commit.parents.length > 1 ? t.dim : t.foreground;
+    const isSelected = this.selected === commit.hash;
+    const isHighlighted = !isSelected && this.highlightHash === commit.hash;
     return h_flex().id(`c-${commit.hash}`).w_full().h(this.rowH()).flex_none().pr(10).gap(LABEL.GAP).items_center().overflow_hidden()
-      .when(commit.head, (e) => e.bg(color + "14")).when(this.selected === commit.hash, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
+      .when(commit.head && !isSelected && !isHighlighted, (e) => e.bg(color + "14"))
+      .when(isHighlighted, (e) => e.bg(t.accent + "20"))
+      .when(isSelected, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
       .child(this.graphCell(row, commit, colors, t, width))
       // Labels and description clip together, so many labels never push the fixed columns out.
       .child(h_flex().flex_1().min_w(0).h_full().gap(LABEL.GAP).items_center().overflow_hidden()
@@ -535,6 +603,13 @@ export class History {
         .child(div().size(13).rounded(3).border_1().border_color(this.remotes ? t.accent : t.input).when(this.remotes, (e) => e.bg(t.accent)).flex().items_center().justify_center()
           .when(this.remotes, (e) => e.child(svg(icon("check")).size(10).text_color(t.accent_foreground))))
         .child("Remotes"))
+      .when(Boolean(this.branchFilter), (e) => e.child(h_flex().id("gc-bfilter").h(22).pl(8).pr(5).gap(5).items_center().rounded(6)
+        .bg(t.accent + "22").border_1().border_color(t.accent + "55").text_size(11).text_color(t.accent).cursor_pointer()
+        .tooltip("Showing only commits reachable from this branch. Click to clear.")
+        .on_click((_e, cx) => this.setBranchFilter(null, cx))
+        .child(svg(icon("branch")).size(11).flex_none())
+        .child(div().max_w(160).truncate().child(this.branchFilter))
+        .child(svg(icon("x")).size(11).flex_none())))
       .child(div().flex_1())
       .when(!(Array.isArray(shared("herdr-mods.disabled")) && shared("herdr-mods.disabled").includes("visual-review")), (e) =>
         e.child(h_flex().id("gc-visual-review").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer()
@@ -691,18 +766,124 @@ export class History {
 
   // Called on every render of the host, also while another tab shows: shared changes reach the reader.
   sync(cx) {
-    if (this.resumeDue && appWindow()?.visible !== false) {
+    if (!this.host.isModal && this.resumeDue && appWindow()?.visible !== false) {
       this.resumeDue = false;
       if (!this.watching) this.refresh(cx, true);
       this.warm(cx);
     }
     if (this.key() !== this.context) this.refresh(cx);
     const changed = shared("git-client.changed");
-    if (changed !== this.seenChange) { this.seenChange = changed; if (this.root) this.refresh(cx); }
+    const sig = changed && typeof changed === "object" ? changed.at : changed;
+    if (sig && sig !== this.seenChange) {
+      this.seenChange = sig;
+      if (this.root) {
+        const target = typeof changed === "object" ? classifyRefresh(changed.type) : "full";
+        if (target === "status") this.refresh(cx, false, { target: "status" });
+        else if (target === "stash") this.refresh(cx, false, { target: "stash" });
+        else if (target === "submodules") this.refresh(cx, false, { target: "submodules" });
+        else this.refresh(cx, true, { target: "full" });
+      }
+    }
     const savedCols = savedColumns(), seen = JSON.stringify(savedCols ?? null);
     if (!this.drag && seen !== this.seenCols) { this.seenCols = seen; this.cols = withDefaults(savedCols ?? undefined); }
     const savedH = savedDetailsHeight();
     if (savedH !== this.detailsHeight) this.detailsHeight = savedH;
+  }
+
+  // Two-column commit inspector for the wide Bottom Inspector: metadata + files on left, diff on right.
+  detailsPaneWide(t, mono) {
+    const commit = this.commits[this.index.get(this.selected)], d = this.details;
+    if (!commit) {
+      return v_flex().flex_1().min_h(0).items_center().justify_center().text_color(t.dim).child("Select a commit in the graph to inspect its changes.");
+    }
+    const view = currentView();
+    const seg = (v, label) => div().id(`gcw-cd-view-${v}`).h_full().px(7).flex().items_center().rounded(4).text_size(11)
+      .text_color(view === v ? t.foreground : t.muted).when(view === v, (e) => e.bg(t.selected))
+      .when(view !== v, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover))).on_click(() => setShared(VIEW_KEY, v)).child(label);
+    const meta = (k, v, color) => h_flex().gap(8).text_size(11.5)
+      .child(div().w(62).flex_none().text_color(t.dim).child(k))
+      .child(div().min_w(0).truncate().text_color(color ?? t.muted).child(v));
+
+    const leftBody = v_flex().id("gcw-details-left").size_full().min_h(0).border_r(1).border_color(t.border)
+      .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar().px(12).py(10).gap(4)
+        .child(div().font_semibold().text_size(12.5).child(commit.subject))
+        .child(meta("Commit", commit.hash.slice(0, 12), t.accent).font_family(mono))
+        .child(meta("Parents", commit.parents.map((p) => p.slice(0, 8)).join(", ") || "none"))
+        .child(meta("Author", `${commit.author} <${commit.email}>`))
+        .child(meta("Date", `${stamp(commit.time)} · ${ago(commit.time)}`))
+        .when(Boolean(d?.error), (el) => el.child(div().pt(6).text_color(t.ansi1).child(d.error)))
+        .when(!d, (el) => el.child(div().pt(8).text_size(11.5).text_color(t.dim).child("Loading files…")))
+        .when(Boolean(d && !d.error), (el) => {
+          const add = d.files.reduce((n, f) => n + f.add, 0), del = d.files.reduce((n, f) => n + f.del, 0);
+          const lines = d.message.split("\n").slice(1).join("\n").trim();
+          return el
+            .when(Boolean(d.committer && d.committer !== d.author), (b) => b.child(meta("Committer", d.committer)))
+            .when(Boolean(lines), (b) => b.child(v_flex().pt(4).pb(4).children(lines.split("\n").map((line) => div().text_size(11.5).text_color(t.muted).child(line || " ")))))
+            .child(h_flex().pt(8).pb(4).gap(8).items_center().text_size(11.5).border_t(1).border_color(t.border)
+              .child(div().text_color(t.muted).child(count(d.files.length + d.more, "file")))
+              .when(add > 0 || del > 0, (b) => b.child(div().text_color(t.ansi2).child(`+${add}`)).child(div().text_color(t.ansi1).child(`−${del}`))))
+            .children(d.files.map((f, i) => {
+              const parts = f.path.split("/"), name = parts.pop(), on = this.diff?.path === f.path;
+              const sc = f.status === "A" ? t.ansi2 : f.status === "D" || f.status === "U" ? t.ansi1 : t.blocked;
+              return h_flex().id(`gwf-${i}`).h(24).flex_none().px(6).gap(8).items_center().rounded(6).cursor_pointer()
+                .when(on, (s) => s.bg(t.selected)).hover((s) => s.bg(t.hover))
+                .on_click((_e, cx) => this.openDiff(commit, f, cx))
+                .child(div().w(12).flex_none().text_size(11).text_color(sc).child(f.status))
+                .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().min_w(0).truncate().child(name)))
+                .when(f.add > 0, (b) => b.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
+                .when(f.del > 0, (b) => b.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
+            }))
+            .when(d.more > 0, (b) => b.child(div().pt(4).text_size(11).text_color(t.dim).child(`and ${d.more} more`)));
+        }));
+
+    const rightDiff = v_flex().id("gcw-details-right").size_full().min_h(0)
+      .child(h_flex().h(32).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(div().flex_1().min_w(0).truncate().font_family(mono).text_size(11.5).text_color(this.diff ? t.foreground : t.dim).child(this.diff?.path ?? "No file selected"))
+        .child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split")))
+        .when(Boolean(this.diff?.rows?.length), (e) => e.child(h_flex().id("gcw-cd-expand").size(22).flex_none().items_center().justify_center().rounded(5).cursor_pointer()
+          .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open diff in a wide dialog")
+          .on_click(() => openOverlay({ mod: "git-client", kind: "dialog", width: 1100, height: 720,
+            props: { role: "diff", title: this.diff.path, side: commit.hash.slice(0, 8), rows: this.diff.rows } }))
+          .child(svg(icon("expand")).size(13)))))
+      .child(this.detailsDiffView.render({ empty: this.diff && !this.diff.rows ? "Loading diff…" : "Select a file to view its diff" }));
+
+    return div().id("gc-commit-wide").flex_1().min_h(0).w_full().child(
+      h_resizable(this.detailsSplitId).size_full()
+        .on_resize((sizes) => this.host.saveInspectorLeftWidth(sizes?.[0]))
+        .child(resizable_panel().size(this.host.inspectorLeftWidth()).size_range(240, 580).child(leftBody))
+        .child(resizable_panel().size_range(260).child(rightDiff)));
+  }
+
+  branchNoticeBar(t) {
+    if (!this.branchNotice) return div();
+    const { branch } = this.branchNotice;
+    const btn = (id, label, onClick) => div().id(id).px(8).py(2).rounded(5).cursor_pointer().border_1().border_color(t.border)
+      .bg(t.raised).text_size(11).text_color(t.foreground).hover((s) => s.bg(t.hover))
+      .on_click(onClick).child(label);
+    return h_flex().flex_none().px(10).py(5).gap(8).items_center().bg(t.accent + "14").border_b(1).border_color(t.border)
+      .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.muted).child(`Commit for "${branch}" is outside the loaded ${this.commits.length} commits.`))
+      .when(this.hasMore, (e) => e.child(btn("gc-notice-more", `Load ${PAGE} more`, (_e, cx) => this.loadMore(cx))))
+      .child(btn("gc-notice-filter", `Filter to ${branch}`, (_e, cx) => this.setBranchFilter(branch, cx)))
+      .child(div().id("gc-notice-close").size(20).flex().items_center().justify_center().rounded(4).cursor_pointer()
+        .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_click((_e, cx) => { this.branchNotice = null; cx.notify(); }).child(svg(icon("x")).size(12)));
+  }
+
+  renderGraph(cx) {
+    const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
+    const repo = ready || this.state === "empty";
+    return v_flex().id("gc-history-graph").size_full().min_h(0)
+      .on_window_mouse_move((e, cx) => this.moveDrag(e, cx))
+      .on_window_mouse_up("left", (_e, cx) => this.endDrag(cx))
+      .on_size_change((size, cx) => {
+        const width = size.width / this.unit(), wide = width >= 600, graphMax = Math.max(60, Math.round(width * 0.4));
+        this.width = width;
+        if (wide !== this.wide || graphMax !== this.graphMax) { this.wide = wide; this.graphMax = graphMax; cx.notify(); }
+      })
+      .when(repo || Boolean(this.filter) || Boolean(this.branchFilter), (e) => e.child(this.searchBar(t)).when(!this.filter, (el) => el.child(this.toolbar(t))))
+      .when(Boolean(this.branchNotice), (e) => e.child(this.branchNoticeBar(t)))
+      .when(ready, (e) => e.child(this.columns(t, this.graphWidth())).child(div().flex_1().min_h(0).w_full().child(this.list(t, mono))))
+      .when(!ready, (e) => e.child(this.empty(t)));
   }
 
   render(cx) {

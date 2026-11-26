@@ -9,6 +9,7 @@ import { WorktreeDialog } from "./worktree-dialog.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { ImageDiffView } from "./imageview.js";
 import { AgentDialog } from "./agent.js";
+import { SubmoduleBranchDialog } from "./submodule-dialog.js";
 
 // The wide diff of the Changes tab (its Expand button), opened with props { role: "diff", title, side, rows | image }.
 class DiffDialog {
@@ -52,7 +53,7 @@ class DiffDialog {
 export default class GitClient extends View {
   init(_props, cx) {
     const role = props()?.role;
-    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "error" ? new ErrorDialog() : role === "worktree" ? new WorktreeDialog() : role === "diff" ? new DiffDialog()
+    this.part = role === "menu" ? new Menu() : role === "dialog" ? new Dialog() : role === "error" ? new ErrorDialog() : role === "worktree" ? new WorktreeDialog() : role === "submoduleBranch" ? new SubmoduleBranchDialog() : role === "diff" ? new DiffDialog()
       : role === "agent" ? new AgentDialog() : new Client();
     this.part.init(cx);
   }

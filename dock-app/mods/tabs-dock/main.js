@@ -588,12 +588,14 @@ export default class Tabs extends View {
     // The native stack header sends layout.select to the main layout. Compose the
     // dialog with its own tab bar and mount only the selected mod.
     const git = isGitStack(node) ? { ...node, active: gitTab ?? node.active } : null;
-    const content = git ? (git.children.find((child) => child.id === git.active) ?? git.children[0]).content : node.content;
+    const rawContent = git ? (git.children.find((child) => child.id === git.active) ?? git.children[0]).content : node.content;
+    const isGit = id === "changes" || rawContent?.mod === "git-client";
+    const content = rawContent?.mod === "git-client" ? { ...rawContent, props: { ...(rawContent.props ?? {}), modal: true } } : rawContent;
     const entry = [...BUILTIN, ...(this.entries ?? [])].find(e => e.id === id);
     const title = { part: "panel-title", panel: id, label: entry?.label ?? id, icon: entry?.icon ?? "", lang: this.lang,
       ...(tab ? { tab: { mod: tab.mod, name: tab.name } } : {}), ...(git ? { git } : {}) };
     const overlay = openOverlay({
-      kind: "dialog", width: 0.82, height: 0.85,
+      kind: "dialog", width: isGit ? 0.9 : 0.82, height: isGit ? 0.9 : 0.85,
       layout: { type: "column", children: [
         { id: "panel-dialog-title", type: "block", size: { px: DIALOG_TITLE }, content: { mod: "tabs-dock", props: title } },
         ...(git ? [{

@@ -44,6 +44,37 @@ export function parseRefs(text) {
 // The branches that already hold a commit: `git for-each-ref --contains <hash>` over the local and the
 // remote branches. A branch whose tip is in another branch is merged there: deleting it loses no commit.
 export const containArgs = (hash) => ["for-each-ref", "--format=%(refname)", "--contains", hash, "refs/heads", "refs/remotes"];
+// Fast batch equivalent for a whole repository: one call per target ref (HEAD + default branch).
+export const mergedRefsArgs = (targetRef) => ["for-each-ref", "--merged", targetRef, "--format=%(refname:short)", "refs/heads"];
+
+export function defaultBranchTarget(local = [], remote = []) {
+  for (const name of ["origin/main", "origin/master"]) {
+    if (remote.some((b) => b.name === name)) return name;
+  }
+  for (const name of ["main", "master"]) {
+    if (local.some((b) => b.name === name)) return name;
+  }
+  return null;
+}
+
+export function computeMergedMap(localBranches = [], currentBranch = null, mergedTargets = []) {
+  const out = new Map();
+  for (const b of localBranches) {
+    if (b.current) continue;
+    const holders = [];
+    for (const { target, merged } of mergedTargets) {
+      if (!target || !merged?.has(b.name)) continue;
+      if (target === b.name || target === b.upstream) continue;
+      const slash = target.indexOf("/");
+      if (slash > 0 && target.slice(slash + 1) === b.name) continue;
+      const label = target === "HEAD" && currentBranch ? currentBranch : target;
+      if (!holders.includes(label)) holders.push(label);
+    }
+    if (holders.length) out.set(b.name, holders);
+  }
+  return out;
+}
+
 // The names in that answer that count as "another branch" for `branch`: not the branch itself, not its
 // upstream and not a remote branch with its name (those are copies of it, not a merge).
 export function mergedInto(text, branch, upstream = null) {
@@ -199,4 +230,44 @@ export function splitFiles(text) {
     f.text = f.lines.join("\n"); delete f.lines;
   }
   return files;
+}
+
+// Parses `git status --porcelain=v1 -z --no-renames --untracked-files=normal --branch` inside a submodule.
+export function parseSubmoduleStatus(statusText) {
+  const entries = String(statusText ?? "").split("\0").filter(Boolean);
+  const header = entries.find((e) => e.startsWith("## "));
+  const changes = entries.filter((e) => !e.startsWith("## ")).length;
+  const out = { changes, branch: null, upstream: null, ahead: 0, behind: 0, gone: false, detached: false, unborn: false };
+  if (!header) return out;
+  let s = header.slice(3);
+  if (s.startsWith("No commits yet on ")) { out.unborn = true; out.branch = s.slice(18); return out; }
+  if (s.startsWith("HEAD (no branch)")) { out.detached = true; return out; }
+  const bracket = s.match(/ \[(.*)\]$/);
+  if (bracket) {
+    s = s.slice(0, bracket.index);
+    out.gone = bracket[1] === "gone";
+    out.ahead = Number(/ahead (\d+)/.exec(bracket[1])?.[1] ?? 0);
+    out.behind = Number(/behind (\d+)/.exec(bracket[1])?.[1] ?? 0);
+  }
+  const dots = s.indexOf("...");
+  out.branch = dots < 0 ? s : s.slice(0, dots);
+  out.upstream = dots < 0 ? null : s.slice(dots + 3);
+  return out;
+}
+
+const STATUS_ONLY_ACTIONS = new Set([
+  "stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany",
+  "stageHunk", "unstageHunk", "discardHunk",
+]);
+const STASH_ACTIONS = new Set(["stash", "stashApply", "stashPop", "stashDrop"]);
+const SUBMODULE_ACTIONS = new Set([
+  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd",
+  "submoduleRemove", "submoduleChooseBranch", "submodulePull",
+]);
+
+export function classifyRefresh(actionType) {
+  if (STATUS_ONLY_ACTIONS.has(actionType)) return "status";
+  if (STASH_ACTIONS.has(actionType)) return "stash";
+  if (SUBMODULE_ACTIONS.has(actionType)) return "submodules";
+  return "full";
 }

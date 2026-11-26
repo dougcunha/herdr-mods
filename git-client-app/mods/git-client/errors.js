@@ -43,7 +43,8 @@ export function failTitle(action, values = {}) {
     case "pruneWorktrees": return "Couldn't prune worktrees";
     case "submoduleUpdate":
     case "submoduleUpdateRemote":
-    case "submoduleChooseBranch": return `Couldn't update ${action.path || "submodules"}`;
+    case "submoduleChooseBranch":
+    case "submodulePull": return `Couldn't update ${action.path || "submodules"}`;
     case "submoduleSync": return `Couldn't sync ${action.path || "submodules"}`;
     case "submoduleAdd": return "Couldn't add submodule";
     case "submoduleRemove": return `Couldn't remove ${action.path}`;

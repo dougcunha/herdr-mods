@@ -4,7 +4,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, openOverlay } from "herdr";
 import { READ, menuFor, menuHeight } from "./git.js";
-import { refsArgs, containArgs, mergedInto, parseRefs, parseRemotes, parseWorktrees, samePath, ago } from "./refs.js";
+import { refsArgs, mergedRefsArgs, defaultBranchTarget, computeMergedMap, parseRefs, parseRemotes, parseWorktrees, samePath, ago } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 import {
@@ -27,6 +27,7 @@ export class Branches {
 
   init() {
     this.data = null; this.error = null; this.dirty = true; this.picked = emptyBranchSelection();
+    this.worktreesLoaded = false; this.worktreesLoading = false;
     this.open = { local: true, remote: false, tags: false, remotes: true, worktrees: true };
     this.search = InputState.new({ placeholder: "Filter branches and tags" });
     this.search.on("change", (_e, cx) => { this.text = this.search.value().trim().toLowerCase(); cx.notify(); });
@@ -35,41 +36,99 @@ export class Branches {
     this.text = "";
   }
 
-  // After a read of the repository: read now when the tab shows, else when it shows next.
-  reload(cx, force = false) {
+  // After a read of the repository: read now when the tab shows (or in wide mode), else when it shows next.
+  reload(cx, force = false, { loadWorktrees = false } = {}) {
     const h = this.host.history;
-    if (h.context !== this.context) { this.context = h.context; this.data = null; this.error = null; this.picked = emptyBranchSelection(); }
-    if (!force && this.host.tab !== "branches") { this.dirty = true; return; }
+    if (h.context !== this.context) {
+      this.context = h.context; this.data = null; this.error = null; this.picked = emptyBranchSelection();
+      this.worktreesLoaded = false; this.worktreesLoading = false;
+    }
+    const visible = force || this.host.tab === "branches" || this.host.isWide?.();
+    if (!visible) { this.dirty = true; return; }
     if (!h.root) return;
     this.dirty = false;
     const root = h.root, on = h.on, context = h.context, seq = this.seq = (this.seq ?? 0) + 1;
+    const wantWorktrees = Boolean(loadWorktrees || (!this.host.isModal && this.open.worktrees) || (this.host.isModal && this.worktreesLoaded));
     const git = (args, cwd = root) => exec("git", [...READ, ...args], { cwd, on });
     cx.spawn(async (cx) => {
       try {
-        const [refs, remotes, worktrees] = await Promise.all([git(refsArgs()), git(["remote", "-v"]), git(["worktree", "list", "--porcelain"])]);
+        const [refs, remotes, worktreesRes] = await Promise.all([
+          git(refsArgs()),
+          git(["remote", "-v"]),
+          wantWorktrees ? git(["worktree", "list", "--porcelain"]) : null,
+        ]);
         if (this.seq !== seq || this.host.history.context !== context) return;
         if (refs.code !== 0) throw new Error(refs.stderr.trim());
-        const data = { ...parseRefs(refs.stdout), remotes: parseRemotes(remotes.stdout), worktrees: parseWorktrees(worktrees.stdout) };
-        // Changed files of each worktree (the first 20): one status each, on its machine.
-        await Promise.all(data.worktrees.slice(0, 20).map(async (w) => {
-          if (w.bare || w.prunable) return;
-          const r = await git(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], w.path).catch(() => null);
-          w.changes = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
+        const parsed = parseRefs(refs.stdout);
+        const targetRefs = ["HEAD"];
+        const def = defaultBranchTarget(parsed.local, parsed.remote);
+        if (def) targetRefs.push(def);
+        const mergedResults = await Promise.all(targetRefs.map(async (target) => {
+          const r = await git(mergedRefsArgs(target)).catch(() => null);
+          return { target, merged: r?.code === 0 ? new Set(r.stdout.split(/\r?\n/).filter(Boolean)) : new Set() };
         }));
-        // Which branches are merged into another one (the first 100 that are not checked out), 8 reads at a time.
-        const todo = data.local.filter((b) => !b.current).slice(0, 100);
-        for (let n = 0; n < todo.length; n += 8) {
-          await Promise.all(todo.slice(n, n + 8).map(async (b) => {
-            const r = await git(containArgs(b.hash)).catch(() => null);
-            if (r?.code === 0) b.mergedInto = mergedInto(r.stdout, b.name, b.upstream);
-          }));
+        if (this.seq !== seq || this.host.history.context !== context) return;
+        const mergedMap = computeMergedMap(parsed.local, h.current, mergedResults);
+        for (const b of parsed.local) {
+          const holders = mergedMap.get(b.name);
+          if (holders) b.mergedInto = holders;
         }
-        if (this.seq !== seq) return;
+        const worktrees = worktreesRes ? parseWorktrees(worktreesRes.stdout) : (this.data?.worktrees ?? []);
+        if (worktreesRes) {
+          await Promise.all(worktrees.slice(0, 20).map(async (w) => {
+            if (w.bare || w.prunable) return;
+            const r = await git(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], w.path).catch(() => null);
+            w.changes = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
+          }));
+          if (this.seq !== seq) return;
+          this.worktreesLoaded = true;
+        }
+        const data = { ...parsed, remotes: parseRemotes(remotes.stdout), worktrees };
         this.data = data; this.error = null;
         this.picked = pruneBranchSelection(this.picked, data);
       } catch (e) { if (this.seq === seq) this.error = String(e?.message ?? e); }
       cx.notify();
     });
+  }
+
+  ensureWorktrees(cx) {
+    const h = this.host.history;
+    if (this.worktreesLoaded || this.worktreesLoading || !h.root) return;
+    const root = h.root, on = h.on, context = h.context;
+    this.worktreesLoading = true;
+    cx.notify();
+    const git = (args, cwd = root) => exec("git", [...READ, ...args], { cwd, on });
+    cx.spawn(async (cx) => {
+      try {
+        const res = await git(["worktree", "list", "--porcelain"]);
+        if (this.host.history.context !== context) return;
+        if (res.code === 0) {
+          const worktrees = parseWorktrees(res.stdout);
+          await Promise.all(worktrees.slice(0, 20).map(async (w) => {
+            if (w.bare || w.prunable) return;
+            const r = await git(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], w.path).catch(() => null);
+            w.changes = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
+          }));
+          if (this.host.history.context !== context) return;
+          this.data = { ...(this.data ?? { local: [], remote: [], tags: [], remotes: [] }), worktrees };
+          this.worktreesLoaded = true;
+        }
+      } finally {
+        if (this.host.history.context === context) this.worktreesLoading = false;
+        cx.notify();
+      }
+    });
+  }
+
+  pendingSummary() {
+    let aheadBranches = 0, behindBranches = 0, totalAhead = 0, totalBehind = 0, goneBranches = 0, localOnlyBranches = 0;
+    for (const b of this.data?.local ?? []) {
+      if (b.ahead > 0) { aheadBranches++; totalAhead += b.ahead; }
+      if (b.behind > 0) { behindBranches++; totalBehind += b.behind; }
+      if (b.gone) goneBranches++;
+      if (!b.upstream && !b.gone) localOnlyBranches++;
+    }
+    return { aheadBranches, behindBranches, totalAhead, totalBehind, goneBranches, localOnlyBranches };
   }
 
   ctx() { return this.host.ctx(); }

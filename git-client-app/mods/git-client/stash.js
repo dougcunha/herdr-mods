@@ -1,13 +1,13 @@
 // The Stash tab: the stashes, newest first. A click on one shows its files and the diff of a file,
 // with Apply, Pop and Drop. "New stash" stashes the uncommitted changes.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex } from "gpui-base";
-import { exec, openOverlay } from "herdr";
+import { v_flex, h_flex, h_resizable, resizable_panel } from "gpui-base";
+import { exec, openOverlay, setShared } from "herdr";
 import { READ, menuFor, menuHeight, patchRows } from "./git.js";
 import { stashListArgs, parseStashes, stashShowArgs, splitFiles, ago } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
-import { DiffView } from "./diffview.js";
+import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 
 const ROW = 30, FILE = 24;
 
@@ -38,8 +38,9 @@ export class Stash {
 
   clear() { this.sel = null; this.files = null; this.file = null; this.diff.setRows([]); }
 
-  pick(s, cx) {
-    if (this.sel?.hash === s.hash) { this.clear(); cx.notify(); return; }
+  pick(s, cx, { keepSelected = false } = {}) {
+    if (!keepSelected && this.sel?.hash === s.hash) { this.clear(); cx.notify(); return; }
+    if (keepSelected && this.sel?.hash === s.hash && this.files) { cx.notify(); return; }
     this.sel = s; this.files = null; this.file = null; this.diff.setRows([]);
     const h = this.host.history, hash = s.hash;
     cx.spawn(async (cx) => {
@@ -125,5 +126,54 @@ export class Stash {
           .child(div().h(1).flex_none().bg(t.border))
           .child(this.diff.render({ empty: this.files.length ? "Select a file" : "No changes" }))))
       .when(!s, (e) => e.child(div().flex_1()));
+  }
+
+  // Two-column layout for the wide Bottom Inspector: stash actions + file list on left, diff on right.
+  renderWide(t) {
+    const s = this.sel;
+    if (!s) return v_flex().flex_1().items_center().justify_center().text_color(t.dim).child("Select a stash in the sidebar to inspect its changes.");
+    const view = currentView();
+    const seg = (v, label) => div().id(`gs-view-${v}`).h_full().px(7).flex().items_center().rounded(4).text_size(11)
+      .text_color(view === v ? t.foreground : t.muted).when(view === v, (e) => e.bg(t.selected))
+      .when(view !== v, (e) => e.cursor_pointer().hover((st) => st.bg(t.hover))).on_click(() => setShared(VIEW_KEY, v)).child(label);
+    const left = v_flex().id("gc-stash-left").size_full().min_h(0).border_r(1).border_color(t.border)
+      .child(v_flex().flex_none().px(10).py(8).gap(6).border_b(1).border_color(t.border)
+        .child(h_flex().gap(6).items_center()
+          .child(svg(icon("stash")).size(12).flex_none().text_color(t.muted))
+          .child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().child(s.message || "(no message)"))
+          .child(div().flex_none().text_size(11).text_color(t.dim).child(s.ref)))
+        .child(h_flex().gap(6).items_center()
+          .when(Boolean(s.branch), (e) => e.child(div().max_w(120).truncate().text_size(11).text_color(t.muted).child(s.branch)))
+          .child(div().text_size(11).text_color(t.dim).child(ago(s.time)))
+          .child(div().flex_1())
+          .child(this.button("gsw-apply", "Apply", "check", false, false, (cx) => this.run({ type: "stashApply", ref: s.ref }, cx), t))
+          .child(this.button("gsw-pop", "Pop", "stash", true, false, (cx) => this.run({ type: "stashPop", ref: s.ref }, cx), t))
+          .child(this.button("gsw-drop", "Drop…", "trash", false, true, (cx) => this.run({ type: "stashDrop", ref: s.ref, message: s.message }, cx), t))))
+      .when(Boolean(this.error), (el) => el.child(div().px(10).py(6).text_size(11.5).text_color(t.ansi1).child(this.error)))
+      .when(!this.files, (el) => el.child(div().p(10).text_color(t.dim).child("Loading files…")))
+      .when(Boolean(this.files), (el) => el.child(v_flex().id("gsw-files").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
+        .children(this.files.map((f, i) => {
+          const parts = f.path.split("/"), name = parts.pop();
+          const c = f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : t.blocked;
+          return h_flex().id(`gswf-${i}`).h(FILE).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer()
+            .when(this.file === f.path, (r) => r.bg(t.selected)).hover((st) => st.bg(t.hover))
+            .on_click((_e, cx) => { this.show(f); cx.notify(); })
+            .child(div().w(12).flex_none().text_size(11).text_color(c).child(f.status))
+            .child(h_flex().flex_1().min_w(0).child(div().flex_none().max_w(180).truncate().child(name))
+              .child(div().pl(6).flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(parts.join("/"))))
+            .when(f.add > 0, (r) => r.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
+            .when(f.del > 0, (r) => r.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
+        }))));
+    const right = v_flex().id("gc-stash-right").size_full().min_h(0)
+      .child(h_flex().h(32).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
+        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(this.file ? t.foreground : t.dim).child(this.file ?? "No file"))
+        .child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border)
+          .child(seg("unified", "Unified")).child(seg("split", "Split"))))
+      .child(this.diff.render({ empty: this.files?.length ? "Select a file" : "No changes" }));
+    return div().id("gc-stash-wide").flex_1().min_h(0).w_full().child(
+      h_resizable(this.host.stashSplitId).size_full()
+        .on_resize((sizes) => this.host.saveInspectorLeftWidth(sizes?.[0]))
+        .child(resizable_panel().size(this.host.inspectorLeftWidth()).size_range(240, 560).child(left))
+        .child(resizable_panel().size_range(260).child(right)));
   }
 }

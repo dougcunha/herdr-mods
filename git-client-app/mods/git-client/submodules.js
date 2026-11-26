@@ -4,7 +4,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, openOverlay } from "herdr";
 import { READ, menuFor, menuHeight } from "./git.js";
-import { submoduleStatusArgs, gitmodulesArgs, parseSubmodules } from "./refs.js";
+import { submoduleStatusArgs, gitmodulesArgs, parseSubmodules, parseSubmoduleStatus } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 
@@ -13,12 +13,15 @@ const ROW = 32;
 export class Submodules {
   constructor(host) { this.host = host; }
 
-  init() { this.list = null; this.error = null; this.dirty = true; }
+  init() { this.list = null; this.error = null; this.dirty = true; this.loadingPhase2 = false; }
 
+  // Two-phase snapshot: Phase 1 renders the submodule list immediately from parent state;
+  // Phase 2 runs one `git status --branch` per initialized submodule in bounded batches.
   reload(cx, force = false) {
     const h = this.host.history;
-    if (h.context !== this.context) { this.context = h.context; this.list = null; this.error = null; }
-    if (!force && this.host.tab !== "submodules") { this.dirty = true; return; }
+    if (h.context !== this.context) { this.context = h.context; this.list = null; this.error = null; this.loadingPhase2 = false; }
+    const visible = force || this.host.tab === "submodules" || this.host.isWide?.();
+    if (!visible) { this.dirty = true; return; }
     if (!h.root) return;
     this.dirty = false;
     const root = h.root, on = h.on, seq = this.seq = (this.seq ?? 0) + 1;
@@ -29,17 +32,44 @@ export class Submodules {
         if (this.seq !== seq) return;
         if (status.code !== 0) throw new Error(status.stderr.trim().split("\n").pop());
         const list = parseSubmodules(status.stdout, config.code === 0 ? config.stdout : "");
-        // Changed files in each submodule that is checked out (the first 20).
-        await Promise.all(list.slice(0, 20).map(async (s) => {
-          if (s.state === "uninitialized") return;
-          const r = await git(["status", "--porcelain=v1", "-z", "--untracked-files=normal"], `${root}/${s.path}`).catch(() => null);
-          s.changes = r?.code === 0 ? r.stdout.split("\0").filter(Boolean).length : null;
-        }));
-        if (this.seq !== seq) return;
         this.list = list; this.error = null;
-      } catch (e) { if (this.seq === seq) this.error = String(e?.message ?? e); }
+        const todo = list.slice(0, 20).filter((s) => s.state !== "uninitialized");
+        this.loadingPhase2 = todo.length > 0;
+        cx.notify();
+        for (let n = 0; n < todo.length; n += 6) {
+          await Promise.all(todo.slice(n, n + 6).map(async (s) => {
+            const r = await git(["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal", "--branch"], `${root}/${s.path}`).catch(() => null);
+            if (r?.code !== 0) return;
+            const st = parseSubmoduleStatus(r.stdout);
+            s.changes = st.changes;
+            s.currentBranch = st.detached ? null : st.branch;
+            s.detached = st.detached;
+            s.upstream = st.upstream;
+            s.ahead = st.ahead;
+            s.behind = st.behind;
+            s.gone = st.gone;
+          }));
+          if (this.seq !== seq) return;
+        }
+        this.loadingPhase2 = false;
+      } catch (e) {
+        if (this.seq === seq) { this.error = String(e?.message ?? e); this.loadingPhase2 = false; }
+      }
       cx.notify();
     });
+  }
+
+  pendingSummary() {
+    let dirty = 0, outOfSync = 0, conflict = 0, uninitialized = 0, ahead = 0, behind = 0;
+    for (const s of this.list ?? []) {
+      if ((s.changes ?? 0) > 0) dirty++;
+      if (s.state === "out of sync") outOfSync++;
+      if (s.state === "conflict") conflict++;
+      if (s.state === "uninitialized") uninitialized++;
+      if ((s.ahead ?? 0) > 0) ahead++;
+      if ((s.behind ?? 0) > 0) behind++;
+    }
+    return { dirty, outOfSync, conflict, uninitialized, ahead, behind };
   }
 
   menu(s, e) {
@@ -84,6 +114,8 @@ export class Submodules {
       .when(has, (e) => e.child(v_flex().id("gsm-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
         .children(list.map((s, i) => {
           const modified = s.changes > 0, state = modified && s.state === "ok" ? "modified" : s.state;
+          const branchLabel = s.currentBranch ? s.currentBranch : s.detached ? "detached" : s.branch ? `branch ${s.branch}` : null;
+          const track = [s.ahead > 0 ? `↑${s.ahead}` : "", s.behind > 0 ? `↓${s.behind}` : "", s.gone ? "gone" : ""].filter(Boolean).join(" ");
           return h_flex().id(`gsm-${i}`).h(ROW).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((st) => st.bg(t.hover))
             // A click event has no position: the menu opens at the spot of the press.
             .on_mouse_down("left", (ev) => { this.press = ev; })
@@ -92,7 +124,8 @@ export class Submodules {
             .child(div().size(8).flex_none().rounded(4).bg(modified && s.state === "ok" ? t.blocked : color[s.state] ?? t.dim))
             .child(v_flex().flex_1().min_w(0)
               .child(div().truncate().child(s.path))
-              .child(div().truncate().text_size(10.5).text_color(t.dim).child([s.hash.slice(0, 8), s.describe, s.branch ? `branch ${s.branch}` : null].filter(Boolean).join(" · "))))
+              .child(div().truncate().text_size(10.5).text_color(t.dim).child([s.hash.slice(0, 8), branchLabel, s.describe].filter(Boolean).join(" · "))))
+            .when(Boolean(track), (r) => r.child(div().flex_none().text_size(11).text_color(s.gone || s.behind ? t.ansi1 : t.ansi2).child(track)))
             .when(modified, (r) => r.child(div().flex_none().text_size(11).text_color(t.blocked).child(`${s.changes} changed`)))
             .child(div().flex_none().text_size(11).text_color(color[s.state] ?? t.dim).child(state));
         }))));

@@ -2,7 +2,7 @@
 // (status, add, update, sync, remove) and the prompt of "Resolve with agent". Run: node tests/phase3.test.mjs
 import * as G from "../mods/git-client/git.js";
 import * as R from "../mods/git-client/refs.js";
-import { executeAction, listSubmoduleBranches } from "../mods/git-client/execute.js";
+import { executeAction, listSubmoduleBranches, listSubmoduleLocalAndRemoteBranches } from "../mods/git-client/execute.js";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync } from "node:fs";
@@ -82,10 +82,33 @@ assert.equal(sh(sub, "rev-parse", "HEAD"), oldHead);
 assert.equal(readFileSync(join(sub, "lib.txt"), "utf8").trim(), "local edit");
 sh(sub, "restore", "lib.txt");
 await run(choose, { branch: "release/stable" });
+assert.equal(sh(sub, "symbolic-ref", "--short", "HEAD").trim(), "release/stable", "checks out a real local tracking branch");
 assert.equal(sh(sub, "rev-parse", "HEAD"), sh(lib, "rev-parse", "HEAD"));
 assert.equal(ctx().head, parentHead);
 assert.equal(sh(repo, "rev-parse", ":lib"), recorded);
 assert.equal(sh(repo, "status", "--porcelain", "--", "lib").trimEnd(), " M lib");
+
+// Local + remote branch listing without network, and preserving unpushed local commits on branch switch.
+sh(sub, "checkout", "-qb", "local-only");
+writeFileSync(join(sub, "local.txt"), "keep me\n"); sh(sub, "add", "-A"); sh(sub, "commit", "-qm", "local work");
+const localCommit = sh(sub, "rev-parse", "HEAD").trim();
+const listed = await listSubmoduleLocalAndRemoteBranches("lib", ctx(), exec, { fetch: false });
+assert.equal(listed.current, "local-only");
+assert.ok(listed.local.includes("local-only") && listed.local.includes("release/stable"));
+await run({ type: "submoduleChooseBranch", path: "lib", ...listed }, { branch: "release/stable", updateGitmodules: true });
+assert.equal(sh(sub, "symbolic-ref", "--short", "HEAD").trim(), "release/stable");
+assert.equal(git(repo, ["config", "-f", ".gitmodules", "submodule.lib.branch"]).stdout.trim(), "release/stable", "updates .gitmodules when requested");
+sh(repo, "checkout", "--", ".gitmodules");
+await run({ type: "submoduleChooseBranch", path: "lib", ...listed }, { branch: "local-only", updateGitmodules: false });
+assert.equal(sh(sub, "rev-parse", "HEAD").trim(), localCommit, "preserves local unpushed commits");
+
+// Pulling inside a submodule fast-forwards its current branch without detaching HEAD.
+await run({ type: "submoduleChooseBranch", path: "lib", ...listed }, { branch: "release/stable" });
+writeFileSync(join(lib, "lib.txt"), "stable v2\n"); sh(lib, "commit", "-qam", "stable v2");
+await run({ type: "submodulePull", path: "lib" });
+assert.equal(readFileSync(join(sub, "lib.txt"), "utf8").trim(), "stable v2");
+assert.equal(sh(sub, "symbolic-ref", "--short", "HEAD").trim(), "release/stable");
+
 await run({ type: "submoduleUpdate", path: "lib" });
 // A fresh clone: not initialized until Update.
 const clone = `${dir}/clone`;
@@ -99,7 +122,18 @@ assert.equal(cloneStatus()[0].state, "ok");
 assert.ok((await executeAction({ type: "submoduleSync", path: "lib" }, {}, cctx, exec)).ok);
 // Menu and remove.
 const smMenu = G.menuFor({ kind: "submodule", submodule: status()[0] }, ctx()).filter((i) => !i.separator).map((i) => i.label);
-assert.deepEqual(smMenu, ["Open in the client", "Open in a space", "Update to the recorded commit", "Update from the configured branch", "Update to a remote branch…", "Sync the URL", "Remove submodule…", "Copy path", "Copy URL"]);
+assert.deepEqual(smMenu, [
+  "Open in the client",
+  "Open in a space",
+  "Pull / update current branch",
+  "Switch branch…",
+  "Update to the recorded commit",
+  "Update from the configured branch",
+  "Sync the URL",
+  "Remove submodule…",
+  "Copy path",
+  "Copy URL",
+]);
 await run({ type: "submoduleRemove", path: "lib" });
 assert.ok(!existsSync(join(repo, "lib", "lib.txt")), "the folder is gone");
 assert.equal(git(repo, ["config", "-f", ".gitmodules", "--get-regexp", "submodule"]).stdout, "", "and its .gitmodules entry");

@@ -14,12 +14,13 @@ const fail = (action, raw, values) => {
 const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany", "stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
-  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove"]);
+  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove", "submodulePull"]);
 const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discardHunk: ["-R"] };
 
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
-  if (action.type === "submoduleChooseBranch") return updateSubmoduleBranch(action, values.branch, ctx, exec);
+  if (action.type === "submoduleChooseBranch") return updateSubmoduleBranch(action, values, ctx, exec);
+  if (action.type === "submodulePull") return pullSubmodule(action, ctx, exec);
   if (HUNK[action.type]) return applyPatch(action.patch, HUNK[action.type], ctx, exec, io);
   if (action.type === "ignore") {
     // Only a line that the dialog offers for this file: a value never names an other path.
@@ -124,18 +125,114 @@ export async function listSubmoduleBranches(path, ctx, exec) {
   return { remote, branches };
 }
 
-async function updateSubmoduleBranch(action, branch, ctx, exec) {
-  if (!branch || !action.branches?.includes(branch)) return { ok: false, message: "Pick a remote branch." };
+// Fast local + cached remote branch listing for the Submodule Branch Picker.
+// Runs without network unless fetch=true is explicitly requested.
+export async function listSubmoduleLocalAndRemoteBranches(path, ctx, exec, { fetch = false } = {}) {
+  const git = await submoduleGit(ctx, path, exec);
+  const remotes = await submoduleRemotes(git);
+  const remote = remotes.includes("origin") ? "origin" : remotes[0] ?? null;
+  if (fetch && remote) {
+    const fetched = await git(["fetch", "--prune", "--no-recurse-submodules", "--", remote]);
+    if (fetched.code !== 0) throw new Error(gitError(fetched));
+  }
+  const [refsRes, headRes] = await Promise.all([
+    git([...READ, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]),
+    git([...READ, "symbolic-ref", "-q", "--short", "HEAD"]),
+  ]);
+  if (refsRes.code !== 0) throw new Error(gitError(refsRes));
+  const current = headRes.code === 0 ? headRes.stdout.trim() || null : null;
+  const local = [];
+  const remoteBranches = [];
+  for (const line of refsRes.stdout.split(/\r?\n/)) {
+    const ref = line.trim();
+    if (!ref) continue;
+    if (ref.startsWith("refs/heads/")) {
+      local.push(ref.slice(11));
+    } else if (ref.startsWith("refs/remotes/")) {
+      const full = ref.slice(13);
+      const slash = full.indexOf("/");
+      if (slash < 0 || full.endsWith("/HEAD")) continue;
+      const rName = full.slice(0, slash), bName = full.slice(slash + 1);
+      if (!remote || rName === remote) remoteBranches.push(bName);
+    }
+  }
+  const seen = new Set();
+  const branches = [];
+  const add = (name) => { if (name && !seen.has(name)) { seen.add(name); branches.push(name); } };
+  if (current) add(current);
+  for (const b of local) add(b);
+  for (const b of remoteBranches) add(b);
+  return { remote, current, local, remoteBranches, branches };
+}
+
+// Safe submodule branch switch: checks out existing local branches + --ff-only (never overwriting
+// unpushed local commits with switch -C), or creates a real local tracking branch for remote-only ones.
+async function updateSubmoduleBranch(action, values, ctx, exec) {
+  const branch = typeof values === "string" ? values : values?.branch;
+  const updateGitmodules = typeof values === "object" && Boolean(values?.updateGitmodules);
+  const allowed = action.branches;
+  if (!branch || (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(branch))) {
+    return { ok: false, message: "Pick a branch." };
+  }
   const git = await submoduleGit(ctx, action.path, exec);
-  const remote = action.remote;
-  if (!(await submoduleRemotes(git)).includes(remote)) return { ok: false, message: "The submodule remote is no longer configured." };
-  const source = `refs/heads/${branch}`, target = `refs/remotes/${remote}/${branch}`;
-  const ref = await git(["check-ref-format", source]);
-  if (ref.code !== 0) return { ok: false, message: "Invalid remote branch." };
-  const fetched = await git(["fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", "--", remote, `+${source}:${target}`]);
-  if (fetched.code !== 0) return fail(action, gitError(fetched));
-  const switched = await git(["switch", "--detach", "--no-recurse-submodules", "--no-overwrite-ignore", target, "--"]);
-  return switched.code === 0 ? { ok: true } : fail(action, gitError(switched));
+  const check = await git(["check-ref-format", `refs/heads/${branch}`]);
+  if (check.code !== 0) return { ok: false, message: "Invalid branch name." };
+
+  const remotes = await submoduleRemotes(git);
+  const remote = action.remote && remotes.includes(action.remote) ? action.remote
+    : remotes.includes("origin") ? "origin" : remotes[0] ?? null;
+
+  const hasLocal = (await git([...READ, "show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).code === 0;
+  if (hasLocal) {
+    const switched = await git(["switch", "--no-recurse-submodules", "--no-overwrite-ignore", branch, "--"]);
+    if (switched.code !== 0) return fail(action, gitError(switched), values);
+    if (remote) {
+      const source = `refs/heads/${branch}`, target = `refs/remotes/${remote}/${branch}`;
+      const knownRemote = !Array.isArray(action.remoteBranches) || action.remoteBranches.includes(branch);
+      if (knownRemote) {
+        await git(["fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", "--", remote, `+${source}:${target}`]).catch(() => null);
+      }
+      const hasRemoteRef = (await git([...READ, "show-ref", "--verify", "--quiet", target])).code === 0;
+      if (hasRemoteRef) {
+        const merged = await git(["merge", "--ff-only", `${remote}/${branch}`]);
+        if (merged.code !== 0) {
+          return {
+            ok: false,
+            message: `Switched to local branch '${branch}', but it has diverged from '${remote}/${branch}'. Open the submodule to merge or rebase.`,
+          };
+        }
+      }
+    }
+  } else {
+    if (!remote) return { ok: false, message: `Branch '${branch}' was not found locally and the submodule has no remote.` };
+    const source = `refs/heads/${branch}`, target = `refs/remotes/${remote}/${branch}`;
+    const fetched = await git(["fetch", "--no-tags", "--no-recurse-submodules", "--refmap=", "--", remote, `+${source}:${target}`]);
+    if (fetched.code !== 0) return fail(action, gitError(fetched), values);
+    const switched = await git(["switch", "-c", branch, "--track", `${remote}/${branch}`, "--no-recurse-submodules", "--no-overwrite-ignore"]);
+    if (switched.code !== 0) return fail(action, gitError(switched), values);
+  }
+
+  if (updateGitmodules && !action.nested) {
+    const setBranch = await exec("git", ["submodule", "set-branch", "--branch", branch, "--", action.path], { cwd: ctx.root, on: ctx.on });
+    if (setBranch.code !== 0) return fail(action, gitError(setBranch), values);
+  }
+  return { ok: true };
+}
+
+async function pullSubmodule(action, ctx, exec) {
+  const git = await submoduleGit(ctx, action.path, exec);
+  const headBranch = await git([...READ, "symbolic-ref", "-q", "--short", "HEAD"]);
+  if (headBranch.code === 0 && headBranch.stdout.trim()) {
+    const current = headBranch.stdout.trim();
+    const up = await git([...READ, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+    if (up.code !== 0) {
+      return { ok: false, message: `Branch '${current}' in ${action.path} has no upstream configured.` };
+    }
+    const pulled = await git(["pull", "--ff-only", "--no-recurse-submodules", "--quiet"]);
+    return pulled.code === 0 ? { ok: true } : fail(action, gitError(pulled));
+  }
+  const updated = await exec("git", ["submodule", "update", "--init", "--remote", "--recursive", "--", action.path], { cwd: ctx.root, on: ctx.on, timeout: 60000 });
+  return updated.code === 0 ? { ok: true } : fail(action, gitError(updated));
 }
 
 // One hunk with `git apply`. exec takes no input, so the patch goes through a file here, and
