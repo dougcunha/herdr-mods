@@ -541,7 +541,7 @@ export class ActionLogDialog extends View {
     this.busy = true;
     this.error = "";
     cx.notify();
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       try {
         if (switchMode) {
           const step = this.run.steps?.[this.run.stepIndex] ?? this.run.steps?.[0];

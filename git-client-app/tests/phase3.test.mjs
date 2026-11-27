@@ -109,6 +109,26 @@ await run({ type: "submodulePull", path: "lib" });
 assert.equal(readFileSync(join(sub, "lib.txt"), "utf8").trim(), "stable v2");
 assert.equal(sh(sub, "symbolic-ref", "--short", "HEAD").trim(), "release/stable");
 
+// Fetching detects new upstream commits while parent pointer is still ok; pulling reaches latest while parent pointer becomes out of sync.
+commit("record stable v2");
+assert.equal(status()[0].state, "ok");
+writeFileSync(join(lib, "lib.txt"), "stable v3\n"); sh(lib, "commit", "-qam", "stable v3");
+await run({ type: "submoduleFetch", path: "lib" });
+const fetchedSingle = R.parseSubmoduleStatus(git(sub, ["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal", "--branch"]).stdout);
+assert.equal(fetchedSingle.behind, 1);
+assert.equal(status()[0].state, "ok", "parent pointer has not moved yet");
+writeFileSync(join(lib, "lib.txt"), "stable v4\n"); sh(lib, "commit", "-qam", "stable v4");
+await run({ type: "submoduleFetch" });
+const fetchedAll = R.parseSubmoduleStatus(git(sub, ["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal", "--branch"]).stdout);
+assert.equal(fetchedAll.behind, 2);
+assert.equal(status()[0].state, "ok");
+await run({ type: "submodulePull", path: "lib" });
+const pulledSt = R.parseSubmoduleStatus(git(sub, ["status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=normal", "--branch"]).stdout);
+assert.equal(pulledSt.ahead, 0);
+assert.equal(pulledSt.behind, 0);
+assert.equal(R.submoduleBranchState({ ...pulledSt, state: status()[0].state, branchChecked: true }).kind, "latest");
+assert.equal(status()[0].state, "out of sync", "parent pointer changed after pull");
+
 await run({ type: "submoduleUpdate", path: "lib" });
 // A fresh clone: not initialized until Update.
 const clone = `${dir}/clone`;
@@ -125,7 +145,8 @@ const smMenu = G.menuFor({ kind: "submodule", submodule: status()[0] }, ctx()).f
 assert.deepEqual(smMenu, [
   "Open in the client",
   "Open in a space",
-  "Pull / update current branch",
+  "Fetch remote",
+  "Pull latest commit",
   "Switch branch…",
   "Update to the recorded commit",
   "Update from the configured branch",
@@ -134,6 +155,8 @@ assert.deepEqual(smMenu, [
   "Copy path",
   "Copy URL",
 ]);
+const smMenuBranch = G.menuFor({ kind: "submodule", submodule: { ...status()[0], currentBranch: "main" } }, ctx()).filter((i) => !i.separator).map((i) => i.label);
+assert.ok(smMenuBranch.includes("Pull latest commit on main"));
 await run({ type: "submoduleRemove", path: "lib" });
 assert.ok(!existsSync(join(repo, "lib", "lib.txt")), "the folder is gone");
 assert.equal(git(repo, ["config", "-f", ".gitmodules", "--get-regexp", "submodule"]).stdout, "", "and its .gitmodules entry");

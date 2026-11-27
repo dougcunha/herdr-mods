@@ -4,11 +4,11 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, openOverlay } from "herdr";
 import { READ, menuFor, menuHeight } from "./git.js";
-import { submoduleStatusArgs, gitmodulesArgs, parseSubmodules, parseSubmoduleStatus } from "./refs.js";
+import { submoduleStatusArgs, gitmodulesArgs, parseSubmodules, parseSubmoduleStatus, parseRevListCounts, submoduleBranchState } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 
-const ROW = 32;
+const ROW = 38;
 
 export class Submodules {
   constructor(host) { this.host = host; }
@@ -48,6 +48,32 @@ export class Submodules {
             s.ahead = st.ahead;
             s.behind = st.behind;
             s.gone = st.gone;
+            s.branchRef = st.upstream;
+            if (!st.upstream && !st.unborn) {
+              const candidate = st.detached ? s.branch : st.branch;
+              if (candidate) {
+                const rv = await git(["rev-list", "--left-right", "--count", `HEAD...refs/remotes/origin/${candidate}`], `${root}/${s.path}`).catch(() => null);
+                const counts = rv?.code === 0 ? parseRevListCounts(rv.stdout) : null;
+                if (counts) {
+                  s.ahead = counts.ahead;
+                  s.behind = counts.behind;
+                  s.branchRef = `origin/${candidate}`;
+                }
+              } else if (st.detached) {
+                const sym = await git(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"], `${root}/${s.path}`).catch(() => null);
+                const ref = sym?.code === 0 ? sym.stdout.trim() : "";
+                if (ref) {
+                  const rv = await git(["rev-list", "--left-right", "--count", `HEAD...refs/remotes/${ref}`], `${root}/${s.path}`).catch(() => null);
+                  const counts = rv?.code === 0 ? parseRevListCounts(rv.stdout) : null;
+                  if (counts) {
+                    s.ahead = counts.ahead;
+                    s.behind = counts.behind;
+                    s.branchRef = ref;
+                  }
+                }
+              }
+            }
+            s.branchChecked = true;
           }));
           if (this.seq !== seq) return;
         }
@@ -60,7 +86,7 @@ export class Submodules {
   }
 
   pendingSummary() {
-    let dirty = 0, outOfSync = 0, conflict = 0, uninitialized = 0, ahead = 0, behind = 0;
+    let dirty = 0, outOfSync = 0, conflict = 0, uninitialized = 0, ahead = 0, behind = 0, gone = 0;
     for (const s of this.list ?? []) {
       if ((s.changes ?? 0) > 0) dirty++;
       if (s.state === "out of sync") outOfSync++;
@@ -68,8 +94,9 @@ export class Submodules {
       if (s.state === "uninitialized") uninitialized++;
       if ((s.ahead ?? 0) > 0) ahead++;
       if ((s.behind ?? 0) > 0) behind++;
+      if (s.gone) gone++;
     }
-    return { dirty, outOfSync, conflict, uninitialized, ahead, behind };
+    return { dirty, outOfSync, conflict, uninitialized, ahead, behind, gone };
   }
 
   menu(s, e) {
@@ -105,6 +132,7 @@ export class Submodules {
         .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim)
           .child(!list ? "" : list.length ? `${list.length} submodule${list.length === 1 ? "" : "s"}` : "No submodules"))
         .when(has, (e) => e
+          .child(this.button("gsm-fetch", this.busy === "submoduleFetch" ? "Fetching…" : "Fetch", "cloud-down", (cx) => this.run({ type: "submoduleFetch" }, cx), t))
           .child(this.button("gsm-update", this.busy === "submoduleUpdate" ? "Updating…" : "Update all", "fetch", (cx) => this.run({ type: "submoduleUpdate" }, cx), t))
           .child(this.button("gsm-sync", "Sync", "refresh", (cx) => this.run({ type: "submoduleSync" }, cx), t)))
         .child(this.button("gsm-add", "Add…", "plus", (cx) => this.run({ type: "submoduleAdd" }, cx), t)))
@@ -113,21 +141,43 @@ export class Submodules {
       .when(list?.length === 0, (e) => e.child(div().p(12).text_size(12).text_color(t.dim).child("This repository has no submodules. Add… clones a repository into a folder of this one.")))
       .when(has, (e) => e.child(v_flex().id("gsm-list").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
         .children(list.map((s, i) => {
-          const modified = s.changes > 0, state = modified && s.state === "ok" ? "modified" : s.state;
+          const modified = s.changes > 0, bs = submoduleBranchState(s);
+          const dotColor = s.state === "conflict" ? t.ansi1
+            : s.state === "uninitialized" ? t.dim
+            : (bs?.kind === "behind" || bs?.kind === "diverged" || bs?.kind === "gone") ? t.ansi1
+            : modified ? t.blocked
+            : (bs?.kind === "latest" || bs?.kind === "ahead") ? t.ansi2
+            : s.state === "out of sync" ? t.blocked
+            : s.state === "ok" ? t.ansi2
+            : t.dim;
           const branchLabel = s.currentBranch ? s.currentBranch : s.detached ? "detached" : s.branch ? `branch ${s.branch}` : null;
-          const track = [s.ahead > 0 ? `↑${s.ahead}` : "", s.behind > 0 ? `↓${s.behind}` : "", s.gone ? "gone" : ""].filter(Boolean).join(" ");
+          const pill = (text, fg, bg = null, tip = null, glyph = null) => {
+            const el = h_flex().flex_none().px(5).py(1).gap(3).items_center().rounded(4).text_size(10.5).text_color(fg)
+              .when(Boolean(bg), (e) => e.bg(bg))
+              .when(!bg, (e) => e.border_1().border_color(fg + "44"))
+              .when(Boolean(glyph), (e) => e.child(svg(icon(glyph)).size(9).flex_none()))
+              .child(text);
+            return tip ? el.tooltip(tip) : el;
+          };
           return h_flex().id(`gsm-${i}`).h(ROW).flex_none().px(10).gap(8).items_center().rounded(6).cursor_pointer().hover((st) => st.bg(t.hover))
             // A click event has no position: the menu opens at the spot of the press.
             .on_mouse_down("left", (ev) => { this.press = ev; })
             .on_click(() => this.menu(s, this.press))
             .on_mouse_down("right", (ev, cx) => { cx.stop_propagation(); this.menu(s, ev); })
-            .child(div().size(8).flex_none().rounded(4).bg(modified && s.state === "ok" ? t.blocked : color[s.state] ?? t.dim))
+            .child(div().size(8).flex_none().rounded(4).bg(dotColor))
             .child(v_flex().flex_1().min_w(0)
               .child(div().truncate().child(s.path))
               .child(div().truncate().text_size(10.5).text_color(t.dim).child([s.hash.slice(0, 8), branchLabel, s.describe].filter(Boolean).join(" · "))))
-            .when(Boolean(track), (r) => r.child(div().flex_none().text_size(11).text_color(s.gone || s.behind ? t.ansi1 : t.ansi2).child(track)))
-            .when(modified, (r) => r.child(div().flex_none().text_size(11).text_color(t.blocked).child(`${s.changes} changed`)))
-            .child(div().flex_none().text_size(11).text_color(color[s.state] ?? t.dim).child(state));
+            .when(bs?.kind === "latest", (r) => r.child(pill("latest", t.ansi2, t.ansi2 + "1c", `At latest commit of ${bs.ref}`, "check")))
+            .when(bs?.kind === "ahead" || bs?.kind === "diverged", (r) => r.child(pill(`↑${bs.ahead}`, t.ansi2, t.ansi2 + "1c", `${bs.ahead} commit(s) ahead of ${bs.ref}`)))
+            .when(bs?.kind === "behind" || bs?.kind === "diverged", (r) => r.child(pill(`↓${bs.behind}`, t.ansi1, t.ansi1 + "1c", `${bs.behind} commit(s) behind ${bs.ref}`)))
+            .when(bs?.kind === "gone", (r) => r.child(pill("gone", t.ansi1, t.ansi1 + "1c", `Upstream ${bs.ref ?? "branch"} is gone`)))
+            .when(bs?.kind === "local", (r) => r.child(pill("local", t.dim, null, "No remote tracking branch")))
+            .when(modified, (r) => r.child(pill(`${s.changes} changed`, t.blocked, t.blocked + "1c", `${s.changes} uncommitted change(s)`)))
+            .when(s.state === "out of sync", (r) => r.child(pill("pointer", t.blocked, t.blocked + "1c", "Pointer changed in parent repository — stage and commit to record this commit")))
+            .when(s.state === "conflict", (r) => r.child(pill("conflict", t.ansi1, t.ansi1 + "1c")))
+            .when(s.state === "uninitialized", (r) => r.child(pill("uninitialized", t.dim)))
+            .when(s.state === "ok" && !bs, (r) => r.child(div().flex_none().text_size(11).text_color(color[s.state] ?? t.dim).child(s.state)));
         }))));
   }
 }

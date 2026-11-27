@@ -368,7 +368,8 @@ export function menuFor(target, ctx) {
     sections = [
       section(ready && item("Open in the client", "folder", { type: "openSubmodule", path: s.path }),
         ready && item("Open in a space", "folder", { type: "openWorktree", path: `${ctx.root}/${s.path}` })),
-      section(ready && s.state !== "conflict" && item("Pull / update current branch", "pull", { type: "submodulePull", ...one, branch: s.currentBranch ?? null, upstream: s.upstream ?? null }),
+      section(ready && s.state !== "conflict" && item("Fetch remote", "cloud-down", { type: "submoduleFetch", ...one }),
+        ready && s.state !== "conflict" && item(s.currentBranch ? `Pull latest commit on ${s.currentBranch}` : "Pull latest commit", "pull", { type: "submodulePull", ...one, branch: s.currentBranch ?? null, upstream: s.upstream ?? null }),
         ready && s.state !== "conflict" && item("Switch branch…", "branch", { type: "submoduleChooseBranch", ...one, currentBranch: s.currentBranch ?? null, configuredBranch: s.branch ?? null, nested: Boolean(s.nested) }),
         item(ready ? "Update to the recorded commit" : "Initialize and update", "fetch", { type: "submoduleUpdate", ...one }),
         item("Update from the configured branch", "cloud-down", { type: "submoduleUpdateRemote", ...one }),
@@ -815,7 +816,8 @@ export function doneText(a, v = {}) {
     case "submoduleUpdate": return a.path ? `Updated ${a.path}` : "Updated the submodules";
     case "submoduleUpdateRemote": return a.path ? `Updated ${a.path} from its remote branch` : "Updated the submodules from their remote branches";
     case "submoduleChooseBranch": return `Switched ${a.path} to ${v.branch}`;
-    case "submodulePull": return `Updated ${a.path}`;
+    case "submodulePull": return `Pulled latest commit in ${a.path}`;
+    case "submoduleFetch": return a.path ? `Fetched ${a.path}` : "Fetched all submodules";
     case "submoduleSync": return a.path ? `Synced the URL of ${a.path}` : "Synced the submodule URLs";
     case "submoduleAdd": return "Added the submodule";
     case "submoduleRemove": return `Removed ${a.path}`;

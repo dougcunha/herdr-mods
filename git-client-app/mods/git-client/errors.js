@@ -45,6 +45,7 @@ export function failTitle(action, values = {}) {
     case "submoduleUpdateRemote":
     case "submoduleChooseBranch":
     case "submodulePull": return `Couldn't update ${action.path || "submodules"}`;
+    case "submoduleFetch": return `Couldn't fetch ${action.path || "submodules"}`;
     case "submoduleSync": return `Couldn't sync ${action.path || "submodules"}`;
     case "submoduleAdd": return "Couldn't add submodule";
     case "submoduleRemove": return `Couldn't remove ${action.path}`;

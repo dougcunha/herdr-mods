@@ -5,7 +5,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec } from "herdr";
 import { splitUpstream } from "./git.js";
-import { ago, samePath } from "./refs.js";
+import { ago, samePath, submoduleBranchState } from "./refs.js";
 import { perform, openDialog } from "./act.js";
 import { icon } from "./menu.js";
 import { isBranchPicked, selectedBranches } from "./selection.js";
@@ -99,11 +99,12 @@ export class Sidebar {
 
   submoduleSummary(subs, t) {
     const s = subs.pendingSummary();
-    if (!s.dirty && !s.outOfSync && !s.conflict && !s.uninitialized && !s.ahead && !s.behind) return null;
+    if (!s.dirty && !s.outOfSync && !s.conflict && !s.uninitialized && !s.ahead && !s.behind && !s.gone) return null;
     return h_flex().flex_none().gap(4).items_center()
       .when(s.conflict > 0, (e) => e.child(this.pill(`${s.conflict}!`, t.ansi1, t.ansi1 + "20", "Submodule conflict")))
       .when(s.dirty > 0, (e) => e.child(this.pill(`${s.dirty} dirty`, t.blocked, t.blocked + "20", `${s.dirty} submodule(s) with uncommitted changes`)))
-      .when(s.outOfSync > 0, (e) => e.child(this.pill(`${s.outOfSync} sync`, t.blocked, t.blocked + "20", `${s.outOfSync} submodule(s) at another commit than recorded`)))
+      .when(s.outOfSync > 0, (e) => e.child(this.pill(`${s.outOfSync} pointer`, t.blocked, t.blocked + "20", `${s.outOfSync} submodule(s) with uncommitted pointer change in this repository`)))
+      .when(s.gone > 0, (e) => e.child(this.pill(`${s.gone} gone`, t.ansi1, t.ansi1 + "20")))
       .when(s.ahead > 0, (e) => e.child(this.pill(`↑${s.ahead}`, t.ansi2, t.ansi2 + "20")))
       .when(s.behind > 0, (e) => e.child(this.pill(`↓${s.behind}`, t.ansi1, t.ansi1 + "20")));
   }
@@ -201,14 +202,37 @@ export class Sidebar {
   submoduleRow(s, i, t, subs) {
     const key = `sub:${s.path}`, hovered = this.hover === key;
     const ready = s.state !== "uninitialized", modified = (s.changes ?? 0) > 0;
+    const bs = submoduleBranchState(s);
     const color = { ok: t.ansi2, "out of sync": t.blocked, uninitialized: t.dim, conflict: t.ansi1 };
-    const dotColor = modified && s.state === "ok" ? t.blocked : (color[s.state] ?? t.dim);
+    const dotColor = s.state === "conflict" ? t.ansi1
+      : s.state === "uninitialized" ? t.dim
+      : (bs?.kind === "behind" || bs?.kind === "diverged" || bs?.kind === "gone") ? t.ansi1
+      : modified ? t.blocked
+      : (bs?.kind === "latest" || bs?.kind === "ahead") ? t.ansi2
+      : s.state === "out of sync" ? t.blocked
+      : s.state === "ok" ? t.ansi2
+      : t.dim;
     const branchText = s.currentBranch ? s.currentBranch : s.detached ? "detached" : s.branch ? `(${s.branch})` : "uninitialized";
     const metaText = [branchText, s.hash.slice(0, 7)].filter(Boolean).join(" · ");
+    const branchTip = bs?.kind === "latest" ? `At latest commit of ${bs.ref}`
+      : bs?.kind === "ahead" ? `${bs.ahead} commit(s) ahead of ${bs.ref}`
+      : bs?.kind === "behind" ? `${bs.behind} commit(s) behind ${bs.ref}`
+      : bs?.kind === "diverged" ? `${bs.ahead} ahead, ${bs.behind} behind ${bs.ref}`
+      : bs?.kind === "gone" ? `Upstream ${bs.ref ?? "branch"} is gone`
+      : bs?.kind === "local" ? "No remote tracking branch"
+      : null;
+    const pointerTip = s.state === "out of sync" ? "Pointer changed in parent repository (uncommitted)"
+      : s.state === "conflict" ? "Submodule conflict"
+      : null;
+    const rowTip = [
+      branchTip,
+      pointerTip,
+      ready ? `Click to open ${s.path}. Right-click for actions.` : `Uninitialized submodule (${s.path}). Click or right-click to initialize.`,
+    ].filter(Boolean).join(" · ");
 
     return h_flex().id(`gsb-sm-${i}`).h(SUB_ROW).flex_none().pl(10).pr(6).gap(7).items_center().rounded(6).cursor_pointer()
       .hover((st) => st.bg(t.hover))
-      .tooltip(ready ? `Click to open ${s.path}. Right-click for actions.` : `Uninitialized submodule (${s.path}). Click or right-click to initialize.`)
+      .tooltip(rowTip)
       .on_hover((on, cx) => { const next = on ? key : this.hover === key ? null : this.hover; if (next !== this.hover) { this.hover = next; cx.notify(); } })
       .on_mouse_down("left", (ev) => { this.press = ev; })
       .on_click((_e, cx) => {
@@ -220,16 +244,24 @@ export class Sidebar {
       .child(v_flex().flex_1().min_w(0)
         .child(h_flex().gap(5).items_center()
           .child(div().flex_1().min_w(0).truncate().text_size(12).child(s.path)))
-        .child(div().truncate().text_size(10.5).text_color(s.detached ? t.blocked : t.dim).child(metaText)))
-      .when((s.ahead ?? 0) > 0, (e) => e.child(this.pill(`↑${s.ahead}`, t.ansi2, t.ansi2 + "1c")))
-      .when((s.behind ?? 0) > 0, (e) => e.child(this.pill(`↓${s.behind}`, t.ansi1, t.ansi1 + "1c")))
+        .child(h_flex().gap(5).items_center()
+          .child(div().min_w(0).truncate().text_size(10.5).text_color(s.detached ? t.blocked : t.dim).child(metaText))
+          .when(bs?.kind === "latest", (e) => e.child(h_flex().flex_none().px(4).gap(3).items_center().rounded(4)
+            .bg(t.ansi2 + "1c").text_size(10).text_color(t.ansi2).tooltip(`At latest commit of ${bs.ref}`)
+            .child(svg(icon("check")).size(9).flex_none()).child("latest")))
+          .when(bs?.kind === "ahead" || bs?.kind === "diverged", (e) => e.child(this.pill(`↑${bs.ahead}`, t.ansi2, t.ansi2 + "1c", `${bs.ahead} commit(s) ahead of ${bs.ref}`)))
+          .when(bs?.kind === "behind" || bs?.kind === "diverged", (e) => e.child(this.pill(`↓${bs.behind}`, t.ansi1, t.ansi1 + "1c", `${bs.behind} commit(s) behind ${bs.ref}`)))
+          .when(bs?.kind === "gone", (e) => e.child(this.pill("gone", t.ansi1, t.ansi1 + "1c", `Upstream ${bs.ref ?? "branch"} is gone`)))
+          .when(bs?.kind === "local", (e) => e.child(this.pill("local", t.dim, null, "No remote tracking branch")))))
       .when(modified, (e) => e.child(this.pill(`${s.changes}`, t.blocked, t.blocked + "1c", `${s.changes} changed file(s)`)))
-      .when(s.state === "out of sync", (e) => e.child(this.pill("sync", t.blocked, t.blocked + "1c", "Submodule HEAD differs from recorded commit")))
+      .when(s.state === "out of sync", (e) => e.child(this.pill("pointer", t.blocked, t.blocked + "1c", "Pointer changed in parent repository (uncommitted)")))
       .when(s.state === "conflict" || s.state === "uninitialized", (e) => e.child(this.pill(s.state === "conflict" ? "conflict" : "uninit", color[s.state])))
       .when(hovered && ready && s.state !== "conflict", (e) => e.child(h_flex().flex_none().gap(2)
-        .child(this.smallButton(`gsb-smp-${i}`, "pull", "Pull / update current branch", (cx) => subs.run({
-          type: "submodulePull", path: s.path, name: s.path, branch: s.currentBranch ?? null, upstream: s.upstream ?? null,
-        }, cx), t, true))
+        .child(this.smallButton(`gsb-smp-${i}`, "pull",
+          s.currentBranch ? `Pull latest commit on ${s.currentBranch}${s.upstream ? ` from ${s.upstream}` : ""}` : `Update to latest commit${s.branch ? ` on ${s.branch}` : " on remote branch"}`,
+          (cx) => subs.run({
+            type: "submodulePull", path: s.path, name: s.path, branch: s.currentBranch ?? null, upstream: s.upstream ?? null,
+          }, cx), t, true))
         .child(this.smallButton(`gsb-smb-${i}`, "branch", "Switch branch…", (cx) => subs.run({
           type: "submoduleChooseBranch", path: s.path, name: s.path, currentBranch: s.currentBranch ?? null, configuredBranch: s.branch ?? null, nested: Boolean(s.nested),
         }, cx), t, true))));
@@ -302,7 +334,10 @@ export class Sidebar {
           })))
         // Submodules
         .child(this.sectionHeader("submodules", "Submodules", subList.length, t, this.submoduleSummary(subs, t), [
-          ...(subList.length > 0 ? [this.smallButton("gsb-sub-update", "fetch", "Update all submodules", (cx) => subs.run({ type: "submoduleUpdate" }, cx), t)] : []),
+          ...(subList.length > 0 ? [
+            this.smallButton("gsb-sub-fetch", "cloud-down", "Fetch all submodules to check remote branches", (cx) => subs.run({ type: "submoduleFetch" }, cx), t),
+            this.smallButton("gsb-sub-update", "fetch", "Update all submodules", (cx) => subs.run({ type: "submoduleUpdate" }, cx), t),
+          ] : []),
           this.smallButton("gsb-sub-add", "plus", "Add submodule…", (cx) => subs.run({ type: "submoduleAdd" }, cx), t),
         ]))
         .when(this.open.submodules, (el) => el

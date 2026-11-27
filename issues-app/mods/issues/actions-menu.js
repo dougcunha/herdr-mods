@@ -166,7 +166,7 @@ export class ActionsMenu extends View {
     this.busy = true;
     this.error = "";
     cx.notify();
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       try {
         const page = await this.ensurePage();
         await startActionRun({
@@ -193,7 +193,7 @@ export class ActionsMenu extends View {
     this.busy = true;
     this.error = "";
     cx.notify();
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       try {
         await retryCurrentStepInteractively(this.runKey(), { space: this.space(), repo: this.repoObj() });
         closeOverlay(props().overlay);
@@ -209,7 +209,7 @@ export class ActionsMenu extends View {
     const step = r?.steps?.[r.stepIndex] ?? r?.steps?.[0];
     if (!step || this.busy) return;
     this.busy = true;
-    cx.spawn(async () => {
+    cx.spawn(async (cx) => {
       try {
         await setActionModeOrOverride({ id: step.actionId, _source: step.source ?? "personal" }, { mode: "interactive" });
         await retryCurrentStepInteractively(this.runKey(), { space: this.space(), repo: this.repoObj() });
@@ -233,7 +233,7 @@ export class ActionsMenu extends View {
           .child(div().flex_1().min_w(0).truncate().text_size(fs.meta).font_semibold()
             .child(r.status === "awaiting_verification" ? `Verifying ${step?.name ?? r.label}${stepInfo}…` : `Running ${step?.name ?? r.label}${stepInfo}…`))
           .when(r.status === "running", (e) => e.child(button(t, "act-cancel", "Cancel", (cx) => {
-            cx.spawn(async () => { await cancelActionRun(this.runKey()); cx.notify(); });
+            cx.spawn(async (cx) => { await cancelActionRun(this.runKey()); cx.notify(); });
           }, { small: true }))));
     }
     if (r.status === "needs_input" || r.status === "failed" || r.status === "timed_out") {

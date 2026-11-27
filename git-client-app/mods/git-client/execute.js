@@ -14,13 +14,14 @@ const fail = (action, raw, values) => {
 const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany", "stageHunk", "unstageHunk", "discardHunk",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
-  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove", "submodulePull"]);
+  "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove", "submodulePull", "submoduleFetch"]);
 const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discardHunk: ["-R"] };
 
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
   if (action.type === "submoduleChooseBranch") return updateSubmoduleBranch(action, values, ctx, exec);
   if (action.type === "submodulePull") return pullSubmodule(action, ctx, exec);
+  if (action.type === "submoduleFetch") return fetchSubmodules(action, values, ctx, exec);
   if (HUNK[action.type]) return applyPatch(action.patch, HUNK[action.type], ctx, exec, io);
   if (action.type === "ignore") {
     // Only a line that the dialog offers for this file: a value never names an other path.
@@ -233,6 +234,36 @@ async function pullSubmodule(action, ctx, exec) {
   }
   const updated = await exec("git", ["submodule", "update", "--init", "--remote", "--recursive", "--", action.path], { cwd: ctx.root, on: ctx.on, timeout: 60000 });
   return updated.code === 0 ? { ok: true } : fail(action, gitError(updated));
+}
+
+async function fetchSubmodules(action, values, ctx, exec) {
+  const pruneArgs = values?.prune === false ? [] : ["--prune"];
+  if (action.path) {
+    const git = await submoduleGit(ctx, action.path, exec);
+    const remotes = await submoduleRemotes(git);
+    if (!remotes.length) return { ok: false, message: `Submodule ${action.path} has no remote.` };
+    const res = await git(["fetch", "--all", ...pruneArgs, "--no-recurse-submodules"]);
+    return res.code === 0 ? { ok: true } : fail(action, gitError(res), values);
+  }
+  const status = await exec("git", [...READ, "submodule", "status", "--recursive"], { cwd: ctx.root, on: ctx.on, timeout: 60000 });
+  if (status.code !== 0) return fail(action, gitError(status), values);
+  const paths = String(status.stdout ?? "").split(/\r?\n/).map((line) => {
+    const m = /^([ +U])[0-9a-f]{40,64} (.+?)(?: \((.*)\))?$/.exec(line);
+    return m ? m[2] : null;
+  }).filter(Boolean);
+  const errors = [];
+  for (let i = 0; i < paths.length; i += 4) {
+    await Promise.all(paths.slice(i, i + 4).map(async (p) => {
+      if (typeof p !== "string" || !p || /[\\\0]|^\/|(?:^|\/)\.\.?(?:\/|$)/.test(p)) {
+        errors.push(`${p}: Invalid submodule path.`);
+        return;
+      }
+      const r = await exec("git", ["fetch", "--all", ...pruneArgs, "--no-recurse-submodules"], { cwd: `${ctx.root}/${p}`, on: ctx.on, timeout: 60000 });
+      if (r.code !== 0) errors.push(`${p}: ${gitError(r)}`);
+    }));
+  }
+  if (errors.length) return fail(action, errors.join("\n"), values);
+  return { ok: true };
 }
 
 // One hunk with `git apply`. exec takes no input, so the patch goes through a file here, and

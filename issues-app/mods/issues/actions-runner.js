@@ -476,6 +476,7 @@ async function advanceOrFinish(runKey, r) {
   }
 
   const nextStep = r.steps[nextIdx];
+  const space = spaces().find((s) => s.id === r.spaceId) ?? spaces().find((s) => s.active) ?? null;
   const [personal, repoCfg] = await Promise.all([
     loadPersonalConfig(),
     r.repoMain ? loadRepoConfig({ main: r.repoMain, on: null }) : null,
@@ -508,7 +509,6 @@ async function advanceOrFinish(runKey, r) {
 
   const prompt = buildActionPrompt(nextStep, vars, nextStep.mode, Boolean(agentCfg.allowAutoApprove));
   if (nextStep.mode === "interactive") {
-    const space = spaces().find((s) => s.id === r.spaceId) ?? spaces().find((s) => s.active);
     try {
       launchInteractiveStep({ actionName: nextStep.name, prompt, space, cwd: r.cwd, issueKey: r.issueKey, agent, agentCfg });
       patchRun(runKey, { stepIndex: nextIdx, mode: "interactive", address: null, status: "ok", reason: `Opened interactive tab for "${nextStep.name}".`, endedAt: Date.now() });

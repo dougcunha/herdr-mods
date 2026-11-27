@@ -881,7 +881,6 @@ export default class SpaceIssues extends View {
       actions: this.hasActionsFor(i),
       actionProps: {
         key: i.key, site: i.site, repo: i.repo ?? "", isGh: isGithub(i), issue: i,
-        page: this.pages.get(pageKey(i)) ?? null,
         spaceId: this.fileSpace()?.id ?? null,
         repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
       },
@@ -1062,7 +1061,7 @@ export default class SpaceIssues extends View {
     const actBtn = () => {
       if (!this.hasActionsFor(i) && !actRun) return null;
       const openAct = () => openActionsMenu("issues", {
-        key: i.key, site: i.site, repo: i.repo ?? "", isGh: gh, issue: i, page: p,
+        key: i.key, site: i.site, repo: i.repo ?? "", isGh: gh, issue: i,
         spaceId: this.fileSpace()?.id ?? null, repoMain: this.repo?.main ?? null, repoOn: this.repo?.on ?? null,
       });
       if (!actRunning) return k.button("issue-actions", "Actions", openAct, { icon: "zap" });

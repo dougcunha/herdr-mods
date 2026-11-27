@@ -251,7 +251,24 @@ export class Client {
     cx.notify();
   }
 
-  fetch(cx) { const ctx = this.ctx(); if (ctx?.remotes.length) this.act("fetch", { type: "fetch" }, { prune: prune() }, ctx, cx); }
+  fetch(cx) {
+    const ctx = this.ctx();
+    if (!ctx?.remotes.length || this.busy) return;
+    const hasSubs = Boolean(this.submodules.list?.some((s) => s.state !== "uninitialized"));
+    this.busy = "fetch";
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try {
+        const res = await perform({ type: "fetch" }, { prune: prune() }, ctx);
+        if (res.ok && hasSubs) {
+          await perform({ type: "submoduleFetch" }, { prune: prune() }, ctx, { toast: false, quiet: true });
+        }
+      } finally {
+        this.busy = null;
+        cx.notify();
+      }
+    });
+  }
 
   forcePush() {
     const ctx = this.ctx();

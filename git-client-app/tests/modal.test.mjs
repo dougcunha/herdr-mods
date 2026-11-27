@@ -62,6 +62,40 @@ const st3 = R.parseSubmoduleStatus("## old...origin/old [gone]\0");
 assert.equal(st3.branch, "old");
 assert.equal(st3.gone, true);
 
+// ---- submodule branch-tip state & rev-list counts
+assert.deepEqual(R.parseRevListCounts("3\t1\n"), { ahead: 3, behind: 1 });
+assert.equal(R.parseRevListCounts(""), null);
+assert.equal(R.submoduleBranchState({ state: "uninitialized", branchChecked: true }), null);
+assert.equal(R.submoduleBranchState({ state: "ok", branchChecked: false }), null);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "out of sync", branchChecked: true, upstream: "origin/main", ahead: 0, behind: 0 }),
+  { kind: "latest", ref: "origin/main" },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, branchRef: "origin/main", ahead: 2, behind: 0 }),
+  { kind: "ahead", ahead: 2, ref: "origin/main" },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, upstream: "origin/main", ahead: 0, behind: 4 }),
+  { kind: "behind", behind: 4, ref: "origin/main" },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, upstream: "origin/main", ahead: 1, behind: 2 }),
+  { kind: "diverged", ahead: 1, behind: 2, ref: "origin/main" },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, upstream: "origin/old", gone: true, ahead: 0, behind: 0 }),
+  { kind: "gone", ref: "origin/old" },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, upstream: null, ahead: 0, behind: 0 }),
+  { kind: "local", ref: null },
+);
+assert.deepEqual(
+  R.submoduleBranchState({ state: "ok", branchChecked: true, detached: true, branchRef: "origin/main", ahead: 0, behind: 0 }),
+  { kind: "latest", ref: "origin/main" },
+);
+
 // ---- targeted refresh classification
 assert.equal(R.classifyRefresh("stage"), "status");
 assert.equal(R.classifyRefresh("discardHunk"), "status");
@@ -69,6 +103,7 @@ assert.equal(R.classifyRefresh("stash"), "stash");
 assert.equal(R.classifyRefresh("stashPop"), "stash");
 assert.equal(R.classifyRefresh("submoduleChooseBranch"), "submodules");
 assert.equal(R.classifyRefresh("submodulePull"), "submodules");
+assert.equal(R.classifyRefresh("submoduleFetch"), "submodules");
 assert.equal(R.classifyRefresh("commit"), "full");
 assert.equal(R.classifyRefresh("checkout"), "full");
 

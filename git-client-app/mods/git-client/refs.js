@@ -255,6 +255,25 @@ export function parseSubmoduleStatus(statusText) {
   return out;
 }
 
+// Parses `git rev-list --left-right --count HEAD...<ref>` ("<ahead>\t<behind>").
+export function parseRevListCounts(text) {
+  const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(String(text ?? ""));
+  return m ? { ahead: Number(m[1]), behind: Number(m[2]) } : null;
+}
+
+// Whether a submodule is at the latest commit of its branch/upstream, independent of parent-repo pointer sync.
+export function submoduleBranchState(s) {
+  if (!s || s.state === "uninitialized" || !s.branchChecked) return null;
+  const ref = s.branchRef ?? s.upstream ?? null;
+  if (s.gone) return { kind: "gone", ref };
+  const ahead = s.ahead ?? 0, behind = s.behind ?? 0;
+  if (behind > 0 && ahead > 0) return { kind: "diverged", ahead, behind, ref };
+  if (behind > 0) return { kind: "behind", behind, ref };
+  if (ahead > 0) return { kind: "ahead", ahead, ref };
+  if (ref) return { kind: "latest", ref };
+  return { kind: "local", ref: null };
+}
+
 const STATUS_ONLY_ACTIONS = new Set([
   "stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany",
   "stageHunk", "unstageHunk", "discardHunk",
@@ -262,7 +281,7 @@ const STATUS_ONLY_ACTIONS = new Set([
 const STASH_ACTIONS = new Set(["stash", "stashApply", "stashPop", "stashDrop"]);
 const SUBMODULE_ACTIONS = new Set([
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd",
-  "submoduleRemove", "submoduleChooseBranch", "submodulePull",
+  "submoduleRemove", "submoduleChooseBranch", "submodulePull", "submoduleFetch",
 ]);
 
 export function classifyRefresh(actionType) {
