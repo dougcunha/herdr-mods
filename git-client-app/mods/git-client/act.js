@@ -118,3 +118,8 @@ export function showFile(path, mode) {
 export function showCompare(a, b, root = null, on = null) {
   setShared("git-client.show", { compare: { a, b, root, on: on ?? null }, at: Date.now() });
 }
+
+// Asks every copy to filter the History graph to a single branch.
+export function showBranchFilter(branch, root = null, on = null) {
+  setShared("git-client.show", { branchFilter: { branch, root, on: on ?? null }, at: Date.now() });
+}

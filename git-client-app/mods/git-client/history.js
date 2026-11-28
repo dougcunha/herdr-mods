@@ -8,15 +8,15 @@ import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, ScrollHandle, v_virtual_list, VirtualListScrollHandle, InputState, Input, v_resizable, h_resizable, resizable_panel } from "gpui-base";
 import { spaces, panes, exec, watchFolder, readTextFile, theme, settings, shared, setShared, openOverlay, updates, run, window as appWindow } from "herdr";
 import { layoutLanes } from "./lanes.js";
-import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, withUncommitted, labelsOf, hitLabel,
+import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, commitArgs, parseFilter, parseLog, parseStatus, parseBranch, parseShowRef, sameBranchInfo, shouldReloadDependents, shouldAcceptChangeEvent, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows, compareFileArgs, compareDiffArgs } from "./git.js";
-import { classifyRefresh } from "./refs.js";
+import { classifyRefresh, samePath } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
-import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
+import { DiffView, VIEW_KEY, WS_KEY, currentView, ignoreWhitespace } from "./diffview.js";
 import { clickCommit, orderCommits, stepIndex, visualReviewSelection } from "./selection.js";
 
-const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
+const INITIAL_PAGE = 100, PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
 const DETAILS_DEFAULT = 320, DETAILS_MIN = 120, LIST_MIN = 80;
 const savedDetailsHeight = () => {
   const h = Number(shared("git-client.detailsHeight"));
@@ -72,8 +72,8 @@ const keep = (map, key, value, max) => { map.delete(key); map.set(key, value); i
 
 // What belongs to one folder: a new folder starts from this, and leaving one keeps it.
 const folderState = () => ({
-  state: "loading", root: null, on: null, cwd: null, error: null,
-  base: [], commits: [], rows: [], lanes: 1, labels: new Map(), index: new Map(), hasMore: false, limit: PAGE, files: [], ctx: null,
+  state: "loading", root: null, commonDir: null, on: null, cwd: null, error: null,
+  base: [], commits: [], rows: [], lanes: 1, labels: new Map(), index: new Map(), hasMore: false, limit: INITIAL_PAGE, files: [], ctx: null,
   head: null, current: null, branches: [], remoteNames: [], branchInfo: parseBranch(""), signature: null, scope: null, moreAsked: null,
   selected: null, compare: null, compareAnchor: null, details: null, diff: null,
 });
@@ -85,29 +85,40 @@ const folderState = () => ({
 // (warm) for its history and refs; its uncommitted row comes when it's shown.
 async function readFolder(cwd, on, { all, remotes, limit, filter = null, branch = null, status: withStatus = true }) {
   const git = (args) => exec("git", [...READ, ...args], { cwd, on });
-  const [top, log, head, current, branches, remoteNames, status, found] = await Promise.all([
-    // One commit past the page says whether there are more, as Git Graph asks.
-    exec("git", ["rev-parse", "--show-toplevel"], { cwd, on }), git(logArgs({ all, remotes, limit: limit + 1, filter, branch })),
-    git(["rev-parse", "--verify", "-q", "HEAD"]), git(["symbolic-ref", "-q", "--short", "HEAD"]),
-    git(["for-each-ref", "--format=%(refname)", "refs/heads"]), git(["remote"]), withStatus ? git(STATUS) : null,
+  const [rev, refsRes, log, remoteNames, status, found] = await Promise.all([
+    exec("git", ["rev-parse", "--show-toplevel", "--git-common-dir"], { cwd, on }),
+    git(["show-ref", "--head", "--heads"]),
+    git(logArgs({ all, remotes, limit: limit + 1, filter, branch })),
+    git(["remote"]),
+    withStatus ? git(STATUS) : null,
     // A hash typed in the search: that commit too, if it exists.
-    filter?.hash ? git(commitArgs(filter.hash)) : null]);
-  if (top.code !== 0) return { state: "norepo", cwd, on };
+    filter?.hash ? git(commitArgs(filter.hash)) : null,
+  ]);
+  if (rev.code !== 0) return { state: "norepo", cwd, on };
+  const [rootLine, commonLine] = rev.stdout.trim().split(/\r?\n/);
+  const root = rootLine?.trim() || cwd;
+  const commonDir = commonLine?.trim() || ".git";
+  const { head, branches } = refsRes.code === 0 ? parseShowRef(refsRes.stdout) : { head: null, branches: [] };
   // A log that fails without a HEAD is a repository with no commits yet.
-  if (log.code !== 0 && head.code === 0) throw new Error(log.stderr.trim());
+  if (log.code !== 0 && head) throw new Error(log.stderr.trim());
   let base = log.code === 0 ? parseLog(log.stdout) : [];
   if (found?.code === 0) {
     const extra = parseLog(found.stdout).filter((c) => !base.some((b) => b.hash === c.hash));
     base = [...extra, ...base];
   }
+  const statusText = status?.code === 0 ? status.stdout : "";
+  const branchInfo = parseBranch(statusText);
+  const current = withStatus
+    ? (branchInfo.detached ? null : branchInfo.branch)
+    : (base.find((c) => c.head)?.refs?.find((r) => r.kind === "branch" && r.head)?.name ?? null);
   return {
-    root: top.stdout.trim(), on, cwd, base: base.slice(0, limit), limit, hasMore: base.length > limit,
-    head: head.code === 0 ? head.stdout.trim() : null, current: current.code === 0 ? current.stdout.trim() : null,
-    branches: branches.stdout.split("\n").filter(Boolean).map((r) => r.replace(/^refs\/heads\//, "")),
-    remoteNames: remoteNames.stdout.split("\n").filter(Boolean),
-    files: status?.code === 0 ? parseStatus(status.stdout) : [],
-    branchInfo: parseBranch(status?.code === 0 ? status.stdout : ""),
-    signature: [log.stdout, head.stdout, current.stdout, branches.stdout, remoteNames.stdout, found?.stdout ?? ""].join("\0"),
+    root, commonDir, on, cwd, base: base.slice(0, limit), limit, hasMore: base.length > limit,
+    head, current,
+    branches,
+    remoteNames: remoteNames.stdout.split(/\r?\n/).filter(Boolean),
+    files: status?.code === 0 ? parseStatus(statusText) : [],
+    branchInfo,
+    signature: [log.stdout, head ?? "", current ?? "", branches.join("\0"), remoteNames.stdout, found?.stdout ?? ""].join("\0"),
     scope: scopeOf({ all, remotes, filterKey: filter ? JSON.stringify(filter) : "", branchFilter: branch ?? "" }),
   };
 }
@@ -130,11 +141,13 @@ export class History {
     this.filter = null; this.filterKey = "";
     this.branchFilter = null; this.highlightHash = null; this.branchNotice = null;
     this.watchToken = 0;
+    this.lastActionAt = 0; this.lastActionTarget = null;
+    this.seenWs = ignoreWhitespace();
     const initChanged = shared("git-client.changed");
     this.seenChange = initChanged && typeof initChanged === "object" ? initChanged.at : initChanged;
     this.cols = withDefaults(savedColumns() ?? undefined); this.drag = null;
     this.seen = new Map(); this.commitDetails = new Map();
-    this.search = InputState.new({ placeholder: "Search: text, hash, author:name, path:file" });
+    this.search = InputState.new({ placeholder: "Search: text, hash, author:, path:, code:" });
     this.search.on("submit", (_e, cx) => this.applySearch(cx));
     this.search.on("change", (_e, cx) => { if (!this.search.value().trim() && this.filter) this.applySearch(cx); });
     this.search.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
@@ -193,7 +206,7 @@ export class History {
       try {
         for (const [key, { cwd, on }] of order) {
           const scope = scopeOf(this);
-          const read = await readFolder(cwd, on, { all: this.all, remotes: this.remotes, limit: PAGE, status: false }).catch(() => null);
+          const read = await readFolder(cwd, on, { all: this.all, remotes: this.remotes, limit: INITIAL_PAGE, status: false }).catch(() => null);
           if (read && key !== this.context && !this.seen.has(key) && scope === scopeOf(this)) {
             keep(this.seen, key, { ...folderState(), state: read.state ?? "ready", ...read, warmed: read.state === "norepo" }, SEEN);
           }
@@ -205,46 +218,53 @@ export class History {
   // A load belongs to its folder: a new folder starts at once, and a slower
   // load for the old one finds itself stale and drops its result.
   // full: the history and the refs too; else only the status.
-  refresh(cx, full = true, { target = "full" } = {}) {
+  refresh(cx, full = true, { target = "full", force = false } = {}) {
     const { cwd, on } = this.host.location(), context = this.key();
-    if (context !== this.context) { this.enter(context); full = true; target = "full"; this.host.onRead(cx, "full"); }
+    if (context !== this.context) {
+      this.enter(context); full = true; target = "full";
+      if (this.root) this.host.onRead(cx, "full");
+    }
     if (!cwd) { this.state = "nofolder"; this.host.refreshing = false; return; }
     const { all, remotes, limit, filter, branchFilter } = this;
     if (this.loading?.key === context) {
       this.again = this.again === "full" || full ? "full" : "status";
       this.againTarget = this.againTarget === "full" || target === "full" ? "full" : target;
+      this.againForce = this.againForce || force;
       return;
     }
     // Each load has its own id: an older one can't win over a newer one.
     const id = this.loadSeq = (this.loadSeq ?? 0) + 1;
-    this.loading = { key: context, id }; this.again = null; this.againTarget = null;
+    this.loading = { key: context, id }; this.again = null; this.againTarget = null; this.againForce = false;
     this.host.refreshing = true;
     const stale = () => this.loadSeq !== id || this.key() !== context;
+    const firstLoad = !this.root;
     cx.spawn(async (cx) => {
-      let read = false;
+      let changed = false;
       try {
         if (full || !this.root) {
           // A search runs in the repository's top folder, so path: names a path from there.
           const r = await readFolder(filter && this.root ? this.root : cwd, on, { all, remotes, limit, filter, branch: branchFilter });
           if (stale()) return;
-          read = true;
-          if (r.state === "norepo") { this.reset(); Object.assign(this, { state: "norepo", cwd, on }); return; }
-          if (!on && !this.host.isModal) this.watch(r.root, context, cx);
+          if (r.state === "norepo") { this.reset(); Object.assign(this, { state: "norepo", cwd, on }); changed = true; return; }
+          if (!on && !this.host.isModal) this.watch(r.root, r.commonDir, context, cx);
           // A second look that finds nothing new leaves the table as it is.
           const shown = this.state === "ready" || this.state === "empty";
-          const same = shown && r.signature === this.signature && r.scope === this.scope && sameFiles(r.files, this.files);
+          const same = shown && r.signature === this.signature && r.scope === this.scope
+            && sameFiles(r.files, this.files) && sameBranchInfo(r.branchInfo, this.branchInfo);
           this.branchInfo = r.branchInfo;
           if (same) return;
           Object.assign(this, r);
+          changed = true;
         } else {
           const status = await exec("git", [...READ, ...STATUS], { cwd: this.root, on: this.on });
           if (stale()) return;
-          read = true;
           if (status.code !== 0) return;
-          this.branchInfo = parseBranch(status.stdout);
+          const nextBranch = parseBranch(status.stdout);
           const files = parseStatus(status.stdout);
-          if (sameFiles(files, this.files)) return;
+          if (sameFiles(files, this.files) && sameBranchInfo(nextBranch, this.branchInfo)) return;
+          this.branchInfo = nextBranch;
           this.files = files;
+          changed = true;
         }
         this.build();
         if (this.selected === UNCOMMITTED && this.details) this.loadDetails(this.commits[0], cx);
@@ -254,12 +274,14 @@ export class History {
         if (this.loading?.id === id) {
           this.loading = null;
           this.host.refreshing = false;
-          // Every read tells the Changes tab and targeted sidebar slices.
-          if (read || this.state === "error") this.host.onRead(cx, target);
+          // Only cascade into Changes/Branches/Stash/Submodules when state actually changed or forced.
+          if (shouldReloadDependents({ changed, force, target, firstLoad, isError: this.state === "error" })) {
+            this.host.onRead(cx, target);
+          }
           cx.notify();
           if (this.again) {
-            const nextFull = this.again === "full", nextTarget = this.againTarget ?? (nextFull ? "full" : "status");
-            this.refresh(cx, nextFull, { target: nextTarget });
+            const nextFull = this.again === "full", nextTarget = this.againTarget ?? (nextFull ? "full" : "status"), nextForce = this.againForce;
+            this.refresh(cx, nextFull, { target: nextTarget, force: nextForce });
           }
         }
       }
@@ -282,8 +304,8 @@ export class History {
     }
   }
 
-  // Ref moves reload the history; other edits only the status, at most every 1.5 s.
-  watch(root, context, cx) {
+  // Ref moves reload the history (debounced 250 ms); other edits only the status, at most every 1.5 s.
+  watch(root, commonDir, context, cx) {
     if (this.watching === root) return;
     this.watching = root;
     const token = this.watchToken;
@@ -293,17 +315,29 @@ export class History {
           // Windows reports backslashes; the ref checks read slashes.
           const paths = (await watchFolder(dir)).map((p) => p.replace(/\\/g, "/"));
           if (token !== this.watchToken) return;
-          if (paths.some((p) => (gitDir || inGitDir(p)) && isRefChange(p))) this.refresh(cx, true);
-          else if (paths.some((p) => (!gitDir && !inGitDir(p)) || /\/(index|MERGE_HEAD|CHERRY_PICK_HEAD|REVERT_HEAD)$|\/rebase-(merge|apply)/.test(p))) this.statusSoon(cx);
+          const selfRecent = Date.now() - (this.lastActionAt ?? 0) < 900;
+          if (paths.some((p) => (gitDir || inGitDir(p)) && isRefChange(p))) {
+            if (!(selfRecent && this.lastActionTarget === "full")) this.refSoon(cx);
+          } else if (paths.some((p) => (!gitDir && !inGitDir(p)) || /\/(index|MERGE_HEAD|CHERRY_PICK_HEAD|REVERT_HEAD)$|\/rebase-(merge|apply)/.test(p))) {
+            if (!selfRecent) this.statusSoon(cx);
+          }
         }
       } catch { if (token === this.watchToken) this.watching = null; }
     });
     loop(root, false);
     // A linked worktree keeps its refs in the main checkout's .git.
-    cx.spawn(async (cx) => {
-      const common = (await exec("git", [...READ, "rev-parse", "--git-common-dir"], { cwd: root })).stdout.trim();
-      const dir = /^([a-zA-Z]:)?[\\/]/.test(common) ? common : `${root}/${common}`;
-      if (token === this.watchToken && this.key() === context && !dir.startsWith(`${root}/`)) loop(dir, true);
+    const rawCommon = String(commonDir ?? ".git").replace(/\\/g, "/");
+    const normRoot = root.replace(/\\/g, "/").replace(/\/+$/, "");
+    const dir = /^([a-zA-Z]:)?\//.test(rawCommon) ? rawCommon : `${normRoot}/${rawCommon}`;
+    if (token === this.watchToken && this.key() === context && !samePath(dir, normRoot) && !dir.startsWith(`${normRoot}/`)) loop(dir, true);
+  }
+
+  refSoon(cx) {
+    if (this.refTimer) return;
+    this.refTimer = true;
+    cx.timer.after(250, (cx) => {
+      this.refTimer = false;
+      this.refresh(cx, true);
     });
   }
 
@@ -316,7 +350,7 @@ export class History {
   }
 
   loadMore(cx) { this.limit += PAGE; this.refresh(cx); cx.notify(); }
-  setScope(all, cx) { if (this.all !== all) { this.all = all; this.limit = PAGE; this.refresh(cx); } cx.notify(); }
+  setScope(all, cx) { if (this.all !== all) { this.all = all; this.limit = INITIAL_PAGE; this.refresh(cx); } cx.notify(); }
   setRemotes(cx) { this.remotes = !this.remotes; this.refresh(cx); cx.notify(); }
 
   clearSelection() {
@@ -328,7 +362,7 @@ export class History {
   applySearch(cx) {
     const filter = parseFilter(this.search.value()), key = filter ? JSON.stringify(filter) : "";
     if (key === this.filterKey) return;
-    this.filter = filter; this.filterKey = key; this.limit = PAGE;
+    this.filter = filter; this.filterKey = key; this.limit = INITIAL_PAGE;
     this.clearSelection();
     this.signature = null; this.state = "loading";
     this.refresh(cx); cx.notify();
@@ -457,9 +491,16 @@ export class History {
   setBranchFilter(branch, cx) {
     this.branchFilter = branch || null;
     this.branchNotice = null;
-    this.limit = PAGE;
+    this.limit = INITIAL_PAGE;
     this.refresh(cx, true, { target: "graph" });
     cx.notify();
+  }
+
+  commitFileMenu(hash, file, e) {
+    if (!this.ctx || !hash || !file?.path) return;
+    const target = { kind: "commitFile", hash, path: file.path, status: file.status };
+    const items = menuFor(target, this.ctx);
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx: this.ctx } });
   }
 
   pick(commit, cx, modifiers = null) {
@@ -551,12 +592,13 @@ export class History {
   openCompareDiff(base, target, file, cx, { notify = true } = {}) {
     this.diff = { path: file.path, rows: null, width: 300 };
     this.detailsDiffView.setRows([]);
+    const ws = ignoreWhitespace();
     cx.spawn(async (cx) => {
       let rows;
       try {
-        const r = await exec("git", [...READ, ...compareDiffArgs(base, target, file.path)], { cwd: this.root, on: this.on });
+        const r = await exec("git", [...READ, ...compareDiffArgs(base, target, file.path, { ignoreWhitespace: ws })], { cwd: this.root, on: this.on });
         if (r.code !== 0) throw new Error(r.stderr.trim());
-        rows = diffRows(r.stdout) ?? [{ kind: "", text: file.binary ? "Binary file changed" : "No text changes" }];
+        rows = diffRows(r.stdout) ?? [{ kind: "", text: file.binary ? "Binary file changed" : ws ? "Only whitespace changes" : "No text changes" }];
       } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; }
       if (this.compare?.base === base && this.compare?.target === target && this.diff?.path === file.path) {
         this.diff = { path: file.path, rows, width: Math.max(300, ...rows.map((r) => r.text.length * 6.6 + 60)) };
@@ -619,10 +661,10 @@ export class History {
     });
   }
 
-  openDiff(commit, file, cx) {
+  openDiff(commit, file, cx, { notify = true } = {}) {
     this.diff = { path: file.path, rows: null, width: 300 };
     this.detailsDiffView.setRows([]);
-    const hash = commit.hash;
+    const hash = commit.hash, ws = ignoreWhitespace();
     cx.spawn(async (cx) => {
       let rows;
       try {
@@ -631,9 +673,9 @@ export class History {
           rows = text === null || text.includes("\0") ? [{ kind: "", text: "Binary or unreadable file" }]
             : diffRows(`@@ -0,0 +1 @@\n${text.slice(0, 400000).split("\n").slice(0, 3000).map((l) => `+${l}`).join("\n")}`);
         } else {
-          const r = await exec("git", [...READ, ...diffArgs(commit, file.path)], { cwd: this.root, on: this.on });
+          const r = await exec("git", [...READ, ...diffArgs(commit, file.path, { ignoreWhitespace: ws })], { cwd: this.root, on: this.on });
           if (r.code !== 0) throw new Error(r.stderr.trim());
-          rows = diffRows(r.stdout) ?? [{ kind: "", text: file.binary ? "Binary file changed" : "No text changes" }];
+          rows = diffRows(r.stdout) ?? [{ kind: "", text: file.binary ? "Binary file changed" : ws ? "Only whitespace changes" : "No text changes" }];
         }
       } catch (e) { rows = [{ kind: "", text: `Can't show this diff: ${e?.message ?? e}` }]; }
       if (this.selected === hash && this.diff?.path === file.path) {
@@ -642,7 +684,7 @@ export class History {
       }
       cx.notify();
     });
-    cx.notify();
+    if (notify) cx.notify();
   }
 
   // Esc: closes a diff, then the details, then clears the search. False: nothing to close.
@@ -746,6 +788,13 @@ export class History {
         .child(div().max_w(160).truncate().child(this.branchFilter))
         .child(svg(icon("x")).size(11).flex_none())))
       .child(div().flex_1())
+      .when(Boolean(this.head), (e) => e.child(h_flex().id("gc-jump-head").h(24).px(7).gap(4).items_center().rounded(6).cursor_pointer()
+        .bg(t.background).border_1().border_color(t.border).text_size(11).text_color(t.muted)
+        .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+        .tooltip("Jump to HEAD commit (Ctrl+G)")
+        .on_click((_e, cx) => this.scrollToCommit(this.head, this.current ?? "HEAD", cx))
+        .child(svg(icon("commit")).size(11).text_color(t.accent))
+        .child("HEAD")))
       .when(!(Array.isArray(shared("herdr-mods.disabled")) && shared("herdr-mods.disabled").includes("visual-review")), (e) => {
         const vr = visualReviewSelection({ compare: this.compare, selected: this.selected, commits: this.commits, index: this.index, uncommittedKey: UNCOMMITTED });
         return e.child(h_flex().id("gc-visual-review").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer()
@@ -836,13 +885,14 @@ export class History {
       .when(Boolean(c?.author), (e) => e.child(div().text_size(11).text_color(t.dim).truncate().child(`${c.author} · ${ago(c.time)}`)));
   }
 
-  compareFileRows(files, idPrefix, activePath, onPick, t) {
+  compareFileRows(files, idPrefix, activePath, onPick, t, onMenu = null) {
     return files.map((f, i) => {
       const parts = f.path.split("/"), name = parts.pop(), on = activePath === f.path;
       const sc = f.status === "A" ? t.ansi2 : f.status === "D" || f.status === "U" ? t.ansi1 : t.blocked;
       return h_flex().id(`${idPrefix}-${i}`).h(24).flex_none().px(6).gap(8).items_center().rounded(6).cursor_pointer()
         .when(on, (s) => s.bg(t.selected)).hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => onPick(f, cx))
+        .when(Boolean(onMenu), (e) => e.on_mouse_down("right", (ev, cx) => { cx.stop_propagation(); onMenu(f, ev); }))
         .child(div().w(12).flex_none().text_size(11).text_color(sc).child(f.status))
         .child(h_flex().flex_1().min_w(0).child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : "")).child(div().min_w(0).truncate().child(name)))
         .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`)))
@@ -892,7 +942,7 @@ export class History {
             .child(div().text_color(t.muted).child(count(d.files.length + d.more, "file")))
             .when(add > 0 || del > 0, (e) => e.child(div().text_color(t.ansi2).child(`+${add}`)).child(div().text_color(t.ansi1).child(`−${del}`))))
           .when(d.files.length === 0, (e) => e.child(div().text_size(11.5).text_color(t.dim).child("No differences between these commits."))))
-        .children(this.compareFileRows(d.files, "gf", null, (f, cx) => this.openCompareDiff(base, target, f, cx), t))
+        .children(this.compareFileRows(d.files, "gf", null, (f, cx) => this.openCompareDiff(base, target, f, cx), t, (f, e) => this.commitFileMenu(target, f, e)))
         .when(d.more > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(`and ${d.more} more`))), swapBtn);
     }
     const commit = this.commits[this.index.get(this.selected)];
@@ -917,7 +967,7 @@ export class History {
         .child(h_flex().pt(8).pb(2).gap(8).items_center().text_size(11.5)
           .child(div().text_color(t.muted).child(count(d.files.length + d.more, "file")))
           .when(add > 0 || del > 0, (e) => e.child(div().text_color(t.ansi2).child(`+${add}`)).child(div().text_color(t.ansi1).child(`−${del}`)))))
-      .children(this.compareFileRows(d.files, "gf", null, (f, cx) => this.openDiff(commit, f, cx), t))
+      .children(this.compareFileRows(d.files, "gf", null, (f, cx) => this.openDiff(commit, f, cx), t, !commit.uncommitted ? (f, e) => this.commitFileMenu(commit.hash, f, e) : null))
       .when(d.more > 0, (e) => e.child(div().text_size(11).text_color(t.dim).child(`and ${d.more} more`))));
   }
 
@@ -955,12 +1005,34 @@ export class History {
     const sig = changed && typeof changed === "object" ? changed.at : changed;
     if (sig && sig !== this.seenChange) {
       this.seenChange = sig;
-      if (this.root) {
+      if (this.root && shouldAcceptChangeEvent(changed, { root: this.root, on: this.on })) {
         const target = typeof changed === "object" ? classifyRefresh(changed.type) : "full";
+        this.lastActionAt = Date.now();
+        this.lastActionTarget = target;
         if (target === "status") this.refresh(cx, false, { target: "status" });
         else if (target === "stash") this.refresh(cx, false, { target: "stash" });
         else if (target === "submodules") this.refresh(cx, false, { target: "submodules" });
         else this.refresh(cx, true, { target: "full" });
+      }
+    }
+    const ws = ignoreWhitespace();
+    if (ws !== this.seenWs) {
+      this.seenWs = ws;
+      if (this.diff && (this.compare || this.selected)) {
+        const file = this.details?.files?.find((f) => f.path === this.diff.path);
+        if (file) {
+          if (this.compare) this.openCompareDiff(this.compare.base, this.compare.target, file, cx, { notify: false });
+          else if (this.selected) {
+            const commit = this.commits[this.index.get(this.selected)];
+            if (commit) this.openDiff(commit, file, cx, { notify: false });
+          }
+        }
+      }
+      const ch = this.host.changes;
+      if (ch?.sel && ch.lastWs !== ws) {
+        ch.lastWs = ws;
+        const seq = ch.seq;
+        cx.spawn(async (cx) => { await ch.loadDiff(cx, seq, true); cx.notify(); });
       }
     }
     const savedCols = savedColumns(), seen = JSON.stringify(savedCols ?? null);
@@ -1031,7 +1103,7 @@ export class History {
           .when(Boolean(d && !d.error), (el) => {
             const { base, target } = this.compare;
             return el
-              .children(this.compareFileRows(d.files, "gwf", this.diff?.path ?? null, (f, cx) => this.openCompareDiff(base, target, f, cx), t))
+              .children(this.compareFileRows(d.files, "gwf", this.diff?.path ?? null, (f, cx) => this.openCompareDiff(base, target, f, cx), t, (f, e) => this.commitFileMenu(target, f, e)))
               .when(d.more > 0, (b) => b.child(div().pt(4).text_size(11).text_color(t.dim).child(`and ${d.more} more`)));
           }))
       : v_flex().id("gcw-details-left").size_full().min_h(0).border_r(1).border_color(t.border)
@@ -1055,14 +1127,22 @@ export class History {
                   .when(add > 0 || del > 0, (b) => b.child(div().text_color(t.ansi2).child(`+${add}`)).child(div().text_color(t.ansi1).child(`−${del}`))));
             }))
           .when(Boolean(d && !d.error), (el) => el
-            .children(this.compareFileRows(d.files, "gwf", this.diff?.path ?? null, (f, cx) => this.openDiff(commit, f, cx), t))
+            .children(this.compareFileRows(d.files, "gwf", this.diff?.path ?? null, (f, cx) => this.openDiff(commit, f, cx), t, !commit.uncommitted ? (f, e) => this.commitFileMenu(commit.hash, f, e) : null))
             .when(d.more > 0, (b) => b.child(div().pt(4).text_size(11).text_color(t.dim).child(`and ${d.more} more`)))));
 
     const diffSides = this.diffSides();
     const sideLabel = this.compare ? `${this.compare.base.slice(0, 8)}..${this.compare.target.slice(0, 8)}` : commit.hash.slice(0, 8);
+    const ws = ignoreWhitespace();
     const rightDiff = v_flex().id("gcw-details-right").size_full().min_h(0)
       .child(h_flex().h(32).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().min_w(0).truncate().font_family(mono).text_size(11.5).text_color(this.diff ? t.foreground : t.dim).child(this.diff?.path ?? "No file selected"))
+        .child(div().id("gcw-cd-ws").h(22).px(6).flex().items_center().rounded(5).border_1()
+          .border_color(ws ? t.accent : t.border).bg(ws ? t.selected : t.raised)
+          .text_size(10.5).text_color(ws ? t.foreground : t.muted).cursor_pointer()
+          .tooltip("Ignore whitespace changes (-w)")
+          .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+          .on_click(() => setShared(WS_KEY, !ws))
+          .child("±w"))
         .child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split")))
         .when(Boolean(this.diff?.rows?.length), (e) => e.child(h_flex().id("gcw-cd-expand").size(22).flex_none().items_center().justify_center().rounded(5).cursor_pointer()
           .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open diff in a wide dialog")

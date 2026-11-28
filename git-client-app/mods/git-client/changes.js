@@ -7,7 +7,7 @@ import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, me
 import { perform, openDialog, openErrorDialog, atEvent } from "./act.js";
 import { describeError } from "./errors.js";
 import { icon } from "./menu.js";
-import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
+import { DiffView, VIEW_KEY, WS_KEY, currentView, ignoreWhitespace } from "./diffview.js";
 import { ImageDiffView, sweepStagedImages } from "./imageview.js";
 import { generateMessage } from "./ai.js";
 import { emptySelection, isPicked, clickRow, clickCheckbox, selectAll, pruneSelection, selectedFiles, stepIndex } from "./selection.js";
@@ -34,6 +34,8 @@ export class Changes {
 
   init(cx) {
     this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.opSides = null;
+    this.opPathCache = new Map();
+    this.lastWs = ignoreWhitespace();
     this.sel = null; this.picked = emptySelection(); this.closed = false; this.patch = null; this.diffNote = null;
     this.diff = new DiffView(`gc-diff-${Math.random().toString(36).slice(2)}`);
     this.image = new ImageDiffView(`gc-img-${Math.random().toString(36).slice(2)}`);
@@ -82,16 +84,29 @@ export class Changes {
     if (!root) return;
     const seq = this.seq = (this.seq ?? 0) + 1, stale = () => this.seq !== seq || this.host.history.context !== context;
     const git = (args) => exec("git", [...READ, ...args], { cwd: root, on });
+    const repoKey = `${on ?? ""}\0${root}`;
+    const hasStaged = this.stagedFiles().length > 0;
+    const hasTrackedUnstaged = this.unstagedFiles().some((f) => !f.untracked);
+    const cachedOpPaths = this.opPathCache.get(repoKey) ?? null;
     cx.spawn(async (cx) => {
       try {
         const [staged, unstaged, paths] = await Promise.all([
-          git(["diff", "--cached", "--numstat", "-z", "--no-renames"]), git(["diff", "--numstat", "-z", "--no-renames"]), git(opPathArgs())]);
+          hasStaged ? git(["diff", "--cached", "--numstat", "-z", "--no-renames"]) : null,
+          hasTrackedUnstaged ? git(["diff", "--numstat", "-z", "--no-renames"]) : null,
+          cachedOpPaths ? null : git(opPathArgs()),
+        ]);
         if (stale()) return;
-        this.staged = parseNumstat(staged.stdout); this.unstaged = parseNumstat(unstaged.stdout);
+        this.staged = staged?.code === 0 ? parseNumstat(staged.stdout) : new Map();
+        this.unstaged = unstaged?.code === 0 ? parseNumstat(unstaged.stdout) : new Map();
         // The files under .git that say which operation is in progress.
-        const keys = Object.keys(OP_FILES), list = paths.stdout.split("\n").map((p) => p.trim()).filter(Boolean);
+        const keys = Object.keys(OP_FILES);
+        let list = cachedOpPaths;
+        if (!list && paths?.code === 0) {
+          list = paths.stdout.split("\n").map((p) => p.trim()).filter(Boolean);
+          if (list.length === keys.length) this.opPathCache.set(repoKey, list);
+        }
         const found = {};
-        if (paths.code === 0 && list.length === keys.length) {
+        if (list && list.length === keys.length) {
           await Promise.all(keys.map(async (k, i) => {
             const p = /^([a-zA-Z]:)?[\\/]/.test(list[i]) ? list[i] : `${root}/${list[i]}`;
             found[k] = await readTextFile(p, { on }).catch(() => null);
@@ -215,11 +230,13 @@ export class Changes {
           rows = patchRows(r.stdout) ?? [{ kind: "", text: "No text diff (a deleted or binary file in conflict)" }];
         }
       } else {
-        const r = await git([...PATCH, ...(sel.side === "staged" ? ["--cached"] : []), "--", file.path]);
+        const ws = ignoreWhitespace();
+        this.lastWs = ws;
+        const r = await git([...PATCH, ...(ws ? ["-w"] : []), ...(sel.side === "staged" ? ["--cached"] : []), "--", file.path]);
         if (r.code !== 0) throw new Error(gitError(r));
-        patch = parsePatch(r.stdout);
+        patch = ws ? null : parsePatch(r.stdout);
         const stat = (sel.side === "staged" ? this.staged : this.unstaged).get(file.path);
-        rows = patchRows(r.stdout) ?? [{ kind: "", text: stat?.binary ? "Binary file changed" : file.status === "D" ? "File deleted" : "No text changes (mode or whitespace only)" }];
+        rows = patchRows(r.stdout) ?? [{ kind: "", text: stat?.binary ? "Binary file changed" : file.status === "D" ? "File deleted" : ws ? "Only whitespace changes" : "No text changes (mode or whitespace only)" }];
       }
     } catch (e) { rows = []; note = `Can't show this diff: ${e?.message ?? e}`; }
     if (this.seq !== seq || this.sel !== sel) return;
@@ -391,6 +408,14 @@ export class Changes {
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 220, height: menuHeight(items), props: { role: "menu", target, ctx } });
   }
 
+  // 1-click hunk stage/unstage on the hunk header bar.
+  quickHunk(row, cx) {
+    const ctx = this.ctx(), sel = this.sel;
+    if (!ctx || !this.patch || !row || !(row.hunk >= 0) || !this.patch.hunks[row.hunk] || sel?.side === "conflict") return;
+    const type = sel.side === "staged" ? "unstageHunk" : "stageHunk";
+    this.run({ type, patch: hunkPatch(this.patch, row.hunk) }, cx, { quiet: true });
+  }
+
   // The agent dialog, with the other side of the operation by name when git knows it.
   resolveWithAgent(cx) {
     const ctx = this.ctx(), op = this.op;
@@ -552,6 +577,8 @@ export class Changes {
       .when(n < total, (el) => el.child(linkBtn("gc-sel-all", "All", (cx) => this.selectAllIn(side, cx))))
       .child(linkBtn("gc-sel-clear", "Clear", (cx) => this.clearSelection(cx)))
       .child(div().flex_1())
+      .when(side === "unstaged" || side === "staged", (el) => el
+        .child(chipBtn("gc-sel-stash", "Stash", "default", (cx) => this.run({ type: "stashFiles", paths: selected.map((f) => f.path) }, cx, { quiet: false }))))
       .when(side === "unstaged", (el) => el
         .child(chipBtn("gc-sel-discard", allUntracked ? "Delete" : "Discard", "danger", (cx) => this.discard(selected, cx)))
         .child(chipBtn("gc-sel-stage", "Stage", "primary", (cx) => this.stage(selected.map((f) => f.path), cx))))
@@ -591,6 +618,7 @@ export class Changes {
         .child(div().text_size(11).text_color(t.muted).truncate().child(conflicts ? `${plural(conflicts, "file")} in conflict. Fix them, then stage them.` : "No conflicts left. Continue to finish it.")))
       .when(conflicts > 0, (e) => e.child(button("gc-op-agent", "Resolve with agent", false, true, (cx) => this.resolveWithAgent(cx))))
       .child(button("gc-op-abort", "Abort", false, true, (cx) => this.run({ type: "abortOp", op: this.op }, cx, { quiet: false })))
+      .when(this.op !== "merge", (e) => e.child(button("gc-op-skip", "Skip", false, true, (cx) => this.run({ type: "skipOp", op: this.op }, cx, { quiet: false }))))
       .child(button("gc-op-continue", "Continue", true, !conflicts, (cx) => this.run({ type: "continueOp", op: this.op }, cx, { quiet: false })));
   }
 
@@ -707,6 +735,20 @@ export class Changes {
       .when(Boolean(sel), (e) => e.child(div().flex_none().px(5).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted)
         .child(sel.side === "staged" ? "staged" : sel.side === "conflict" ? "conflict" : "unstaged")))
       .when(isSvg, (e) => e.child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(modeSeg(false, "Image")).child(modeSeg(true, "Diff"))))
+      .when(!showImg, (e) => {
+        const ws = ignoreWhitespace();
+        return e.child(div().id("gc-diff-ws").h(22).px(6).flex().items_center().rounded(5).border_1()
+          .border_color(ws ? t.accent : t.border).bg(ws ? t.selected : t.raised)
+          .text_size(10.5).text_color(ws ? t.foreground : t.muted).cursor_pointer()
+          .tooltip("Ignore whitespace changes (-w)")
+          .on_mouse_down("left", (_ev, cx) => cx.stop_propagation())
+          .on_click((_ev, cx) => {
+            setShared(WS_KEY, !ws);
+            if (this.sel) { const seq = this.seq; cx.spawn(async (cx) => { await this.loadDiff(cx, seq, true); cx.notify(); }); }
+            cx.notify();
+          })
+          .child("±w"));
+      })
       .when(!showImg || this.image.hasPair(), (e) => e.child(h_flex().flex_none().h(24).p(2).gap(2).rounded(6).border_1().border_color(t.border).child(seg("unified", "Unified")).child(seg("split", "Split"))))
       .child(this.smallButton("gc-expand", "expand", showImg ? "Open the image in a wide dialog" : "Open the diff in a wide dialog", () => this.expand(), t));
   }
@@ -722,7 +764,7 @@ export class Changes {
     const lines = (conflicts.length ? shown(conflicts.length) + 1 : 0) + shown(staged.length) + shown(unstaged.length) + 2;
     const listHeight = Math.min(lines * ROW + 8, Math.max(TITLE * 2 + ROW * 2, (this.host.height ?? 600) * 0.38));
     const stageable = unstaged.map((f) => f.path);
-    const sideLabel = this.sel?.side === "staged" ? "Unstage" : "Stage";
+    const sideLabel = this.sel?.side === "staged" ? "Unstage hunk" : "Stage hunk";
     const actionable = Boolean(this.patch) && this.sel?.side !== "conflict";
     return v_flex().id("gc-changes").flex_1().min_h(0).w_full()
       .when(Boolean(this.op), (e) => e.child(this.opBanner(t)))
@@ -742,7 +784,7 @@ export class Changes {
         .child(this.showingImage() ? this.image.render() : this.diff.render({
           empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
           hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
-          onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
+          onClick: (row, _e, cx) => { if (row?.kind === "@") this.quickHunk(row, cx); },
           onMenu: (row, e) => this.hunkMenu(row, e),
           sides: this.diffSides(),
         })))
@@ -759,7 +801,7 @@ export class Changes {
     const totalInSide = selSide ? (lists[selSide]?.length ?? 0) : 0;
     const ready = Boolean(h.root);
     const stageable = unstaged.map((f) => f.path);
-    const sideLabel = this.sel?.side === "staged" ? "Unstage" : "Stage";
+    const sideLabel = this.sel?.side === "staged" ? "Unstage hunk" : "Stage hunk";
     const actionable = Boolean(this.patch) && this.sel?.side !== "conflict";
 
     if (!ready) {
@@ -787,7 +829,7 @@ export class Changes {
       .when(this.files().length > 0, (e) => e.child(this.showingImage() ? this.image.render() : this.diff.render({
         empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
         hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
-        onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
+        onClick: (row, _e, cx) => { if (row?.kind === "@") this.quickHunk(row, cx); },
         onMenu: (row, e) => this.hunkMenu(row, e),
         sides: this.diffSides(),
       })));

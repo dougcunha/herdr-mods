@@ -129,24 +129,24 @@ const lists = { conflict: [], unstaged, staged };
 
   assert.deepEqual(
     labels({ kind: "files", side: "unstaged", files: [{ path: "a.txt", untracked: false, status: "M" }, { path: "u.txt", untracked: true, status: "?" }] }),
-    ["Stage 2 files", "Discard 2 files…", "Copy 2 paths"],
+    ["Stage 2 files", "Stash 2 files…", "Discard 2 files…", "Copy 2 paths"],
   );
   assert.deepEqual(
     labels({ kind: "files", side: "unstaged", files: [{ path: "a.txt", untracked: false, status: "M" }, { path: "b.txt", untracked: false, status: "M" }] }),
-    ["Stage 2 files", "Discard 2 files…", "Stop tracking 2 files…", "Copy 2 paths"],
+    ["Stage 2 files", "Stash 2 files…", "Discard 2 files…", "Stop tracking 2 files…", "Copy 2 paths"],
   );
   assert.deepEqual(
     labels({ kind: "files", side: "unstaged", files: [{ path: "a.txt", untracked: false, status: "D" }, { path: "b.txt", untracked: false, status: "M" }] }),
-    ["Stage 2 files", "Discard 2 files…", "Copy 2 paths"],
+    ["Stage 2 files", "Stash 2 files…", "Discard 2 files…", "Copy 2 paths"],
     "no Stop tracking when a deleted file is included",
   );
   assert.deepEqual(
     labels({ kind: "files", side: "unstaged", files: [{ path: "u1.log", untracked: true, status: "?" }, { path: "u2.log", untracked: true, status: "?" }] }),
-    ["Stage 2 files", "Delete 2 files…", "Ignore 2 files…", "Copy 2 paths"],
+    ["Stage 2 files", "Stash 2 files…", "Delete 2 files…", "Ignore 2 files…", "Copy 2 paths"],
   );
   assert.deepEqual(
     labels({ kind: "files", side: "staged", files: [{ path: "a.txt", untracked: false, status: "M" }, { path: "b.txt", untracked: false, status: "A" }] }),
-    ["Unstage 2 files", "Stop tracking 2 files…", "Copy 2 paths"],
+    ["Unstage 2 files", "Stash 2 files…", "Stop tracking 2 files…", "Copy 2 paths"],
   );
   assert.deepEqual(
     labels({ kind: "files", side: "conflict", files: [{ path: "a.txt", untracked: false, status: "U" }, { path: "b.txt", untracked: false, status: "U" }] }),
@@ -419,7 +419,7 @@ const lists = { conflict: [], unstaged, staged };
   const c = { current: "main", branches: ["main", "feat"], remotes: [] };
   const action = { type: "merge", ref: "feat", what: "branch feat" };
   const spec = G.dialogFor(action, c);
-  assert.deepEqual(spec.checks.map((k) => [k.id, k.value]), [["noff", false], ["noCommit", false]]);
+  assert.deepEqual(spec.checks.map((k) => [k.id, k.value]), [["noff", false], ["noCommit", false], ["squash", false]]);
   assert.deepEqual(G.commandsFor(action, { noff: false, noCommit: false }, c), [["merge", "--no-edit", "feat"]]);
   assert.deepEqual(G.commandsFor(action, { noff: true, noCommit: false }, c), [["merge", "--no-edit", "--no-ff", "feat"]]);
   assert.deepEqual(G.commandsFor(action, { noff: false, noCommit: true }, c), [["merge", "--no-ff", "--no-commit", "feat"]]);

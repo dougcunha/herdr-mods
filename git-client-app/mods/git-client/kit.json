@@ -17,6 +17,14 @@
       ]
     },
     {
+      "id": "ignoreWhitespace",
+      "type": "bool",
+      "key": "git-client.ignoreWhitespace",
+      "default": false,
+      "label": "Ignore whitespace in diffs",
+      "hint": "Hide whitespace-only changes (-w) in file and commit diffs. Turn off to stage individual hunks."
+    },
+    {
       "id": "pull",
       "type": "enum",
       "key": "git-client.pull",

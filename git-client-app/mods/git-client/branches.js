@@ -48,26 +48,31 @@ export class Branches {
     if (!h.root) return;
     this.dirty = false;
     const root = h.root, on = h.on, context = h.context, seq = this.seq = (this.seq ?? 0) + 1;
-    const wantWorktrees = Boolean(loadWorktrees || (!this.host.isModal && this.open.worktrees) || (this.host.isModal && this.worktreesLoaded));
+    const worktreesOpen = this.host.isWide?.() ? Boolean(this.host.sidebar?.open?.worktrees) : Boolean(this.open.worktrees);
+    const wantWorktrees = Boolean(loadWorktrees || worktreesOpen || (this.host.isModal && this.worktreesLoaded));
     const git = (args, cwd = root) => exec("git", [...READ, ...args], { cwd, on });
     cx.spawn(async (cx) => {
       try {
-        const [refs, remotes, worktreesRes] = await Promise.all([
+        const [refs, remotes, headMergedRes, worktreesRes] = await Promise.all([
           git(refsArgs()),
           git(["remote", "-v"]),
+          git(mergedRefsArgs("HEAD")).catch(() => null),
           wantWorktrees ? git(["worktree", "list", "--porcelain"]) : null,
         ]);
         if (this.seq !== seq || this.host.history.context !== context) return;
         if (refs.code !== 0) throw new Error(refs.stderr.trim());
         const parsed = parseRefs(refs.stdout);
-        const targetRefs = ["HEAD"];
         const def = defaultBranchTarget(parsed.local, parsed.remote);
-        if (def) targetRefs.push(def);
-        const mergedResults = await Promise.all(targetRefs.map(async (target) => {
-          const r = await git(mergedRefsArgs(target)).catch(() => null);
-          return { target, merged: r?.code === 0 ? new Set(r.stdout.split(/\r?\n/).filter(Boolean)) : new Set() };
-        }));
+        const defMergedRes = def && def !== h.current && def !== "HEAD"
+          ? await git(mergedRefsArgs(def)).catch(() => null)
+          : null;
         if (this.seq !== seq || this.host.history.context !== context) return;
+        const mergedResults = [
+          { target: "HEAD", merged: headMergedRes?.code === 0 ? new Set(headMergedRes.stdout.split(/\r?\n/).filter(Boolean)) : new Set() },
+          ...(def && def !== h.current && def !== "HEAD"
+            ? [{ target: def, merged: defMergedRes?.code === 0 ? new Set(defMergedRes.stdout.split(/\r?\n/).filter(Boolean)) : new Set() }]
+            : []),
+        ];
         const mergedMap = computeMergedMap(parsed.local, h.current, mergedResults);
         for (const b of parsed.local) {
           const holders = mergedMap.get(b.name);

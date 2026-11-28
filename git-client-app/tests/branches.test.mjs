@@ -134,7 +134,7 @@ const labels = (target) => G.menuFor(target, ctx()).filter((i) => !i.separator).
 assert.deepEqual(labels({ kind: "remoteConfig", remote: { name: "origin", url: remote } }), ["Fetch origin", "Rename remote…", "Change URL…", "Remove remote…", "Copy URL"]);
 assert.deepEqual(labels({ kind: "worktree", worktree: { path: "/x", branch: "b", main: false, locked: true }, current: false }), ["Open in a space", "Unlock", "Remove worktree…", "Copy path", "Copy branch name"]);
 assert.deepEqual(labels({ kind: "worktree", worktree: { path: "/x", branch: "main", main: true }, current: true }), ["Copy path", "Copy branch name"], "no remove of the main or the current one");
-assert.deepEqual(labels({ kind: "stash", stash: { ref: "stash@{0}", message: "m" } }), ["Apply", "Pop (apply and drop)", "Drop…", "Copy message"]);
+assert.deepEqual(labels({ kind: "stash", stash: { ref: "stash@{0}", message: "m" } }), ["Apply", "Pop (apply and drop)", "Create branch from stash…", "Drop…", "Copy message"]);
 assert.ok(R.ago(Date.now() / 1000 - 7200) === "2h");
 
 // ---- pull the current branch, fetch into another local branch

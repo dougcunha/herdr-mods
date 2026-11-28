@@ -12,9 +12,9 @@ const fail = (action, raw, values) => {
 
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
 const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany", "stageHunk", "unstageHunk", "discardHunk",
-  "resolveConflict",
+  "resolveConflict", "checkoutFile",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
-  "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
+  "pruneWorktrees", "stashFiles", "stashApply", "stashPop", "stashDrop",
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove", "submodulePull", "submoduleFetch"]);
 const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discardHunk: ["-R"] };
 

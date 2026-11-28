@@ -8,7 +8,9 @@ import { splitRows } from "./git.js";
 // The view is one shared value, so every copy (side panel, dialog, other layouts) shows the same.
 // Not set yet: the choice of the Changes Split mod, as a first value.
 export const VIEW_KEY = "git-client.view";
+export const WS_KEY = "git-client.ignoreWhitespace";
 export const currentView = () => (shared(VIEW_KEY) ?? shared("changes-split.view")) === "split" ? "split" : "unified";
+export const ignoreWhitespace = () => Boolean(shared(WS_KEY));
 const CHAR = 7; // px of 1 character of the 11 px diff font, rounded up
 const ROW = 20;
 

@@ -2,9 +2,9 @@
 // tab reads the repository (one watcher, one timer) and tells the Changes tab after every read.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, h_resizable, v_resizable, resizable_panel } from "gpui-base";
-import { spaces, panes, focused, exec, theme, settings, props, shared, setShared, closeOverlay, nextCommand, notify } from "herdr";
-import { READ } from "./git.js";
-import { perform, openDialog } from "./act.js";
+import { spaces, panes, focused, exec, theme, settings, props, shared, setShared, openOverlay, closeOverlay, nextCommand, notify } from "herdr";
+import { READ, menuFor, menuHeight } from "./git.js";
+import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 import { History } from "./history.js";
 import { Changes } from "./changes.js";
@@ -172,6 +172,17 @@ export class Client {
     }
   }
 
+  onWideEnter(cx) {
+    if (this.branches.dirty) this.branches.reload(cx, true);
+    if (this.submodules.dirty) this.submodules.reload(cx, true);
+    const repoReady = this.history.state === "ready" || this.history.state === "empty";
+    if (repoReady && !this.inspectorAutoSet) {
+      this.inspectorAutoSet = true;
+      if (this.history.files.length > 0) this.openInspector("changes", cx);
+      else if (this.inspector === "changes") this.inspector = null;
+    }
+  }
+
   enterSubmodule(sub, cx) {
     const h = this.history;
     if (!h.root) return;
@@ -198,7 +209,7 @@ export class Client {
   back(cx) { this.backTo(this.subs.length - 2, cx); }
 
   refreshAll(cx) {
-    this.history.refresh(cx, true, { target: "full" });
+    this.history.refresh(cx, true, { target: "full", force: true });
     if (this.isWide()) {
       this.branches.reload(cx, true, { loadWorktrees: this.sidebar.open.worktrees });
       this.stash.reload(cx);
@@ -282,6 +293,14 @@ export class Client {
     this.act("pull", { type: "pull", upstream: info.upstream }, { mode: pullMode() }, ctx, cx);
   }
 
+  pullMenu(e) {
+    const ctx = this.ctx(), info = this.history.branchInfo ?? {};
+    if (!ctx || !info.upstream || info.gone) return;
+    const target = { kind: "pullModes", upstream: info.upstream };
+    const items = menuFor(target, ctx);
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 230, height: menuHeight(items), props: { role: "menu", target, ctx } });
+  }
+
   push(cx) {
     if (this.busy) return;
     this.busy = "push"; cx.notify();
@@ -357,7 +376,8 @@ export class Client {
       .child(div().flex_1())
       .when(remotes.length > 0, (e) => e
         .child(this.iconButton("gc-fetch", "cloud-down", busy === "fetch" ? "…" : null, "Fetch all remotes", !busy, (cx) => this.fetch(cx), t))
-        .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? String(info.behind) : null, canPull ? `Pull ${info.upstream} (fast-forward only)` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t))
+        .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? String(info.behind) : null, canPull ? `Pull ${info.upstream} (fast-forward only). Right-click: choose pull mode` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t)
+          .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); if (canPull && !busy) this.pullMenu(e); }))
         .child(this.iconButton("gc-push", "push-line", busy === "push" ? "…" : info.ahead ? String(info.ahead) : null, `${info.upstream && !info.gone ? `Push to ${info.upstream}` : "Push and set the upstream"}. Right-click: force push (with lease)`, canPush && !busy, (cx) => this.push(cx), t)
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (canPush && !busy) this.forcePush(); })));
   }
@@ -395,7 +415,8 @@ export class Client {
       .child(div().flex_1())
       .when(remotes.length > 0, (e) => e
         .child(this.iconButton("gc-fetch", "cloud-down", busy === "fetch" ? "…" : "Fetch", "Fetch all remotes (Shift+F5)", !busy, (cx) => this.fetchAndRefresh(cx), t))
-        .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? `Pull ${info.behind}` : "Pull", canPull ? `Pull ${info.upstream}` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t))
+        .child(this.iconButton("gc-pull", "pull", busy === "pull" ? "…" : info.behind ? `Pull ${info.behind}` : "Pull", canPull ? `Pull ${info.upstream}. Right-click: choose pull mode` : "No upstream to pull from", canPull && !busy, (cx) => this.pull(cx), t)
+          .on_mouse_down("right", (e, cx) => { cx.stop_propagation(); if (canPull && !busy) this.pullMenu(e); }))
         .child(this.iconButton("gc-push", "push-line", busy === "push" ? "…" : info.ahead ? `Push ${info.ahead}` : "Push", `${info.upstream && !info.gone ? `Push to ${info.upstream}` : "Push and set the upstream"}. Right-click: force push (with lease)`, canPush && !busy, (cx) => this.push(cx), t)
           .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); if (canPush && !busy) this.forcePush(); })))
       .child(this.iconButton("gc-refresh", "refresh", this.refreshing ? "…" : "Refresh", "Refresh repository (F5)", h.state !== "nofolder", (cx) => this.refreshAll(cx), t))
@@ -466,6 +487,14 @@ export class Client {
           this.history.compareCommits(show.compare.a, show.compare.b, cx, { notify: false });
         }
       }
+      else if (show.branchFilter?.branch) {
+        const sameRepo = !show.branchFilter.root || (this.history.root === show.branchFilter.root && (this.history.on ?? null) === (show.branchFilter.on ?? null));
+        if (sameRepo) {
+          this.fileView.close();
+          if (!this.isWide()) this.tab = "history";
+          this.history.setBranchFilter(show.branchFilter.branch, cx);
+        }
+      }
       else if (TABS.some((t) => t.id === show.tab)) {
         if (this.isWide()) this.setTab(show.tab, cx);
         else { this.tab = show.tab; this.fileView.close(); }
@@ -485,7 +514,7 @@ export class Client {
         if (width !== this.width || height !== this.height) {
           const wasWide = this.isWide();
           this.width = width; this.height = height;
-          if (!wasWide && this.isWide()) this.onRead(cx, "full");
+          if (!wasWide && this.isWide()) this.onWideEnter(cx);
           cx.notify();
         }
       })
@@ -493,6 +522,21 @@ export class Client {
         if (String(e.key).toLowerCase() === "f5" && !e.modifiers?.control && !e.modifiers?.platform && !e.modifiers?.alt) {
           if (e.modifiers?.shift) this.fetchAndRefresh(cx);
           else this.refreshAll(cx);
+          cx.stop_propagation();
+          return;
+        }
+        if ((e.key === "f" || e.key === "F") && (e.modifiers?.control || e.modifiers?.platform) && !e.modifiers?.shift && !e.modifiers?.alt
+            && !this.fileView.path) {
+          if (wide || this.tab === "history") this.history.search.focus();
+          else if (this.tab === "branches") this.branches.search.focus();
+          cx.stop_propagation();
+          cx.notify();
+          return;
+        }
+        if ((e.key === "g" || e.key === "G") && (e.modifiers?.control || e.modifiers?.platform) && !e.modifiers?.shift && !e.modifiers?.alt
+            && !this.isTyping() && !this.fileView.path && this.history.head) {
+          if (!wide && this.tab !== "history") this.setTab("history", cx);
+          this.history.scrollToCommit(this.history.head, this.history.current ?? "HEAD", cx);
           cx.stop_propagation();
           return;
         }

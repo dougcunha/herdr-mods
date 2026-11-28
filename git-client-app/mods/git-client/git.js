@@ -5,7 +5,7 @@
 //
 // Based on git.js of Git Graph for Herdr by rabeeh-ta (MIT license).
 
-import { worktreePath, submoduleFolder } from "./refs.js";
+import { worktreePath, submoduleFolder, samePath } from "./refs.js";
 
 // The folder of a new worktree as PowerMods Core says it (its API is on globalThis: see core.js).
 const coreFolder = (root, branch) => globalThis.powermods?.worktree?.preview?.({ repo: root ?? "repo", branch }) ?? "(PowerMods Core is not running)";
@@ -41,7 +41,7 @@ export function logArgs({ all, remotes, limit, filter = null, branch = null }) {
     : all ? ["--branches", "--tags", ...(remotes ? ["--remotes"] : []), "--ignore-missing", "HEAD"] : ["HEAD"];
   // A search: git filters the whole history. Each value is one argument after its option, and the path
   // comes after "--", so nothing typed becomes an option.
-  const search = filter ? ["-i", ...(filter.text ? [`--grep=${filter.text}`] : []), ...(filter.author ? [`--author=${filter.author}`] : [])] : [];
+  const search = filter ? ["-i", ...(filter.text ? [`--grep=${filter.text}`] : []), ...(filter.author ? [`--author=${filter.author}`] : []), ...(filter.code ? [`-S${filter.code}`] : [])] : [];
   return ["log", "-z", ...scope, "--date-order", "--decorate=full", ...search, `-n${limit}`, `--format=${FORMAT}`,
     ...(filter?.path ? ["--", `:(top,literal)${filter.path}`] : [])];
 }
@@ -52,19 +52,19 @@ export function commitArgs(hash) {
   return ["log", "-z", "--decorate=full", "-n1", `--format=${FORMAT}`, hash, "--"];
 }
 
-// The search field of History: `author:<text>`, `path:<path>` (quotes keep spaces) and free text
+// The search field of History: `author:<text>`, `path:<path>`, `code:<text>` (quotes keep spaces) and free text
 // (the message, or a hash prefix). Null when it is empty.
 export function parseFilter(input) {
   const text = String(input ?? "").trim();
   if (!text) return null;
-  const out = { text: "", author: "", path: "" }, words = [];
-  for (const m of text.matchAll(/(author|path):(?:"([^"]*)"|(\S+))|"([^"]*)"|(\S+)/gi)) {
+  const out = { text: "", author: "", path: "", code: "" }, words = [];
+  for (const m of text.matchAll(/(author|path|code):(?:"([^"]*)"|(\S+))|"([^"]*)"|(\S+)/gi)) {
     if (m[1]) out[m[1].toLowerCase()] = (m[2] ?? m[3] ?? "").trim();
     else words.push(m[4] ?? m[5]);
   }
   out.text = words.join(" ").trim();
   out.hash = /^[0-9a-f]{4,64}$/i.test(out.text) ? out.text.toLowerCase() : null;
-  return out.text || out.author || out.path ? out : null;
+  return out.text || out.author || out.path || out.code ? out : null;
 }
 
 export function parseRefs(text) {
@@ -147,6 +147,38 @@ export function parseBranch(text) {
   out.branch = dots < 0 ? s : s.slice(0, dots);
   out.upstream = dots < 0 ? null : s.slice(dots + 3);
   return out;
+}
+
+// Parses `git show-ref --head --heads` ("<hash> HEAD" and "<hash> refs/heads/<name>").
+export function parseShowRef(text) {
+  let head = null;
+  const branches = [];
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const sp = line.indexOf(" ");
+    if (sp <= 0) continue;
+    const hash = line.slice(0, sp).trim();
+    const ref = line.slice(sp + 1).trim();
+    if (!objectId(hash)) continue;
+    if (ref === "HEAD") head = hash;
+    else if (ref.startsWith("refs/heads/")) branches.push(ref.slice(11));
+  }
+  return { head, branches };
+}
+
+export function sameBranchInfo(a, b) {
+  if (!a || !b) return a === b;
+  return a.branch === b.branch && a.upstream === b.upstream && a.ahead === b.ahead && a.behind === b.behind
+    && a.gone === b.gone && a.detached === b.detached && a.unborn === b.unborn;
+}
+
+export function shouldReloadDependents({ changed, force, target, firstLoad, isError }) {
+  return Boolean(changed || force || firstLoad || isError || target === "stash" || target === "submodules");
+}
+
+export function shouldAcceptChangeEvent(changed, { root, on }) {
+  if (!changed || typeof changed !== "object" || !changed.root) return true;
+  if (!root) return false;
+  return samePath(changed.root, root) && (changed.on ?? null) === (on ?? null);
 }
 
 // ---- An operation in progress (it can stop on a conflict): the files under .git that say which.
@@ -330,6 +362,7 @@ export function menuFor(target, ctx) {
         target.side === "conflict" && item(oursRef ? `Keep ours (${oursRef})` : "Keep ours (current)", "check", { type: "resolveConflict", side: "ours", paths, label: oursRef }),
         target.side === "conflict" && item(theirsRef ? `Accept theirs (${theirsRef})` : "Accept theirs (incoming)", "check", { type: "resolveConflict", side: "theirs", paths, label: theirsRef }),
         target.side === "conflict" && item("Mark resolved (stage)", "plus", { type: "stage", paths }),
+        target.side !== "conflict" && item("Stash file…", "stash", { type: "stashFiles", paths }),
         target.side === "unstaged" && item(f.untracked ? "Delete file…" : "Discard changes…", "trash", { type: "discard", paths: f.untracked ? [] : paths, untracked: f.untracked ? paths : [] })),
       // An untracked file: the dialog asks what to ignore (the file, its extension, one of its folders) and where.
       section(f.untracked && item("Ignore…", "eye-off", { type: "ignore", path: f.path }),
@@ -352,6 +385,7 @@ export function menuFor(target, ctx) {
         target.side === "conflict" && n > 0 && item(oursRef ? `Keep ours (${oursRef}) for ${n} files` : `Keep ours for ${n} files`, "check", { type: "resolveConflict", side: "ours", paths, label: oursRef }),
         target.side === "conflict" && n > 0 && item(theirsRef ? `Accept theirs (${theirsRef}) for ${n} files` : `Accept theirs for ${n} files`, "check", { type: "resolveConflict", side: "theirs", paths, label: theirsRef }),
         target.side === "conflict" && n > 0 && item(`Mark ${n} files resolved (stage)`, "plus", { type: "stage", paths }),
+        target.side !== "conflict" && n > 0 && item(`Stash ${n} files…`, "stash", { type: "stashFiles", paths }),
         target.side === "unstaged" && n > 0 && item(`${untracked.length === n ? "Delete" : "Discard"} ${n} files…`, "trash", { type: "discard", paths: tracked, untracked })),
       section(untracked.length === n && n > 0 && item(`Ignore ${n} files…`, "eye-off", { type: "ignoreMany", paths }),
         tracked.length === n && n > 0 && target.side !== "conflict" && files.every((f) => f.status !== "D") && item(`Stop tracking ${n} files…`, "eye-off", { type: "untrackMany", paths })),
@@ -405,9 +439,29 @@ export function menuFor(target, ctx) {
     const s = target.stash;
     sections = [
       section(item("Apply", "check", { type: "stashApply", ref: s.ref }),
-        item("Pop (apply and drop)", "stash", { type: "stashPop", ref: s.ref })),
+        item("Pop (apply and drop)", "stash", { type: "stashPop", ref: s.ref }),
+        item("Create branch from stash…", "branch", { type: "stashBranch", ref: s.ref, message: s.message })),
       section(item("Drop…", "trash", { type: "stashDrop", ref: s.ref, message: s.message })),
       section(item("Copy message", "copy", { type: "copy", text: s.message })),
+    ];
+  } else if (target.kind === "pullModes") {
+    const up = target.upstream ?? "";
+    sections = [
+      section(
+        item("Pull (fast-forward only)", "pull", { type: "pull", upstream: up, mode: "ff-only" }),
+        item("Pull (rebase)", "rebase", { type: "pull", upstream: up, mode: "rebase" }),
+        item("Pull (merge)", "merge", { type: "pull", upstream: up, mode: "merge" }),
+        item("Pull (git config)", "pull", { type: "pull", upstream: up, mode: "config" }),
+      ),
+    ];
+  } else if (target.kind === "commitFile") {
+    const hash = target.hash, short = shortHash(hash), path = target.path;
+    sections = [
+      section(target.status !== "D" && item(`Restore version from ${short}…`, "reset", { type: "checkoutFile", hash, short, path })),
+      section(item("File history", "history", { type: "fileView", path, mode: "history" }),
+        target.status !== "D" && item("Blame", "commit", { type: "fileView", path, mode: "blame" })),
+      section(!ctx.on && target.status !== "D" && item("Open file", "file", { type: "openFile", path }),
+        item("Copy path", "copy", { type: "copy", text: path })),
     ];
   } else if (target.kind === "branch") {
     const name = target.name, current = name === ctx.current, remote = ctx.remotes.length > 0;
@@ -417,6 +471,7 @@ export function menuFor(target, ctx) {
       section(up && current && item(`Pull from ${target.upstream}`, "pull", { type: "pull", upstream: target.upstream }),
         up && !current && item(`Fetch ${target.upstream} into ${name}`, "cloud-down", { type: "fetchBranch", name, ...up })),
       section(!current && item("Checkout branch", "branch", { type: "checkout", name }),
+        item("Filter graph to this branch", "search", { type: "filterBranch", name }),
         item("Create branch from here…", "plus", { type: "newBranch", base: name, what: name }),
         item("Rename branch…", "rename", { type: "renameBranch", name }),
         !current && item("Delete branch…", "trash", { type: "deleteBranch", name })),
@@ -433,7 +488,8 @@ export function menuFor(target, ctx) {
     sections = [
       section(branch !== ctx.current && (local
         ? item(`Checkout ${branch}`, "branch", { type: "checkout", name: branch })
-        : item("Checkout branch…", "branch", { type: "checkoutRemote", name, remote, branch }))),
+        : item("Checkout branch…", "branch", { type: "checkoutRemote", name, remote, branch })),
+        item("Filter graph to this branch", "search", { type: "filterBranch", name })),
       section(item(`Merge into ${cur}…`, "merge", { type: "merge", ref: name, what: `remote branch ${name}` })),
       section(item("Delete remote branch…", "trash", { type: "deleteRemoteBranch", name, remote, branch })),
       section(item("Copy branch name", "copy", { type: "copy", text: name })),
@@ -470,7 +526,9 @@ export function menuFor(target, ctx) {
         item("Create branch…", "plus", { type: "createBranch", hash, short })),
       section(!here && item("Checkout…", "commit", { type: "checkoutCommit", hash, short }),
         !here && item("Cherry pick…", "cherry", { type: "cherryPick", hash, short, merge }),
-        item("Revert…", "revert", { type: "revert", hash, short, merge })),
+        item("Revert…", "revert", { type: "revert", hash, short, merge }),
+        here && item("Edit commit message…", "rename", { type: "reword", hash, short, subject: c.subject }),
+        here && c.parents.length >= 1 && item("Undo commit (keep staged)…", "reset", { type: "undoCommit", hash, parent: c.parents[0], short })),
       section(!here && item(`Merge into ${cur}…`, "merge", { type: "merge", ref: hash, what: `commit ${short}` }),
         !here && item(`Rebase ${cur} on this commit…`, "rebase", { type: "rebase", ref: hash, what: `commit ${short}` }),
         item(`Reset ${cur} to this commit…`, "reset", { type: "reset", hash, short })),
@@ -581,7 +639,11 @@ export function dialogFor(action, ctx) {
       confirm: "Fetch and update",
     };
     case "stashDrop": return { title: "Drop stash", detail: `Delete ${a.ref}${a.message ? ` (${a.message})` : ""}? This cannot be undone.`, confirm: "Drop", danger: true };
+    case "stashBranch": return { title: "Create branch from stash", detail: `Create a new branch at the commit where ${a.ref} was made and pop the stash onto it.`, inputs: [{ id: "name", label: "Branch name", value: "" }], confirm: "Create branch" };
+    case "stashFiles": return { title: a.paths.length === 1 ? "Stash file" : "Stash files", detail: `Stash ${many(a.paths)} and leave other changes untouched.`, inputs: [{ id: "message", label: "Message", value: "", optional: true, text: true }], confirm: "Stash" };
     case "abortOp": return { title: `Abort the ${a.op}`, detail: `Stop the ${a.op} and go back to where the branch was before it. Conflict fixes made so far are lost.`, confirm: "Abort", danger: true };
+    case "skipOp": return { title: `Skip commit in ${a.op}`, detail: `Skip the current conflicting commit and continue the ${a.op}.`, confirm: "Skip", danger: true };
+    case "checkoutFile": return { title: "Restore file from commit", detail: `Replace ${a.path} in your working tree with its version from commit ${a.short}. Local changes to this file will be overwritten.`, confirm: "Restore", danger: true };
     case "discardHunk": return { title: "Discard hunk", detail: `Discard this hunk of ${a.path} from the work tree. This cannot be undone.`, confirm: "Discard", danger: true };
     case "checkoutRemote": return { title: "Checkout remote branch", detail: `Create a local branch that tracks ${a.name}, and check it out.`,
       inputs: [{ id: "name", label: "Local branch name", value: a.branch }], confirm: "Checkout" };
@@ -618,10 +680,16 @@ export function dialogFor(action, ctx) {
       checks: [
         { id: "noff", label: "Create a merge commit even if it could fast-forward", value: false },
         { id: "noCommit", label: "Do not commit (leave merge changes staged)", value: false },
+        { id: "squash", label: "Squash commits (--squash, leave staged)", value: false },
       ], confirm: "Merge" };
     case "rebase": return { title: "Rebase", detail: `Rebase ${cur} on ${a.what}?`, confirm: "Rebase" };
-    case "cherryPick": return { title: "Cherry pick", detail: `Apply commit ${a.short} on top of ${cur}?${mergeNote(a)}`, confirm: "Cherry pick" };
-    case "revert": return { title: "Revert", detail: `Add a commit to ${cur} that undoes ${a.short}?${mergeNote(a)}`, confirm: "Revert" };
+    case "cherryPick": return { title: "Cherry pick", detail: `Apply commit ${a.short} on top of ${cur}?${mergeNote(a)}`,
+      checks: [{ id: "noCommit", label: "Do not commit (leave changes staged)", value: false }], confirm: "Cherry pick" };
+    case "revert": return { title: "Revert", detail: `Add a commit to ${cur} that undoes ${a.short}?${mergeNote(a)}`,
+      checks: [{ id: "noCommit", label: "Do not commit (leave changes staged)", value: false }], confirm: "Revert" };
+    case "reword": return { title: "Edit commit message", detail: `Change the message of ${a.short} (HEAD) without modifying staged changes.`,
+      inputs: [{ id: "message", label: "Commit message", value: a.subject ?? "", text: true, multiline: true }], confirm: "Save" };
+    case "undoCommit": return { title: "Undo last commit", detail: `Move ${cur} back to ${shortHash(a.parent)} (soft reset). All changes from ${a.short} stay staged in the index.`, confirm: "Undo commit" };
     case "reset": return { title: "Reset", detail: `Move ${cur} to commit ${a.short}.`, confirm: "Reset",
       choice: { id: "mode", label: "Mode", value: "mixed", options: [
         { value: "soft", label: "Soft", detail: "Keep every change, staged" },
@@ -636,7 +704,10 @@ export function dialogFor(action, ctx) {
       checks: [{ id: "all", label: "Stage every change first (untracked too)", value: !a.staged }], confirm: "Commit" };
     case "pull": return { title: "Pull", detail: `Fast-forward ${cur} to ${a.upstream}? A pull that can't fast-forward changes nothing.`, confirm: "Pull" };
     case "stash": return { title: "Stash uncommitted changes", inputs: [{ id: "message", label: "Message", value: "", optional: true }],
-      checks: [{ id: "untracked", label: "Include untracked files", value: true }], confirm: "Stash" };
+      checks: [
+        { id: "untracked", label: "Include untracked files", value: true },
+        { id: "keepIndex", label: "Keep staged changes (--keep-index)", value: false },
+      ], confirm: "Stash" };
     case "resetUncommitted": return { title: "Reset uncommitted changes", detail: "Reset the working tree to HEAD.", confirm: "Reset",
       choice: { id: "mode", label: "Mode", value: "mixed", options: [
         { value: "mixed", label: "Mixed", detail: "Unstage everything, keep the changes" },
@@ -647,7 +718,8 @@ export function dialogFor(action, ctx) {
 
 export function dialogHeight(spec) {
   const detail = spec.detail ? Math.ceil(spec.detail.length / 52) * 19 + 8 : 0;
-  return Math.ceil(36 + 26 + detail + (spec.inputs ?? []).length * 66 + (spec.checks ?? []).length * 30
+  const inputs = (spec.inputs ?? []).reduce((n, i) => n + (i.multiline ? 114 : 66), 0);
+  return Math.ceil(36 + 26 + detail + inputs + (spec.checks ?? []).length * 30
     + (spec.choice ? 24 + (spec.choice.scrollHeight ?? spec.choice.options.length * 42) : 0) + 30 + 52);
 }
 
@@ -677,17 +749,19 @@ export function validate(action, v, ctx) {
 // The git commands an action runs, in order.
 export function commandsFor(a, v = {}, ctx = {}) {
   // Validate again at the execution boundary, including actions without dialogs.
-  const hashes = ["checkoutCommit", "createBranch", "addTag", "cherryPick", "revert", "reset"];
+  const hashes = ["checkoutCommit", "createBranch", "addTag", "cherryPick", "revert", "reset", "reword", "checkoutFile"];
   const names = ["checkout", "checkoutRemote", "renameBranch", "deleteBranch", "deleteRemoteBranch", "deleteTag", "push", "pushTag"];
   if (hashes.includes(a.type) && !objectId(a.hash)) throw new Error("Invalid commit identity");
+  if (a.type === "undoCommit" && (!objectId(a.hash) || !objectId(a.parent))) throw new Error("Invalid commit identity");
   if (names.includes(a.type) && !refName(a.name)) throw new Error("Invalid ref name");
   if (["merge", "rebase"].includes(a.type) && !refName(a.ref)) throw new Error("Invalid ref name");
   if (a.type === "deleteRemoteBranch" && (!refName(a.remote) || !refName(a.branch))) throw new Error("Invalid remote branch");
-  if (["checkoutRemote", "createBranch", "addTag", "renameBranch"].includes(a.type) && !refName(String(v.name ?? "").trim())) throw new Error("Invalid ref name");
+  if (["checkoutRemote", "createBranch", "addTag", "renameBranch", "stashBranch"].includes(a.type) && !refName(String(v.name ?? "").trim())) throw new Error("Invalid ref name");
   if (["push", "pushTag"].includes(a.type) && (!refName(v.remote) || !ctx.remotes?.includes(v.remote))) throw new Error("Invalid remote");
   if (a.type === "reset" && !["soft", "mixed", "hard"].includes(v.mode)) throw new Error("Invalid reset mode");
   if (a.type === "resetUncommitted" && !["mixed", "hard"].includes(v.mode)) throw new Error("Invalid reset mode");
   if (a.type === "commit" && !String(v.message ?? "").trim()) throw new Error("Empty commit message");
+  if (a.type === "reword" && !String(v.message ?? "").trim()) throw new Error("Empty commit message");
   const name = String(v.name ?? "").trim(), message = String(v.message ?? "").trim();
   // Paths come from git status. --literal-pathspecs and "--": a name such as ":x" or "-x" stays a path.
   const files = (list) => {
@@ -701,6 +775,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
     return out;
   };
   if (["continueOp", "abortOp"].includes(a.type) && !OPS.includes(a.op)) throw new Error("Unknown operation");
+  if (a.type === "skipOp" && !["rebase", "cherry-pick", "revert"].includes(a.op)) throw new Error("Unknown operation");
   const ref = (s) => refName(s) || objectId(s);
   if (["newBranch", "newTag"].includes(a.type) && (!ref(a.base) || !refName(name))) throw new Error("Invalid ref name");
   if (["setUpstream", "forcePush", "renameRemote", "setRemoteUrl", "removeRemote", "fetchRemote"].includes(a.type) && !refName(a.name)) throw new Error("Invalid ref name");
@@ -711,7 +786,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
   const url = String(v.url ?? "").trim();
   if (["addRemote", "setRemoteUrl", "submoduleAdd"].includes(a.type) && (!url || url.startsWith("-") || /[\s\0]/.test(url))) throw new Error("Invalid URL");
   const path = (p) => { const s = String(p ?? "").trim(); if (!s || s.startsWith("-") || s.includes("\0")) throw new Error("Invalid folder"); return s; };
-  if (["stashApply", "stashPop", "stashDrop"].includes(a.type) && !/^stash@\{\d+\}$/.test(a.ref ?? "")) throw new Error("Invalid stash");
+  if (["stashApply", "stashPop", "stashDrop", "stashBranch"].includes(a.type) && !/^stash@\{\d+\}$/.test(a.ref ?? "")) throw new Error("Invalid stash");
   switch (a.type) {
     case "newBranch": return [v.checkout ? ["checkout", "-b", name, a.base] : ["branch", name, a.base]];
     case "newTag": return [message ? ["tag", "-a", name, "-m", message, a.base] : ["tag", name, a.base]];
@@ -747,8 +822,15 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "stashApply": return [["stash", "apply", a.ref]];
     case "stashPop": return [["stash", "pop", a.ref]];
     case "stashDrop": return [["stash", "drop", a.ref]];
+    case "stashBranch": return [["stash", "branch", name, a.ref]];
+    case "stashFiles": {
+      const selected = files(a.paths);
+      if (!selected.length) throw new Error("Invalid path");
+      return [["--literal-pathspecs", "stash", "push", "--include-untracked", ...(message ? ["-m", message] : []), "--", ...selected]];
+    }
     // core.editor=true: git takes the prepared message instead of waiting for an editor.
     case "continueOp": return [["-c", "core.editor=true", a.op, "--continue"]];
+    case "skipOp": return [[a.op, "--skip"]];
     case "abortOp": return [[a.op, "--abort"]];
     case "stage": return chunks(files(a.paths), ["add"]);
     // Without a HEAD there is nothing to restore from: take the files out of the index.
@@ -787,10 +869,13 @@ export function commandsFor(a, v = {}, ctx = {}) {
       return out;
     }
     case "deleteTag": return [["tag", "-d", a.name]];
-    case "merge": return [["merge", ...(v.noCommit ? ["--no-ff", "--no-commit"] : ["--no-edit", ...(v.noff ? ["--no-ff"] : [])]), a.ref]];
+    case "merge": return [v.squash ? ["merge", "--squash", a.ref] : ["merge", ...(v.noCommit ? ["--no-ff", "--no-commit"] : ["--no-edit", ...(v.noff ? ["--no-ff"] : [])]), a.ref]];
     case "rebase": return [["rebase", a.ref]];
-    case "cherryPick": return [["cherry-pick", ...(a.merge ? ["-m", "1"] : []), a.hash]];
-    case "revert": return [["revert", "--no-edit", ...(a.merge ? ["-m", "1"] : []), a.hash]];
+    case "cherryPick": return [["cherry-pick", ...(v.noCommit ? ["--no-commit"] : []), ...(a.merge ? ["-m", "1"] : []), a.hash]];
+    case "revert": return [["revert", ...(v.noCommit ? ["--no-commit"] : ["--no-edit"]), ...(a.merge ? ["-m", "1"] : []), a.hash]];
+    case "reword": return [["commit", "--amend", "--only", "-m", message]];
+    case "undoCommit": return [["reset", "--soft", a.parent]];
+    case "checkoutFile": return [["--literal-pathspecs", "checkout", a.hash, "--", files([a.path])[0]]];
     case "reset": return [["reset", `--${v.mode}`, a.hash]];
     case "push": return [["push", ...(v.upstream ? ["--set-upstream"] : []), v.remote, a.name]];
     case "pushTag": return [["push", v.remote, `refs/tags/${a.name}`]];
@@ -798,7 +883,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
     case "commit": return [...(v.all ? [["add", "--all"]] : []), ["commit", ...(v.amend ? ["--amend"] : []), "-m", message]];
     // mode: the Pull setting. Without one, fast-forward only, as manygit pulls: never a merge or a rebase.
     case "pull": return [["pull", ...({ config: [], rebase: ["--rebase"], merge: ["--no-rebase"] }[v.mode] ?? ["--ff-only"]), "--quiet"]];
-    case "stash": return [["stash", "push", ...(v.untracked ? ["--include-untracked"] : []), ...(message ? ["-m", message] : [])]];
+    case "stash": return [["stash", "push", ...(v.untracked ? ["--include-untracked"] : []), ...(v.keepIndex ? ["--keep-index"] : []), ...(message ? ["-m", message] : [])]];
     case "resetUncommitted": return [["reset", `--${v.mode}`, "HEAD"]];
     case "fetch": return [["fetch", "--all", ...(v.prune ? ["--prune"] : [])]];
     default: throw new Error("Unknown Git action");
@@ -823,10 +908,13 @@ export function doneText(a, v = {}) {
       return `Deleted ${l} local and ${r} remote branches`;
     }
     case "deleteTag": return `Deleted tag ${a.name}`;
-    case "merge": return v.noCommit ? `Merged ${a.what} (staged, not committed)` : `Merged ${a.what}`;
+    case "merge": return v.squash ? `Squashed ${a.what} (staged, not committed)` : v.noCommit ? `Merged ${a.what} (staged, not committed)` : `Merged ${a.what}`;
     case "rebase": return `Rebased on ${a.what}`;
-    case "cherryPick": return `Cherry-picked ${a.short}`;
-    case "revert": return `Reverted ${a.short}`;
+    case "cherryPick": return v.noCommit ? `Cherry-picked ${a.short} (staged, not committed)` : `Cherry-picked ${a.short}`;
+    case "revert": return v.noCommit ? `Reverted ${a.short} (staged, not committed)` : `Reverted ${a.short}`;
+    case "reword": return "Updated commit message";
+    case "undoCommit": return `Undid commit ${a.short} (changes kept staged)`;
+    case "checkoutFile": return `Restored ${a.path} from ${a.short}`;
     case "reset": return `Reset to ${a.short} (${v.mode})`;
     case "push": return `Pushed ${a.name} to ${v.remote}`;
     case "pushTag": return `Pushed tag ${a.name} to ${v.remote}`;
@@ -857,7 +945,10 @@ export function doneText(a, v = {}) {
     case "stashApply": return `Applied ${a.ref}`;
     case "stashPop": return `Popped ${a.ref}`;
     case "stashDrop": return `Dropped ${a.ref}`;
+    case "stashBranch": return `Created branch ${name} from ${a.ref}`;
+    case "stashFiles": return a.paths.length === 1 ? `Stashed ${a.paths[0]}` : `Stashed ${a.paths.length} files`;
     case "continueOp": return `Continued the ${a.op}`;
+    case "skipOp": return `Skipped commit in ${a.op}`;
     case "abortOp": return `Aborted the ${a.op}`;
     case "stage": return a.paths.length === 1 ? `Staged ${a.paths[0]}` : `Staged ${a.paths.length} files`;
     case "resolveConflict": {
@@ -912,9 +1003,9 @@ export function joinFiles(statusText, numstatText) {
   });
 }
 
-export function diffArgs(commit, path) {
+export function diffArgs(commit, path, { ignoreWhitespace = false } = {}) {
   if (!commit.uncommitted) checkCommit(commit);
-  const opts = ["--no-color", "--no-ext-diff", "--no-textconv"];
+  const opts = ["--no-color", "--no-ext-diff", "--no-textconv", ...(ignoreWhitespace ? ["-w"] : [])];
   if (commit.uncommitted) return ["diff", ...opts, "HEAD", "--", path];
   if (!commit.parents.length) return ["show", ...opts, "--format=", commit.hash, "--", path];
   return ["diff", ...opts, commit.parents[0], commit.hash, "--", path];
@@ -926,9 +1017,9 @@ export function compareFileArgs(baseHash, targetHash) {
   return { status: [...base, "--name-status"], numstat: [...base, "--numstat"] };
 }
 
-export function compareDiffArgs(baseHash, targetHash, path) {
+export function compareDiffArgs(baseHash, targetHash, path, { ignoreWhitespace = false } = {}) {
   if (!objectId(baseHash) || !objectId(targetHash)) throw new Error("Invalid commit identity");
-  return ["diff", "--no-color", "--no-ext-diff", "--no-textconv", baseHash, targetHash, "--", path];
+  return ["diff", "--no-color", "--no-ext-diff", "--no-textconv", ...(ignoreWhitespace ? ["-w"] : []), baseHash, targetHash, "--", path];
 }
 
 // Numbers each diff line once, so a frame only draws the rows on screen.

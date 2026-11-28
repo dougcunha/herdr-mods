@@ -2,7 +2,7 @@
 // initialized, conflict). A click (or a right-click) opens its menu; the bar updates, syncs or adds.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { exec, openOverlay } from "herdr";
+import { exec, openOverlay, readTextFile } from "herdr";
 import { READ, menuFor, menuHeight } from "./git.js";
 import { submoduleStatusArgs, gitmodulesArgs, parseSubmodules, parseSubmoduleStatus, parseRevListCounts, submoduleBranchState } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
@@ -28,6 +28,13 @@ export class Submodules {
     const git = (args, cwd = root) => exec("git", [...READ, ...args], { cwd, on, timeout: 60000 });
     cx.spawn(async (cx) => {
       try {
+        const gitmodules = await readTextFile(`${root}/.gitmodules`, { on }).catch(() => null);
+        if (this.seq !== seq) return;
+        if (gitmodules === null) {
+          this.list = []; this.error = null; this.loadingPhase2 = false;
+          cx.notify();
+          return;
+        }
         const [status, config] = await Promise.all([git(submoduleStatusArgs()), git(gitmodulesArgs())]);
         if (this.seq !== seq) return;
         if (status.code !== 0) throw new Error(status.stderr.trim().split("\n").pop());

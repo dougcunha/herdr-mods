@@ -2,9 +2,9 @@
 // to type, options to tick, a mode to pick. Styled like Herdr's prompt and
 // confirm dialogs. Git's error stays in the dialog so the person can fix it.
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextareaState, Textarea } from "gpui-base";
 import { props, closeOverlay, exec, theme } from "herdr";
-import { dialogFor, initialValues, validate } from "./git.js";
+import { READ, dialogFor, initialValues, validate } from "./git.js";
 import { describeError } from "./errors.js";
 import { perform, openErrorDialog, openWorktree } from "./act.js";
 import { listSubmoduleBranches } from "./execute.js";
@@ -17,10 +17,14 @@ export class Dialog {
     this.spec = dialogFor(action, ctx);
     this.values = initialValues(action, ctx);
     this.focusedInput = 0;
+    this.touched = false;
     this.inputs = (this.spec.inputs ?? []).map((field, i) => {
-      const state = InputState.new({ value: field.value ?? "" });
-      state.on("change", (_e, cx) => { this.values[field.id] = state.value(); this.error = null; cx.notify(); });
-      state.on("submit", (_e, cx) => this.confirm(cx));
+      const state = field.multiline
+        ? TextareaState.new({ value: field.value ?? "", rows: 4 })
+        : InputState.new({ value: field.value ?? "" });
+      if (field.multiline) state.set_auto_grow(3, 8);
+      state.on("change", (_e, cx) => { this.touched = true; this.values[field.id] = state.value(); this.error = null; cx.notify(); });
+      state.on("submit", (e, cx) => { if (!field.multiline || e?.secondary) this.confirm(cx); });
       state.on("focus", (_e, cx) => { this.focusedInput = i; cx.notify(); });
       state.on("blur", (_e, cx) => { if (this.focusedInput === i) this.focusedInput = -1; cx.notify(); });
       return { field, state };
@@ -28,12 +32,27 @@ export class Dialog {
     this.handle = cx.focus_handle();
     const first = this.inputs[0]?.state;
     if (first) {
-      if (this.inputs[0].field.value) first.set_selected_range({ start: 0, end: this.inputs[0].field.value.length });
+      if (!this.inputs[0].field.multiline && this.inputs[0].field.value) {
+        first.set_selected_range({ start: 0, end: this.inputs[0].field.value.length });
+      }
       first.focus();
       cx.timer.after(600, () => first.focus());
     } else {
       this.focusedInput = -1;
       this.handle.focus();
+    }
+    if (action.type === "reword" && action.hash) {
+      cx.spawn(async (cx) => {
+        const r = await exec("git", [...READ, "log", "-1", "--format=%B", action.hash], { cwd: ctx.root, on: ctx.on }).catch(() => null);
+        if (r?.code === 0 && !this.touched && this.inputs[0]) {
+          const msg = r.stdout.trim();
+          if (msg) {
+            this.values.message = msg;
+            this.inputs[0].state.set_value(msg);
+            cx.notify();
+          }
+        }
+      });
     }
     if (action.type === "submoduleChooseBranch") {
       this.loading = true;
@@ -92,7 +111,10 @@ export class Dialog {
         .when(Boolean(s.detail), (el) => el.child(div().pt(8).text_color(t.muted).child(s.detail)))
         .children(this.inputs.map(({ field, state }, i) => v_flex()
           .child(label(field.label))
-          .child(Input.new(state).h(36).px(10).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))))
+          .child(field.multiline
+            ? div().px(10).py(8).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background)
+              .child(Textarea.new(state).w_full().text_size(12.5).text_color(t.foreground))
+            : Input.new(state).h(36).px(10).rounded(9).border_1().border_color(this.focusedInput === i ? t.accent : t.input).bg(t.background).text_size(12.8).text_color(t.foreground))))
         .when(Boolean(s.choice), (el) => {
           const rows = s.choice.options.map((o) => {
             const on = this.values[s.choice.id] === o.value;

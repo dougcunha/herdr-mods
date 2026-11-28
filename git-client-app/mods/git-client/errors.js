@@ -16,12 +16,15 @@ export function failTitle(action, values = {}) {
     case "checkoutRemote":
     case "checkoutCommit": return `Couldn't check out ${action.name ?? action.short ?? "branch"}`;
     case "commit": return values.amend ? "Couldn't amend commit" : "Couldn't commit";
+    case "reword": return "Couldn't update commit message";
+    case "undoCommit": return "Couldn't undo commit";
     case "merge": return "Couldn't merge";
     case "rebase": return "Couldn't rebase";
     case "cherryPick": return "Couldn't cherry-pick";
     case "revert": return "Couldn't revert";
     case "reset":
-    case "resetUncommitted": return "Couldn't reset";
+    case "resetUncommitted":
+    case "checkoutFile": return "Couldn't restore file";
     case "deleteBranch":
     case "deleteRemoteBranch": return `Couldn't delete ${action.name ?? action.branch ?? "branch"}`;
     case "deleteBranches": return "Couldn't delete branches";
@@ -32,7 +35,9 @@ export function failTitle(action, values = {}) {
     case "addTag":
     case "deleteTag": return "Couldn't update tag";
     case "setUpstream": return `Couldn't set upstream for ${action.name}`;
-    case "stash": return "Couldn't stash";
+    case "stash":
+    case "stashFiles": return "Couldn't stash";
+    case "stashBranch": return "Couldn't create branch from stash";
     case "stashApply": return "Couldn't apply stash";
     case "stashPop": return "Couldn't pop stash";
     case "stashDrop": return "Couldn't drop stash";
@@ -60,6 +65,7 @@ export function failTitle(action, values = {}) {
     case "untrack": return "Couldn't stop tracking file";
     case "untrackMany": return "Couldn't stop tracking files";
     case "continueOp": return `Couldn't continue ${action.op}`;
+    case "skipOp": return `Couldn't skip commit in ${action.op}`;
     case "abortOp": return `Couldn't abort ${action.op}`;
     case "addRemote":
     case "renameRemote":

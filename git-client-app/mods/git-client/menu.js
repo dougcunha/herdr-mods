@@ -4,7 +4,7 @@ import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, notify, theme, run, shared } from "herdr";
 import { menuFor } from "./git.js";
-import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree, showCompare } from "./act.js";
+import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree, showCompare, showBranchFilter } from "./act.js";
 
 // A glyph of this mod, or another mod's icon by its path.
 export const icon = (name) => (name.includes("/") ? name : `mods/git-client/icons/${name}.svg`);
@@ -52,12 +52,16 @@ export class Menu {
     } else if (a.type === "compareCommits") {
       closeOverlay(overlay);
       showCompare(a.a, a.b, ctx?.root ?? null, ctx?.on ?? null);
+    } else if (a.type === "filterBranch") {
+      closeOverlay(overlay);
+      showBranchFilter(a.name, ctx?.root ?? null, ctx?.on ?? null);
     } else if (a.type === "visualReview") {
       closeOverlay(overlay);
       run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: ctx.root, on: ctx.on ?? null, selection: a.selection } });
     } else if (a.type === "pull") {
-      // The same pull as the Pull button of the bar: the Pull setting, no dialog.
-      const mode = ["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config";
+      // Uses explicit menu mode when chosen (right-click Pull), else the Pull setting.
+      const fallback = ["config", "ff-only", "rebase", "merge"].includes(shared("git-client.pull")) ? shared("git-client.pull") : "config";
+      const mode = ["config", "ff-only", "rebase", "merge"].includes(a.mode) ? a.mode : fallback;
       this.busy = i;
       cx.spawn(async (cx) => { await perform(a, { mode }, ctx); closeOverlay(overlay); cx.notify(); });
     } else if (openDialog(a, ctx)) {
