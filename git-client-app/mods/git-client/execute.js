@@ -2,7 +2,7 @@
 // against disposable repositories. exec has Herdr's (program, argv, options) shape.
 // io: { writePatch(text) → path, remove(path) }, for hunk patches in a local repository,
 // and appendLine(file, line), for the ignore files of a local repository.
-import { READ, commandsFor, gitError, ignoreLine, ignoreChoices } from "./git.js";
+import { READ, commandsFor, gitError, ignoreLine, ignoreChoices, parseUnmerged } from "./git.js";
 import { describeError } from "./errors.js";
 
 const fail = (action, raw, values) => {
@@ -12,6 +12,7 @@ const fail = (action, raw, values) => {
 
 // Staging, remotes, worktrees and stashes don't move the checked-out branch: no HEAD check.
 const STAGING = new Set(["stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany", "stageHunk", "unstageHunk", "discardHunk",
+  "resolveConflict",
   "fetchRemote", "addRemote", "renameRemote", "setRemoteUrl", "removeRemote", "addWorktree", "removeWorktree", "lockWorktree", "unlockWorktree",
   "pruneWorktrees", "stashApply", "stashPop", "stashDrop",
   "submoduleUpdate", "submoduleUpdateRemote", "submoduleSync", "submoduleAdd", "submoduleRemove", "submodulePull", "submoduleFetch"]);
@@ -19,6 +20,7 @@ const HUNK = { stageHunk: ["--cached"], unstageHunk: ["--cached", "-R"], discard
 
 export async function executeAction(action, values, ctx, exec, io = null) {
   const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
+  if (action.type === "resolveConflict") return resolveConflict(action, ctx, exec);
   if (action.type === "submoduleChooseBranch") return updateSubmoduleBranch(action, values, ctx, exec);
   if (action.type === "submodulePull") return pullSubmodule(action, ctx, exec);
   if (action.type === "submoduleFetch") return fetchSubmodules(action, values, ctx, exec);
@@ -304,5 +306,40 @@ async function addIgnore(line, where, ctx, exec, io) {
   }
   if (!io?.appendLine) return { ok: false, message: `Cannot write ${file}` };
   try { await io.appendLine(file, line); } catch (e) { return { ok: false, message: `Cannot write ${file}: ${e?.message ?? e}` }; }
+  return { ok: true };
+}
+
+async function resolveConflict(action, ctx, exec) {
+  if (action.side !== "ours" && action.side !== "theirs") return { ok: false, message: "Invalid conflict side" };
+  const paths = Array.isArray(action.paths) ? action.paths : [];
+  if (!paths.length || paths.some((p) => typeof p !== "string" || !p || p.includes("\0"))) {
+    return { ok: false, message: "Invalid path" };
+  }
+  const git = (args) => exec("git", args, { cwd: ctx.root, on: ctx.on });
+  const ls = await git([...READ, "--literal-pathspecs", "ls-files", "--unmerged", "-z", "--", ...paths]);
+  if (ls.code !== 0) return fail(action, gitError(ls));
+  const unmerged = parseUnmerged(ls.stdout);
+  const stage = action.side === "ours" ? 2 : 3;
+  for (const p of paths) {
+    const entry = unmerged.get(p);
+    if (!entry) {
+      if (paths.length === 1) return { ok: false, message: `${p} is no longer in conflict. Refresh and try again.` };
+      continue;
+    }
+    const chosen = entry[stage];
+    if (!chosen) {
+      const rm = await git(["--literal-pathspecs", "rm", "-f", "--", p]);
+      if (rm.code !== 0) return fail(action, gitError(rm));
+    } else if (chosen.mode === "160000") {
+      // Submodule gitlink conflicts resolve directly in the index without touching the submodule worktree.
+      const upd = await git(["update-index", "--cacheinfo", `160000,${chosen.hash},${p}`]);
+      if (upd.code !== 0) return fail(action, gitError(upd));
+    } else {
+      const co = await git(["--literal-pathspecs", "checkout", `--${action.side}`, "--", p]);
+      if (co.code !== 0) return fail(action, gitError(co));
+      const add = await git(["--literal-pathspecs", "add", "--", p]);
+      if (add.code !== 0) return fail(action, gitError(add));
+    }
+  }
   return { ok: true };
 }

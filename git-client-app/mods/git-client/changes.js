@@ -1,16 +1,16 @@
 // The Changes tab: the files in conflict, staged and not staged, the diff of one of them with its
 // hunks, and the commit box (amend, commit all, push after, AI message).
 import { div, svg } from "gpui-kit";
-import { v_flex, h_flex, TextareaState, Textarea, h_resizable, resizable_panel } from "gpui-base";
+import { v_flex, h_flex, ScrollHandle, TextareaState, Textarea, h_resizable, resizable_panel } from "gpui-base";
 import { exec, readTextFile, theme, notify, openOverlay, setShared } from "herdr";
-import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError, isImagePath, isSvgPath } from "./git.js";
+import { READ, PATCH, parsePatch, hunkPatch, patchRows, newFileRows, menuFor, menuHeight, opPathArgs, opOf, OP_FILES, gitError, isImagePath, isSvgPath, parseUnmerged } from "./git.js";
 import { perform, openDialog, openErrorDialog, atEvent } from "./act.js";
 import { describeError } from "./errors.js";
 import { icon } from "./menu.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
 import { ImageDiffView, sweepStagedImages } from "./imageview.js";
 import { generateMessage } from "./ai.js";
-import { emptySelection, isPicked, clickRow, clickCheckbox, selectAll, pruneSelection, selectedFiles } from "./selection.js";
+import { emptySelection, isPicked, clickRow, clickCheckbox, selectAll, pruneSelection, selectedFiles, stepIndex } from "./selection.js";
 
 const ROW = 26, TITLE = 28;
 // Rows shown in one list: the lists are plain rows, not a virtual list.
@@ -33,10 +33,11 @@ export class Changes {
   constructor(host) { this.host = host; }
 
   init(cx) {
-    this.staged = new Map(); this.unstaged = new Map(); this.op = null;
+    this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.opSides = null;
     this.sel = null; this.picked = emptySelection(); this.closed = false; this.patch = null; this.diffNote = null;
     this.diff = new DiffView(`gc-diff-${Math.random().toString(36).slice(2)}`);
     this.image = new ImageDiffView(`gc-img-${Math.random().toString(36).slice(2)}`);
+    this.listScroll = ScrollHandle.new();
     this.imageAsText = false;
     cx.spawn(async () => { await sweepStagedImages(); });
     this.amend = false; this.all = false; this.push = false; this.hover = null;
@@ -62,7 +63,7 @@ export class Changes {
 
   // A new folder: nothing of the old one stays.
   resetFolder() {
-    this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.sel = null; this.picked = emptySelection(); this.closed = false;
+    this.staged = new Map(); this.unstaged = new Map(); this.op = null; this.opSides = null; this.sel = null; this.picked = emptySelection(); this.closed = false;
     this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null; this.amend = false; this.all = false;
     this.message = ""; this.input.set_value("");
   }
@@ -98,6 +99,8 @@ export class Changes {
         }
         if (stale()) return;
         this.op = opOf(found);
+        this.opSides = this.op ? await this.loadOpSides(git, this.op, found) : null;
+        if (stale()) return;
         this.picked = pruneSelection(this.picked, this.listsBySide());
         const files = this.files();
         if (this.sel && !files.some((f) => f.path === this.sel.path && this.sideOf(f, this.sel.side))) { this.sel = null; this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; }
@@ -115,6 +118,40 @@ export class Changes {
 
   sideOf(f, side) { return side === "conflict" ? f.conflict : side === "staged" ? f.staged : f.unstaged; }
 
+  async loadOpSides(git, op, found) {
+    const theirsRef = { merge: "MERGE_HEAD", rebase: "REBASE_HEAD", "cherry-pick": "CHERRY_PICK_HEAD", revert: "REVERT_HEAD" }[op];
+    const readSide = async (target, fallbackRef = null) => {
+      if (!target) return { ref: fallbackRef, hash: null, subject: null };
+      const [metaRes, nameRes] = await Promise.all([
+        git(["show", "-s", "--format=%h%x1f%D%x1f%s", target]).catch(() => null),
+        git(["name-rev", "--name-only", "--always", "--no-undefined", target]).catch(() => null),
+      ]);
+      if (!metaRes || metaRes.code !== 0) return { ref: fallbackRef, hash: null, subject: null };
+      const [hash, dec, subject] = metaRes.stdout.trimEnd().split("\x1f");
+      let local = null, tag = null, remote = null;
+      for (const raw of (dec ?? "").split(", ").filter(Boolean)) {
+        if (raw === "HEAD") continue;
+        if (raw.startsWith("HEAD -> ")) { local ??= raw.slice(8); continue; }
+        if (raw.startsWith("tag: ")) { tag ??= raw.slice(5); continue; }
+        if (!raw.includes("/")) local ??= raw;
+        else if (!raw.endsWith("/HEAD")) remote ??= raw;
+      }
+      const cleanName = nameRes?.code === 0
+        ? nameRes.stdout.trim().replace(/^remotes\//, "").replace(/^tags\//, "")
+        : null;
+      const ref = fallbackRef ?? local ?? tag ?? remote ?? (cleanName && cleanName !== "undefined" && cleanName !== hash ? cleanName : null);
+      return { ref, hash: hash || null, subject: (subject ?? "").trim() || null };
+    };
+    const [headBranchRes, ours] = await Promise.all([
+      git(["symbolic-ref", "-q", "--short", "HEAD"]).catch(() => null),
+      readSide("HEAD"),
+    ]);
+    if (headBranchRes?.code === 0 && headBranchRes.stdout.trim()) ours.ref = headBranchRes.stdout.trim();
+    const rebaseHead = op === "rebase" ? (found.rebase || found["rebase-apply"] || "").trim().replace(/^refs\/heads\//, "") : null;
+    const theirs = await readSide(theirsRef, rebaseHead || null);
+    return { ours, theirs };
+  }
+
   async loadDiff(cx, seq = this.seq, keepCurrent = false) {
     const h = this.host.history, root = h.root, on = h.on, sel = this.sel;
     const file = this.files().find((f) => f.path === sel?.path);
@@ -131,8 +168,52 @@ export class Changes {
       if (sel.side === "unstaged" && file.untracked) {
         rows = newFileRows(await readTextFile(`${root}/${file.path}`, { on }).catch(() => null));
       } else if (sel.side === "conflict") {
-        const r = await git(["diff", "--no-color", "--no-ext-diff", "--", file.path]);
-        rows = patchRows(r.stdout) ?? [{ kind: "", text: "No text diff (a deleted or binary file in conflict)" }];
+        const ls = await git(["ls-files", "--unmerged", "-z", "--", file.path]);
+        const entry = ls.code === 0 ? parseUnmerged(ls.stdout).get(file.path) : null;
+        const ours = entry?.[2], theirs = entry?.[3];
+        if (ours?.mode === "160000" || theirs?.mode === "160000") {
+          const subSubject = async (hash) => {
+            if (!hash) return null;
+            const res = await exec("git", [...READ, "show", "-s", "--format=%s", hash], { cwd: `${root}/${file.path}`, on }).catch(() => null);
+            return res?.code === 0 ? res.stdout.trim() : null;
+          };
+          const [oursSubj, theirsSubj] = await Promise.all([subSubject(ours?.hash), subSubject(theirs?.hash)]);
+          rows = [
+            { kind: "@", text: "@@ Submodule conflict @@", hunk: -1 },
+            ours
+              ? { kind: "-", number: 1, text: `Subproject commit ${ours.hash}${oursSubj ? ` — ${oursSubj}` : ""}`, hunk: -1 }
+              : { kind: "-", number: 1, text: "(deleted in ours)", hunk: -1 },
+            theirs
+              ? { kind: "+", number: 1, text: `Subproject commit ${theirs.hash}${theirsSubj ? ` — ${theirsSubj}` : ""}`, hunk: -1 }
+              : { kind: "+", number: 1, text: "(deleted in theirs)", hunk: -1 },
+          ];
+        } else if (ours && theirs) {
+          const r = await git(["diff", "--no-color", "--no-ext-diff", "--no-textconv", `:2:${file.path}`, `:3:${file.path}`]);
+          rows = patchRows(r.stdout);
+          if (!rows) {
+            const fallback = await git(["diff", "--no-color", "--no-ext-diff", "--", file.path]);
+            rows = patchRows(fallback.stdout) ?? [{ kind: "", text: "No text diff (binary or identical sides)" }];
+          }
+        } else if (ours && !theirs) {
+          const r = await git(["show", `:2:${file.path}`]);
+          if (r.code !== 0 || r.stdout.includes("\0")) rows = [{ kind: "", text: "Deleted in theirs (binary or unreadable in ours)" }];
+          else {
+            const lines = r.stdout.replace(/\n$/, "").split("\n").slice(0, 3000);
+            rows = [{ kind: "@", text: "@@ Deleted in theirs (kept in ours) @@", hunk: -1 },
+              ...lines.map((l, i) => ({ kind: "-", number: i + 1, text: (l.length > 2000 ? l.slice(0, 2000) + "…" : l) || " ", hunk: -1 }))];
+          }
+        } else if (!ours && theirs) {
+          const r = await git(["show", `:3:${file.path}`]);
+          if (r.code !== 0 || r.stdout.includes("\0")) rows = [{ kind: "", text: "Deleted in ours (binary or unreadable in theirs)" }];
+          else {
+            const lines = r.stdout.replace(/\n$/, "").split("\n").slice(0, 3000);
+            rows = [{ kind: "@", text: "@@ Deleted in ours (present in theirs) @@", hunk: -1 },
+              ...lines.map((l, i) => ({ kind: "+", number: i + 1, text: (l.length > 2000 ? l.slice(0, 2000) + "…" : l) || " ", hunk: -1 }))];
+          }
+        } else {
+          const r = await git(["diff", "--no-color", "--no-ext-diff", "--", file.path]);
+          rows = patchRows(r.stdout) ?? [{ kind: "", text: "No text diff (a deleted or binary file in conflict)" }];
+        }
       } else {
         const r = await git([...PATCH, ...(sel.side === "staged" ? ["--cached"] : []), "--", file.path]);
         if (r.code !== 0) throw new Error(gitError(r));
@@ -190,6 +271,48 @@ export class Changes {
 
   escape(cx) { return this.clearSelection(cx); }
 
+  sectionSpecs() {
+    const conflicts = this.conflicts(), staged = this.stagedFiles(), unstaged = this.unstagedFiles();
+    const list = [];
+    if (conflicts.length > 0) list.push({ id: "conflicts", title: "Conflicts", files: conflicts, side: "conflict" });
+    list.push({ id: "staged", title: "Staged", files: staged, side: "staged" });
+    list.push({ id: "unstaged", title: "Changes", files: unstaged, side: "unstaged" });
+    return list;
+  }
+
+  listNav() {
+    const nav = [];
+    let childIndex = 0;
+    for (const s of this.sectionSpecs()) {
+      childIndex++; // section heading
+      const shown = s.files.slice(0, SHOWN);
+      for (const file of shown) nav.push({ file, side: s.side, childIndex: childIndex++ });
+      if (s.files.length > SHOWN) childIndex++; // overflow notice
+    }
+    return nav;
+  }
+
+  moveFile(step, cx) {
+    const nav = this.listNav();
+    if (!nav.length) return false;
+    const cur = this.sel ? nav.findIndex((item) => item.file.path === this.sel.path && item.side === this.sel.side) : -1;
+    const nextIdx = stepIndex(cur, nav.length, step);
+    const target = nav[nextIdx];
+    if (!target) return false;
+    this.picked = emptySelection();
+    this.closed = false;
+    const changed = target.file.path !== this.sel?.path || target.side !== this.sel?.side;
+    if (changed) {
+      this.sel = { path: target.file.path, side: target.side };
+      this.patch = null; this.diff.setRows([]); this.image.clear(); this.imageAsText = false; this.diffNote = null;
+      const seq = this.seq;
+      cx.spawn(async (cx) => { await this.loadDiff(cx, seq); cx.notify(); });
+    }
+    this.listScroll.scroll_to_item(target.childIndex === 1 && step < 0 ? 0 : target.childIndex);
+    cx.notify();
+    return true;
+  }
+
   focusPath(path, cx) {
     const f = this.files().find((x) => x.path === path);
     if (!f) return false;
@@ -229,6 +352,11 @@ export class Changes {
 
   stage(paths, cx) { if (paths.length) this.run({ type: "stage", paths }, cx); }
   unstage(paths, cx) { if (paths.length) this.run({ type: "unstage", paths, unborn: !this.host.history.head }, cx); }
+  resolveConflict(side, paths, cx) {
+    if (!paths.length) return;
+    const label = side === "ours" ? (this.opSides?.ours?.ref ?? null) : (this.opSides?.theirs?.ref ?? null);
+    this.run({ type: "resolveConflict", side, paths, label }, cx, { quiet: false });
+  }
   discard(files, cx) {
     const paths = files.filter((f) => !f.untracked).map((f) => f.path), untracked = files.filter((f) => f.untracked).map((f) => f.path);
     if (paths.length || untracked.length) this.run({ type: "discard", paths, untracked }, cx);
@@ -237,6 +365,7 @@ export class Changes {
   fileMenu(f, side, e) {
     const ctx = this.ctx();
     if (!ctx) return;
+    const menuCtx = { ...ctx, opSides: this.opSides };
     const lists = this.listsBySide();
     this.picked = pruneSelection(this.picked, lists);
     const selected = selectedFiles(this.picked, lists);
@@ -246,12 +375,12 @@ export class Changes {
         side,
         files: selected.map((x) => ({ path: x.path, untracked: x.untracked, status: x.status, x: x.x })),
       };
-      const items = menuFor(target, ctx);
-      openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 250, height: menuHeight(items), props: { role: "menu", target, ctx } });
+      const items = menuFor(target, menuCtx);
+      openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 250, height: menuHeight(items), props: { role: "menu", target, ctx: menuCtx } });
       return;
     }
-    const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status, x: f.x } }, items = menuFor(target, ctx);
-    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx } });
+    const target = { kind: "file", side, file: { path: f.path, untracked: f.untracked, status: f.status, x: f.x } }, items = menuFor(target, menuCtx);
+    openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 240, height: menuHeight(items), props: { role: "menu", target, ctx: menuCtx } });
   }
 
   // A hunk of the shown diff: its menu (stage, unstage, discard).
@@ -286,7 +415,7 @@ export class Changes {
     }
     if (!this.diff.rows.length) return;
     openOverlay({ mod: "git-client", kind: "dialog", width: 1100, height: 720,
-      props: { role: "diff", title: this.sel.path, side: this.sel.side, rows: this.diff.rows } });
+      props: { role: "diff", title: this.sel.path, side: this.sel.side, rows: this.diff.rows, sides: this.diffSides() } });
   }
 
   toggleAmend(cx) {
@@ -429,17 +558,24 @@ export class Changes {
       .when(side === "staged", (el) => el
         .child(chipBtn("gc-sel-unstage", "Unstage", "default", (cx) => this.unstage(selected.map((f) => f.path), cx))))
       .when(side === "conflict", (el) => el
+        .child(chipBtn("gc-sel-ours", "Keep ours", "default", (cx) => this.resolveConflict("ours", selected.map((f) => f.path), cx)))
+        .child(chipBtn("gc-sel-theirs", "Accept theirs", "default", (cx) => this.resolveConflict("theirs", selected.map((f) => f.path), cx)))
         .child(chipBtn("gc-sel-resolve", "Mark resolved", "primary", (cx) => this.stage(selected.map((f) => f.path), cx))));
   }
 
-  section(id, title, files, side, t, actions) {
-    return v_flex().flex_none()
-      .child(h_flex().h(TITLE).flex_none().pl(10).pr(6).gap(6).items_center().text_size(11).text_color(t.dim)
+  listEntries(t, actionsBySide) {
+    const out = [];
+    for (const { title, files, side } of this.sectionSpecs()) {
+      out.push(h_flex().h(TITLE).flex_none().pl(10).pr(6).gap(6).items_center().text_size(11).text_color(t.dim)
         .child(div().font_semibold().child(title.toUpperCase())).child(div().child(String(files.length))).child(div().flex_1())
-        .children(actions))
-      .children(files.slice(0, SHOWN).map((f) => this.fileRow(f, side, t)))
-      .when(files.length > SHOWN, (e) => e.child(div().h(ROW).flex_none().px(10).flex().items_center().text_size(11).text_color(t.dim)
-        .child(`and ${files.length - SHOWN} more (the "all" buttons act on every file)`)));
+        .children(actionsBySide[side] ?? []));
+      for (const f of files.slice(0, SHOWN)) out.push(this.fileRow(f, side, t));
+      if (files.length > SHOWN) {
+        out.push(div().h(ROW).flex_none().px(10).flex().items_center().text_size(11).text_color(t.dim)
+          .child(`and ${files.length - SHOWN} more (the "all" buttons act on every file)`));
+      }
+    }
+    return out;
   }
 
   opBanner(t) {
@@ -488,6 +624,75 @@ export class Changes {
           .child(this.commitLabel())));
   }
 
+  diffSides() {
+    const sel = this.sel, h = this.host.history;
+    if (!sel) return null;
+    if (sel.side === "conflict") {
+      return {
+        left: {
+          badge: "Ours",
+          ref: this.opSides?.ours?.ref ?? h.current ?? "HEAD",
+          hash: this.opSides?.ours?.hash ?? (h.head ? h.head.slice(0, 8) : null),
+          subject: this.opSides?.ours?.subject ?? null,
+          tone: "removed",
+        },
+        right: {
+          badge: "Theirs",
+          ref: this.opSides?.theirs?.ref ?? "Incoming",
+          hash: this.opSides?.theirs?.hash ?? null,
+          subject: this.opSides?.theirs?.subject ?? null,
+          tone: "added",
+        },
+      };
+    }
+    if (sel.side === "staged") {
+      const idx = h.head ? h.index.get(h.head) : undefined;
+      const headCommit = idx !== undefined ? h.commits[idx] : null;
+      return {
+        left: {
+          badge: "HEAD",
+          ref: h.current ?? null,
+          hash: h.head ? h.head.slice(0, 8) : null,
+          subject: headCommit?.subject ?? null,
+          tone: "removed",
+        },
+        right: { badge: "Staged", ref: "Index", hash: null, subject: null, tone: "added" },
+      };
+    }
+    const file = this.files().find((f) => f.path === sel.path);
+    return {
+      left: file?.untracked
+        ? { badge: "Empty", ref: null, hash: null, subject: "New untracked file", tone: "removed" }
+        : { badge: "Staged", ref: "Index", hash: null, subject: null, tone: "removed" },
+      right: { badge: "Working", ref: "Working tree", hash: null, subject: null, tone: "added" },
+    };
+  }
+
+  conflictActionBar(t) {
+    const sel = this.sel;
+    if (sel?.side !== "conflict") return div();
+    const ours = this.opSides?.ours, theirs = this.opSides?.theirs;
+    const oursLabel = ours?.ref ? `Keep ours (${ours.ref})` : "Keep ours";
+    const theirsLabel = theirs?.ref ? `Accept theirs (${theirs.ref})` : "Accept theirs";
+    const btn = (id, label, color, tip, action) => h_flex().id(id).h(22).px(8).flex_none().items_center().rounded(5)
+      .border_1().border_color(color ? color + "55" : t.border).bg(color ? color + "16" : t.raised)
+      .text_size(11).font_medium().text_color(color ?? t.foreground).cursor_pointer().tooltip(tip)
+      .hover((s) => s.bg(color ? color + "28" : t.hover))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => action(cx))
+      .child(label);
+    return h_flex().id("gc-conflict-actions").h(30).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).bg(t.background)
+      .child(btn("gc-keep-ours", oursLabel, t.ansi1,
+        [ours?.ref ?? "Current branch (HEAD)", ours?.hash, ours?.subject].filter(Boolean).join(" · "),
+        (cx) => this.resolveConflict("ours", [sel.path], cx)))
+      .child(btn("gc-accept-theirs", theirsLabel, t.ansi2,
+        [theirs?.ref ?? "Incoming branch", theirs?.hash, theirs?.subject].filter(Boolean).join(" · "),
+        (cx) => this.resolveConflict("theirs", [sel.path], cx)))
+      .child(div().flex_1())
+      .child(btn("gc-mark-resolved", "Mark resolved", t.accent, "Stage the file as-is on disk",
+        (cx) => this.stage([sel.path], cx)));
+  }
+
   diffBar(t) {
     const sel = this.sel, view = currentView(), showImg = this.showingImage(), isSvg = Boolean(sel && isSvgPath(sel.path));
     const seg = (v, label) => div().id(`gc-view-${v}`).h_full().px(7).flex().items_center().rounded(4).text_size(11)
@@ -525,19 +730,21 @@ export class Changes {
       .when(ready && !this.files().length, (e) => e.child(div().p(12).text_color(t.dim).child("No uncommitted changes")))
       .when(ready && this.files().length > 0 && selected.length > 0, (e) => e.child(this.selectionBar(t, selected, selSide, totalInSide)))
       .when(ready && this.files().length > 0, (e) => e
-        .child(v_flex().id("gc-lists").flex_none().h(listHeight).overflow_y_scrollbar().px(4).py(4)
-          .when(conflicts.length > 0, (el) => el.child(this.section("conflicts", "Conflicts", conflicts, "conflict", t, [])))
-          .child(this.section("staged", "Staged", staged, "staged", t,
-            staged.length ? [this.smallButton("gc-unstage-all", "minus", "Unstage all", (cx) => this.unstage(staged.map((f) => f.path), cx), t)] : []))
-          .child(this.section("unstaged", "Changes", unstaged, "unstaged", t,
-            unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
-              this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : []))))
+        .child(v_flex().id("gc-lists").flex_none().h(listHeight).overflow_y_scrollbar().track_scroll(this.listScroll).px(4).py(4)
+          .children(this.listEntries(t, {
+            conflict: [],
+            staged: staged.length ? [this.smallButton("gc-unstage-all", "minus", "Unstage all", (cx) => this.unstage(staged.map((f) => f.path), cx), t)] : [],
+            unstaged: unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
+              this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : [],
+          }))))
       .when(ready && this.files().length > 0, (e) => e.child(this.diffBar(t))
+        .when(this.sel?.side === "conflict", (el) => el.child(this.conflictActionBar(t)))
         .child(this.showingImage() ? this.image.render() : this.diff.render({
           empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
           hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
           onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
           onMenu: (row, e) => this.hunkMenu(row, e),
+          sides: this.diffSides(),
         })))
       .when(ready && !this.files().length, (e) => e.child(div().flex_1()))
       .when(ready, (e) => e.child(this.commitBox(t)));
@@ -564,23 +771,25 @@ export class Changes {
       .when(this.files().length > 0 && selected.length > 0, (e) => e.child(this.selectionBar(t, selected, selSide, totalInSide)))
       .when(!this.files().length, (e) => e.child(v_flex().flex_1().min_h(0).items_center().justify_center().p(12)
         .child(div().text_color(t.dim).child("No uncommitted changes"))))
-      .when(this.files().length > 0, (e) => e.child(v_flex().id("gcw-lists").flex_1().min_h(0).overflow_y_scrollbar().px(4).py(4)
-        .when(conflicts.length > 0, (el) => el.child(this.section("conflicts", "Conflicts", conflicts, "conflict", t, [])))
-        .child(this.section("staged", "Staged", staged, "staged", t,
-          staged.length ? [this.smallButton("gc-unstage-all", "minus", "Unstage all", (cx) => this.unstage(staged.map((f) => f.path), cx), t)] : []))
-        .child(this.section("unstaged", "Changes", unstaged, "unstaged", t,
-          unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
-            this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : []))))
+      .when(this.files().length > 0, (e) => e.child(v_flex().id("gcw-lists").flex_1().min_h(0).overflow_y_scrollbar().track_scroll(this.listScroll).px(4).py(4)
+        .children(this.listEntries(t, {
+          conflict: [],
+          staged: staged.length ? [this.smallButton("gc-unstage-all", "minus", "Unstage all", (cx) => this.unstage(staged.map((f) => f.path), cx), t)] : [],
+          unstaged: unstaged.length ? [this.smallButton("gc-discard-all", "trash", "Discard all", (cx) => this.discard(unstaged, cx), t, true),
+            this.smallButton("gc-stage-all", "plus", "Stage all", (cx) => this.stage(stageable, cx), t)] : [],
+        }))))
       .child(this.commitBox(t));
 
     const right = v_flex().id("gc-changes-right").size_full().min_h(0)
       .child(this.diffBar(t))
+      .when(this.files().length > 0 && this.sel?.side === "conflict", (e) => e.child(this.conflictActionBar(t)))
       .when(!this.files().length, (e) => e.child(v_flex().flex_1().min_h(0).items_center().justify_center().text_color(t.dim).child("Working tree clean")))
       .when(this.files().length > 0, (e) => e.child(this.showingImage() ? this.image.render() : this.diff.render({
         empty: this.diffNote ?? (this.sel ? "Loading diff…" : "Select a file to see its changes"),
         hunkLabel: (row) => (actionable && row.hunk >= 0 ? sideLabel : ""),
         onClick: (row, e) => { if (row?.kind === "@") this.hunkMenu(row, e); },
         onMenu: (row, e) => this.hunkMenu(row, e),
+        sides: this.diffSides(),
       })));
 
     return v_flex().id("gc-changes-wide").flex_1().min_h(0).w_full()

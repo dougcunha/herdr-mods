@@ -113,3 +113,8 @@ export function showSubmodule(root, path, on, meta = {}) {
 export function showFile(path, mode) {
   setShared("git-client.show", { file: path, mode, at: Date.now() });
 }
+
+// Asks every copy to compare two commits in History.
+export function showCompare(a, b, root = null, on = null) {
+  setShared("git-client.show", { compare: { a, b, root, on: on ?? null }, at: Date.now() });
+}

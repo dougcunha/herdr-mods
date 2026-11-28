@@ -276,7 +276,7 @@ export function submoduleBranchState(s) {
 
 const STATUS_ONLY_ACTIONS = new Set([
   "stage", "unstage", "discard", "ignore", "ignoreMany", "untrack", "untrackMany",
-  "stageHunk", "unstageHunk", "discardHunk",
+  "stageHunk", "unstageHunk", "discardHunk", "resolveConflict",
 ]);
 const STASH_ACTIONS = new Set(["stash", "stashApply", "stashPop", "stashDrop"]);
 const SUBMODULE_ACTIONS = new Set([

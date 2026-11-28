@@ -28,6 +28,7 @@ The [Kanban](../kanban-app) and [Dock](../dock-app) layouts of this repository s
 ### History
 
 - The graph of Git Graph for Herdr: a lane for each branch, labels for branches, remote branches and tags, the details and the diffs of a commit. A double-click on a label checks it out. A right-click on a commit or a label opens its actions: checkout, create branch, tag, merge, rebase, cherry-pick, revert, reset, rename, delete, push, copy.
+- **Compare 2 commits:** select one commit and `Ctrl+Click` / `Cmd+Click` (or `Shift+Click`) a second commit — or right-click another commit and choose **Compare with…** — to inspect the changed files and Unified/Split diff between them in the bottom panel (`⇄ Swap` reverses the comparison direction).
 - **All branches / Current** and **Remotes** choose what the graph shows.
 - **Search:** type and press Enter. Plain text searches the messages, a hash finds that commit, `author:<name>` and `path:<file>` filter by author and by file (quotes keep spaces: `path:"src/a b.js"`). Git searches the whole history; the list shows the commits without lanes. Esc or × clears it.
 - The **Uncommitted changes** row opens the Changes tab.

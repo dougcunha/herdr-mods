@@ -117,18 +117,18 @@ export class Client {
     else setShared("git-client.detailsHeight", Math.round(px));
   }
 
-  openInspector(kind, cx) {
+  openInspector(kind, cx, { notify = true } = {}) {
     const wasOpen = Boolean(this.inspector), wasChanges = this.inspector === "changes", nextChanges = kind === "changes";
     this.inspector = kind;
     this.inspectorAutoSet = true;
     if (!wasOpen || wasChanges !== nextChanges) this.inspectorGen++;
-    cx.notify();
+    if (notify) cx.notify();
   }
 
   closeInspector(cx) {
     if (!this.inspector) return;
     this.inspector = null;
-    if (this.history.selected) { this.history.selected = null; this.history.details = null; this.history.diff = null; }
+    if (this.history.selected || this.history.compare) this.history.clearSelection();
     cx.notify();
   }
 
@@ -403,15 +403,26 @@ export class Client {
   }
 
   inspectorHeader(t) {
+    const cmp = this.inspector === "commit" ? this.history.compare : null;
     const map = {
       changes: { icon: "changes", title: "Working Tree Changes" },
-      commit: { icon: "commit", title: this.history.selected ? `Commit ${this.history.selected.slice(0, 8)}` : "Commit Details" },
+      commit: cmp
+        ? { icon: "changes", title: `Compare ${cmp.base.slice(0, 8)} → ${cmp.target.slice(0, 8)}` }
+        : { icon: "commit", title: this.history.selected ? `Commit ${this.history.selected.slice(0, 8)}` : "Commit Details" },
       stash: { icon: "stash", title: this.stash.sel ? `Stash ${this.stash.sel.ref}` : "Stash Details" },
     };
     const info = map[this.inspector] ?? { icon: "changes", title: "Inspector" };
+    const showHint = this.inspector === "commit" && !cmp && Boolean(this.history.selected);
     return h_flex().h(28).flex_none().px(10).gap(6).items_center().bg(t.chrome).border_t(1).border_b(1).border_color(t.border)
       .child(svg(icon(info.icon)).size(12).flex_none().text_color(t.accent))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).font_semibold().text_color(t.foreground).child(info.title))
+      .when(Boolean(cmp), (e) => e.child(div().id("gc-compare-swap").h(20).px(7).flex().items_center().rounded(5).border_1().border_color(t.border)
+        .bg(t.raised).text_size(10.5).text_color(t.muted).cursor_pointer().tooltip("Swap comparison direction")
+        .hover((s) => s.bg(t.hover).text_color(t.foreground))
+        .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+        .on_click((_e, cx) => this.history.swapCompare(cx))
+        .child("⇄ Swap")))
+      .when(showHint, (e) => e.child(div().flex_none().text_size(10.5).text_color(t.dim).child("Ctrl+Click another commit to compare")))
       .child(this.iconButton("gc-insp-close", "x", null, "Close bottom panel", true, (cx) => this.closeInspector(cx), t));
   }
 
@@ -447,6 +458,14 @@ export class Client {
         this.inspector = null; this.inspectorAutoSet = false; this.tab = "changes"; this.fileView.close();
       }
       else if (show.file && this.history.root) { this.fileView.open(show.file, show.mode, cx); this.fileView.context = this.history.context; }
+      else if (show.compare?.a && show.compare?.b) {
+        const sameRepo = !show.compare.root || (this.history.root === show.compare.root && (this.history.on ?? null) === (show.compare.on ?? null));
+        if (sameRepo) {
+          this.fileView.close();
+          if (!this.isWide()) this.tab = "history";
+          this.history.compareCommits(show.compare.a, show.compare.b, cx, { notify: false });
+        }
+      }
       else if (TABS.some((t) => t.id === show.tab)) {
         if (this.isWide()) this.setTab(show.tab, cx);
         else { this.tab = show.tab; this.fileView.close(); }
@@ -458,9 +477,8 @@ export class Client {
     const t = theme(), wide = this.isWide();
     return v_flex().id("git-client").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
-      // In a dialog, a click in the panel gives it the keyboard (text fields stop their own mouse down):
-      // else no part of the dialog has it after the click, and Esc does nothing.
-      .on_mouse_down("left", () => { if (dialogId()) this.handle.focus(); })
+      // Give the panel keyboard focus on click (text fields stop their own left mouse down).
+      .on_mouse_down("left", () => { this.handle.focus(); })
       .on_size_change((size, cx) => {
         const zoom = Number(settings()?.zoom) > 0 ? Number(settings().zoom) : 1;
         const width = Math.round(size.width / zoom), height = Math.round(size.height / zoom);
@@ -491,6 +509,14 @@ export class Client {
             return;
           }
         }
+        if ((e.key === "down" || e.key === "up") && !this.isTyping() && !this.fileView.path
+            && !e.modifiers?.control && !e.modifiers?.platform && !e.modifiers?.alt && !e.modifiers?.shift) {
+          const step = e.key === "down" ? 1 : -1;
+          const handled = wide
+            ? (this.inspector === "commit" ? this.history.moveFile(step, cx) : this.inspector === "changes" ? this.changes.moveFile(step, cx) : false)
+            : (this.tab === "history" && (this.history.selected || this.history.compare) ? this.history.moveFile(step, cx) : this.tab === "changes" ? this.changes.moveFile(step, cx) : false);
+          if (handled) { cx.stop_propagation(); return; }
+        }
         if (e.key !== "escape") return;
         const dialog = dialogId();
         // A text field has the keyboard: Esc leaves it. In a dialog, an empty field closes the dialog.
@@ -520,6 +546,7 @@ export class Client {
           else if (this.history.branchNotice) { this.history.branchNotice = null; cx.notify(); }
           else if (this.changes.escape(cx)) { /* cleared multi-file selection */ }
           else if (this.branches.escape(cx)) { /* cleared multi-branch selection */ }
+          else if (this.history.compare) { this.closeInspector(cx); }
           else if (dialog) closeOverlay(dialog);
           else return;
         } else if (this.tab === "changes" && this.changes.escape(cx)) {

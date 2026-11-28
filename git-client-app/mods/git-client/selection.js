@@ -133,3 +133,51 @@ export function selectedBranches(state, data) {
     remote: (data?.remote ?? []).filter((b) => state?.remote?.has(b.name)),
   };
 }
+
+// ---- History tab 2-commit comparison selection
+
+// Orders two commit hashes chronologically (older -> newer) using the graph list index
+// (0 is newest, larger index is older). Falls back to (a, b) if either is outside the index.
+export function orderCommits(a, b, indexOf) {
+  const ia = indexOf?.(a), ib = indexOf?.(b);
+  if (Number.isInteger(ia) && Number.isInteger(ib) && ia >= 0 && ib >= 0 && ia !== ib) {
+    return ia > ib ? { base: a, target: b } : { base: b, target: a };
+  }
+  return { base: a, target: b };
+}
+
+export function clickCommit(state, { hash, indexOf, modifiers = null, wide = false }) {
+  const cur = state ?? { selected: null, compare: null, anchor: null };
+  const mod = Boolean(modifiers?.control || modifiers?.platform || modifiers?.shift);
+
+  if (!mod) {
+    if (cur.compare) return { selected: hash, compare: null, anchor: hash };
+    if (!wide && cur.selected === hash) return { selected: null, compare: null, anchor: null };
+    return { selected: hash, compare: null, anchor: hash };
+  }
+
+  if (cur.compare) {
+    if (hash === cur.compare.base) return { selected: cur.compare.target, compare: null, anchor: cur.compare.target };
+    if (hash === cur.compare.target) return { selected: cur.compare.base, compare: null, anchor: cur.compare.base };
+    const anchor = cur.anchor === cur.compare.base || cur.anchor === cur.compare.target ? cur.anchor : cur.compare.base;
+    return { selected: null, compare: orderCommits(anchor, hash, indexOf), anchor };
+  }
+
+  if (cur.selected) {
+    if (hash === cur.selected) return { selected: null, compare: null, anchor: null };
+    return { selected: null, compare: orderCommits(cur.selected, hash, indexOf), anchor: cur.selected };
+  }
+
+  return { selected: hash, compare: null, anchor: hash };
+}
+
+export function swapCompareState(state) {
+  if (!state?.compare) return state;
+  return { ...state, compare: { base: state.compare.target, target: state.compare.base } };
+}
+
+export function stepIndex(current, length, step) {
+  if (length <= 0) return -1;
+  if (current < 0 || current >= length) return step > 0 ? 0 : length - 1;
+  return Math.max(0, Math.min(length - 1, current + step));
+}

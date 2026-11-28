@@ -4,7 +4,7 @@ import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, notify, theme, run, shared } from "herdr";
 import { menuFor } from "./git.js";
-import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree } from "./act.js";
+import { perform, openDialog, showTab, showFile, showSubmodule, openWorktree, showCompare } from "./act.js";
 
 // A glyph of this mod, or another mod's icon by its path.
 export const icon = (name) => (name.includes("/") ? name : `mods/git-client/icons/${name}.svg`);
@@ -49,6 +49,9 @@ export class Menu {
     } else if (a.type === "showChanges") {
       closeOverlay(overlay);
       showTab("changes");
+    } else if (a.type === "compareCommits") {
+      closeOverlay(overlay);
+      showCompare(a.a, a.b, ctx?.root ?? null, ctx?.on ?? null);
     } else if (a.type === "visualReview") {
       closeOverlay(overlay);
       run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: ctx.root, on: ctx.on ?? null, selection: a.selection } });

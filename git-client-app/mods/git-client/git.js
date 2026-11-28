@@ -111,6 +111,23 @@ export function parseStatus(text) {
   });
 }
 
+// Parses `git ls-files --unmerged -z`: "<mode> <hash> <stage>\t<path>\0" per stage entry.
+export function parseUnmerged(text) {
+  const out = new Map();
+  for (const entry of String(text ?? "").split("\0")) {
+    if (!entry) continue;
+    const tab = entry.indexOf("\t");
+    if (tab < 0) continue;
+    const [mode, hash, stageStr] = entry.slice(0, tab).split(" ");
+    const stage = Number(stageStr), path = entry.slice(tab + 1);
+    if (!path || ![1, 2, 3].includes(stage)) continue;
+    let rec = out.get(path);
+    if (!rec) { rec = {}; out.set(path, rec); }
+    rec[stage] = { mode, hash };
+  }
+  return out;
+}
+
 // The "## " record of `git status --branch`: the branch, its upstream and how far apart they are.
 export function parseBranch(text) {
   const entry = text.split("\0").find((e) => e.startsWith("## "));
@@ -306,10 +323,13 @@ export function menuFor(target, ctx) {
   if (target.kind === "file") {
     // A row of the Changes tab: f is { path, untracked, staged, unstaged, conflict }, side "staged" | "unstaged" | "conflict".
     const f = target.file, paths = [f.path];
+    const oursRef = ctx.opSides?.ours?.ref ?? null, theirsRef = ctx.opSides?.theirs?.ref ?? null;
     sections = [
       section(target.side === "unstaged" && item("Stage", "plus", { type: "stage", paths }),
         target.side === "staged" && item("Unstage", "minus", { type: "unstage", paths, unborn: !ctx.head }),
-        target.side === "conflict" && item("Mark resolved (stage)", "check", { type: "stage", paths }),
+        target.side === "conflict" && item(oursRef ? `Keep ours (${oursRef})` : "Keep ours (current)", "check", { type: "resolveConflict", side: "ours", paths, label: oursRef }),
+        target.side === "conflict" && item(theirsRef ? `Accept theirs (${theirsRef})` : "Accept theirs (incoming)", "check", { type: "resolveConflict", side: "theirs", paths, label: theirsRef }),
+        target.side === "conflict" && item("Mark resolved (stage)", "plus", { type: "stage", paths }),
         target.side === "unstaged" && item(f.untracked ? "Delete file…" : "Discard changes…", "trash", { type: "discard", paths: f.untracked ? [] : paths, untracked: f.untracked ? paths : [] })),
       // An untracked file: the dialog asks what to ignore (the file, its extension, one of its folders) and where.
       section(f.untracked && item("Ignore…", "eye-off", { type: "ignore", path: f.path }),
@@ -325,10 +345,13 @@ export function menuFor(target, ctx) {
     const files = target.files ?? [], n = files.length, paths = files.map((f) => f.path);
     const tracked = files.filter((f) => !f.untracked).map((f) => f.path);
     const untracked = files.filter((f) => f.untracked).map((f) => f.path);
+    const oursRef = ctx.opSides?.ours?.ref ?? null, theirsRef = ctx.opSides?.theirs?.ref ?? null;
     sections = [
       section(target.side === "unstaged" && n > 0 && item(`Stage ${n} files`, "plus", { type: "stage", paths }),
         target.side === "staged" && n > 0 && item(`Unstage ${n} files`, "minus", { type: "unstage", paths, unborn: !ctx.head }),
-        target.side === "conflict" && n > 0 && item(`Mark ${n} files resolved (stage)`, "check", { type: "stage", paths }),
+        target.side === "conflict" && n > 0 && item(oursRef ? `Keep ours (${oursRef}) for ${n} files` : `Keep ours for ${n} files`, "check", { type: "resolveConflict", side: "ours", paths, label: oursRef }),
+        target.side === "conflict" && n > 0 && item(theirsRef ? `Accept theirs (${theirsRef}) for ${n} files` : `Accept theirs for ${n} files`, "check", { type: "resolveConflict", side: "theirs", paths, label: theirsRef }),
+        target.side === "conflict" && n > 0 && item(`Mark ${n} files resolved (stage)`, "plus", { type: "stage", paths }),
         target.side === "unstaged" && n > 0 && item(`${untracked.length === n ? "Delete" : "Discard"} ${n} files…`, "trash", { type: "discard", paths: tracked, untracked })),
       section(untracked.length === n && n > 0 && item(`Ignore ${n} files…`, "eye-off", { type: "ignoreMany", paths }),
         tracked.length === n && n > 0 && target.side !== "conflict" && files.every((f) => f.status !== "D") && item(`Stop tracking ${n} files…`, "eye-off", { type: "untrackMany", paths })),
@@ -438,6 +461,8 @@ export function menuFor(target, ctx) {
   } else {
     const hash = c.hash, short = shortHash(hash), here = hash === ctx.head, merge = c.parents.length > 1;
     sections = [
+      section(ctx.selectedCommit && objectId(ctx.selectedCommit) && ctx.selectedCommit !== hash
+        && item(`Compare with ${shortHash(ctx.selectedCommit)}`, "changes", { type: "compareCommits", a: ctx.selectedCommit, b: hash })),
       section(item("Add tag…", "tag", { type: "addTag", hash, short }),
         item("Create branch…", "plus", { type: "createBranch", hash, short })),
       section(!here && item("Checkout…", "commit", { type: "checkoutCommit", hash, short }),
@@ -585,7 +610,10 @@ export function dialogFor(action, ctx) {
     }
     case "deleteTag": return { title: "Delete tag", detail: `Delete the local tag ${a.name}?`, confirm: "Delete", danger: true };
     case "merge": return { title: "Merge", detail: `Merge ${a.what} into ${cur}?`,
-      checks: [{ id: "noff", label: "Create a merge commit even if it could fast-forward", value: false }], confirm: "Merge" };
+      checks: [
+        { id: "noff", label: "Create a merge commit even if it could fast-forward", value: false },
+        { id: "noCommit", label: "Do not commit (leave merge changes staged)", value: false },
+      ], confirm: "Merge" };
     case "rebase": return { title: "Rebase", detail: `Rebase ${cur} on ${a.what}?`, confirm: "Rebase" };
     case "cherryPick": return { title: "Cherry pick", detail: `Apply commit ${a.short} on top of ${cur}?${mergeNote(a)}`, confirm: "Cherry pick" };
     case "revert": return { title: "Revert", detail: `Add a commit to ${cur} that undoes ${a.short}?${mergeNote(a)}`, confirm: "Revert" };
@@ -754,7 +782,7 @@ export function commandsFor(a, v = {}, ctx = {}) {
       return out;
     }
     case "deleteTag": return [["tag", "-d", a.name]];
-    case "merge": return [["merge", "--no-edit", ...(v.noff ? ["--no-ff"] : []), a.ref]];
+    case "merge": return [["merge", ...(v.noCommit ? ["--no-ff", "--no-commit"] : ["--no-edit", ...(v.noff ? ["--no-ff"] : [])]), a.ref]];
     case "rebase": return [["rebase", a.ref]];
     case "cherryPick": return [["cherry-pick", ...(a.merge ? ["-m", "1"] : []), a.hash]];
     case "revert": return [["revert", "--no-edit", ...(a.merge ? ["-m", "1"] : []), a.hash]];
@@ -790,7 +818,7 @@ export function doneText(a, v = {}) {
       return `Deleted ${l} local and ${r} remote branches`;
     }
     case "deleteTag": return `Deleted tag ${a.name}`;
-    case "merge": return `Merged ${a.what}`;
+    case "merge": return v.noCommit ? `Merged ${a.what} (staged, not committed)` : `Merged ${a.what}`;
     case "rebase": return `Rebased on ${a.what}`;
     case "cherryPick": return `Cherry-picked ${a.short}`;
     case "revert": return `Reverted ${a.short}`;
@@ -827,6 +855,11 @@ export function doneText(a, v = {}) {
     case "continueOp": return `Continued the ${a.op}`;
     case "abortOp": return `Aborted the ${a.op}`;
     case "stage": return a.paths.length === 1 ? `Staged ${a.paths[0]}` : `Staged ${a.paths.length} files`;
+    case "resolveConflict": {
+      const label = a.label ? `${a.side} (${a.label})` : a.side;
+      const verb = a.side === "ours" ? "Kept" : "Accepted";
+      return a.paths.length === 1 ? `${verb} ${label} for ${a.paths[0]}` : `${verb} ${label} for ${a.paths.length} files`;
+    }
     case "unstage": return a.paths.length === 1 ? `Unstaged ${a.paths[0]}` : `Unstaged ${a.paths.length} files`;
     case "discard": return "Discarded the changes";
     case "ignore": return `Added ${ignoreChoices(a.path).find((c) => c.value === v.what)?.line ?? a.path} to ${ignoreFile(v.local ? "exclude" : "gitignore")}`;
@@ -880,6 +913,17 @@ export function diffArgs(commit, path) {
   if (commit.uncommitted) return ["diff", ...opts, "HEAD", "--", path];
   if (!commit.parents.length) return ["show", ...opts, "--format=", commit.hash, "--", path];
   return ["diff", ...opts, commit.parents[0], commit.hash, "--", path];
+}
+
+export function compareFileArgs(baseHash, targetHash) {
+  if (!objectId(baseHash) || !objectId(targetHash)) throw new Error("Invalid commit identity");
+  const base = ["diff", "--no-renames", "--no-ext-diff", baseHash, targetHash];
+  return { status: [...base, "--name-status"], numstat: [...base, "--numstat"] };
+}
+
+export function compareDiffArgs(baseHash, targetHash, path) {
+  if (!objectId(baseHash) || !objectId(targetHash)) throw new Error("Invalid commit identity");
+  return ["diff", "--no-color", "--no-ext-diff", "--no-textconv", baseHash, targetHash, "--", path];
 }
 
 // Numbers each diff line once, so a frame only draws the rows on screen.

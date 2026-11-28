@@ -44,7 +44,7 @@ class DiffDialog {
           .text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Close")
           .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
           .on_click(() => closeOverlay(p.overlay)).child(svg(icon("x")).size(14))))
-      .child(this.imageView ? this.imageView.render() : this.view.render({ empty: "No changes" }));
+      .child(this.imageView ? this.imageView.render() : this.view.render({ empty: "No changes", sides: p.sides ?? null }));
   }
 }
 

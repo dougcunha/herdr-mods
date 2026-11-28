@@ -73,8 +73,36 @@ export class DiffView {
       .child(v_flex().flex_1().min_w(0).children(pieces.map((piece) => h_flex().h(ROW).flex_none().min_w(0).child(div().flex_1().min_w(0).truncate().child(piece)))));
   }
 
+  sideBanner(sides, t) {
+    if (!sides || (!sides.left && !sides.right)) return null;
+    const mono = settings().font_family ?? "JetBrains Mono";
+    const renderSide = (side, fallbackTone) => {
+      if (!side) return div().flex_1().min_w(0);
+      const tone = side.tone ?? fallbackTone;
+      const color = tone === "removed" ? t.ansi1 : tone === "added" ? t.ansi2 : t.accent;
+      const tip = [side.badge, side.ref, side.hash, side.subject].filter(Boolean).join(" · ");
+      return h_flex().flex_1().min_w(0).gap(6).items_center().overflow_hidden().tooltip(tip)
+        .when(Boolean(side.badge), (e) => e.child(h_flex().flex_none().h(16).px(5).items_center().rounded(4)
+          .bg(color + "24").border_1().border_color(color + "66").text_size(10).font_semibold().text_color(color)
+          .child(side.badge)))
+        .when(Boolean(side.ref), (e) => e.child(div().flex_none().max_w(160).truncate().text_size(11).font_semibold().text_color(t.foreground).child(side.ref)))
+        .when(Boolean(side.hash), (e) => e.child(div().flex_none().font_family(mono).text_size(10.5).text_color(t.accent).child(side.hash)))
+        .when(Boolean(side.subject), (e) => e.child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.muted).child(side.subject)));
+    };
+    if (currentView() === "split") {
+      return h_flex().h(26).flex_none().border_b(1).border_color(t.border).bg(t.chrome)
+        .child(h_flex().flex_1().min_w(0).h_full().px(8).items_center().child(renderSide(sides.left, "removed")))
+        .child(div().w(1).h_full().flex_none().bg(t.border))
+        .child(h_flex().flex_1().min_w(0).h_full().px(8).items_center().child(renderSide(sides.right, "added")));
+    }
+    return h_flex().h(26).flex_none().px(8).gap(8).items_center().border_b(1).border_color(t.border).bg(t.chrome)
+      .child(renderSide(sides.left, "removed"))
+      .child(div().flex_none().text_size(11).text_color(t.dim).child("→"))
+      .child(renderSide(sides.right, "added"));
+  }
+
   // onClick(row, event, cx) / onMenu(row, event, cx): a click and a right-click on a row.
-  render({ empty = null, hunkLabel = () => "", onClick = null, onMenu = null } = {}) {
+  render({ empty = null, hunkLabel = () => "", onClick = null, onMenu = null, sides = null } = {}) {
     const t = theme(), split = currentView() === "split", layout = split ? this.splitLayout() : null;
     const items = split ? layout.items : this.rows;
     const draw = (item) => {
@@ -85,7 +113,8 @@ export class DiffView {
       }
       return item.kind === "@" ? this.hunkRow(item, t, hunkLabel(item)) : this.line(item, t);
     };
-    return div().id(`${this.id}-area`).flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
+    const banner = this.sideBanner(sides, t);
+    const area = div().id(`${this.id}-area`).flex_1().min_h(0).relative().font_family(settings().font_family ?? "JetBrains Mono").text_size(11)
       // on_size_change reports the width with the app zoom applied; w() and the text use unzoomed px.
       // The spot of the last press: a list's item click has no position, and a menu opens there.
       .on_mouse_down("left", (e) => { this.press = e; })
@@ -103,5 +132,6 @@ export class DiffView {
             .on_item_secondary_click((key, ev, cx) => onMenu?.(this.rowAt(key), ev, cx))
             .size_full())))
         .child(Scrollbar.vertical(this.id).viewport_from_layout().absolute().inset_0()));
+    return banner ? v_flex().flex_1().min_h(0).child(banner).child(area) : area;
   }
 }
