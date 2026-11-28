@@ -8,6 +8,7 @@ import {
   openOverlay, closeOverlay, notify, checking, nextCommand,
 } from "herdr";
 import { resolveRepo, readCommits, resolveSelection, collectDiff, readFileDiff } from "./git.js";
+import { toggleCompareRange, compareToggleInfo } from "./selection.js";
 import { analyzeStatic } from "./analyze-static.js";
 import { analyzeWithAI, aiSettings, resolveEngine } from "./analyze-ai.js";
 import { cacheKeyFor, readCache, writeCache, cacheStats, clearCache, formatBytes } from "./cache.js";
@@ -707,6 +708,13 @@ export default class VisualReview extends View {
     cx.spawn(async (cx) => { await this.relayout(cx, false); });
   }
 
+  toggleCompareInclusive(cx) {
+    const next = toggleCompareRange(this.selection, this.commits);
+    if (!next) return;
+    this.selection = next;
+    cx.spawn(async (cx) => { await this.analyzeSelection(cx); });
+  }
+
   handleKeyDown(e, cx) {
     const key = String(e?.key || "").toLowerCase();
     if (key === "escape") {
@@ -744,6 +752,7 @@ export default class VisualReview extends View {
     const t = theme();
     const isOverlay = Boolean(props()?.overlay);
     const aiCfg = aiSettings();
+    const toggleInfo = compareToggleInfo(this.selection, this.commits);
 
     // Counts for header
     const counts = { added: 0, modified: 0, deleted: 0 };
@@ -801,6 +810,25 @@ export default class VisualReview extends View {
         ))
       .when(this.resolved, (el) =>
         el.child(div().px(6).py(2).rounded(4).bg(t.surface).border(1).border_color(t.border).text_size(11).text_color(t.muted).truncate().max_w(200).child(this.resolved.label)))
+      .when(Boolean(toggleInfo), (el) =>
+        el.child(
+          h_flex()
+            .id("vr-toggle-inclusive")
+            .h(22)
+            .px(7)
+            .rounded(4)
+            .items_center()
+            .cursor_pointer()
+            .bg(toggleInfo.kind === "narrow" ? t.selected : t.surface)
+            .border(1)
+            .border_color(toggleInfo.kind === "narrow" ? t.accent : t.border)
+            .text_size(11)
+            .text_color(toggleInfo.kind === "narrow" ? t.foreground : t.muted)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
+            .tooltip(toggleInfo.tooltip)
+            .on_click((_e, cx) => this.toggleCompareInclusive(cx))
+            .child(toggleInfo.label),
+        ))
       .child(
         h_flex().gap(6).items_center().text_size(12).font_bold()
           .child(div().text_color(counts.added ? t.ansi2 : t.dim).child(`+${counts.added}`))

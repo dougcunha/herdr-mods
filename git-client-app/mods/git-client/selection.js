@@ -181,3 +181,33 @@ export function stepIndex(current, length, step) {
   if (current < 0 || current >= length) return step > 0 ? 0 : length - 1;
   return Math.max(0, Math.min(length - 1, current + step));
 }
+
+export function visualReviewSelection({ compare, selected, commits = [], index = null, uncommittedKey = "uncommitted" }) {
+  if (compare?.base && compare?.target) {
+    const fromShort = compare.base.slice(0, 8), toShort = compare.target.slice(0, 8);
+    return {
+      selection: { mode: "compare", from: compare.base, to: compare.target, label: `${fromShort} → ${toShort}` },
+      tooltip: `Visual Review diff ${fromShort} → ${toShort}`,
+    };
+  }
+  if (selected === uncommittedKey) {
+    return {
+      selection: { mode: "uncommitted" },
+      tooltip: "Visual Review uncommitted changes",
+    };
+  }
+  if (selected) {
+    const idx = index?.get?.(selected);
+    const commit = idx !== undefined ? commits[idx] : commits.find((c) => c.hash === selected);
+    const short = selected.slice(0, 8);
+    const subj = (commit?.subject || "").slice(0, 28);
+    return {
+      selection: { mode: "single", head: selected, label: subj ? `${short} · ${subj}` : short },
+      tooltip: `Visual Review commit ${short}`,
+    };
+  }
+  return {
+    selection: { mode: "branch-base" },
+    tooltip: "Visual Review current branch vs base",
+  };
+}

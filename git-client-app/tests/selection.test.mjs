@@ -24,6 +24,7 @@ import {
   clickCommit,
   swapCompareState,
   stepIndex,
+  visualReviewSelection,
 } from "../mods/git-client/selection.js";
 
 // ---- Selection state machine
@@ -561,6 +562,83 @@ const lists = { conflict: [], unstaged, staged };
   assert.equal(git(repo, ["ls-files", "--unmerged"]).stdout.trim(), "", "all conflicts resolved");
 
   rmSync(dir, { recursive: true, force: true });
+}
+
+// ---- Selection-aware Visual Review launch and context menu
+{
+  const h1 = "11111111aaaa";
+  const h2 = "22222222bbbb";
+  const h3 = "33333333cccc";
+  const commits = [
+    { hash: h3, subject: "third commit" },
+    { hash: h2, subject: "second commit" },
+    { hash: h1, subject: "first commit" },
+  ];
+  const index = new Map(commits.map((c, i) => [c.hash, i]));
+
+  assert.deepEqual(
+    visualReviewSelection({ compare: { base: h1, target: h3 }, selected: null, commits, index }),
+    {
+      selection: { mode: "compare", from: h1, to: h3, label: "11111111 → 33333333" },
+      tooltip: "Visual Review diff 11111111 → 33333333",
+    },
+  );
+  assert.deepEqual(
+    visualReviewSelection({ compare: null, selected: h2, commits, index }),
+    {
+      selection: { mode: "single", head: h2, label: "22222222 · second commit" },
+      tooltip: "Visual Review commit 22222222",
+    },
+  );
+  assert.deepEqual(
+    visualReviewSelection({ compare: null, selected: "deadbeef1234", commits, index }),
+    {
+      selection: { mode: "single", head: "deadbeef1234", label: "deadbeef" },
+      tooltip: "Visual Review commit deadbeef",
+    },
+  );
+  assert.deepEqual(
+    visualReviewSelection({ compare: null, selected: "uncommitted", commits, index, uncommittedKey: "uncommitted" }),
+    {
+      selection: { mode: "uncommitted" },
+      tooltip: "Visual Review uncommitted changes",
+    },
+  );
+  assert.deepEqual(
+    visualReviewSelection({ compare: null, selected: null, commits, index }),
+    {
+      selection: { mode: "branch-base" },
+      tooltip: "Visual Review current branch vs base",
+    },
+  );
+
+  const ctxWithCompare = {
+    current: "main",
+    head: h3,
+    branches: ["main"],
+    remotes: [],
+    vrEnabled: true,
+    selectedCommit: h1,
+    compare: { base: h3, target: h1 }, // swapped direction
+    compareRange: { base: h1, target: h3 }, // chronological range
+  };
+  const onCompared = G.menuFor({ kind: "commit", commit: { hash: h1, subject: "first", parents: [] } }, ctxWithCompare);
+  const vrItems = onCompared.filter((i) => i.action?.type === "visualReview");
+  assert.deepEqual(
+    vrItems.map((i) => [i.label, i.action.selection.mode, i.action.selection.from, i.action.selection.to]),
+    [
+      ["Visual Review diff 33333333 → 11111111", "compare", h3, h1],
+      ["Visual Review range 11111111..33333333 (inclusive)", "range", h1, h3],
+      ["Visual Review this commit", "single", undefined, undefined],
+      ["Visual Review to HEAD", "range", h1, h3],
+    ],
+  );
+
+  const outsideCompare = G.menuFor({ kind: "commit", commit: { hash: h2, subject: "second", parents: [h1] } }, ctxWithCompare);
+  assert.deepEqual(
+    outsideCompare.filter((i) => i.action?.type === "visualReview").map((i) => i.label),
+    ["Visual Review this commit", "Visual Review to HEAD"],
+  );
 }
 
 console.log("selection ok");

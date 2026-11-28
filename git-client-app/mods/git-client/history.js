@@ -14,7 +14,7 @@ import { classifyRefresh } from "./refs.js";
 import { perform, openDialog, atEvent } from "./act.js";
 import { icon } from "./menu.js";
 import { DiffView, VIEW_KEY, currentView } from "./diffview.js";
-import { clickCommit, orderCommits, stepIndex } from "./selection.js";
+import { clickCommit, orderCommits, stepIndex, visualReviewSelection } from "./selection.js";
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
 const DETAILS_DEFAULT = 320, DETAILS_MIN = 120, LIST_MIN = 80;
@@ -434,7 +434,8 @@ export class History {
     const selectedCommit = this.selected && this.selected !== UNCOMMITTED
       ? this.selected
       : this.compare ? (this.compareAnchor ?? this.compare.base) : null;
-    const menuCtx = { ...this.ctx, vrEnabled, selectedCommit };
+    const compareRange = this.compare ? orderCommits(this.compare.base, this.compare.target, (h) => this.index.get(h)) : null;
+    const menuCtx = { ...this.ctx, vrEnabled, selectedCommit, compare: this.compare, compareRange };
     const items = menuFor(target, menuCtx);
     openOverlay({ mod: "git-client", kind: "popup", at: atEvent(e), width: 268, height: menuHeight(items), props: { role: "menu", target, ctx: menuCtx } });
   }
@@ -745,13 +746,16 @@ export class History {
         .child(div().max_w(160).truncate().child(this.branchFilter))
         .child(svg(icon("x")).size(11).flex_none())))
       .child(div().flex_1())
-      .when(!(Array.isArray(shared("herdr-mods.disabled")) && shared("herdr-mods.disabled").includes("visual-review")), (e) =>
-        e.child(h_flex().id("gc-visual-review").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer()
+      .when(!(Array.isArray(shared("herdr-mods.disabled")) && shared("herdr-mods.disabled").includes("visual-review")), (e) => {
+        const vr = visualReviewSelection({ compare: this.compare, selected: this.selected, commits: this.commits, index: this.index, uncommittedKey: UNCOMMITTED });
+        return e.child(h_flex().id("gc-visual-review").h(24).px(8).gap(5).items_center().rounded(6).cursor_pointer()
           .bg(t.background).border_1().border_color(t.border).text_size(11).text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground).border_color(t.accent))
-          .on_click(() => run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: this.root, on: this.on ?? null, selection: { mode: "branch-base" } } }))
+          .tooltip(vr.tooltip)
+          .on_click(() => run("tab.new", { name: "Visual Review", mod: "visual-review", props: { cwd: this.root, on: this.on ?? null, selection: vr.selection } }))
           .child(svg(icon("graph")).size(12).text_color(t.accent))
-          .child("Visual Review")));
+          .child("Visual Review"));
+      });
   }
 
   searchBar(t) {

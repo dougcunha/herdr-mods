@@ -116,6 +116,16 @@ export async function resolveSelection(repo, selection) {
     };
   }
 
+  if (mode === "compare" && selection.from && selection.to) {
+    return {
+      mode,
+      base: selection.from,
+      head: selection.to,
+      includeWorktree: false,
+      label: selection.label || `${selection.from.slice(0, 7)} → ${selection.to.slice(0, 7)}`,
+    };
+  }
+
   if (mode === "range" && selection.from && selection.to) {
     const p = await git(root, on, ["rev-parse", "--verify", "-q", `${selection.from}^1^{commit}`]);
     const base = p.code === 0 ? p.stdout.trim() : EMPTY_TREE;

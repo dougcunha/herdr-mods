@@ -460,6 +460,9 @@ export function menuFor(target, ctx) {
     ];
   } else {
     const hash = c.hash, short = shortHash(hash), here = hash === ctx.head, merge = c.parents.length > 1;
+    const cmp = ctx.compare;
+    const inCompare = Boolean(cmp?.base && cmp?.target && (hash === cmp.base || hash === cmp.target));
+    const rng = ctx.compareRange?.base && ctx.compareRange?.target ? ctx.compareRange : cmp;
     sections = [
       section(ctx.selectedCommit && objectId(ctx.selectedCommit) && ctx.selectedCommit !== hash
         && item(`Compare with ${shortHash(ctx.selectedCommit)}`, "changes", { type: "compareCommits", a: ctx.selectedCommit, b: hash })),
@@ -471,7 +474,9 @@ export function menuFor(target, ctx) {
       section(!here && item(`Merge into ${cur}…`, "merge", { type: "merge", ref: hash, what: `commit ${short}` }),
         !here && item(`Rebase ${cur} on this commit…`, "rebase", { type: "rebase", ref: hash, what: `commit ${short}` }),
         item(`Reset ${cur} to this commit…`, "reset", { type: "reset", hash, short })),
-      section(ctx.vrEnabled && item("Visual Review this commit", "graph", { type: "visualReview", selection: { mode: "single", head: hash, label: `${short} · ${(c.subject || "").slice(0, 28)}` } }),
+      section(ctx.vrEnabled && inCompare && item(`Visual Review diff ${shortHash(cmp.base)} → ${shortHash(cmp.target)}`, "graph", { type: "visualReview", selection: { mode: "compare", from: cmp.base, to: cmp.target, label: `${shortHash(cmp.base)} → ${shortHash(cmp.target)}` } }),
+        ctx.vrEnabled && inCompare && item(`Visual Review range ${shortHash(rng.base)}..${shortHash(rng.target)} (inclusive)`, "graph", { type: "visualReview", selection: { mode: "range", from: rng.base, to: rng.target, label: `${shortHash(rng.base)}..${shortHash(rng.target)}` } }),
+        ctx.vrEnabled && item("Visual Review this commit", "graph", { type: "visualReview", selection: { mode: "single", head: hash, label: `${short} · ${(c.subject || "").slice(0, 28)}` } }),
         ctx.vrEnabled && !here && ctx.head && item("Visual Review to HEAD", "graph", { type: "visualReview", selection: { mode: "range", from: hash, to: ctx.head, label: `${short}..HEAD` } })),
       section(item("Copy commit hash", "copy", { type: "copy", text: hash }),
         item("Copy commit subject", "copy", { type: "copy", text: c.subject })),

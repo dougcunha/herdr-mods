@@ -2,6 +2,7 @@
 // Supports quick presets (Branch vs base, Uncommitted) and single or Shift+click contiguous commit ranges.
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Input } from "gpui-base";
+import { commitHighlights } from "./selection.js";
 
 const ICONS = "mods/visual-review/icons";
 
@@ -36,19 +37,9 @@ export function renderCommitsSidebar({
   repo, commits, uncommittedCount, selection, rangeAnchor, searchInput, loading, width = 276, t,
   onSelectPreset, onClickCommit, onRefresh, onCollapse,
 }) {
-  // Determine which commit indices are currently highlighted in selection
-  const selectedHashes = new Set();
-  if (selection?.mode === "single" && selection.head) {
-    selectedHashes.add(selection.head);
-  } else if (selection?.mode === "range" && selection.from && selection.to) {
-    const iTo = commits.findIndex((c) => c.hash === selection.to);
-    const iFrom = commits.findIndex((c) => c.hash === selection.from);
-    if (iTo >= 0 && iFrom >= 0) {
-      const lo = Math.min(iTo, iFrom);
-      const hi = Math.max(iTo, iFrom);
-      for (let i = lo; i <= hi; i++) selectedHashes.add(commits[i].hash);
-    }
-  }
+  // Determine which commit hashes and From/To markers are highlighted in selection
+  const hl = commitHighlights(selection, commits);
+  const selectedHashes = hl.selected;
 
   return v_flex()
     .id("vr-commits-sidebar")
@@ -129,7 +120,17 @@ export function renderCommitsSidebar({
               .child(
                 h_flex().gap(5).items_center().min_w(0)
                   .child(div().flex_none().text_size(10).font_semibold().text_color(isSel ? t.accent : t.dim).child(c.short))
-                  .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground).child(c.subject || "(no message)")),
+                  .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.foreground).child(c.subject || "(no message)"))
+                  .when(hl.from === c.hash || hl.to === c.hash, (el) => {
+                    const isFrom = hl.from === c.hash;
+                    const badgeColor = isFrom ? t.ansi1 : t.ansi2;
+                    return el.child(
+                      h_flex().flex_none().h(15).px(4).items_center().rounded(3)
+                        .bg(`${badgeColor}24`).border(1).border_color(`${badgeColor}66`)
+                        .text_size(9).font_semibold().text_color(badgeColor)
+                        .child(isFrom ? "From" : "To"),
+                    );
+                  }),
               )
               .child(
                 h_flex().gap(6).items_center().text_size(10).text_color(t.dim)
